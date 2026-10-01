@@ -71,6 +71,14 @@ All source is under `crates/`:
 Legacy formats and game-specific behavior stay in compatibility modules;
 engine services use their own data structures.
 
+## Documentation
+
+The [project wiki](docs/README.md) covers architecture, development, the client,
+the dedicated server, rendering and networking. Start with
+[current status and priorities](docs/status.md) for verified behavior and open work.
+[AGENTS.md](AGENTS.md) contains shared contributor and AI guidance, including
+updating relevant documentation alongside code changes.
+
 ## License
 
 GPL-2.0-only; see [LICENSE](LICENSE). OpenJK and TaystJK are compatibility
