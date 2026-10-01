@@ -250,6 +250,7 @@ impl ViewerConsole {
             scroll_offset: 0,
             server_status,
             presentation: ConsolePresentation::new(),
+            browser: super::browser::Browser::new(),
             userinfo_dirty,
             show_timedelta,
             time_nudge,

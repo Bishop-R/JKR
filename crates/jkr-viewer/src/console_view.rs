@@ -187,7 +187,7 @@ fn build_options<'a>(
             if scroll_offset > 0 {
                 "Scrollback  /  Scroll down for latest"
             } else {
-                "Tab complete   /   Up, Down history"
+                "Tab complete   /   Up, Down history   /   F3 browse"
             },
             Rect::new(
                 margin + 120.0 * scale,

@@ -117,7 +117,13 @@ impl ViewerConsole {
             self.set_open(false);
             return true;
         }
+        if self.browser.is_open() {
+            let action = self.browser.handle_key(event, self.shift);
+            self.browser_action(action);
+            return true;
+        }
         match key {
+            KeyCode::F3 if !event.repeat => self.browser.open(&self.shell),
             KeyCode::Escape => self.set_open(false),
             KeyCode::Enter | KeyCode::NumpadEnter => self.submit(session),
             KeyCode::Backspace => {

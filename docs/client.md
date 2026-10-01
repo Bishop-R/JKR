@@ -71,4 +71,12 @@ boundaries follow the shell's quote and escape rules, and no completion happens
 inside an open quote. Arguments are not completed. See
 [shell_completion.rs](../crates/jkr-shell/src/shell_completion.rs).
 
+F3 in the open console, or the bindable `consolebrowser` command, opens a browser of
+every command and cvar with its description, and each cvar's value and default. Typing
+searches names, then descriptions; Tab cycles All, Commands, Cvars and Changed (cvars
+away from their default). Enter edits the selected cvar in place and applies it, or
+starts a console line with the selected command; Delete restores a cvar's default;
+Escape or F3 returns to the console. Read-only cvars are listed but not edited. See
+[console_browser.rs](../crates/jkr-viewer/src/console_browser.rs).
+
 For graphics controls and diagnostics, see [rendering.md](rendering.md).

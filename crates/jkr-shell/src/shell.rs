@@ -37,6 +37,17 @@ pub enum ConsoleLineKind {
     Log,
 }
 
+/// Where a command listed by [`Shell::command_help`] is handled.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandSource {
+    /// A command of the shell itself (`bind`, `set`, `exec`, ...).
+    Shell,
+    /// A command the application registered.
+    Application,
+    /// A command forwarded to an external processor, such as the game server.
+    External,
+}
+
 /// One bounded console scrollback entry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConsoleLine {
@@ -148,6 +159,25 @@ impl Shell {
                 .into_iter()
                 .map(|(name, description)| (name.to_ascii_lowercase(), description)),
         );
+    }
+
+    /// Every command `cmdlist` lists, with its description and where it runs, in
+    /// no particular order.
+    pub fn command_help(&self) -> impl Iterator<Item = (&str, &str, CommandSource)> {
+        builtin_commands()
+            .map(|(name, description)| (name, description, CommandSource::Shell))
+            .chain(
+                self.commands
+                    .iter()
+                    .map(|(name, description)| (name, description, CommandSource::Application)),
+            )
+            .chain(
+                self.external_command_help
+                    .iter()
+                    .map(|(name, description)| {
+                        (name.as_str(), description.as_str(), CommandSource::External)
+                    }),
+            )
     }
 
     /// Return whether the first token is handled by this shell rather than an

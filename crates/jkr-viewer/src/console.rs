@@ -2,6 +2,8 @@
 
 use super::{TextVertex, UiFont};
 use crate::keybind_editor;
+#[path = "console_browser.rs"]
+mod browser;
 #[path = "console_chat_log.rs"]
 mod chat_log;
 #[path = "console_client_options.rs"]
@@ -78,6 +80,8 @@ pub(crate) struct ViewerConsole {
     scroll_offset: usize,
     server_status: Arc<RwLock<String>>,
     presentation: ConsolePresentation,
+    /// Command and cvar browser drawn in place of the console while open.
+    browser: browser::Browser,
     userinfo_dirty: Arc<AtomicBool>,
     show_timedelta: crate::net_timing::CvarSetting,
     time_nudge: crate::presentation_clock::CvarSetting,
@@ -229,19 +233,72 @@ impl ViewerConsole {
     }
 
     pub(crate) fn set_cvar(&mut self, name: &str, value: &str) -> bool {
-        match self.shell.cvars.set_text(name, value) {
-            Ok(changed) => {
-                if changed {
-                    if name.eq_ignore_ascii_case("r_resolution") {
-                        self.sync_custom_resolution(value);
-                    }
-                    self.persist();
-                }
-                true
-            }
+        match self.apply_cvar(name, value) {
+            Ok(()) => true,
             Err(error) => {
                 self.shell.push_log(format!("^1{error}"));
                 false
+            }
+        }
+    }
+
+    /// Set a cvar from text and persist a change; the error is returned, not logged.
+    fn apply_cvar(&mut self, name: &str, value: &str) -> Result<(), jkr_shell::CvarError> {
+        if self.shell.cvars.set_text(name, value)? {
+            if name.eq_ignore_ascii_case("r_resolution") {
+                self.sync_custom_resolution(value);
+            }
+            self.persist();
+        }
+        Ok(())
+    }
+
+    /// Open the console with the command and cvar browser in front of it.
+    pub(crate) fn open_browser(&mut self) {
+        if !self.open {
+            self.set_open(true);
+        }
+        self.browser.open(&self.shell);
+    }
+
+    /// Carry out what the browser asked for after a key or pointer event.
+    fn browser_action(&mut self, action: browser::BrowserAction) {
+        use browser::BrowserAction;
+        match action {
+            BrowserAction::None => {}
+            BrowserAction::Close => self.browser.close(),
+            BrowserAction::Insert(name) => {
+                self.browser.close();
+                self.input = format!("{name} ");
+                self.rebuild_prompt();
+            }
+            BrowserAction::Set { name, value } => {
+                let result = self.apply_cvar(&name, &value);
+                self.browser.refresh(&self.shell);
+                match result {
+                    Ok(()) => self
+                        .browser
+                        .set_status(format!("{name} = \"{value}\""), false),
+                    Err(error) => self.browser.set_status(error.to_string(), true),
+                }
+            }
+            BrowserAction::Reset(name) => {
+                let result = self.shell.cvars.reset(&name);
+                if let Ok(true) = result {
+                    if name.eq_ignore_ascii_case("r_resolution")
+                        && let Some(value) = self.shell.cvars.get(&name).map(|c| c.value.as_text())
+                    {
+                        self.sync_custom_resolution(&value);
+                    }
+                    self.persist();
+                }
+                self.browser.refresh(&self.shell);
+                match result {
+                    Ok(_) => self
+                        .browser
+                        .set_status(format!("{name} restored to its default"), false),
+                    Err(error) => self.browser.set_status(error.to_string(), true),
+                }
             }
         }
     }
@@ -323,6 +380,12 @@ impl ViewerConsole {
         viewport: [f32; 2],
         _scale: f32,
     ) {
+        // Overlay text draws above every overlay's shapes, so the browser replaces the
+        // console's drawing rather than covering it.
+        if self.open && self.browser.is_open() {
+            self.browser.append(vertices, font, viewport);
+            return;
+        }
         let options = self.options();
         let configured = self
             .shell
@@ -350,6 +413,9 @@ impl ViewerConsole {
     }
 
     pub(crate) fn draw_list(&self) -> &jkr_ui::DrawList {
+        if self.open && self.browser.is_open() {
+            return self.browser.draw_list();
+        }
         self.presentation.draw_list()
     }
 
@@ -392,6 +458,9 @@ impl ViewerConsole {
         }
         self.open = open;
         self.history_index = None;
+        if !open {
+            self.browser.close();
+        }
     }
 
     fn navigate_history(&mut self, direction: i32) {
