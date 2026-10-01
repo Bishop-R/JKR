@@ -57,3 +57,26 @@ A handoff should state what changed, the exact checks and their results, and
 what remains unverified. Do not label a feature complete merely because it builds.
 Use [status.md](status.md) for current agreed priorities, without treating that
 list as authorization to start unrelated work.
+
+## Branches, commits and pull requests
+
+Contributions reach `main` through pull requests, one topic per pull request.
+
+- Start each change on its own branch from the current `main` of this repository,
+  named for its topic with a type prefix: `fix/`, `feat/`, `perf/`, `refactor/`
+  or `docs/` (for example `fix/windows-main-stack`). Do not commit to `main`; in a
+  fork, keep `main` a fast-forward copy of this repository's `main`.
+- Keep one topic per branch. Formatting sweeps, renames and unrelated fixes found
+  along the way get their own branch and pull request, however small.
+- Write commit subjects in the imperative mood, at most 72 characters, with no
+  trailing period. Use the body for the reason and the verification account.
+  Every commit should build; fold fixups into their commit before review.
+- Before opening a pull request, rebase onto the current `main` and run the
+  workspace checks above. Include the wiki updates the change requires.
+- The description states what changed and why, the exact checks and their
+  results, the platform they ran on and what remains unverified, as in a handoff.
+- Assistants push only to the contributor's fork or a branch they were
+  authorized to use, never to `main` of this repository. Once review has started,
+  add commits rather than rewriting the branch unless a reviewer asks for a rebase.
+- Personal launchers, local paths and editor files stay out of commits and out of
+  the shared `.gitignore`; put local ignores in `.git/info/exclude`.
