@@ -33,7 +33,11 @@ fn project(vp: mat4x4<f32>, texel: f32, world: vec3<f32>, normal: vec3<f32>,
 // Blocker search then contact-hardening PCF on one cascade; `range` is its depth extent.
 fn filtered(map: texture_depth_2d, p: Projection, texel: f32, range: f32) -> f32 {
     let dimensions = vec2<f32>(textureDimensions(map));
-    let depth = p.depth - dot(abs(p.gradient), 0.5/dimensions) - 0.05 / range;
+    // A linear comparison samples the four surrounding texel centers. At an
+    // arbitrary sub-texel position, a center can be almost one texel away on
+    // either axis. Half a texel only covers the midpoint and lets planar
+    // receivers shadow themselves as the sample moves across the footprint.
+    let depth = p.depth - dot(abs(p.gradient), 1.0/dimensions) - 0.05 / range;
     // The blocker search and the penumbra reach at most 24 world units: the receiver
     // plane is extrapolated that far, and on the far cascade's 4 to 8 unit texels a
     // twelve texel reach was 96 units, enough for curved patches and steps to read as
