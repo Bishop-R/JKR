@@ -37,6 +37,16 @@ are recorded maintainer results, not checks reproducible by running `cargo test`
 alone. The GPU runs used debug builds and establish startup/integration only;
 they do not establish visual parity or release performance.
 
+Sun-shadow correction (2026-10-02, based on `4a8fe31`): external release GPU
+captures reproduced and removed ground self-shadow bands in the reported
+`mp/ffa3` view, including a nearby camera position. An `mp/ffa1` comparison
+showed no obvious regression. See [rendering](rendering.md) for settings,
+timings and limits. The updated production release client also rendered
+`mp/ffa3` on Linux/Vulkan (Radeon RX 9060 XT) with day/night and HDR enabled
+without a panic or GPU validation error during a short startup check.
+The owner also playtested the release build and confirmed that the reported
+view looked clean.
+
 ## Open validation and limitations
 
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios

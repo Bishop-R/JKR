@@ -40,6 +40,23 @@ See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 enable the day/night system. HDR here describes the scene buffer and display
 mapping, not a claim of HDR monitor output.
 
+Sun-shadow filtering compensates for the receiver surface's slope across the
+full texel footprint of a linear depth comparison. A half-texel allowance only
+covers samples midway between texel centers and can produce bands of false
+self-shadowing on flat surfaces. Keep this allowance tied to the cascade's
+texel size and receiver slope; increasing a fixed world-space offset can detach
+shadows from walls and ground contacts.
+
+The full-footprint correction was checked against the preceding shader from
+`4a8fe31` with external release captures on Linux/RADV (Radeon RX 9060 XT), at
+1920×1080 with HDR, lighting tier 0, 2048-pixel shadow maps and a fixed 9:00 sun.
+The reported `mp/ffa3` view and a nearby camera position lost the ground bands
+while retaining the ship and wall shadows; an `mp/ffa1` interior comparison
+showed no obvious regression. GPU frame means were 3.336 → 3.341 ms for the
+nearby `ffa3` view and 4.122 → 4.125 ms for `ffa1` (64 measured frames each).
+These isolated captures are not a full gameplay benchmark or coverage of every
+map, sun angle, graphics backend or shadow quality setting.
+
 Set `JKR_FRAME_BUDGET=1` for frame-work and GPU-phase diagnostics. Measurements
 must name the build mode, GPU, resolution, settings, map and population. Separate
 loading/shader warmup from steady frames and CPU work from GPU timings. The
