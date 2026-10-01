@@ -59,4 +59,13 @@ root (the implementation appends `base`). See
 console output. See [console registration](../crates/jkr-viewer/src/console_session.rs)
 and [file commands](../crates/jkr-viewer/src/console_files.rs) for argument handling.
 
+Tab completes the command or cvar name being typed, after a leading `/` or `\` and
+after the last `;`. A unique name completes with a trailing space; otherwise the
+input extends to the longest shared prefix and the matching commands and cvars,
+with cvar values, are listed. Up to 16 matches also show their descriptions;
+longer listings end with the match count instead. Enter applies the same completion
+first while `cl_allowEnterCompletion` is set, without listing when the input is
+already a full name. Arguments are not completed. See
+[shell_completion.rs](../crates/jkr-shell/src/shell_completion.rs).
+
 For graphics controls and diagnostics, see [rendering.md](rendering.md).

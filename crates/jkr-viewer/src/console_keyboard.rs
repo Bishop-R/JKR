@@ -124,7 +124,7 @@ impl ViewerConsole {
                 self.input.pop();
                 self.rebuild_prompt();
             }
-            KeyCode::Tab => self.complete_command(),
+            KeyCode::Tab => self.complete_command(CompletionKey::Tab),
             KeyCode::ArrowUp if !event.repeat => self.navigate_history(-1),
             KeyCode::ArrowDown if !event.repeat => self.navigate_history(1),
             // Ctrl+V and Ctrl+C arrive as the control characters they have always been.
