@@ -363,6 +363,11 @@ impl ViewerConsole {
     }
 
     fn submit(&mut self, session: Option<&mut ClientSession>) {
+        // `Console_Key`: one leading `/` or `\` is optional and stripped before the
+        // line is completed and run.
+        if let Some(line) = self.input.trim_start().strip_prefix(['/', '\\']) {
+            self.input = line.to_owned();
+        }
         if self.integer_cvar("cl_allowentercompletion").unwrap_or(1) != 0 {
             self.complete_command(CompletionKey::Enter);
         }

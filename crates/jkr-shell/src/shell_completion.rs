@@ -41,12 +41,14 @@ impl<'a> Candidate<'a> {
 
 impl Shell {
     /// Complete the name at the end of `line`: the first word after its last unquoted
-    /// `;`, without a leading `/` or `\`. Returns the completed line, or `None` when
+    /// `;`, without a leading `/` or `\`. Such a slash is kept on the line's first
+    /// command, which the console strips when the line is entered, and dropped from a
+    /// later one, which nothing strips. Returns the completed line, or `None` when
     /// nothing matches or the line already continues past the name.
     pub fn complete_line(&mut self, line: &str, key: CompletionKey) -> Option<String> {
-        let start = name_start(line)?;
-        let (name, listing) = self.completion(&line[start..], key)?;
-        let completed = format!("{}{name}", &line[..start]);
+        let typed = typed_name(line)?;
+        let (name, listing) = self.completion(&line[typed.name..], key)?;
+        let completed = format!("{}{name}", &line[..typed.replaced]);
         if !listing.is_empty() {
             self.push_line(ConsoleLineKind::Input, format!("] {completed}"));
             for text in listing {
@@ -58,7 +60,7 @@ impl Shell {
 
     /// The unique name `line` would complete to, for a prompt hint; does not allocate.
     pub fn completion_hint(&self, line: &str) -> Option<&str> {
-        self.unique_command_completion(&line[name_start(line)?..])
+        self.unique_command_completion(&line[typed_name(line)?.name..])
     }
 
     /// The completed name and, when it is not unique, the lines listing the candidates.
@@ -134,24 +136,56 @@ impl Shell {
     }
 }
 
-/// Byte offset of the name being typed: after the last `;` outside quotes, leading
-/// whitespace and one `/` or `\`. `None` when that name is empty or an argument follows it.
-fn name_start(line: &str) -> Option<usize> {
+/// Byte offsets in a line of the name being typed.
+struct TypedName {
+    /// Start of the name itself.
+    name: usize,
+    /// Start of the text its completion replaces: the name, or the slash before it on a
+    /// command after a `;`.
+    replaced: usize,
+}
+
+/// The name being typed: after the last `;` that [`split_commands`](crate::split_commands)
+/// splits on, leading whitespace and one `/` or `\`. `None` when that name is empty, an
+/// argument follows it or a quote is still open.
+fn typed_name(line: &str) -> Option<TypedName> {
+    // The splitter's own view of the line; normalizing only rewrites the first
+    // command's argument, so the name at the end is a suffix of both spellings.
+    let normalized = crate::key_names::normalize_stock_backslash(line);
     let mut segment = 0;
     let mut quoted = false;
-    for (index, byte) in line.bytes().enumerate() {
-        match byte {
-            b'"' => quoted = !quoted,
-            b';' if !quoted => segment = index + 1,
-            _ => {}
+    let mut escaped = false;
+    for (index, byte) in normalized.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+        } else if byte == b'\\' && quoted {
+            escaped = true;
+        } else if byte == b'"' {
+            quoted = !quoted;
+        } else if byte == b';' && !quoted {
+            segment = index + 1;
         }
     }
-    let command = line[segment..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+    if quoted || escaped {
+        return None;
+    }
+    let command = normalized[segment..].trim_start_matches(|c: char| c.is_ascii_whitespace());
     let name = command.strip_prefix(['/', '\\']).unwrap_or(command);
     let continues = name
         .bytes()
         .any(|byte| byte.is_ascii_whitespace() || byte == b'"');
-    (!name.is_empty() && !continues).then(|| line.len() - name.len())
+    if name.is_empty() || continues {
+        return None;
+    }
+    let start = line.len() - name.len();
+    Some(TypedName {
+        name: start,
+        replaced: if segment == 0 {
+            start
+        } else {
+            line.len() - command.len()
+        },
+    })
 }
 
 /// Longest case-insensitive prefix shared by every name, spelled as the first.
