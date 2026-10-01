@@ -39,6 +39,9 @@ multiplayer. Read [docs/status.md](docs/status.md),
 - Respect the requested scope and existing work. Do not discard unrelated changes,
   rewrite history or publish without authorization. A status page is context, not
   permission to start a new task.
+- Follow the [branch, commit and pull request
+  rules](docs/development.md#branches-commits-and-pull-requests): one topic per
+  branch and pull request, never commit to `main`.
 
 ## Documentation is part of the change
 
