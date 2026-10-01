@@ -1,0 +1,151 @@
+//! Compact recording controls sharing the console's presentation director.
+mod runtime;
+
+mod view;
+use crate::menu_widgets::MenuCanvas;
+use jkr_ui::{InputEvent, UiEventKind};
+
+pub(crate) const CAMERA: u16 = 10;
+pub(crate) const SUN: u16 = 11;
+pub(crate) const LIVE: u16 = 16;
+pub(crate) const ORBIT: u16 = 17;
+pub(crate) const STOP: u16 = 18;
+pub(crate) const RESET: u16 = 19;
+pub(crate) const APPLY_HIDE: u16 = 20;
+pub(crate) const HIDE: u16 = 21;
+pub(crate) const HUD: u16 = 22;
+pub(crate) const RESET_SUN: u16 = 23;
+
+/// One UI action; no formatted commands or per-drag allocation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Action {
+    Preview,
+    Orbit,
+    Stop,
+    Reset,
+    ResetSun,
+    ApplyHide,
+    Hide,
+    Hud,
+}
+
+/// A transient target draft; actual motion remains owned by the director.
+pub(crate) struct Panel {
+    pub(crate) values: [f32; 8],
+    pub(super) camera_fallback: [f32; 4],
+    pub(crate) sun_tab: bool,
+    pub(crate) live: bool,
+    pub(crate) dirty: [bool; 2],
+    pub(crate) sun_available: bool,
+    pub(crate) sun_mode: crate::console::director::SunMode,
+    pub(crate) hud: bool,
+    pub(crate) selected: u16,
+}
+
+impl Default for Panel {
+    fn default() -> Self {
+        Self {
+            values: [0., 0., 80., 16., 0., 45., 3., 10.],
+            camera_fallback: [0., 0., 80., 16.],
+            sun_tab: false,
+            live: true,
+            dirty: [false; 2],
+            sun_available: false,
+            sun_mode: Default::default(),
+            hud: true,
+            selected: CAMERA,
+        }
+    }
+}
+
+pub(super) const SLIDERS: [(&str, f32, f32, f32); 8] = [
+    ("Angle", -180., 180., 1.),
+    ("Pitch", -80., 80., 1.),
+    ("Distance", 16., 512., 1.),
+    ("Height", -64., 160., 1.),
+    ("Sun direction", 0., 360., 1.),
+    ("Sun elevation", -20., 90., 1.),
+    ("Move duration", 0.2, 20., 0.1),
+    ("Orbit speed", -30., 30., 1.),
+];
+
+impl Panel {
+    /// Reset the controller and discard staged sunlight so Preview/Move cannot reapply it.
+    pub(crate) fn reset_sun(&mut self, director: &mut crate::console::director::Director) {
+        director.reset_sun();
+        self.dirty[1] = false;
+        self.sun_mode = director.sun_mode();
+    }
+
+    pub(crate) fn build(&self, canvas: &mut MenuCanvas, viewport: [f32; 2]) {
+        view::build(self, canvas, viewport);
+    }
+
+    pub(crate) fn pointer(&mut self, canvas: &mut MenuCanvas, event: InputEvent) -> Option<Action> {
+        let event = canvas.pointer(event)?;
+        let token = event.token?;
+        if matches!(event.kind, UiEventKind::Hover | UiEventKind::HoverEnter) {
+            self.selected = token;
+        }
+        if token < 8 && matches!(event.kind, UiEventKind::Activate | UiEventKind::Drag) {
+            self.selected = token;
+            let rect = canvas.rect_for(token)?;
+            let ratio = ((event.position?.x - rect.x) / rect.width).clamp(0., 1.);
+            let (_, min, max, step) = SLIDERS[token as usize];
+            return self.set_value(
+                token as usize,
+                ((min + ratio * (max - min)) / step).round() * step,
+            );
+        }
+        (event.kind == UiEventKind::Activate)
+            .then(|| self.activate(token))
+            .flatten()
+    }
+
+    pub(crate) fn adjust(&mut self, direction: f32) -> Option<Action> {
+        let row = self.selected as usize;
+        if row >= 8 {
+            return None;
+        }
+        self.set_value(row, self.values[row] + direction * SLIDERS[row].3)
+    }
+
+    fn set_value(&mut self, row: usize, value: f32) -> Option<Action> {
+        if self.sun_tab && !self.sun_available && row != 6 {
+            return None;
+        }
+        self.values[row] = value.clamp(SLIDERS[row].1, SLIDERS[row].2);
+        if row < 6 {
+            self.dirty[usize::from(row >= 4)] = true;
+            return self.live.then_some(Action::Preview);
+        }
+        None
+    }
+
+    pub(crate) fn activate(&mut self, token: u16) -> Option<Action> {
+        match token {
+            CAMERA | SUN => {
+                self.sun_tab = token == SUN;
+                self.selected = token;
+                None
+            }
+            12..=15 => {
+                self.values[0] = [0., 180., -90., 90.][(token - 12) as usize];
+                self.dirty[0] = true;
+                self.live.then_some(Action::Preview)
+            }
+            LIVE => {
+                self.live = !self.live;
+                self.live.then_some(Action::Preview)
+            }
+            ORBIT if !self.sun_tab || self.sun_available => Some(Action::Orbit),
+            STOP => Some(Action::Stop),
+            RESET => Some(Action::Reset),
+            RESET_SUN => Some(Action::ResetSun),
+            APPLY_HIDE => Some(Action::ApplyHide),
+            HIDE => Some(Action::Hide),
+            HUD => Some(Action::Hud),
+            _ => None,
+        }
+    }
+}

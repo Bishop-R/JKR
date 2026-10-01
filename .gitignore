@@ -1,0 +1,7 @@
+/target/
+*.log
+*.tmp
+.idea/
+.vscode/
+/GameData/
+*.pk3

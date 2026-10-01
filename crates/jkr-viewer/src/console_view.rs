@@ -1,0 +1,262 @@
+//! Retained drop-down console presentation; command behavior remains in `console.rs`.
+
+use crate::menu_widgets::MenuCanvas;
+use crate::text::{TextVertex, UiFont};
+use jkr_shell::{ConsoleLine, ConsoleLineKind};
+use jkr_ui::{Color, DrawList, FontWeight, InputEvent, Rect, TextAlign, UiEventKind};
+
+/// Fixed-storage console draw model.
+pub(crate) struct ConsolePresentation {
+    ui: MenuCanvas,
+    options: super::console_options::Options,
+    fraction: f32,
+    tick: std::time::Instant,
+    header: String,
+    header_second: u64,
+}
+
+impl ConsolePresentation {
+    pub(crate) fn new() -> Self {
+        Self {
+            ui: MenuCanvas::new(),
+            options: super::console_options::Options {
+                height: 0.58,
+                ..Default::default()
+            },
+            fraction: 0.0,
+            tick: std::time::Instant::now(),
+            header: "CONSOLE".into(),
+            header_second: 0,
+        }
+    }
+    pub(crate) fn draw_list(&self) -> &DrawList {
+        self.ui.draw_list()
+    }
+
+    pub(crate) fn append<'a>(
+        &mut self,
+        lines: impl DoubleEndedIterator<Item = &'a ConsoleLine>,
+        configured_lines: usize,
+        scroll_offset: usize,
+        prompt: &str,
+        completion: &str,
+        vertices: &mut Vec<TextVertex>,
+        font: &UiFont,
+        viewport: [f32; 2],
+    ) {
+        // Other overlays share this bounded batch. Give the console's fixed
+        // controls priority even when chat or diagnostics filled the text budget.
+        let reserve = (prompt
+            .len()
+            .saturating_add(completion.len())
+            .saturating_add(160))
+        .saturating_mul(12)
+        .min(crate::text::MAX_TEXT_VERTICES);
+        let keep = vertices.len().min(crate::text::MAX_TEXT_VERTICES - reserve);
+        vertices.truncate(keep / 6 * 6);
+        build_options(
+            &mut self.ui,
+            lines.map(|line| {
+                (
+                    line.kind,
+                    if self.options.timestamps != 0 {
+                        line.stamped_text.as_str()
+                    } else {
+                        line.text.as_str()
+                    },
+                )
+            }),
+            configured_lines,
+            scroll_offset,
+            prompt,
+            completion,
+            viewport,
+            self.options,
+            &self.header,
+        );
+        self.ui.append_text(vertices, font, viewport);
+    }
+
+    pub(crate) fn pointer(&mut self, event: InputEvent) -> Option<f32> {
+        let event = self.ui.pointer(event)?;
+        (event.kind == UiEventKind::Wheel).then(|| event.delta.map_or(0.0, |delta| delta.y))
+    }
+
+    pub(super) fn append_options<'a>(
+        &mut self,
+        lines: impl DoubleEndedIterator<Item = &'a ConsoleLine>,
+        configured: usize,
+        scroll: usize,
+        prompt: &str,
+        completion: &str,
+        vertices: &mut Vec<TextVertex>,
+        font: &UiFont,
+        viewport: [f32; 2],
+        options: super::console_options::Options,
+        open: bool,
+        now: u64,
+    ) {
+        let delta = self.tick.elapsed().as_secs_f32();
+        self.tick = std::time::Instant::now();
+        let target = if open { options.height } else { 0.0 };
+        let step = options.speed * delta;
+        self.fraction += (target - self.fraction).clamp(-step, step);
+        self.options = options;
+        self.options.height = self.fraction;
+        let seconds = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if options.datetime && (seconds != self.header_second || self.header == "CONSOLE") {
+            self.header = super::console_options::datetime(seconds);
+            self.header_second = seconds;
+        } else if !options.datetime && self.header != "CONSOLE" {
+            self.header.clear();
+            self.header.push_str("CONSOLE");
+        }
+        if self.fraction > 0.08 {
+            self.append(
+                lines, configured, scroll, prompt, completion, vertices, font, viewport,
+            );
+        } else {
+            self.ui.begin_transparent(viewport);
+            if !open {
+                let scale = (viewport[1] / 1080.0).clamp(0.75, 2.5) * options.scale;
+                let color = self.ui.theme().foreground;
+                for (i, line) in lines
+                    .rev()
+                    .filter(|line| now.saturating_sub(line.written_millis) < options.notify_millis)
+                    .take(options.notify_lines)
+                    .enumerate()
+                {
+                    let text = if options.timestamps == 1 {
+                        &line.stamped_text
+                    } else {
+                        &line.text
+                    };
+                    self.ui.text(
+                        text,
+                        Rect::new(
+                            12.0 * scale + options.notify_x * viewport[0] / 640.0,
+                            (12.0 + (options.notify_lines - i - 1) as f32 * 20.0) * scale,
+                            viewport[0] - 24.0 * scale,
+                            20.0 * scale,
+                        ),
+                        14.0 * scale,
+                        color,
+                        FontWeight::Regular,
+                        0.0,
+                    );
+                }
+            }
+            self.ui.finish(u16::MAX);
+            self.ui.append_text(vertices, font, viewport);
+        }
+    }
+}
+
+fn build_options<'a>(
+    ui: &mut MenuCanvas,
+    lines: impl DoubleEndedIterator<Item = (ConsoleLineKind, &'a str)>,
+    configured_lines: usize,
+    scroll_offset: usize,
+    prompt: &str,
+    completion: &str,
+    viewport: [f32; 2],
+    options: super::console_options::Options,
+    header: &str,
+) {
+    ui.begin_transparent(viewport);
+    let scale = (viewport[1] / 1080.0).clamp(0.75, 2.5) * options.scale;
+    let height = (viewport[1] * options.height).min(viewport[1]);
+    let margin = 24.0 * scale;
+    let width = (viewport[0] - margin * 2.0).max(0.0);
+    ui.column_tint_opacity(Rect::new(0.0, 0.0, viewport[0], height), options.opacity);
+    let theme = ui.theme();
+    ui.text(
+        header,
+        Rect::new(margin, 12.0 * scale, width, 20.0 * scale),
+        12.0 * scale,
+        theme.muted,
+        FontWeight::Semibold,
+        1.0 * scale,
+    );
+    // Hide the secondary hint when it would compete with the title.
+    if width >= 440.0 * scale {
+        ui.text_aligned(
+            if scroll_offset > 0 {
+                "Scrollback  /  Scroll down for latest"
+            } else {
+                "Tab complete   /   Up, Down history"
+            },
+            Rect::new(
+                margin + 120.0 * scale,
+                12.0 * scale,
+                width - 120.0 * scale,
+                20.0 * scale,
+            ),
+            12.0 * scale,
+            theme.muted,
+            FontWeight::Regular,
+            0.0,
+            TextAlign::End,
+        );
+    }
+    let input_y = height - 62.0 * scale;
+    let line_height = 22.0 * scale;
+    let top = 44.0 * scale;
+    let bottom = input_y - 10.0 * scale;
+    let available = ((bottom - top) / line_height).max(0.0) as usize;
+    let maximum = configured_lines.max(1).min(available);
+    // Submit the fixed input before history so a full glyph budget cannot hide it.
+    ui.separator(Rect::new(margin, input_y, width, 1.0));
+    ui.text(
+        prompt,
+        Rect::new(margin, input_y + 8.0 * scale, width, 24.0 * scale),
+        15.0 * scale,
+        theme.foreground,
+        FontWeight::Regular,
+        0.0,
+    );
+    ui.text(
+        if completion.is_empty() {
+            "cmdlist lists commands"
+        } else {
+            completion
+        },
+        Rect::new(margin, height - 23.0 * scale, width, 18.0 * scale),
+        12.0 * scale,
+        theme.muted,
+        FontWeight::Regular,
+        0.0,
+    );
+
+    ui.scroll_region(0, Rect::new(margin, top, width, (bottom - top).max(0.0)));
+    for (index, (kind, text)) in lines
+        .flat_map(|(kind, text)| text.split('\n').map(move |row| (kind, row)))
+        .rev()
+        .skip(scroll_offset)
+        .take(maximum)
+        .enumerate()
+    {
+        let color = if kind == ConsoleLineKind::Error {
+            Color::new(1.0, 0.55, 0.52, 1.0)
+        } else {
+            theme.foreground
+        };
+        ui.text(
+            text,
+            Rect::new(
+                margin,
+                bottom - (index + 1) as f32 * line_height,
+                width,
+                line_height,
+            ),
+            14.0 * scale,
+            color,
+            FontWeight::Regular,
+            0.0,
+        );
+    }
+    ui.finish(u16::MAX);
+}

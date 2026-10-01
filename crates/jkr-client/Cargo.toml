@@ -1,0 +1,19 @@
+[package]
+name = "jkr-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jkr-audio.workspace = true
+jkr-game-jka.workspace = true
+jkr-model.workspace = true
+jkr-network.workspace = true
+jkr-protocol.workspace = true
+jkr-runtime.workspace = true
+jkr-vfs.workspace = true
+
+
+[lints]
+workspace = true

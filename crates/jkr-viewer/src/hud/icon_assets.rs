@@ -1,0 +1,165 @@
+//! Map-lifetime icon registration through the shared shader and decoded-image caches.
+use crate::{decoded_image_cache::cached_decoded_image, ui_renderer};
+use jkr_shader::ShaderCatalog;
+use jkr_ui::TextureId;
+use jkr_vfs::VirtualFileSystem;
+
+/// Existing item catalogue, then 43 cause-of-death cells, then two CTY flag variants.
+pub(super) const COUNT: usize = 96;
+
+/// Stock weapon ordinals -> existing bg_itemlist entries (bg_misc.c:1241-1619).
+pub(super) const WEAPONS: [usize; 19] = [
+    0, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37, 23, 24, 38, 39,
+];
+/// Stock timed powerup slots -> BG_FindItemForPowerup (bg_misc.c:1999-2011).
+pub(super) const POWERS: [usize; 16] = [0, 0, 0, 0, 46, 47, 48, 0, 0, 0, 0, 0, 15, 16, 17, 18];
+
+const MOD_NAMES: [&str; 43] = [
+    "generic",
+    "stun",
+    "melee",
+    "saber",
+    "pistol",
+    "pistol",
+    "rifle",
+    "rifle_alt",
+    "disruptor",
+    "disruptor",
+    "disruptor_alt",
+    "bowcaster",
+    "repeater",
+    "repeater_alt",
+    "repeater_alt",
+    "demp2",
+    "demp2_alt",
+    "flechette",
+    "flechette_alt",
+    "merrsonn",
+    "merrsonn_splash",
+    "merrsonn_alt",
+    "merrsonn_alt",
+    "thermal",
+    "thermal_alt",
+    "mine",
+    "mine_alt",
+    "detpack",
+    "swoop",
+    "concussion",
+    "concussion_alt",
+    "force",
+    "portable_turret",
+    "water",
+    "ooze",
+    "lava",
+    "crushed",
+    "telefrag",
+    "fall",
+    "generic",
+    "generic",
+    "generic",
+    "generic",
+];
+// Modern retail fallback: the actual weapon icon, never synthetic substitute art.
+const MOD_ITEMS: [usize; 43] = [
+    0, 19, 20, 21, 22, 22, 25, 25, 26, 26, 26, 27, 28, 28, 28, 29, 29, 30, 30, 31, 31, 31, 31, 35,
+    35, 36, 36, 37, 0, 23, 23, 0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+];
+
+/// Resolve the shader's selected image with the world renderer's exact decoder/cache.
+pub(in crate::hud) fn decode(
+    vfs: &VirtualFileSystem,
+    shaders: &ShaderCatalog,
+    name: &str,
+) -> Option<image::RgbaImage> {
+    let path = shaders.resolve_image(vfs, name).ok()??;
+    let image = cached_decoded_image(vfs, path.as_str()).ok()??;
+    Some(image::imageops::resize(
+        &*image,
+        ui_renderer::ICON_SIZE,
+        ui_renderer::ICON_SIZE,
+        image::imageops::FilterType::Triangle,
+    ))
+}
+
+/// Load once per installed world; unresolved slots stay absent, never coloured quads.
+pub(super) fn load(
+    vfs: &VirtualFileSystem,
+    shaders: &ShaderCatalog,
+    mut upload: impl FnMut(TextureId, &[u8]),
+) -> [Option<TextureId>; COUNT] {
+    let items = &crate::pickups::simple::ICONS;
+    // Collected and reported as one line: several causes of death legitimately
+    // have no art (falling, crushing, lava), and one line per slot buried the
+    // rest of the world-load log under 48 warnings.
+    let mut absent: Vec<String> = Vec::new();
+    let table = std::array::from_fn(|slot| {
+        let name = match slot {
+            0..=50 => items[slot].to_owned(),
+            51..=93 => format!("hud/mod/{}", MOD_NAMES[slot - 51]),
+            94 => "gfx/hud/mpi_rflag_ys".to_owned(),
+            _ => "gfx/hud/mpi_bflag_ys".to_owned(),
+        };
+        if name.is_empty() {
+            return None;
+        }
+        let pixels = decode(vfs, shaders, &name).or_else(|| {
+            let item = *MOD_ITEMS.get(slot.wrapping_sub(51))?;
+            (item != 0)
+                .then(|| decode(vfs, shaders, items[item]))
+                .flatten()
+        });
+        let Some(pixels) = pixels else {
+            if !absent.contains(&name) {
+                absent.push(name);
+            }
+            return None;
+        };
+        let id = TextureId(ui_renderer::ICON_CELLS + slot as u32);
+        upload(id, pixels.as_raw());
+        Some(id)
+    });
+    if !absent.is_empty() {
+        crate::log::progress(format_args!(
+            "HUD icons absent, drawn as nothing: {}",
+            absent.join(", ")
+        ));
+    }
+    table
+}
+
+/// TaystJK hud_shared.c:31-75; the method-of-death colour, not name colour.
+pub(super) fn tint(method: usize) -> [f32; 3] {
+    match method {
+        1 | 4 | 5 => [0.0, 1.0, 1.0],
+        2 => [1.0, 1.0, 0.0],
+        3 => [0.5, 0.0, 1.0],
+        6 | 7 | 11 => [0.0, 1.0, 0.5],
+        8..=10 | 28 | 34 | 40 => [0.0, 1.0, 0.0],
+        12..=14 | 33 => [0.0, 0.0, 1.0],
+        15 | 16 => [0.5, 1.0, 0.0],
+        17 | 18 => [1.0, 0.5, 0.0],
+        19..=22 | 35 => [1.0, 0.0, 0.0],
+        23 | 24 | 27 | 31 => [1.0, 0.4, 0.0],
+        25 | 26 => [1.0, 1.0, 0.4],
+        29 | 30 => [1.0, 0.0, 1.0],
+        36 => [0.0; 3],
+        37 => [0.4, 0.2, 0.3],
+        38 | 41 => [1.0, 1.0, 0.6],
+        39 => [0.5, 0.2, 0.7],
+        _ => [1.0; 3],
+    }
+}
+
+/// BG_FindItemForAmmo mapping used for the current weapon's ammo slot.
+pub(super) fn ammo(weapon: u8) -> usize {
+    match weapon {
+        4 | 5 | 16 => 41,
+        6 | 7 | 9 => 42,
+        8 | 10 | 15 => 43,
+        11 => 44,
+        12 => 32,
+        13 => 33,
+        14 => 34,
+        _ => 0,
+    }
+}

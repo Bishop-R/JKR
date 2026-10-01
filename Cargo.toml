@@ -1,0 +1,64 @@
+[workspace]
+members = [
+    "crates/jkr-bsp",
+    "crates/jkr-dedicated",
+    "crates/jkr-audio",
+    "crates/jkr-client",
+    "crates/jkr-entity",
+    "crates/jkr-game-jka",
+    "crates/jkr-icarus",
+    "crates/jkr-effect",
+    "crates/jkr-model",
+    "crates/jkr-nav",
+    "crates/jkr-network",
+    "crates/jkr-protocol",
+    "crates/jkr-runtime",
+    "crates/jkr-scene",
+    "crates/jkr-server",
+    "crates/jkr-shader",
+    "crates/jkr-shell",
+    "crates/jkr-ui",
+    "crates/jkr-vfs",
+    "crates/jkr-viewer",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "GPL-2.0-only"
+rust-version = "1.88"
+version = "0.1.0"
+
+[workspace.dependencies]
+jkr-bsp = { path = "crates/jkr-bsp" }
+jkr-audio = { path = "crates/jkr-audio" }
+jkr-client = { path = "crates/jkr-client" }
+jkr-entity = { path = "crates/jkr-entity" }
+jkr-game-jka = { path = "crates/jkr-game-jka" }
+jkr-icarus = { path = "crates/jkr-icarus" }
+jkr-effect = { path = "crates/jkr-effect" }
+jkr-model = { path = "crates/jkr-model" }
+jkr-nav = { path = "crates/jkr-nav" }
+jkr-network = { path = "crates/jkr-network" }
+jkr-protocol = { path = "crates/jkr-protocol" }
+jkr-runtime = { path = "crates/jkr-runtime" }
+jkr-scene = { path = "crates/jkr-scene" }
+jkr-server = { path = "crates/jkr-server" }
+jkr-shader = { path = "crates/jkr-shader" }
+jkr-shell = { path = "crates/jkr-shell" }
+jkr-ui = { path = "crates/jkr-ui" }
+jkr-vfs = { path = "crates/jkr-vfs" }
+glam = "0.33.0"
+md4 = "0.10.2"
+md-5 = "0.10.6"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.143"
+zip = { version = "8.2.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+undocumented_unsafe_blocks = "deny"

@@ -1,0 +1,13 @@
+[package]
+name = "jkr-network"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jkr-protocol.workspace = true
+md-5.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,27 @@
+//! Retained actor geometry and animation state.
+use super::*;
+
+/// Map-lifetime actor mesh ranges and reusable pose storage.
+pub(crate) struct ActorMesh {
+    pub(crate) entity_id: Option<EntityId>,
+    pub(crate) corpse_pool: bool,
+    pub(crate) body_identity: Option<jkr_client::BodyIdentity>,
+    pub(crate) appearance: Appearance,
+    pub(crate) preview: PlayerPreview,
+    pub(crate) draws: Vec<ActorDraw>,
+    pub(crate) vertex_ranges: Vec<PreviewVertexRange>,
+    pub(crate) current_frames: (usize, usize),
+    pub(crate) weapon_attachments: [Option<saber::Attachment>; 2],
+    /// A vehicle's driver bolt in this frame's pose, model space.
+    pub(crate) driver_seat: Option<[f32; 3]>,
+    pub(crate) saber_names: [Option<String>; 2],
+    pub(crate) angle_controller: jkr_client::LegacyPlayerAngleController,
+    pub(crate) render_yaw_degrees: Option<f32>,
+    pub(crate) animator: crate::actor_pose::evaluation::Slot,
+    pub(crate) pose_vertices: Vec<GpuVertex>,
+    /// Optional render-only joint upload; CPU trace posing never depends on this buffer.
+    pub(crate) gpu_palette: Option<crate::actor_pose::gpu_skinning::Palette>,
+    /// This frame's CPU skinning result, shared with visual point queries after upload.
+    pub(crate) retained_pose: crate::actor_pose::RetainedPose,
+    pub(crate) force_bones: crate::actor_pose::ForceBones,
+}
