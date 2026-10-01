@@ -46,8 +46,13 @@ they do not establish visual parity or release performance.
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map
   cannot establish every shader, animation or content combination.
-- Windows runtime behavior is unverified. Do not infer platform support from
-  source conditionals alone.
+- Windows runtime behavior is largely unverified. Do not infer platform support
+  from source conditionals alone. Windows reserves 1 MiB for the main thread and
+  the client overflowed it after loading `mp/ffa3`; [the viewer build
+  script](../crates/jkr-viewer/build.rs) now links Windows binaries with the
+  8 MiB Linux size. On Windows 11 (Rust 1.96, MSVC), release and debug clients
+  then loaded `mp/ffa3`, and a release client joined a local JKR server and
+  completed its map load. Longer play, other maps and the GNU toolchain are unchecked.
 - The 500+ FPS / roughly 2 ms frame target is not certified. Measure representative
   release workloads, including populated matches and chosen graphics settings.
 - The repository does not bundle a regression suite. Required reference evidence
