@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 #[path = "shell_builtins.rs"]
 mod builtins;
+#[path = "shell_completion.rs"]
+mod completion;
 #[path = "shell_cvar_commands.rs"]
 mod cvar_commands;
 #[path = "shell_dispatch.rs"]
@@ -17,6 +19,8 @@ mod dispatch;
 mod file_log;
 #[path = "shell_schedule.rs"]
 mod schedule;
+
+pub use completion::CompletionKey;
 
 const DEFAULT_LOG_CAPACITY: usize = 256;
 

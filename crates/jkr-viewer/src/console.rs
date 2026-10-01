@@ -51,7 +51,7 @@ use console_forward::{ForwardAction, forward_payload};
 use console_view::ConsolePresentation;
 
 use jkr_client::{ClientSession, ForceRankUpdate, compat_console_commands};
-use jkr_shell::{CvarDefinition, CvarFlags, CvarRegistry, CvarValue, Shell};
+use jkr_shell::{CompletionKey, CvarDefinition, CvarFlags, CvarRegistry, CvarValue, Shell};
 use std::error::Error;
 use std::fmt::Write as _;
 use std::io::{Error as IoError, ErrorKind};
@@ -333,10 +333,7 @@ impl ViewerConsole {
                 _ => None,
             })
             .unwrap_or(18);
-        let completion = self
-            .shell
-            .unique_command_completion(self.input.trim())
-            .unwrap_or("");
+        let completion = self.shell.completion_hint(&self.input).unwrap_or("");
         self.presentation.append_options(
             self.shell.lines(),
             configured,
@@ -366,8 +363,13 @@ impl ViewerConsole {
     }
 
     fn submit(&mut self, session: Option<&mut ClientSession>) {
+        // `Console_Key`: one leading `/` or `\` is optional and stripped before the
+        // line is completed and run.
+        if let Some(line) = self.input.trim_start().strip_prefix(['/', '\\']) {
+            self.input = line.to_owned();
+        }
         if self.integer_cvar("cl_allowentercompletion").unwrap_or(1) != 0 {
-            self.complete_command();
+            self.complete_command(CompletionKey::Enter);
         }
         let command = self.input.trim().to_owned();
         self.input.clear();
@@ -410,15 +412,9 @@ impl ViewerConsole {
         self.rebuild_prompt();
     }
 
-    fn complete_command(&mut self) {
-        let prefix = self.input.trim();
-        if prefix.is_empty() || prefix.bytes().any(|byte| byte.is_ascii_whitespace()) {
-            return;
-        }
-        if let Some(name) = self.shell.unique_command_completion(prefix) {
-            self.input.clear();
-            self.input.push_str(name);
-            self.input.push(' ');
+    fn complete_command(&mut self, key: CompletionKey) {
+        if let Some(line) = self.shell.complete_line(&self.input, key) {
+            self.input = line;
             self.rebuild_prompt();
         }
     }
