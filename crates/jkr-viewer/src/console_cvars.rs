@@ -149,7 +149,15 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Server step-slide correction",
         ),
         CvarDefinition::new("r_resolution", "1280x720", archive, "Window resolution"),
-        CvarDefinition::new("r_fullscreen", false, archive, "Borderless fullscreen"),
+        // Stock r_fullscreen: fullscreen on/off (Alt+Enter toggles it). Which
+        // kind of fullscreen is JKR's choice; see settings/display.rs.
+        CvarDefinition::new("r_fullscreen", false, archive, "Fullscreen (0/1)"),
+        CvarDefinition::new(
+            crate::settings::EXCLUSIVE_CVAR,
+            false,
+            archive,
+            "Fullscreen kind: 0 borderless at the desktop size, 1 exclusive video mode at r_resolution",
+        ),
         CvarDefinition::new(
             "r_swapInterval",
             false,

@@ -2,7 +2,9 @@
 
 use super::pointer_input::MouseLook;
 use super::{DepthTarget, GpuState};
+use crate::settings::{DisplayMode, MonitorModes, exclusive_supported, exclusive_video_mode};
 use winit::dpi::PhysicalSize;
+use winit::window::Fullscreen;
 
 impl GpuState {
     pub(crate) fn sync_runtime_cvars(&mut self) {
@@ -57,28 +59,42 @@ impl GpuState {
         self.net_timing.set_enabled(console.show_timedelta());
         self.presentation_clock
             .set_time_nudge_millis(console.time_nudge_millis());
-        if self.window.is_none() {
+        let Some(window) = &self.window else {
             return;
+        };
+        if let Some(menu) = &mut self.client_menu
+            && menu.wants_monitor_modes()
+        {
+            menu.set_monitor_modes(MonitorModes::query(window), console);
         }
-        let fullscreen = console.bool_cvar("r_fullscreen").unwrap_or(false);
+        let display = DisplayMode::requested(console);
         let vsync = console.bool_cvar("r_vsync").unwrap_or(false);
         let resolution = console
             .text_value("r_resolution")
             .and_then(parse_resolution);
-        if fullscreen != self.applied_fullscreen {
-            if let Some(window) = &self.window {
-                window.set_fullscreen(
-                    fullscreen.then_some(winit::window::Fullscreen::Borderless(None)),
-                );
+        let exclusive = display == DisplayMode::Exclusive;
+        // An exclusive video mode is the resolution, so a new size re-enters it.
+        let resized = exclusive && resolution.is_some_and(|size| size != self.applied_resolution);
+        if Some(display) != self.applied_display || resized {
+            window.set_fullscreen(fullscreen_for(window, display, resolution));
+            // Leaving fullscreen restores the old window size; ask for
+            // r_resolution again in case it changed meanwhile.
+            if display == DisplayMode::Windowed
+                && self
+                    .applied_display
+                    .is_some_and(|applied| applied != DisplayMode::Windowed)
+            {
+                self.applied_resolution = [0; 2];
             }
-            self.applied_fullscreen = fullscreen;
+            self.applied_display = Some(display);
+            if let Some(size) = resolution.filter(|_| exclusive) {
+                self.applied_resolution = size;
+            }
         }
         if let Some([width, height]) = resolution
             && [width, height] != self.applied_resolution
         {
-            if let Some(window) = &self.window {
-                let _ = window.request_inner_size(PhysicalSize::new(width, height));
-            }
+            let _ = window.request_inner_size(PhysicalSize::new(width, height));
             self.applied_resolution = [width, height];
         }
         let present_mode = preferred_present_mode(&self.present_modes, vsync);
@@ -118,6 +134,31 @@ pub(crate) fn hud_scale(console: Option<&super::console::ViewerConsole>) -> f32 
     console
         .and_then(|console| console.float_cvar("cg_hudScale"))
         .map_or(1.0, |value| value as f32)
+}
+
+/// The winit fullscreen state for `display`: exclusive takes the monitor's
+/// video mode of `resolution`, and falls back to borderless (with a log line)
+/// where there is none or the windowing system has no exclusive mode.
+fn fullscreen_for(
+    window: &winit::window::Window,
+    display: DisplayMode,
+    resolution: Option<[u32; 2]>,
+) -> Option<Fullscreen> {
+    match display {
+        DisplayMode::Windowed => None,
+        DisplayMode::Borderless => Some(Fullscreen::Borderless(None)),
+        DisplayMode::Exclusive => {
+            let mode = resolution
+                .filter(|_| exclusive_supported(window))
+                .and_then(|size| exclusive_video_mode(window, size));
+            if mode.is_none() {
+                eprintln!(
+                    "exclusive fullscreen unavailable at r_resolution {resolution:?};                     using borderless fullscreen"
+                );
+            }
+            Some(mode.map_or(Fullscreen::Borderless(None), Fullscreen::Exclusive))
+        }
+    }
 }
 
 fn parse_resolution(value: &str) -> Option<[u32; 2]> {

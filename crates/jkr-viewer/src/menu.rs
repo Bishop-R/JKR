@@ -317,6 +317,20 @@ impl ClientMenu {
         self.ui.set_accent(accent);
     }
 
+    /// Whether the settings screen wants the window's monitor facts.
+    pub(crate) fn wants_monitor_modes(&self) -> bool {
+        self.settings.wants_monitor_modes()
+    }
+
+    /// Hand the settings screen the window's monitor facts.
+    pub(crate) fn set_monitor_modes(
+        &mut self,
+        modes: crate::settings::MonitorModes,
+        console: &ViewerConsole,
+    ) {
+        self.settings.set_monitor_modes(modes, console);
+    }
+
     /// Start the master-server fetch now, ahead of the browser being
     /// opened, so its rows are waiting when "Play" is pressed.
     pub(crate) fn prefetch_servers(&mut self) {

@@ -374,7 +374,7 @@ impl GpuState {
             super::pointer_input::CursorPolicy::new(),
         );
         to.cursor_position = self.cursor_position;
-        to.applied_fullscreen = self.applied_fullscreen;
+        to.applied_display = self.applied_display;
         to.applied_resolution = self.applied_resolution;
         // The clock belongs to the connection, not to the world: a fresh one
         // per map would forget the highest stamp already sent and could
