@@ -913,6 +913,19 @@ name = "jkr-icarus"
 version = "0.1.0"
 
 [[package]]
+name = "jkr-materialgen"
+version = "0.1.0"
+dependencies = [
+ "image",
+ "jkr-bsp",
+ "jkr-shader",
+ "jkr-vfs",
+ "serde",
+ "serde_json",
+ "zip",
+]
+
+[[package]]
 name = "jkr-model"
 version = "0.1.0"
 

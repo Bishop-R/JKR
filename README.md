@@ -65,6 +65,8 @@ All source is under `crates/`:
 - `jkr-game-jka`: shared Jedi Academy game rules and movement.
 - `jkr-client`, `jkr-network`, `jkr-protocol`: client state and legacy networking.
 - `jkr-bsp`, `jkr-scene`, `jkr-runtime`: maps, scene data and world state.
+- `jkr-materialgen`: offline generator of local material maps from installed
+  textures (see [rendering](docs/rendering.md#generating-material-maps)).
 - Remaining crates provide formats, content loading, collision, navigation,
   scripting, audio, UI and the console.
 

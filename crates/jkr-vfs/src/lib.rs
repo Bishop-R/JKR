@@ -4,6 +4,7 @@ mod cache_identity;
 mod path;
 mod pk3_directory;
 pub use cache_identity::AssetCacheIdentity;
+pub use pk3_directory::pk3_search_order;
 
 pub use path::{VirtualPath, VirtualPathError};
 

@@ -26,7 +26,7 @@ justify spreading JKA-specific constants into unrelated engine services.
 
 ## Source map
 
-All 20 workspace crates are listed in [Cargo.toml](../Cargo.toml).
+All 21 workspace crates are listed in [Cargo.toml](../Cargo.toml).
 
 | Crate | Responsibility |
 | --- | --- |
@@ -50,6 +50,7 @@ All 20 workspace crates are listed in [Cargo.toml](../Cargo.toml).
 | [jkr-audio](../crates/jkr-audio/src/lib.rs) | Sound storage, spatialization and mixing |
 | [jkr-ui](../crates/jkr-ui/src/lib.rs) | Retained widgets, layout, input and draw commands |
 | [jkr-shell](../crates/jkr-shell/src/lib.rs) | Cvars, bindings and command processing |
+| [jkr-materialgen](../crates/jkr-materialgen/src/lib.rs) | Offline tool: local material maps from installed textures |
 
 ## Main flows
 
