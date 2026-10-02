@@ -262,6 +262,13 @@ and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
 
+HUD text sizes and `px` layout units scale with the HUD factor: viewport height
+over 1080, clamped to 2/3..4/3, times `cg_hudScale`. The crosshair name keeps
+stock's size in that frame: `CG_DrawCrosshairNames` draws `ergoec` (point size 20)
+at scale 1.0 in the 640x480 screen, so its line is 45 px at 1080p and 60 px at
+1440p, times the layout's `type_scale`. The classic layout uses 0.9 because
+`arialnb` has taller capitals per line than `ergoec`; Inter uses 1.0.
+
 ## Billboard icons
 
 Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0

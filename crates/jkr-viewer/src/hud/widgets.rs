@@ -141,6 +141,18 @@ pub(super) fn emit(
     }
 }
 
+/// Line height of the crosshair name at the HUD's 1080-line reference, in
+/// physical pixels. `CG_DrawCrosshairNames` (`cg_draw.c`) draws the name with
+/// `CG_DrawProportionalString`: `FONT_MEDIUM` (`ergoec`, point size 20) at
+/// scale 1.0 in the 640x480 virtual screen, so 20 * 1080 / 480 = 45 px at 1080p.
+const CROSSHAIR_NAME_LINE: f32 = 20.0 * 1_080.0 / 480.0;
+
+/// Crosshair name line height for a layout's `type_scale` and the HUD's
+/// resolution and `cg_hudScale` factor, so it scales like the other HUD text.
+fn crosshair_name_size(type_scale: f32, dpi_scale: f32) -> f32 {
+    CROSSHAIR_NAME_LINE * type_scale * dpi_scale
+}
+
 fn emit_crosshair_name(
     draw_list: &mut DrawList,
     theme: Theme,
@@ -159,7 +171,7 @@ fn emit_crosshair_name(
     let _ = draw_list.push(DrawCommand::Text {
         rect,
         text: TextId(310),
-        size: theme.typography.body * widget.style.type_scale.unwrap_or(1.0),
+        size: crosshair_name_size(widget.style.type_scale.unwrap_or(1.0), context.dpi_scale),
         color,
         align: TextAlign::Center,
         overflow: TextOverflow::Ellipsis,
@@ -405,4 +417,29 @@ fn emit_team_text(
         weight,
         letter_spacing: 0.0,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::crosshair_name_size;
+
+    /// The HUD's resolution factor before `cg_hudScale`, as `HudOverlay::layout`.
+    fn dpi(height: f32) -> f32 {
+        (height / 1_080.0).clamp(2.0 / 3.0, 4.0 / 3.0)
+    }
+
+    #[test]
+    fn crosshair_name_matches_stock_virtual_screen_size() {
+        // Stock: ergoec point size 20 in the 480-line virtual screen.
+        for height in [720.0_f32, 1_080.0, 1_440.0] {
+            let stock = 20.0 * height / 480.0;
+            assert!((crosshair_name_size(1.0, dpi(height)) - stock).abs() < 1e-3);
+        }
+    }
+
+    #[test]
+    fn crosshair_name_follows_layout_and_hud_scale() {
+        assert!((crosshair_name_size(0.9, 1.0) - 40.5).abs() < 1e-3);
+        assert!((crosshair_name_size(1.0, 1.0 * 1.5) - 67.5).abs() < 1e-3);
+    }
 }
