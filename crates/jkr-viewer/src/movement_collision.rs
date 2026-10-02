@@ -104,18 +104,32 @@ impl MovementCollision for BspMovementCollision<'_> {
     }
 }
 
-pub(super) fn trace_end(
+/// `CG_Trace` reduced to its end point: the world, then each of `solids`
+/// (`CG_ClipMoveToEntities`), keeping the nearest hit. An entity trace that
+/// is all solid wins outright, as in the reference.
+pub(super) fn trace_end_through_solids(
     bsp: &Bsp,
     scratch: &mut jkr_bsp::TraceScratch,
     start: Vec3,
     end: Vec3,
     bounds: Aabb,
     mask: u32,
+    solids: impl IntoIterator<Item = Collider>,
 ) -> Vec3 {
-    Vec3::from_array(
-        bsp.trace_box_with(scratch, start.to_array(), end.to_array(), bounds, mask)
-            .end_position,
-    )
+    let (start, end) = (start.to_array(), end.to_array());
+    let world = bsp.trace_box_with(scratch, start, end, bounds, mask);
+    let (mut fraction, mut end_position) = (world.fraction, world.end_position);
+    for solid in solids {
+        if fraction == 0.0 {
+            break;
+        }
+        let trace = inline::trace(bsp, &solid, start, end, bounds, mask);
+        if trace.all_solid || trace.fraction < fraction {
+            fraction = trace.fraction;
+            end_position = trace.end_position;
+        }
+    }
+    Vec3::from_array(end_position)
 }
 
 /// A server pusher can leave groundEntityNum stale until the next Pmove.

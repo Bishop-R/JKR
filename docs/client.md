@@ -71,4 +71,19 @@ boundaries follow the shell's quote and escape rules, and no completion happens
 inside an open quote. Arguments are not completed. See
 [shell_completion.rs](../crates/jkr-shell/src/shell_completion.rs).
 
+## Third-person camera
+
+The third-person camera follows codemp `CG_OffsetThirdPersonView`, with the
+`cg_thirdPersonRange`, `cg_thirdPersonVertOffset`, `cg_thirdPersonAngle`,
+`cg_thirdPersonPitchOffset`, `cg_thirdPersonCameraDamp` and
+`cg_thirdPersonTargetDamp` cvars. The focus pitch, offset included, is capped
+at 80 degrees, and fast yaw turns stiffen the camera damping. The target and
+the camera then sweep an 8-unit cube against `MASK_CAMERACLIP` (solid, terrain
+and player clip) through the world and solid brush entities such as lifts and
+doors, as `CG_Trace` does; players do not block it. The prediction-error offset
+moves the traced focus rather than the finished camera. `cg_thirdPersonAlpha`
+and `cg_thirdPersonHorzOffset` are not implemented; stock multiplayer has no
+automatic fade when the camera nears the player. See
+[camera.rs](../crates/jkr-viewer/src/camera.rs).
+
 For graphics controls and diagnostics, see [rendering.md](rendering.md).
