@@ -1,5 +1,7 @@
 //! Console keyboard capture and editing.
 use super::*;
+use crate::input::dead_key::TypingField;
+use std::ops::Range;
 
 /// Does `text` (the characters this key press produced) appear in a
 /// `cl_consoleKeys` list? Entries are literal characters or `0x` hex
@@ -117,6 +119,21 @@ impl ViewerConsole {
             self.set_open(false);
             return true;
         }
+        // These keys end or replace the line, so a dead key shown at its end stays
+        // typed (see `input::dead_key`).
+        if matches!(
+            key,
+            KeyCode::Escape
+                | KeyCode::Enter
+                | KeyCode::NumpadEnter
+                | KeyCode::Backspace
+                | KeyCode::Tab
+                | KeyCode::ArrowUp
+                | KeyCode::ArrowDown
+        ) || event.text.as_deref() == Some("\u{16}")
+        {
+            self.dead_key.settle();
+        }
         match key {
             KeyCode::Escape => self.set_open(false),
             KeyCode::Enter | KeyCode::NumpadEnter => self.submit(session),
@@ -141,9 +158,14 @@ impl ViewerConsole {
                 });
             }
             _ if !event.repeat => {
-                if let Some(text) = event.text.as_deref() {
-                    self.type_text(text);
-                }
+                let mut dead = self.dead_key;
+                dead.type_key(
+                    &mut PromptLine(&mut self.input),
+                    &event.logical_key,
+                    event.text.as_deref(),
+                );
+                self.dead_key = dead;
+                self.rebuild_prompt();
             }
             _ => {}
         }
@@ -154,12 +176,68 @@ impl ViewerConsole {
 impl ViewerConsole {
     /// Append typed or pasted text to the prompt: no control characters, up to the limit.
     fn type_text(&mut self, text: &str) {
-        let remaining = INPUT_LIMIT.saturating_sub(self.input.len());
-        self.input.extend(
+        PromptLine(&mut self.input).insert(text);
+        self.rebuild_prompt();
+    }
+}
+
+/// The console input line, typed at its end.
+struct PromptLine<'a>(&'a mut String);
+
+impl TypingField for PromptLine<'_> {
+    fn line(&self) -> &str {
+        self.0
+    }
+
+    fn caret(&self) -> usize {
+        self.0.len()
+    }
+
+    fn insert(&mut self, text: &str) {
+        let remaining = INPUT_LIMIT.saturating_sub(self.0.len());
+        self.0.extend(
             text.chars()
                 .filter(|character| !character.is_control())
                 .take(remaining),
         );
-        self.rebuild_prompt();
+    }
+
+    fn remove(&mut self, range: Range<usize>) {
+        self.0.replace_range(range, "");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::dead_key::DeadKey;
+    use winit::keyboard::{Key, NamedKey, SmolStr};
+
+    #[test]
+    fn prompt_line_types_a_dead_key_colour_code_exactly() {
+        let mut input = String::from("say ");
+        let mut dead = DeadKey::default();
+        dead.type_key(&mut PromptLine(&mut input), &Key::Dead(Some('^')), None);
+        assert_eq!(input, "say ^");
+        dead.type_key(
+            &mut PromptLine(&mut input),
+            &Key::Named(NamedKey::Shift),
+            None,
+        );
+        dead.type_key(
+            &mut PromptLine(&mut input),
+            &Key::Character(SmolStr::new("1")),
+            Some("^1"),
+        );
+        assert_eq!(input, "say ^1");
+    }
+
+    #[test]
+    fn prompt_line_keeps_its_limit_for_a_dead_key() {
+        let mut input = "x".repeat(INPUT_LIMIT);
+        let mut dead = DeadKey::default();
+        dead.type_key(&mut PromptLine(&mut input), &Key::Dead(Some('^')), None);
+        assert_eq!(input.len(), INPUT_LIMIT);
+        assert_eq!(dead, DeadKey::default());
     }
 }

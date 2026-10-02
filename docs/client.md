@@ -71,4 +71,12 @@ boundaries follow the shell's quote and escape rules, and no completion happens
 inside an open quote. Arguments are not completed. See
 [shell_completion.rs](../crates/jkr-shell/src/shell_completion.rs).
 
+The console line and the chat field show a dead key (the `^` of French AZERTY or
+German QWERTZ) at the caret as soon as it is pressed, and replace it with the
+composed text when the next key arrives, so typing `^1` gives exactly `^1` and
+the colour code previews as on a layout without dead keys. Enter, Backspace and
+Tab keep a shown dead key as typed. A dead `^` that the system composes into a
+superscript digit (`¹` through xkb on Linux) becomes `^` and the digit. See
+[dead_key.rs](../crates/jkr-viewer/src/input/dead_key.rs).
+
 For graphics controls and diagnostics, see [rendering.md](rendering.md).

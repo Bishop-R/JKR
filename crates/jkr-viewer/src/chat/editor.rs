@@ -1,14 +1,18 @@
 //! Bounded UTF-8 text editing, independent of platform keyboard events.
 
 use super::Channel;
+use crate::input::dead_key::{DeadKey, TypingField};
 use jkr_client::{CHAT_INPUT_BYTES, ChatTarget};
-use winit::keyboard::KeyCode;
+use std::ops::Range;
+use winit::keyboard::{Key, KeyCode};
 
 pub(super) struct Editor {
     pub(super) text: String,
     pub(super) cursor: usize,
     pub(super) channel: Channel,
     pub(super) recipient: Option<ChatTarget>,
+    /// Dead key shown at the caret until its composition arrives.
+    pub(super) dead: DeadKey,
 }
 
 impl Editor {
@@ -18,7 +22,15 @@ impl Editor {
             cursor: 0,
             channel,
             recipient: None,
+            dead: DeadKey::default(),
         }
+    }
+
+    /// Type a pressed character key, showing a dead key until it composes.
+    pub(super) fn type_key(&mut self, logical: &Key, text: Option<&str>) {
+        let mut dead = self.dead;
+        dead.type_key(self, logical, text);
+        self.dead = dead;
     }
 
     pub(super) fn insert(&mut self, value: &str) {
@@ -63,5 +75,28 @@ impl Editor {
             .chars()
             .next()
             .map_or(self.cursor, |c| self.cursor + c.len_utf8())
+    }
+}
+
+impl TypingField for Editor {
+    fn line(&self) -> &str {
+        &self.text
+    }
+
+    fn caret(&self) -> usize {
+        self.cursor
+    }
+
+    fn insert(&mut self, text: &str) {
+        Editor::insert(self, text);
+    }
+
+    fn remove(&mut self, range: Range<usize>) {
+        if self.cursor >= range.end {
+            self.cursor -= range.len();
+        } else if self.cursor > range.start {
+            self.cursor = range.start;
+        }
+        self.text.drain(range);
     }
 }
