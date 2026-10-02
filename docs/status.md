@@ -102,6 +102,12 @@ combined performance preview before publication.
   sounds only from there, so they are silent in JKR. The stun baton, unlike
   melee, has a fire sound in the weapon table of
   [sound_events.rs](../crates/jkr-client/src/sound_events.rs).
+- Snapshot entities draw a model from `modelindex` only for the entity types
+  whose codemp cgame function does so; the per-type rules and their reference
+  are in [entity_models.rs](../crates/jkr-client/src/entity_models.rs). Models
+  codemp draws that the client still does not: force holocrons, non-brush
+  `ET_MOVER` models and a mover's secondary `modelindex2` model, and the
+  portable shield (`ET_SPECIAL`) and `ET_BEAM` effects.
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map

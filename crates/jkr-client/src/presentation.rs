@@ -236,10 +236,10 @@ impl LegacyWorldAdapter {
             } else {
                 world.set_appearance(
                     id,
-                    if matches!(state.entity_type(), 2 | 5) {
+                    if state.entity_type() == 2 {
                         legacy_item_appearance(state.model_index())
                     } else {
-                        legacy_entity_model_appearance(game_state, state)
+                        crate::entity_models::legacy_entity_model_appearance(game_state, state)
                     },
                 );
             }
@@ -426,42 +426,6 @@ pub fn legacy_model_appearance(game_state: &GameState, model_index: i16) -> Opti
     }
     Some(Appearance {
         model: model.to_owned(),
-        variant: String::new(),
-    })
-}
-
-fn legacy_entity_model_appearance(
-    game_state: &GameState,
-    state: &jkr_protocol::EntityState,
-) -> Option<Appearance> {
-    if !legacy_model_index_is_model(state.entity_type(), state.weapon()) {
-        return None;
-    }
-    legacy_inline_model_appearance(state.model_index(), state.solid())
-        .or_else(|| legacy_model_appearance(game_state, state.model_index()))
-}
-
-/// Whether `modelindex` names a `CS_MODELS` entry for this entity.
-///
-/// Dismembered limbs (`ET_GENERAL` with `weapon == G2_MODEL_PART`,
-/// `codemp/game/g_combat.c:3427-3435`) reuse the field for the owner's entity
-/// number, which stock cgame reads as a client index (`cg_ents.c:1019-1035`).
-/// Drawing that index as a map model spawns random scenery on every
-/// dismembering hit; limbs need a ghoul2 body-part renderer instead.
-fn legacy_model_index_is_model(entity_type: u8, weapon: u8) -> bool {
-    const ET_GENERAL: u8 = 0;
-    const G2_MODEL_PART: u8 = 50;
-    !(entity_type == ET_GENERAL && weapon == G2_MODEL_PART)
-}
-
-fn legacy_inline_model_appearance(model_index: i16, solid: u32) -> Option<Appearance> {
-    const SOLID_BMODEL: u32 = 0x00ff_ffff;
-    if solid != SOLID_BMODEL {
-        return None;
-    }
-    let index = usize::try_from(model_index).ok()?;
-    (index != 0).then(|| Appearance {
-        model: format!("*{index}"),
         variant: String::new(),
     })
 }

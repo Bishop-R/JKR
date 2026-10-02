@@ -18,6 +18,7 @@ mod demo_playback;
 mod demo_recorder;
 pub mod download;
 mod download_session;
+mod entity_models;
 mod force_overlay_events;
 mod force_overlays;
 mod force_profile;
