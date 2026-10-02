@@ -61,41 +61,18 @@ impl ClientMenu {
     }
 
     pub(super) fn activate_main(&mut self, console: &mut ViewerConsole) -> MenuAction {
-        match self.main_selection {
-            0 => {
-                if let Ok(master) = console.master_server() {
-                    self.browser.set_master(master);
-                }
-                self.open_browser();
-                // Rows fetched at start-up (or moments ago) show at once; a
-                // fetch is only started when there is nothing fresh to show.
-                if self.browser.is_stale() {
-                    self.refresh();
-                } else if self.browser.is_refreshing() {
-                    self.state.set_status("Refreshing master server...");
-                } else {
-                    self.state.set_status(format!(
-                        "{} responding servers. Enter joins; R refreshes.",
-                        self.browser.entries().len()
-                    ));
-                }
-                MenuAction::None
-            }
-            1 => {
-                self.open_create_game(console);
-                MenuAction::None
-            }
-            2 => {
-                self.open_player(console, ReturnTarget::MainMenu);
-                MenuAction::None
-            }
-            3 => {
-                self.open_settings_from(console, ReturnTarget::MainMenu, 0);
-                MenuAction::None
-            }
-            4 => MenuAction::Quit,
-            _ => MenuAction::None,
+        if self.menu_style == MenuStyle::Classic {
+            return self.activate_classic(console);
         }
+        let destination = match self.main_selection {
+            0 => MainDestination::Browser,
+            1 => MainDestination::CreateGame,
+            2 => MainDestination::Player,
+            3 => MainDestination::Settings { tab: 0 },
+            4 => MainDestination::Quit,
+            _ => return MenuAction::None,
+        };
+        self.open_main_destination(destination, console)
     }
 
     pub(super) fn refresh(&mut self) {
@@ -183,6 +160,10 @@ impl ClientMenu {
     }
 
     pub(super) fn navigate_main(&mut self, action: AbstractAction) {
+        if self.menu_style == MenuStyle::Classic {
+            self.navigate_classic(action);
+            return;
+        }
         if let Some(row) = self
             .ui
             .action(action)

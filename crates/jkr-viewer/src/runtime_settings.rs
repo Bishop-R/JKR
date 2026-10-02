@@ -15,6 +15,9 @@ impl GpuState {
         };
         if let Some(menu) = &mut self.client_menu {
             menu.set_accent(ui_accent(console));
+            menu.set_menu_style(crate::menu::style::MenuStyle::from_cvar(
+                console.text_value(crate::menu::style::CVAR),
+            ));
         }
         self.mouse_look = MouseLook {
             sensitivity: console.float_cvar("sensitivity").unwrap_or(5.0) as f32,

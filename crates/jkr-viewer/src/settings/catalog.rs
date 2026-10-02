@@ -316,6 +316,11 @@ pub(super) const GAME: &[Setting] = &[
         cvar: "ui_accent",
         kind: ValueKind::Choice(&["ember", "amber", "blue", "green", "violet", "neutral"]),
     },
+    Setting {
+        label: "Menu style",
+        cvar: crate::menu::style::CVAR,
+        kind: ValueKind::Choice(&crate::menu::style::MenuStyle::NAMES),
+    },
 ];
 pub(super) const NETWORK: &[Setting] = &[
     Setting {

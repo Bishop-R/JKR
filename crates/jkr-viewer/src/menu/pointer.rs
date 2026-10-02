@@ -75,6 +75,14 @@ impl ClientMenu {
             return MenuAction::None;
         };
         match self.state.phase() {
+            ClientPhase::MainMenu if self.menu_style == MenuStyle::Classic => {
+                self.classic.select(usize::from(token));
+                if event.kind == UiEventKind::Activate {
+                    self.activate_classic(console)
+                } else {
+                    MenuAction::None
+                }
+            }
             ClientPhase::MainMenu => {
                 if usize::from(token) < MAIN_ITEMS.len() {
                     self.main_selection = usize::from(token);

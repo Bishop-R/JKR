@@ -33,6 +33,40 @@ Set `JKR_DEDICATED` to its executable path if installed elsewhere. The child
 lifetime is managed by the client and defaults to local access; see
 [local_server.rs](../crates/jkr-viewer/src/local_server.rs).
 
+## Menu style
+
+`ui_menuStyle` (Settings, GAME tab, "Menu style") picks the main-menu layout:
+`modern` (default) or `classic`, which is close to the retail multiplayer menus
+in layout and flow without porting their `.menu` scripts. The classic main menu
+has the retail entries and order: Play, Profile, Controls and Setup in two
+columns, Exit below. Play opens the retail "start playing" page (Join Server,
+Create Server); Exit and Escape ask before quitting. The retail 640x480 layout is
+fitted to the window height and centred. Only JKR's own shapes and text are
+drawn, over the dimmed menu map.
+
+Only the main menu has a classic version so far. Its entries open the modern
+screens: the server browser, Create game, the Player screen, and Settings on the
+CONTROLS tab (Controls) or the VIDEO tab (Setup). The code is in
+[menu/classic.rs](../crates/jkr-viewer/src/menu/classic.rs): the pages and entries
+are in [layout.rs](../crates/jkr-viewer/src/menu/classic/layout.rs), drawing is
+in [view.rs](../crates/jkr-viewer/src/menu/classic/view.rs) and shared exits are
+in [destination.rs](../crates/jkr-viewer/src/menu/destination.rs). The style is
+read in [style.rs](../crates/jkr-viewer/src/menu/style.rs).
+
+Planned follow-ups, each a new page or screen module beside the main menu,
+following the retail `ui/jamp` menus:
+
+- Start playing: Solo Game (`quickgame`), Play Demo (`demo`), Rules (`rules*`).
+- Join Server (`joinserver`, `serverinfo`, `findplayer`, `password`,
+  `createfavorite`) and Create Server (`createserver`, `advancedcreateserver`).
+- Profile (`player`, `player2`, `saber`), Controls (`controls`), and Setup
+  (`setup`: video, sound, game options, mods, defaults).
+- The in-game menus (`ingame*`, `siege_class`) and the connect and error
+  screens (`connect`, `error`).
+- Optionally the player's own retail menu artwork (logo, window frames) from
+  game data, with the current drawing as fallback. Retail assets are never
+  bundled.
+
 ## Configuration and content
 
 The Linux configuration is `$XDG_CONFIG_HOME/jkr/config.cfg`, falling back to

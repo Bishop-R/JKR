@@ -163,6 +163,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Menu accent: ember, amber, blue, green, violet, neutral, or RRGGBB hex",
         ),
         CvarDefinition::new(
+            crate::menu::style::CVAR,
+            crate::menu::style::MenuStyle::NAMES[0],
+            archive,
+            "Main menu layout: modern, or classic (after the original Jedi Academy menus)",
+        ),
+        CvarDefinition::new(
             "r_gamma",
             1.0_f64,
             archive,

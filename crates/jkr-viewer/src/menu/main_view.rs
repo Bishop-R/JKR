@@ -9,7 +9,7 @@ use crate::{TextVertex, UiFont};
 use jkr_ui::{DrawCommand, FontWeight, Rect, TextAlign};
 
 /// Build version, bottom right; the only footer text the main menu carries.
-const VERSION_LINE: &str = concat!("JKR ", env!("CARGO_PKG_VERSION"));
+pub(super) const VERSION_LINE: &str = concat!("JKR ", env!("CARGO_PKG_VERSION"));
 
 /// Top of the entry list and the height of one entry.
 fn list_metrics(viewport: [f32; 2], scale: f32) -> (f32, f32) {
@@ -87,7 +87,11 @@ impl ClientMenu {
         viewport: [f32; 2],
     ) {
         let reveal = self.screen_reveal();
-        build(&mut self.ui, viewport, self.main_selection, reveal);
+        if self.menu_style == super::MenuStyle::Classic {
+            super::classic::view::build(&mut self.ui, viewport, &self.classic, reveal);
+        } else {
+            build(&mut self.ui, viewport, self.main_selection, reveal);
+        }
         self.ui.append_text(vertices, font, viewport);
     }
 }

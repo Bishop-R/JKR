@@ -8,16 +8,19 @@ mod browser_details;
 pub(crate) mod browser_filters;
 pub(crate) mod browser_table;
 pub(crate) mod browser_view;
+pub(crate) mod classic;
 pub(crate) mod create_game;
 pub(crate) mod create_game_catalog;
 mod create_game_pointer;
 mod create_game_view;
+mod destination;
 mod hosting;
 mod levelshot;
 pub(crate) mod main_view;
 mod map_picker;
 mod map_picker_view;
 pub(crate) mod network_view;
+pub(crate) mod style;
 
 use super::{TextVertex, UiFont};
 use crate::client_state::{ClientPhase, ClientState};
@@ -28,7 +31,9 @@ use crate::menu_widgets::MenuCanvas;
 use crate::player_menu::{PlayerMenu, PlayerMenuResult, ReturnTarget};
 use crate::server_browser::{RefreshPoll, ServerBrowser, SortColumn};
 use crate::settings::{SettingsMenu, SettingsResult};
+use destination::MainDestination;
 use jkr_ui::{AbstractAction, DrawList, InputEvent};
+use style::MenuStyle;
 use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
@@ -115,6 +120,10 @@ pub(crate) struct ClientMenu {
     /// Last clicked browser row and when, for double-click joining.
     browser_last_click: Option<(u16, std::time::Instant)>,
     main_selection: usize,
+    /// Layout of the main menu (`ui_menuStyle`).
+    menu_style: MenuStyle,
+    /// Page and entry of the classic main menu.
+    classic: classic::ClassicMain,
     settings: SettingsMenu,
     /// Where the settings screen (and the key-bindings editor it hosts)
     /// returns when closed: the main menu, or the game menu that opened it.
@@ -173,6 +182,8 @@ impl ClientMenu {
             browser_focus: 1_000,
             browser_last_click: None,
             main_selection: 0,
+            menu_style: MenuStyle::default(),
+            classic: classic::ClassicMain::new(),
             settings: SettingsMenu::new(),
             settings_return: ReturnTarget::MainMenu,
             browser_return: ReturnTarget::MainMenu,
@@ -525,6 +536,10 @@ impl ClientMenu {
                 KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
                     self.activate_main(console)
                 }
+                KeyCode::Escape if self.menu_style == MenuStyle::Classic => {
+                    self.cancel_classic();
+                    MenuAction::None
+                }
                 _ => MenuAction::None,
             },
             ClientPhase::Browser => match key {
@@ -724,6 +739,7 @@ impl ClientMenu {
     pub(crate) fn return_to_main_menu(&mut self) {
         self.state.main_menu();
         self.main_selection = 0;
+        self.classic.reset();
     }
 
     pub(crate) fn attach_catalogue(&mut self, vfs: std::sync::Arc<jkr_vfs::VirtualFileSystem>) {
