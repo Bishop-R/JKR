@@ -73,6 +73,10 @@ impl GpuState {
             phases.mark(encoder, "light-pass");
         }
         self.frame_pacer.split.cut(&self.device, encoder);
+        let depth_primed = main_view
+            && self
+                .world_materials
+                .prime_depth(encoder, &self.depth.view, &shadow_input);
         {
             let mut pass = {
                 scene_pass(
@@ -80,7 +84,11 @@ impl GpuState {
                     target_view,
                     &self.depth.view,
                     frame_target::world_load(portal),
-                    wgpu::LoadOp::Clear(1.0),
+                    if depth_primed {
+                        wgpu::LoadOp::Load
+                    } else {
+                        wgpu::LoadOp::Clear(1.0)
+                    },
                 )
             };
             let fog_frame = world_materials::FrameDraw {

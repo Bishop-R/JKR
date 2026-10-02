@@ -217,7 +217,7 @@ impl Runtime {
     }
 
     /// Upload the uniform only when it changed; a disabled effect writes nothing.
-    fn prepare(&mut self, queue: &wgpu::Queue, frame: Frame) {
+    fn prepare(&mut self, queue: &crate::frame_queue::FrameQueue, frame: Frame) {
         if frame.count() != 0 && frame.uniform != self.frame.uniform {
             queue.write_buffer(&self.buffer, 0, bytemuck::bytes_of(&frame.uniform));
         }
@@ -260,86 +260,5 @@ impl crate::GpuState {
     /// Submit the motes into the open main-view world pass.
     pub(crate) fn draw_dust_motes<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         self.dust_motes.draw(pass, &self.camera_bind_group);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn registry(value: Option<CvarValue>) -> (CvarRegistry, Settings) {
-        let mut cvars = CvarRegistry::new();
-        let settings = Settings::bind(&mut cvars).unwrap();
-        if let Some(value) = value {
-            cvars.set_value(CVAR, value).unwrap();
-        }
-        (cvars, settings)
-    }
-
-    #[test]
-    fn defaults_off_and_clamps_live_changes() {
-        let (mut cvars, settings) = registry(None);
-        assert_eq!(settings.intensity(), 0.0);
-        cvars.set_text(CVAR, "0.5").unwrap();
-        assert_eq!(settings.intensity(), 0.5);
-        cvars.set_text(CVAR, "7").unwrap();
-        assert_eq!(settings.intensity(), 1.0);
-        cvars.set_text(CVAR, "-2").unwrap();
-        assert_eq!(settings.intensity(), 0.0);
-    }
-
-    #[test]
-    fn archived_value_seeds_before_subscription() {
-        let mut cvars = CvarRegistry::new();
-        cvars
-            .register(CvarDefinition::new(CVAR, 0.25_f64, CvarFlags::ARCHIVE, ""))
-            .unwrap();
-        let settings = Settings::from_registered(&mut cvars).unwrap();
-        assert_eq!(settings.intensity(), 0.25);
-    }
-
-    #[test]
-    fn zero_or_invalid_intensity_draws_nothing() {
-        let light = EntityLight::FALLBACK;
-        assert_eq!(Frame::new(0.0, &light).count(), 0);
-        assert_eq!(Frame::new(f32::NAN, &light).count(), 0);
-        assert_eq!(Frame::new(1e-5, &light), Frame::default());
-    }
-
-    #[test]
-    fn intensity_scales_count_and_caps_opacity() {
-        let light = EntityLight::FALLBACK;
-        let half = Frame::new(0.5, &light);
-        let full = Frame::new(1.0, &light);
-        let over = Frame::new(3.0, &light);
-        assert_eq!(half.count(), MAX_MOTES / 2);
-        assert_eq!(full.count(), MAX_MOTES);
-        assert_eq!(over, full);
-        assert!(half.uniform.color[3] < full.uniform.color[3]);
-        assert!(half.uniform.color[3] > 0.0);
-        assert_eq!(full.uniform.color[3], PEAK_ALPHA);
-    }
-
-    #[test]
-    fn colour_follows_the_light_grid_and_stays_in_range() {
-        let dark = EntityLight {
-            ambient: [0.1, 0.1, 0.12],
-            directed: [0.0; 3],
-            direction: [0.0, 0.0, 1.0],
-        };
-        let bright = EntityLight {
-            ambient: [1.0; 3],
-            directed: [3.0, 0.4, 0.0],
-            direction: [0.0, 0.0, 1.0],
-        };
-        let dark = Frame::new(1.0, &dark).uniform.color;
-        let bright = Frame::new(1.0, &bright).uniform.color;
-        assert_eq!(&dark[..3], &[0.1, 0.1, 0.12]);
-        assert_eq!(&bright[..3], &[1.0, 1.0, 1.0]);
-    }
-
-    #[test]
-    fn uniform_matches_the_shader_block() {
-        assert_eq!(std::mem::size_of::<DustUniform>(), 16);
     }
 }

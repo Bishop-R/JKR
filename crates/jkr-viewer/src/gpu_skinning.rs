@@ -134,7 +134,7 @@ fn skin_records(
 
 impl Buffers {
     /// One queue transfer for all actors, preserving their exact palette offsets and bytes.
-    pub(crate) fn flush(&mut self, queue: &wgpu::Queue) {
+    pub(crate) fn flush(&mut self, queue: &crate::frame_queue::FrameQueue) {
         if self.dirty.is_empty() {
             return;
         }
@@ -211,7 +211,7 @@ impl Buffers {
     pub(crate) fn append_actor(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         shared_vertices: u32,
         mesh: &mut ActorMesh,
     ) -> Result<bool, Box<dyn Error>> {
