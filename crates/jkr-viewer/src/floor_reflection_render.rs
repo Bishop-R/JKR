@@ -88,6 +88,13 @@ impl GpuState {
                     bounds::receiver_frustum(floor.clip, floor.region, target.size, floors.scale);
 
                 let _receiver_culling = self.world_materials.view_culling.camera(clip);
+                let [x, y, w, h] = bounds::pixels(floor.region, target.size);
+                let depth_primed = self.world_materials.prime_depth_region(
+                    encoder,
+                    &target.depth.view,
+                    &input,
+                    Some([x, y, w, h]),
+                );
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("JKR floor reflected scene"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -102,7 +109,11 @@ impl GpuState {
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                         view: &target.depth.view,
                         depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.),
+                            load: if depth_primed {
+                                wgpu::LoadOp::Load
+                            } else {
+                                wgpu::LoadOp::Clear(1.)
+                            },
                             store: wgpu::StoreOp::Store,
                         }),
                         stencil_ops: None,
@@ -112,7 +123,6 @@ impl GpuState {
                     multiview_mask: None,
                 });
                 let world = &self.world_materials;
-                let [x, y, w, h] = bounds::pixels(floor.region, target.size);
                 pass.set_scissor_rect(x, y, w, h);
 
                 world.draw_sky(

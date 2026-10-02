@@ -115,8 +115,8 @@ pub(super) fn program_source(source: &str) -> String {
             "textureSample(table_lightmaps[table_index.z], table_samplers[table_index.w & 1u], uv)",
         ),
         (
-            "textureSample(secondary_images, secondary_sampler,\n            input.secondary_uv, secondary_frame)",
-            "textureSample(table_images[table_index.y], table_samplers[(table_index.w >> 1u) & 1u],\n            input.secondary_uv, secondary_frame)",
+            "textureSample(secondary_images, secondary_sampler,",
+            "textureSample(table_images[table_index.y], table_samplers[(table_index.w >> 1u) & 1u],",
         ),
         (
             "textureSample(lightmap_image, secondary_sampler, input.secondary_uv)",

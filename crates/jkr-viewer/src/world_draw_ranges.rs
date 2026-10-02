@@ -13,6 +13,10 @@ struct Key {
 #[derive(Default)]
 struct Data {
     key: Option<Key>,
+    // Area/PVS selection survives camera rotation and movement within one cluster.
+    // Its indices refer to the immutable draw inventory selected by these same inputs.
+    source_key: Option<(u64, Option<usize>, bool)>,
+    source_draws: Vec<usize>,
     ranges: Vec<Range<u32>>,
 }
 
@@ -25,6 +29,7 @@ pub(super) struct Cache {
 impl Cache {
     fn reserve(&mut self, capacity: usize) {
         self.data.get_mut().ranges.reserve(capacity);
+        self.data.get_mut().source_draws.reserve(capacity);
         self.enabled = capacity != 0;
     }
 }
@@ -123,15 +128,28 @@ impl Runtime {
         };
         if material.camera_ranges.data.borrow().key != Some(key) {
             let mut data = material.camera_ranges.data.borrow_mut();
-            data.ranges.clear();
-
-            for draw in draws {
-                if !self.areas.visible(&draw.clusters, source, visibility)
-                    || !self.view_culling.cached(draw.bounds, &draw.view_cache)
-                {
+            let source_key = (key.area, source, key.pvs);
+            if data.source_key != Some(source_key) {
+                data.source_draws.clear();
+                for (index, draw) in draws.iter().enumerate() {
+                    if self.areas.visible(&draw.clusters, source, visibility) {
+                        data.source_draws.push(index);
+                    }
+                }
+                data.source_key = Some(source_key);
+            }
+            let Data {
+                source_draws,
+                ranges,
+                ..
+            } = &mut *data;
+            ranges.clear();
+            for &index in source_draws.iter() {
+                let draw = &draws[index];
+                if !self.view_culling.cached(draw.bounds, &draw.view_cache) {
                     continue;
                 }
-                push_visible(&mut data.ranges, draw.indices.clone());
+                push_visible(ranges, draw.indices.clone());
             }
             data.key = Some(key);
         }

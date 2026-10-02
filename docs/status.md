@@ -47,11 +47,61 @@ without a panic or GPU validation error during a short startup check.
 The owner also playtested the release build and confirmed that the reported
 view looked clean.
 
+Sun-shadow edge refinement (2026-10-02, based on `980e693`): the owner
+accepted the release playtest with smoother structure shadows and more stable
+player-shadow overlaps. Cascades share a reconstruction footprint and wider
+transition bands. World and moving-caster depths are filtered independently;
+a world-space blocker search and Gaussian reconstruction smooth broad edges
+without letting a player change the building's separation estimate.
+
+External release GPU evidence covers the three marked `mp/ffa3` views, camera
+approaches and seven positions of an actor in the dynamic-caster pass. Adding
+the actor did not brighten unchanged receivers in that probe. Tier 2, day/night
+disabled and actor-only GPU smoke checks passed, as did formatting, workspace
+build/tests and the release client build. The tested 4K view adds about 0.49 ms
+of GPU work over the preceding playtest filter. See [rendering](rendering.md)
+for settings, the overlap approximation, memory cost and remaining limits.
+
+Performance work based on `b4debe4` (2026-10-02) preserves the accepted shadow
+filter while skipping provably constant footprints, unused baked-lightmap reads
+and hidden opaque shading. External 31-player replays show 4K GPU means falling
+from 5.30 to 4.57 ms on `mp/ffa3` and 6.71 to 5.81 ms on `mp/ffa1`. At
+2560×1080, `ffa3` GPU work is 1.85 ms but total frame time remains 2.47 ms:
+the 2 ms target is still open. Shader reference comparisons, alternate-mode
+captures, workspace checks and a native release smoke check passed; see
+[rendering](rendering.md) for settings, evidence and limitations.
+An additional PVS/area candidate cache reduced CPU world-pass encoding by
+0.052 ms on the smaller `ffa3` replay and matched 3,178,666 direct-traversal
+results, including forced visibility transitions. Its total-frame gain was
+0.042 ms there; the reflection-heavy `ffa1` route was essentially unchanged.
+Extending opaque depth priming to floor reflections then saved about 0.036 ms
+of GPU work in paired 4K `ffa1` runs; lower-resolution timing and captures on
+both maps also passed. Reflection resolution and shadow filtering are unchanged.
+Lazy particle-stage sampling removes about 0.025 ms of measured effect preparation
+on the `ffa3` replay; 3,360 sampled stage values matched the previous implementation
+bit for bit. Its total-frame effect was within run variation.
+Caching immutable material sort keys saves another 0.01–0.014 ms in instance
+preparation on the two routes. The original comparator matched 1,362,200 ordered
+draw entries; total-frame improvement remains below run variation.
+Reusing each draw's stage-major classification removes a further 0.011–0.016 ms
+of CPU world-pass encoding in paired runs, with unchanged draw storage size
+and reference-checked classification.
+Fixed AO sample tables and equivalent depth-ray arithmetic save another
+0.023–0.026 ms of total GPU time in paired 4K runs, with unchanged AO settings
+and checked captures on both routes. The owner playtested and accepted the
+combined performance preview before publication.
+
 ## Open validation and limitations
 
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
   marking individual capabilities complete.
+- The client does not play animation-event sounds from a model's
+  `animevents.cfg` (`AEV_SOUND`/`AEV_SOUNDCHAN`, played by codemp
+  `CG_PlayerAnimEventDo`). Stock melee punches and saber kicks get their swing
+  sounds only from there, so they are silent in JKR. The stun baton, unlike
+  melee, has a fire sound in the weapon table of
+  [sound_events.rs](../crates/jkr-client/src/sound_events.rs).
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map
@@ -70,9 +120,11 @@ view looked clean.
 
 ## Current priorities
 
-1. Stabilize normal client and dedicated-server use with reproducible local reports.
-2. Audit compatibility gaps by subsystem and scenario; preserve exact combat and wire behavior.
-3. Measure and improve release frame times while retaining presentation correctness.
+1. Improve populated-match release frame times while preserving the owner-accepted
+   appearance (owner priority, 2026-10-02). Target below 2 ms with 31 players;
+   reaching that target is not a reason to stop investigating useful savings.
+2. Stabilize normal client and dedicated-server use with reproducible local reports.
+3. Audit compatibility gaps by subsystem and scenario; preserve exact combat and wire behavior.
 4. Broaden community-content and platform validation.
 
 These priorities guide requested work; they do not authorize an assistant to

@@ -7,6 +7,8 @@ struct Parameters {
 struct Fog { color: vec4<f32>, surface: vec4<f32>, low: vec4<f32>, high: vec4<f32> };
 @group(0) @binding(0) var<uniform> p: Parameters;
 @group(0) @binding(1) var shadow_map: texture_depth_2d;
+@group(0) @binding(12) var world_map: texture_depth_2d;
+@group(0) @binding(13) var close_world_map: texture_depth_2d;
 @group(0) @binding(2) var shadow_sampler: sampler_comparison;
 @group(0) @binding(3) var<uniform> fogs: array<Fog, 32>;
 @group(0) @binding(4) var input_volume: texture_3d<f32>;
@@ -102,7 +104,7 @@ fn surface_axial(uv: vec2<f32>) -> f32 {
 // Sunlight averaged over a froxel cell's own footprint, `radius` in shadow texels. Cells
 // are far coarser than shadow texels, so a point sample aliases the beam edge into
 // stair-steps across columns; pre-filtering to the cell size keeps the edge smooth.
-fn sunlight(map: texture_depth_2d, vp: mat4x4<f32>, point: vec3<f32>, radius: f32) -> f32 {
+fn sunlight(map: texture_depth_2d, world_map: texture_depth_2d, vp: mat4x4<f32>, point: vec3<f32>, radius: f32) -> f32 {
     let q = vp*vec4(point,1.0);
     let uv = q.xy*vec2(0.5,-0.5)+0.5;
     if any(uv <= vec2(0.0)) || any(uv >= vec2(1.0)) || q.z <= 0.0 || q.z >= 1.0 {
@@ -110,14 +112,16 @@ fn sunlight(map: texture_depth_2d, vp: mat4x4<f32>, point: vec3<f32>, radius: f3
     }
     let depth = q.z-0.000001;
     if radius < 0.5 {
-        return textureSampleCompareLevel(map,shadow_sampler,uv,depth);
+        return min(textureSampleCompareLevel(map,shadow_sampler,uv,depth),
+            textureSampleCompareLevel(world_map,shadow_sampler,uv,depth));
     }
     let step = radius/vec2<f32>(textureDimensions(map));
     var light = 0.0;
     for (var i = 0u; i < 4u; i++) {
         let angle = 0.7853982+f32(i)*1.5707963;
-        light += textureSampleCompareLevel(map,shadow_sampler,
-            uv+vec2(cos(angle),sin(angle))*step,depth);
+        let sample_uv = uv+vec2(cos(angle),sin(angle))*step;
+        light += min(textureSampleCompareLevel(map,shadow_sampler,sample_uv,depth),
+            textureSampleCompareLevel(world_map,shadow_sampler,sample_uv,depth));
     }
     return light*0.25;
 }
@@ -210,17 +214,17 @@ fn cell_shade(uv: vec2<f32>, direction: vec3<f32>, depth: f32, cell_angle: f32) 
     if close_weight < 1.0 {
         if view_weight < 1.0 && p.far_range.y > 0.0 {
             let radius = min(0.5*depth*cell_angle/max(p.far_range.x,0.001),6.0);
-            light = sunlight(far_map,p.far,point,radius)*(1.0-view_weight);
+            light = sunlight(far_map,far_map,p.far,point,radius)*(1.0-view_weight);
         }
         if view_weight > 0.0 {
             let radius = min(0.5*depth*cell_angle/max(p.range.w,0.001),6.0);
-            light += sunlight(shadow_map,p.shadow,point,radius)*view_weight;
+            light += sunlight(shadow_map,world_map,p.shadow,point,radius)*view_weight;
         }
         light *= 1.0-close_weight;
     }
     if close_weight > 0.0 {
         let radius = min(0.5*depth*cell_angle/max(p.close_range.x,0.001),6.0);
-        light += sunlight(close_map,p.close,point,radius)*close_weight;
+        light += sunlight(close_map,close_world_map,p.close,point,radius)*close_weight;
     }
     return light*density(point);
 }
@@ -251,6 +255,7 @@ var<workgroup> partial: array<vec3<f32>, 64>;
     let uv = (vec2<f32>(id.xy)+0.5)/vec2<f32>(p.grid.xy);
     let cosine = dot(ray(uv),p.forward.xyz);
     var scattering = vec3(0.0);
+    var start_depth = slice_depth(0.0);
     for (var z = 0u; z < p.grid.z; z++) {
         var cell = textureLoad(input_volume,vec3<i32>(vec2<i32>(id.xy),i32(z)),0).rgb;
         // Rays are the contrast in sunlit air, not its mean: air lit uniformly across a
@@ -260,8 +265,10 @@ var<workgroup> partial: array<vec3<f32>, 64>;
         let tile_uv = vec3(uv,(f32(z)+0.5)/f32(p.grid.z));
         let wide = textureSampleLevel(tile_means,volume_sampler,tile_uv,0.0).rgb;
         cell = max(cell-p.range.z*wide,vec3(0.0));
-        let length = (slice_depth(f32(z+1u)/f32(p.grid.z))-
-            slice_depth(f32(z)/f32(p.grid.z)))/cosine;
+        // The previous end is this slice's exact start; avoid repeating its power.
+        let end_depth = slice_depth(f32(z+1u)/f32(p.grid.z));
+        let length = (end_depth-start_depth)/cosine;
+        start_depth = end_depth;
         // Thin-air approximation: sunlit in-scattering only, no global extinction.
         scattering += cell*length;
         textureStore(output_volume,vec3<i32>(vec2<i32>(id.xy),i32(z)),

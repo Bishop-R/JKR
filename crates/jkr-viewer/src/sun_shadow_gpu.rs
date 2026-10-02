@@ -34,7 +34,7 @@ pub(super) fn new(
         mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
         format: crate::DepthTarget::FORMAT,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING
-            // Held static casters are copied under each frame's moving ones.
+            // Static and moving casters remain separate through filtering.
             | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
         view_formats: &[] }).create_view(&Default::default())
         };
@@ -74,7 +74,7 @@ pub(super) fn new(
         rendered: std::cell::Cell::new(None),
     });
     let close = settings.world.then(|| cascade("JKR close sun cascade"));
-    let held = (settings.world && settings.held).then(|| {
+    let held = settings.world.then(|| {
         [
             held::Held::new(depth_map("JKR held view casters")),
             held::Held::new(depth_map("JKR held close casters")),
@@ -109,12 +109,23 @@ pub(super) fn new(
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    let bounds = super::bounds::Bounds::new(
+        device,
+        settings.resolution,
+        [
+            held.as_ref().map_or(&depth, |h| h[0].depth()),
+            held.as_ref().map_or(&depth, |h| h[1].depth()),
+            far.as_ref().map_or(&depth, |f| &f.cascade.depth),
+        ],
+    );
     let receiver_entries = cascade_entries(
         &depth,
         &sampler,
+        &bounds.view,
         &receiver_buffer,
         far.as_ref(),
         close.as_ref(),
+        held.as_ref(),
     );
     let sun_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("JKR receiver sun visibility"),
@@ -339,6 +350,7 @@ pub(super) fn new(
 
         point_lights: forge.point_lights.clone(),
         sampler,
+        bounds,
         lamps,
         lamp_shadows,
         caster,
@@ -355,14 +367,16 @@ pub(super) fn new(
     }
 }
 
-/// The five cascade bindings shared by every receiver group of this runtime.
+/// The separate static/moving cascade bindings shared by every receiver group of this runtime.
 fn cascade_entries<'a>(
     depth: &'a wgpu::TextureView,
     sampler: &'a wgpu::Sampler,
+    bounds: &'a wgpu::TextureView,
     buffer: &'a wgpu::Buffer,
     far: Option<&'a FarCascade>,
     close: Option<&'a Cascade>,
-) -> [wgpu::BindGroupEntry<'a>; 5] {
+    world: Option<&'a [held::Held; 2]>,
+) -> [wgpu::BindGroupEntry<'a>; 8] {
     [
         wgpu::BindGroupEntry {
             binding: 0,
@@ -386,6 +400,18 @@ fn cascade_entries<'a>(
         wgpu::BindGroupEntry {
             binding: 4,
             resource: wgpu::BindingResource::TextureView(close.map_or(depth, |close| &close.depth)),
+        },
+        wgpu::BindGroupEntry {
+            binding: 5,
+            resource: wgpu::BindingResource::TextureView(world.map_or(depth, |w| w[0].depth())),
+        },
+        wgpu::BindGroupEntry {
+            binding: 6,
+            resource: wgpu::BindingResource::TextureView(world.map_or(depth, |w| w[1].depth())),
+        },
+        wgpu::BindGroupEntry {
+            binding: 7,
+            resource: wgpu::BindingResource::TextureView(bounds),
         },
     ]
 }
@@ -422,9 +448,11 @@ impl Runtime {
         let entries = cascade_entries(
             &self.depth,
             &self.sampler,
+            &self.bounds.view,
             &self.receiver_buffer,
             self.far.as_ref(),
             self.close.as_ref(),
+            self.held.as_ref(),
         );
         super::super::model_sun::receiver_group(
             device,

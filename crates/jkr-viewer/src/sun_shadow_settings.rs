@@ -100,7 +100,7 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
         (
             "jkr_shadowTaps",
             16,
-            "Sun shadow PCF taps 4..32; restart required",
+            "Sun shadow base PCF taps 4..32 (up to 4x on soft edges); restart required",
         ),
         (
             "jkr_volumetrics",

@@ -33,6 +33,9 @@ pub(in crate::world_materials) fn sun_layout(device: &wgpu::Device) -> wgpu::Bin
             },
             depth(3),
             depth(4),
+            depth(5),
+            depth(6),
+            super::bounds::layout_entry(),
         ],
     })
 }
