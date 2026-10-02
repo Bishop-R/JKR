@@ -124,6 +124,29 @@ loading/shader warmup from steady frames and CPU work from GPU timings. The
 500+ FPS target remains open; neither a single GPU timestamp nor an uncapped
 empty scene demonstrates it.
 
+## Saber trails
+
+[saber_trail.rs](../crates/jkr-viewer/src/saber_trail.rs) follows codemp
+`CG_AddSaberBlade` and `CTrail`: every frame at least 3 ms after the last, a
+blade adds one slice from its remembered muzzle and tip to the current ones.
+A slice lives `trailLen / 5` ms of the current `saberMove` (30–40 ms for most
+moves, 40 ms when the move authors none) and fades by scrolling the clamped
+blur texture, not by alpha. The short visible arc is stock behavior; frame rate
+changes the slice count, not the arc's duration. Slices split along new tip to
+old muzzle as `CTrail::Draw` does. With `cg_saberContact` on, the tip stops at
+the first world surface the blade enters
+([saber_trail_edge.rs](../crates/jkr-viewer/src/saber_trail_edge.rs)); stock
+also stops it at solid brush entities, which JKR does not trace yet. A flying
+primary saber trails and shares the owner's blade state, as in stock. Not yet
+drawn: the extra trails stock adds while `PW_SPEED` is set with `cg_speedTrail`
+and during super-break win animations.
+
+Blade/wall contact ([saber_contacts.rs](../crates/jkr-viewer/src/saber_contacts.rs))
+plays a wall-hit sound once a blade has stayed in the wall since the previous
+frame, at most every 100 ms per blade. Like stock's `S_StartSound(..., -1,
+CHAN_WEAPON, ...)`, all wall hits share one source and channel, so each new hit
+replaces the previous one instead of overlapping it.
+
 ## UI ownership
 
 `jkr-ui` provides renderer-independent retained widgets. The viewer supplies GPU

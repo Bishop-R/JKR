@@ -30,6 +30,8 @@ struct Sinks<'a> {
     saber_hilts: Option<&'a saber::HiltCatalog>,
     saber_states: &'a mut saber_trail::StateSlab,
     saber_segments: &'a mut saber_trail::SegmentPool,
+    /// Trail edges for held and flying blades; `None` with `cg_saberTrail 0`.
+    trail_edges: Option<saber_trail::Edges<'a>>,
     saber_instances: &'a mut Vec<saber::Instance>,
     lights: &'a mut dynamic_lights::PointLightList,
     presentation_time: i64,
@@ -92,6 +94,7 @@ pub(crate) fn submit(
         .and_then(|console| console.integer_cvar("cg_saberTrail"))
         .unwrap_or(1)
         != 0;
+    let saber_contact = gpu.effect_aux.saber_contacts.enabled;
     let mut sinks = Sinks {
         flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(
             game_state
@@ -113,6 +116,9 @@ pub(crate) fn submit(
         saber_hilts: gpu.saber_hilts.as_ref(),
         saber_states: &mut gpu.saber_states,
         saber_segments: &mut gpu.saber_trail_segments,
+        trail_edges: trails.then(|| {
+            saber_trail::Edges::new(saber_contact.then_some((&gpu.bsp, &mut gpu.trace_scratch)))
+        }),
         saber_instances: &mut gpu.saber_instances,
         lights: &mut gpu.dynamic_lights,
         presentation_time,
@@ -173,7 +179,6 @@ pub(crate) fn submit(
                 presentation_time,
                 visual_now,
                 aura_shell,
-                trails,
             );
         } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform) {
             // The flying hilt is owned by this branch, including its blades.
@@ -204,7 +209,6 @@ fn submit_actor(
     presentation_time: i64,
     visual_now: Instant,
     aura_shell: bool,
-    trails: bool,
 ) -> usize {
     let draw_actor = sinks.third_person || Some(entity.id.get()) != local_entity_id;
     if Some(entity.id.get()) == local_entity_id && !sinks.detached_camera {
@@ -314,7 +318,6 @@ fn submit_actor(
             draw_actor,
             presentation_time,
             visual_now,
-            trails,
         );
     }
     if (draw_actor || sinks.portal_view)
@@ -374,7 +377,6 @@ fn submit_equipment(
     draw_actor: bool,
     presentation_time: i64,
     visual_now: Instant,
-    trails: bool,
 ) {
     let rotation = weapon_view::actor_world_rotation(transform.rotation);
     let origin = Vec3::from_array(transform.translation);
@@ -395,7 +397,7 @@ fn submit_equipment(
         sinks.object_groups,
         sinks.saber_instances,
         presentation_time,
-        trails,
+        sinks.trail_edges.as_mut(),
         sinks.lights,
     ) {
         return;
