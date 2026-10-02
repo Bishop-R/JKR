@@ -130,3 +130,27 @@ empty scene demonstrates it.
 and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
+
+### Menu readability
+
+Menu screens draw their text straight over the live map, so a left-hand scrim
+darkens the world behind the text column. The archived cvar `ui_menuContrast`
+(Settings, GAME tab) sets how far that scrim is held under the text:
+
+| Value | Effect |
+| --- | --- |
+| `off` | The original scrims; the in-game menu leaves the match untinted |
+| `standard` (default) | Muted body text reaches WCAG AA (4.5:1) over a backdrop of relative luminance 0.5 (about sRGB `#bcbcbc`) |
+| `strong` | All enabled text, the accent included, reaches 4.5:1 over pure white; dark custom accents are capped at 95% darkening |
+
+With a level on, each scrim keeps its original fade but does not drop below
+the required darkness until the right edge of the text column, then eases
+back over 12% of the screen width. The in-game menu gets the player screen's
+column scrim, centred cards and the map picker's caption get the same floor,
+and dimmed labels gain just enough opacity to reach 4.5:1 on that backing.
+Disabled entries (drawn under half opacity) keep their dimmed look. The
+figures treat UI colours as linear values blended into an sRGB or float target
+and ignore the glyph drop shadow, so they are conservative; they are not
+measured on screen. See
+[contrast.rs](../crates/jkr-viewer/src/menu_widgets/contrast.rs) and
+[hero.rs](../crates/jkr-viewer/src/menu_widgets/hero.rs).

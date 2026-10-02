@@ -316,6 +316,11 @@ pub(super) const GAME: &[Setting] = &[
         cvar: "ui_accent",
         kind: ValueKind::Choice(&["ember", "amber", "blue", "green", "violet", "neutral"]),
     },
+    Setting {
+        label: "Menu contrast",
+        cvar: "ui_menuContrast",
+        kind: ValueKind::Choice(&["off", "standard", "strong"]),
+    },
 ];
 pub(super) const NETWORK: &[Setting] = &[
     Setting {

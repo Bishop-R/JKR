@@ -39,6 +39,10 @@ impl GpuState {
         self.first_person_weapon
             .set_visible(console.bool_cvar("cg_drawGun").unwrap_or(true));
         self.field_of_view = console.float_cvar("cg_fov").unwrap_or(90.0) as f32;
+        crate::menu_widgets::MenuContrast::from_cvar(
+            console.text_value(crate::menu_widgets::MenuContrast::CVAR),
+        )
+        .publish();
         self.local_prediction.set_error_decay_millis(
             console
                 .float_cvar("cg_errorDecay")

@@ -49,8 +49,10 @@ pub(super) fn build(
     let (s, x, width) = (column.scale, column.margin, column.column_width);
     let count = rows.labels.len();
     let (list_top, row_height, item_scale) = list_metrics(viewport, s, count, rows.info.len());
-    // The whole match stays untinted; only entry hover accents use a sweep.
+    // The match stays untinted apart from the `ui_menuContrast` column
+    // behind the entries; hover accents use a sweep.
     canvas.begin_transparent(viewport);
+    canvas.readability_column(viewport);
     let theme = canvas.theme();
     let title_y = viewport[1] * 0.13;
     canvas.text(

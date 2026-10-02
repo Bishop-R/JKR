@@ -1,10 +1,22 @@
 //! Full-bleed "hero" widgets for screens drawn over the live map: a
 //! readability scrim, box-free list entries, and keyboard key caps.
 
-use super::MenuCanvas;
+use super::contrast::{self, FadeSegment};
+use super::{FormLayout, MenuCanvas};
 use jkr_ui::{Color, DrawCommand, FontWeight, Gradient, Rect, TextAlign};
 
 const INK: [f32; 3] = [0.005, 0.010, 0.018];
+
+/// Width, as a fraction of the viewport, over which a readability-held scrim
+/// eases back into its original fade past the text column.
+const BACKING_FEATHER: f32 = 0.12;
+
+/// Right edge of the widest hero text column (the form layout's).
+fn text_column_right(viewport: [f32; 2]) -> f32 {
+    let form = FormLayout::new(viewport);
+    let hero = HeroColumn::new(viewport);
+    (form.margin + form.column_width).max(hero.margin + hero.column_width)
+}
 
 fn ink(alpha: f32) -> Color {
     Color::new(INK[0], INK[1], INK[2], alpha)
@@ -83,11 +95,6 @@ pub(crate) enum Scrim {
 }
 
 impl MenuCanvas {
-    /// The in-game menu's left-side fade, bounded to the supplied surface.
-    pub(crate) fn column_tint(&mut self, rect: Rect) {
-        self.column_tint_opacity(rect, 1.0);
-    }
-
     /// Scale the existing translucent column, without changing its geometry.
     pub(crate) fn column_tint_opacity(&mut self, rect: Rect, opacity: f32) {
         let _ = self.draw.push(horizontal(
@@ -121,24 +128,20 @@ impl MenuCanvas {
         self.begin_transparent(viewport);
         self.push_opacity(opacity);
         let [width, height] = viewport;
+        let column = text_column_right(viewport);
         if scrim == Scrim::Column {
-            self.column_tint(Rect::new(0.0, 0.0, width, height));
+            self.held_fade(viewport, width * 0.54, 0.95, 0.0, 0.0, column);
             return;
         }
         let _ = self.draw.push(DrawCommand::SolidRect {
             rect: Rect::new(0.0, 0.0, width, height),
             color: ink(0.30),
         });
-        let (fade_width, fade_end) = if scrim == Scrim::Wide {
-            (width, ink(0.50))
+        if scrim == Scrim::Wide {
+            self.held_fade(viewport, width, 0.94, 0.50, 0.30, width);
         } else {
-            (width * 0.64, ink(0.0))
-        };
-        let _ = self.draw.push(horizontal(
-            Rect::new(0.0, 0.0, fade_width, height),
-            ink(0.94),
-            fade_end,
-        ));
+            self.held_fade(viewport, width * 0.64, 0.94, 0.0, 0.30, column);
+        }
         let _ = self.draw.push(vertical(
             Rect::new(0.0, 0.0, width, height * 0.18),
             ink(0.62),
@@ -149,6 +152,52 @@ impl MenuCanvas {
             ink(0.0),
             ink(0.84),
         ));
+    }
+
+    /// The column scrim of [`Scrim::Column`] for screens drawn over the live
+    /// match without one (the in-game menu), only while `ui_menuContrast`
+    /// is on; with it off the match stays untinted.
+    pub(crate) fn readability_column(&mut self, viewport: [f32; 2]) {
+        if self.readability_coverage() > 0.0 {
+            let column = text_column_right(viewport);
+            self.held_fade(viewport, viewport[0] * 0.54, 0.95, 0.0, 0.0, column);
+        }
+    }
+
+    /// Rounded backing at the `ui_menuContrast` floor behind text that sits
+    /// outside the text column; nothing while the setting is off.
+    pub(crate) fn text_backing(&mut self, rect: Rect) {
+        let coverage = self.readability_coverage();
+        if coverage > 0.0 {
+            let _ = self.draw.push(DrawCommand::RoundedRect {
+                rect,
+                radius: self.theme.radii.lg,
+                color: ink(coverage),
+            });
+        }
+    }
+
+    /// A scrim's full-height left fade from `start` to `end` over `width`,
+    /// stacked on a uniform `base` tint and held at the `ui_menuContrast`
+    /// floor up to `hold`, the right edge of the text it backs.
+    fn held_fade(
+        &mut self,
+        viewport: [f32; 2],
+        width: f32,
+        start: f32,
+        end: f32,
+        base: f32,
+        hold: f32,
+    ) {
+        let coverage = self.readability_coverage();
+        let floor = contrast::layer_alpha(coverage, base);
+        let feather = viewport[0] * BACKING_FEATHER;
+        let (segments, count) = contrast::held_fade(width, start, end, hold, floor, feather);
+        for FadeSegment { x0, x1, a0, a1 } in &segments[..count] {
+            let rect = Rect::new(*x0, 0.0, x1 - x0, viewport[1]);
+            let _ = self.draw.push(horizontal(rect, ink(*a0), ink(*a1)));
+        }
+        self.mark_backing(coverage);
     }
 
     /// Close the opacity group opened by [`Self::begin_hero`].

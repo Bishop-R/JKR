@@ -163,6 +163,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Menu accent: ember, amber, blue, green, violet, neutral, or RRGGBB hex",
         ),
         CvarDefinition::new(
+            crate::menu_widgets::MenuContrast::CVAR,
+            "standard",
+            archive,
+            "Menu text contrast over the map: off, standard or strong",
+        ),
+        CvarDefinition::new(
             "r_gamma",
             1.0_f64,
             archive,
