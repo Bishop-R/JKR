@@ -95,7 +95,13 @@ impl Runtime {
 }
 
 fn source() -> String {
-    let shader = include_str!("sky_stage.wgsl")
+    patched_source(include_str!("sky_stage.wgsl"))
+}
+
+/// The sky program `sky` with both of its returns tinted. The discard pattern spans a
+/// line break, so a CRLF checkout's source is normalised first.
+fn patched_source(sky: &str) -> String {
+    let shader = crate::wgsl_source::lf(sky)
         .replace(
             "return textureSample(sky_images, sky_sampler, input.uv, input.layer);",
             "let texel = textureSample(sky_images, sky_sampler, input.uv, input.layer);\n\
@@ -109,6 +115,25 @@ fn source() -> String {
     format!(
         "struct DayControls {{ clock: vec4<f32>, sun: vec4<f32> }};\n@group(2) @binding(0) var<uniform> day_controls: DayControls;\n{}\n{}",
         shader,
-        include_str!("day_sky.wgsl")
+        crate::wgsl_source::lf(include_str!("day_sky.wgsl"))
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wgsl_source::{crlf, lf};
+
+    /// Both sky returns are tinted whatever line endings the checkout gave the program;
+    /// on CRLF the discard path used to stay untinted without an error (#67).
+    #[test]
+    fn day_sky_tints_lf_and_crlf_programs() {
+        let sky = include_str!("sky_stage.wgsl");
+        let unix = patched_source(&lf(sky));
+        assert_eq!(unix.matches("vec4(day_sky(texel.rgb").count(), 2);
+        assert!(!unix.contains("return texel;"));
+        assert!(!unix.contains('\r'));
+        assert_eq!(patched_source(&crlf(sky)), unix);
+        assert_eq!(source(), unix);
+    }
 }

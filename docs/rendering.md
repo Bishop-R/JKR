@@ -23,6 +23,11 @@ occlusion, reflections and post processing. Feature presence does not establish
 correctness on every map or GPU. Preserve the ordinary BSP/material path when
 working on optional effects and validate shared WGSL programs on an actual GPU.
 
+Programs are embedded with `include_str!`, so they carry the checkout's line
+endings. Code that patches a program by text with a pattern spanning a line break
+normalises it first with [wgsl_source.rs](../crates/jkr-viewer/src/wgsl_source.rs);
+`.gitattributes` keeps `*.wgsl` LF in new checkouts.
+
 ## Selected controls
 
 | Cvar | Behavior |
