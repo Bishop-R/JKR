@@ -59,6 +59,7 @@ pub(super) fn receiver_layout_with(
         depth(4),
         depth(5),
         depth(6),
+        super::shadows::bounds::layout_entry(),
     ];
     // The GI sun test shares cascade binding 3. Avoid counting the same depth texture
     // twice against the fragment-stage texture limit (including cached lamp inputs).

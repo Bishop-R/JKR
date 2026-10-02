@@ -19,6 +19,8 @@ pub(super) mod lamp_shadows;
 #[path = "light_buffer.rs"]
 pub(super) mod light_buffer;
 
+#[path = "sun_shadow_bounds.rs"]
+pub(super) mod bounds;
 #[path = "sun_shadow_gpu.rs"]
 mod resources;
 #[path = "sun_shadow_volume.rs"]
@@ -86,6 +88,7 @@ pub(super) struct Runtime {
     /// the map's lamp cache.
     cache_group: Option<wgpu::BindGroup>,
     sampler: wgpu::Sampler,
+    bounds: bounds::Bounds,
     /// The map's lamps as GPU buffers, bound during lighting evaluation.
     lamps: crate::lamp_lights::Gpu,
     /// Shadow maps of the nearest lamps; day mode only.
@@ -557,7 +560,18 @@ impl super::Runtime {
         };
         queue.write_buffer(&shadow.camera_buffer, 0, bytemuck::bytes_of(&camera));
         let far = shadow.far.as_ref().and_then(|far| {
-            self.refresh_far_cascade(encoder, queue, far, sun, shadow.settings.resolution, input)
+            let (fit, fresh) = self.refresh_far_cascade(
+                encoder,
+                queue,
+                far,
+                sun,
+                shadow.settings.resolution,
+                input,
+            )?;
+            if fresh {
+                shadow.bounds.encode(encoder, 2);
+            }
+            Some(fit)
         });
 
         let close = shadow.close.as_ref().and_then(|close| {
@@ -574,6 +588,9 @@ impl super::Runtime {
                 Some(actor_end),
                 shadow.held.as_ref().map(|held| (&held[1], fresh)),
             );
+            if fresh {
+                shadow.bounds.encode(encoder, 1);
+            }
             Some(fit)
         });
         if let Some(phases) = phases {
@@ -697,6 +714,9 @@ impl super::Runtime {
                 .filter(|_| shadow.settings.world)
                 .map(|held| (&held[0], fresh)),
         );
+        if fresh && shadow.settings.world {
+            shadow.bounds.encode(encoder, 0);
+        }
         if let Some(sun) = &self.forge.model_sun {
             sun.ready.set(true);
         }
@@ -994,7 +1014,7 @@ impl super::Runtime {
         moving(&mut pass);
     }
 
-    /// Re-render the map-wide cascade only when the sun has turned; return the fit in use.
+    /// Return the far fit and whether its depth changed, rebuilding only as the sun turns.
     fn refresh_far_cascade(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1003,16 +1023,16 @@ impl super::Runtime {
         sun: Vec3,
         resolution: u32,
         input: &FrameDraw<'_>,
-    ) -> Option<fit::Fit> {
+    ) -> Option<(fit::Fit, bool)> {
         if let Some((rendered, fit)) = far.rendered.get() {
             if rendered.dot(sun) >= FAR_REFRESH_COS {
-                return Some(fit);
+                return Some((fit, false));
             }
         }
         let fit = volume::fit_map(sun, self.shadow_bounds, resolution)?;
         self.render_cascade(encoder, queue, &far.cascade, &fit, input, None, None);
         far.rendered.set(Some((sun, fit)));
-        Some(fit)
+        Some((fit, true))
     }
 
     /// Multiply only known diffuse world receivers, before fog and all transparent/emissive work.

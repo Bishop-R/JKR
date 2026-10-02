@@ -85,32 +85,42 @@ impl Particle {
 pub(crate) const MAX_PARTICLES: usize = 2_048;
 const MAX_PARTICLE_SHADER_STAGES: usize = 8;
 
-pub(crate) struct ParticleLayerSamples {
-    values: [ParticleLayerSample; MAX_PARTICLE_SHADER_STAGES],
-    len: usize,
+/// Borrowed stage selection; iteration evaluates at most eight original stages.
+/// Empty or unknown shaders yield the same single fallback layer.
+pub(crate) struct ParticleLayerSamples<'a> {
+    atlas: &'a ParticleAtlas,
+    animations: &'a [ParticleAtlasAnimation],
+    seconds: f32,
 }
 
-impl ParticleLayerSamples {
-    pub(crate) fn new(fallback: ParticleLayerSample) -> Self {
+impl<'a> ParticleLayerSamples<'a> {
+    /// Bound the selection to the renderer's existing eight-stage capacity.
+    pub(crate) fn new(
+        atlas: &'a ParticleAtlas,
+        animations: &'a [ParticleAtlasAnimation],
+        seconds: f32,
+    ) -> Self {
         Self {
-            values: [fallback; MAX_PARTICLE_SHADER_STAGES],
-            len: 0,
+            atlas,
+            animations: &animations[..animations.len().min(MAX_PARTICLE_SHADER_STAGES)],
+            seconds,
         }
     }
 
-    pub(crate) fn push(&mut self, sample: ParticleLayerSample) {
-        if self.len < self.values.len() {
-            self.values[self.len] = sample;
-            self.len += 1;
-        }
-    }
-
-    pub(crate) fn ensure_fallback(&mut self) {
-        self.len = self.len.max(1);
-    }
-
+    /// Evaluate stages on demand, retaining order and the single-layer fallback.
     pub(crate) fn iter(&self) -> impl Iterator<Item = ParticleLayerSample> + '_ {
-        self.values[..self.len].iter().copied()
+        (0..self.animations.len().max(1)).map(|index| {
+            self.animations
+                .get(index)
+                .map(|animation| self.atlas.sample_animation(animation, self.seconds))
+                .unwrap_or(ParticleLayerSample {
+                    uv_rect: self.atlas.fallback,
+                    blend: ParticleBlend::Add,
+                    rgb: 1.0,
+                    alpha: 1.0,
+                    uv_transform: [1.0, 1.0, 0.0, 0.0],
+                })
+        })
     }
 }
 

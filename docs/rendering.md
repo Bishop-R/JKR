@@ -124,6 +124,137 @@ loading/shader warmup from steady frames and CPU work from GPU timings. The
 500+ FPS target remains open; neither a single GPU timestamp nor an uncapped
 empty scene demonstrates it.
 
+Static sun cascades carry a small min/max depth atlas: one pair of full-precision
+bounds per 64×64 shadow texels, with separate view, close and far layers. A layer
+is rebuilt immediately after its source map changes. Receivers bound the entire
+possible filter footprint, including bilinear neighbours and receiver-plane
+variation. Only footprints proved fully lit or fully blocked bypass the blocker
+search and Gaussian reconstruction; uncertain footprints run the existing filter.
+Moving-caster filtering is unchanged. At 2048 resolution the atlas occupies
+24 KiB. Coalesced tile reads keep rebuilding practical in tier 2 as well as the
+held-cascade modes. Golden-angle sample directions are constant shader data;
+sample counts, radii, weights and cascade transitions are unchanged.
+
+Real-time world shading skips baked-lightmap texture reads when the composition
+hook replaces their RGB. Uploaded BSP lightmaps and their fallback have alpha
+one; authored image alpha and animation still follow their normal paths.
+The expensive main-view and floor-reflection material passes also prime depth for static surfaces
+whose first stage guarantees opaque coverage. Deforms, sprites, alpha tests,
+polygon offsets and special depth/blend modes keep their ordinary path. Depth
+priming reuses the existing visibility ranges and indirect argument storage,
+with direct draws as a fallback. It is limited to active real-time lighting;
+reflections use their own camera, depth target, receiver frustum and scissor.
+
+Camera-range caches also retain their PVS/area selection independently of the
+camera frustum. Turning or moving within a cluster rechecks bounds but reuses
+the same candidate indices; a source-cluster, area-mask or PVS-mode change
+invalidates that selection. Storage is reserved at map load, at one index per
+static draw. Unbounded and blended materials keep direct traversal.
+
+External release replay checks compared these changes with `b4debe4` on
+Linux/RADV, Ryzen 5 5500 and Radeon RX 9060 XT. Each recording contains 31
+player profiles on `mp/ffa3` or `mp/ffa1`; 19–23 and 16–27 actor groups,
+respectively, were evaluated during the measured routes. Settings were render
+scale 1, HDR, day/night held at 11:00, lighting tier 0, 2048 shadow maps, 16 base
+taps, volumetrics 1 and anisotropy 16. After five seconds of replay warmup,
+6,660 frames sampled a 20-second route at 333 simulated frames per second.
+
+| Replay / resolution | GPU mean before → after | Total frame mean before → after |
+| --- | --- | --- |
+| `mp/ffa3`, 3840×2160 | 5.302 → 4.575 ms | 5.473 → 4.746 ms |
+| `mp/ffa1`, 3840×2160 | 6.714 → 5.808 ms | 6.894 → 5.983 ms |
+| `mp/ffa3`, 2560×1080 | 2.026 → 1.845 ms | 2.499 → 2.474 ms |
+
+These are offscreen full-frame replays, with no per-frame readback or capture
+copy and no live network/audio output. They show a CPU limit at the smaller
+resolution, not achievement of the 2 ms total-frame goal. Native presentation,
+live matches, other GPUs and exhaustive community-content coverage remain open.
+
+External GPU instrumentation compared the conservative shadow result with the
+full filter at 656,749,476 accepted samples across both maps, moving sunlight,
+tier 2, 1025-pixel shadow maps with 32 base taps, and 4K output. Maximum
+visibility error was 0.00000012; none exceeded the 0.000002 verification threshold.
+Twenty 4K scene snapshots across both routes retained the reference appearance;
+one snapshot's kill-feed expiry differed with wall-clock timing. Baked lighting
+and actor-only captures matched byte for byte. Fullbright, lightmap debug and
+the non-table/direct-draw fallback also passed GPU and image checks. These
+finite samples are not exhaustive image equivalence for every view or material.
+
+Formatting, locked workspace build/tests and the release client build passed.
+Cargo still runs no bundled regression suite. A native 1280×720 `mp/ffa3` static
+map run rendered for a 45-second process lifetime without panic or GPU validation
+error, using an isolated config. This is an integration smoke check, not a
+populated-match performance result. The combined retained changes also completed a
+45-second native `ffa1` crowd-replay process run with an isolated configuration
+and no panic or GPU validation error. Concurrent compilation makes that latter
+run an integration check only.
+
+A follow-up CPU cache comparison used the same routes/settings at 2560×1080:
+`ffa3` world-pass encoding fell from 0.565 to 0.513 ms and total frame mean from
+2.462 to 2.420 ms. `ffa1` encoding fell from 0.884 to 0.866 ms; its total mean
+was essentially unchanged (3.119 to 3.131 ms). An external verifier matched
+3,178,666 cached/direct range results across the replays and forced area-mask,
+source-cluster and missing-PVS transitions. Twenty further 4K captures retained
+the scene appearance, with small pixel differences and the known wall-clock
+kill-feed difference. This is finite coverage, not a universal cache proof.
+
+Floor-reflection depth priming was compared in alternating order on the first
+10 seconds of the `ffa1` route at 4K (3,330 frames per run, two runs per variant).
+Mean GPU time was 5.453 → 5.417 ms; the reflected-plane phase was
+1.116 → 1.081 ms. On the full 20-second route at 2560×1080, total frame means
+were 3.135 → 3.094 ms. Twenty 4K captures across both maps showed only small
+pixel differences (maximum 8/255), with the shadow filter and reflection
+resolution unchanged. Paired 4K `ffa3` runs measured essentially unchanged
+GPU time (4.547 versus 4.550 ms), with almost no floor-reflection work on that
+route. Other mirror/portal types retain their previous path.
+
+Particle stage selection borrows the atlas and evaluates stages as they are
+consumed, retaining the existing eight-stage cap, order, animation, waveform,
+texture transforms and missing-shader fallback. This avoids filling and copying
+eight samples for every effect, including callers that only need the first.
+The sampling implementation lives outside the frame-orchestration module.
+Paired 3,330-frame `ffa3` runs at 2560×1080 reduced billboard preparation from
+about 0.067 to 0.047 ms and effect geometry preparation from 0.034 to 0.029 ms.
+Total-frame differences were within run variation; this is a CPU phase result.
+An external comparison matched 3,360 stage samples bit for bit across both
+loaded atlases and missing, empty and over-capacity shader cases.
+
+
+Entity sorting caches each source material's immutable shader sort and first-stage
+pipeline keys at material creation, including late custom materials. It preserves
+missing-material defaults, opaque tie-breaking and back-to-front blend order;
+per-frame draw records and allocation behavior are unchanged. Alternating
+6,660-frame runs at 2560×1080 reduced instance preparation from about 0.092 to
+0.078 ms on `ffa3` and 0.085 to 0.075 ms on `ffa1`. Total-frame differences were
+within run variation. An external comparison matched 1,362,200 ordered draw
+entries against the original comparator across both routes. Twenty further 4K
+captures retained the scene appearance (one pixel differed by 12/255; all others
+by at most 8/255).
+The draw queue also classifies stage-major eligibility once when a draw is added,
+rather than repeating material lookups in every colour pass. Missing materials
+and depth-less draws retain their previous handling, and the 32-byte draw size is
+unchanged on the measured 64-bit build. Two alternating 6,660-frame runs per
+variant reduced CPU world-pass encoding by roughly 0.011 ms on `ffa3` and
+0.016 ms on `ffa1`; total means fell by 0.034 and 0.026 ms respectively. The
+same external verifier checked every cached classification and all material keys,
+including missing-key defaults, across both replays; 20 captures showed only
+small pixel differences (maximum 13/255 at one pixel).
+
+Volumetric integration carries each slice's end depth into the following slice
+instead of recomputing the same boundary. Sample locations and accumulated
+scattering retain their existing arithmetic. Paired 3,330-frame 4K runs on both
+routes saved about 0.0033 ms in the volumetric phase; 20 captures retained the
+scene appearance, with small pixel differences (maximum 12/255 at one pixel).
+
+Ambient occlusion reuses the fixed 16 sample directions and radii, preserving their
+f32 expressions, sample order, reach and strength. Depth reconstruction omits the
+ray normalization that cancels in its intersection ratio and scales the degeneracy
+guard accordingly. Paired 3,330-frame 4K runs reduced the AO pass from 0.369 to
+0.344 ms on `ffa3` and 0.354 to 0.330 ms on `ffa1`; total GPU means fell by
+0.023 and 0.026 ms. Twenty captures retained the scene appearance, with one pixel
+differing by 12/255 and all others by at most 8/255. These are measurements on the
+same Vulkan setup, not exhaustive equivalence across all maps and backends.
+
 ## UI ownership
 
 `jkr-ui` provides renderer-independent retained widgets. The viewer supplies GPU
