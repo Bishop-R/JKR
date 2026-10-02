@@ -14,6 +14,8 @@ pub(super) struct Options {
     pub notify_lines: usize,
     /// Notify-only horizontal displacement, in virtual 640-wide coordinates.
     pub notify_x: f32,
+    /// Row pitch multiplier for history and notify lines (`con_lineSpacing`).
+    pub line_spacing: f32,
 }
 
 impl Default for Options {
@@ -28,6 +30,7 @@ impl Default for Options {
             notify_millis: 3000,
             notify_lines: 3,
             notify_x: 0.0,
+            line_spacing: 1.0,
         }
     }
 }
@@ -37,6 +40,11 @@ pub(super) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
         ("con_notifytime", 3.0, "Notify lifetime in seconds"),
         ("con_opacity", 1.0, "Console background opacity"),
         ("con_scale", 1.0, "Console font scale"),
+        (
+            "con_lineSpacing",
+            1.0,
+            "Console line spacing multiplier (0.65 to 2)",
+        ),
         (
             "con_height",
             0.5,
@@ -105,8 +113,23 @@ impl ViewerConsole {
                 .integer_cvar("con_notifylines")
                 .unwrap_or(3)
                 .clamp(0, 64) as usize,
+            line_spacing: line_spacing(self.float_cvar("con_lineSpacing")),
         }
     }
+}
+
+/// Accepted `con_lineSpacing` range. At the lower end rows touch: the line
+/// pitch equals the history text size.
+pub(super) const LINE_SPACING_RANGE: (f32, f32) = (0.65, 2.0);
+
+/// Clamped `con_lineSpacing`; missing or non-finite values keep the default.
+pub(super) fn line_spacing(value: Option<f64>) -> f32 {
+    value
+        .map(|value| value as f32)
+        .filter(|value| value.is_finite())
+        .map_or(1.0, |value| {
+            value.clamp(LINE_SPACING_RANGE.0, LINE_SPACING_RANGE.1)
+        })
 }
 
 /// Gregorian UTC date from Unix days (no OS-specific code in the console).
@@ -126,4 +149,18 @@ pub(super) fn datetime(seconds: u64) -> String {
         seconds / 60 % 60,
         seconds % 60
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_spacing_defaults_and_clamps() {
+        assert_eq!(line_spacing(None), 1.0);
+        assert_eq!(line_spacing(Some(f64::NAN)), 1.0);
+        assert_eq!(line_spacing(Some(1.25)), 1.25);
+        assert_eq!(line_spacing(Some(0.1)), LINE_SPACING_RANGE.0);
+        assert_eq!(line_spacing(Some(9.0)), LINE_SPACING_RANGE.1);
+    }
 }

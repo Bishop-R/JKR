@@ -85,7 +85,8 @@ impl Scoreboard {
             viewport,
         );
         self.ui.finish(u16::MAX);
-        self.ui.append_text(vertices, font, viewport);
+        self.ui
+            .append_text_styled(vertices, font, viewport, crate::text::TextStyle::NEUTRAL);
     }
 
     fn refresh(&mut self, session: &ClientSession) {

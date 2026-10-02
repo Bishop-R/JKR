@@ -6,7 +6,9 @@
 //! reader lives here as an optional compatibility path for the HUD only.
 
 mod bounded;
+pub(crate) mod style;
 pub(crate) use bounded::append_bounded;
+pub(crate) use style::TextStyle;
 
 use bytemuck::{Pod, Zeroable};
 use fontdue::{Font, FontSettings, Metrics};
@@ -67,6 +69,8 @@ pub(crate) struct UiFont {
     /// Baseline-to-baseline line height in physical framebuffer pixels.
     pub(crate) height: f32,
     modern: bool,
+    /// Player size and spacing preference for menu text, see [`style`].
+    style: TextStyle,
 }
 
 impl UiFont {
@@ -79,6 +83,16 @@ impl UiFont {
     /// Whether this is the bundled vector font rather than the retail HUD font.
     pub(crate) const fn is_modern(&self) -> bool {
         self.modern
+    }
+
+    /// The player's menu text style (neutral until the cvars are synced).
+    pub(crate) const fn style(&self) -> TextStyle {
+        self.style
+    }
+
+    /// Apply the player's `ui_textScale` / `ui_letterSpacing` preference.
+    pub(crate) fn set_style(&mut self, style: TextStyle) {
+        self.style = style;
     }
 }
 
@@ -193,6 +207,7 @@ pub(crate) fn load_modern(dpi_scale: f64) -> Result<FontAtlas, Box<dyn Error>> {
             glyphs,
             height: line_metrics.new_line_size / MODERN_RASTER_SCALE,
             modern: true,
+            style: TextStyle::NEUTRAL,
         },
         image,
     })
@@ -267,6 +282,7 @@ pub(crate) fn load_classic(vfs: &VirtualFileSystem) -> Result<FontAtlas, Box<dyn
             glyphs,
             height,
             modern: false,
+            style: TextStyle::NEUTRAL,
         },
         image: image::load_from_memory_with_format(&image.bytes, image::ImageFormat::Tga)?
             .to_rgba8(),

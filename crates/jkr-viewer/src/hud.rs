@@ -432,6 +432,7 @@ impl HudOverlay {
             vertices,
             font,
             viewport,
+            crate::text::TextStyle::NEUTRAL,
         );
     }
 

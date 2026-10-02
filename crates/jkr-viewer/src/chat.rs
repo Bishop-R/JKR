@@ -240,7 +240,8 @@ impl ChatOverlay {
     ) {
         let ms = self.millis(Instant::now());
         self.build(draw_feed, font, viewport, ms);
-        self.ui.append_text(vertices, font, viewport);
+        self.ui
+            .append_text_styled(vertices, font, viewport, crate::text::TextStyle::NEUTRAL);
     }
 }
 

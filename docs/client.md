@@ -72,3 +72,21 @@ inside an open quote. Arguments are not completed. See
 [shell_completion.rs](../crates/jkr-shell/src/shell_completion.rs).
 
 For graphics controls and diagnostics, see [rendering.md](rendering.md).
+
+## Text size and spacing
+
+The Settings screen's TEXT tab holds four archived cvars; their defaults draw
+text exactly as before.
+
+| Cvar | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `ui_textScale` | 1 | 0.8 to 1.2 | Text size on menu screens and the in-game menu |
+| `ui_letterSpacing` | 0 | -0.05 to 0.15 | Extra space after each letter in menus and the console, as a fraction of the text size |
+| `con_scale` | 1 | above 0 (menu: 0.5 to 2) | Size of the whole console: text, margins and rows |
+| `con_lineSpacing` | 1 | 0.65 to 2 | Console history and notify row pitch; 0.65 makes rows touch |
+
+Menu text grows or shrinks about the centre of its line without moving the
+layout, so the range is limited to what menu rows can hold. Chat, the
+scoreboard and the HUD are not affected. The style is applied where retained
+text commands become glyph quads; see [text/style.rs](../crates/jkr-viewer/src/text/style.rs)
+and [console_options.rs](../crates/jkr-viewer/src/console_options.rs).

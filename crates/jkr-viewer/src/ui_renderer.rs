@@ -381,13 +381,15 @@ fn border_rects(rect: Rect, width: f32) -> [Rect; 4] {
 }
 
 /// Append all text commands without allocating; HUD rectangles are consumed by
-/// the existing fullscreen quad pass.
+/// the existing fullscreen quad pass. `style` scales and tracks every command
+/// ([`text::TextStyle::NEUTRAL`] draws the layout as authored).
 pub(crate) fn append_text_commands<'a>(
     draw_list: &DrawList,
     resolve: impl Fn(TextId) -> &'a str,
     vertices: &mut Vec<TextVertex>,
     font: &UiFont,
     viewport: [f32; 2],
+    style: text::TextStyle,
 ) {
     let mut opacity = [1.0_f32; 8];
     let mut opacity_depth = 0_usize;
@@ -421,12 +423,15 @@ pub(crate) fn append_text_commands<'a>(
             continue;
         };
         let value = resolve(*id);
-        let scale = *size / font.height.max(1.0);
+        let placement = style.place(*rect, *size, *letter_spacing);
+        let rect = placement.bounds;
+        let scale = placement.size / font.height.max(1.0);
         let face = match weight {
             FontWeight::Regular => text::TextFace::Regular,
             FontWeight::Semibold => text::TextFace::Semibold,
         };
-        let measured = text::visible_text_width_style(font, value, scale, face, *letter_spacing);
+        let measured =
+            text::visible_text_width_style(font, value, scale, face, placement.letter_spacing);
         let width = if *overflow == jkr_ui::TextOverflow::Ellipsis {
             measured.min(rect.width)
         } else {
@@ -441,14 +446,14 @@ pub(crate) fn append_text_commands<'a>(
             vertices,
             font,
             value,
-            [x, rect.y],
-            *rect,
-            clipped(*rect, clips[clip_depth]),
+            [x, placement.y],
+            rect,
+            clipped(rect, clips[clip_depth]),
             scale,
             viewport,
             face,
             [color.r, color.g, color.b, color.a * opacity[opacity_depth]],
-            *letter_spacing,
+            placement.letter_spacing,
             *overflow,
         );
     }

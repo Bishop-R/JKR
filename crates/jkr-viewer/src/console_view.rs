@@ -74,7 +74,8 @@ impl ConsolePresentation {
             self.options,
             &self.header,
         );
-        self.ui.append_text(vertices, font, viewport);
+        self.ui
+            .append_text_styled(vertices, font, viewport, font.style().tracking_only());
     }
 
     pub(crate) fn pointer(&mut self, event: InputEvent) -> Option<f32> {
@@ -123,6 +124,7 @@ impl ConsolePresentation {
             if !open {
                 let scale = (viewport[1] / 1080.0).clamp(0.75, 2.5) * options.scale;
                 let color = self.ui.theme().foreground;
+                let pitch = 20.0 * scale * options.line_spacing;
                 for (i, line) in lines
                     .rev()
                     .filter(|line| now.saturating_sub(line.written_millis) < options.notify_millis)
@@ -138,9 +140,9 @@ impl ConsolePresentation {
                         text,
                         Rect::new(
                             12.0 * scale + options.notify_x * viewport[0] / 640.0,
-                            (12.0 + (options.notify_lines - i - 1) as f32 * 20.0) * scale,
+                            12.0 * scale + (options.notify_lines - i - 1) as f32 * pitch,
                             viewport[0] - 24.0 * scale,
-                            20.0 * scale,
+                            pitch.max(14.0 * scale),
                         ),
                         14.0 * scale,
                         color,
@@ -150,7 +152,8 @@ impl ConsolePresentation {
                 }
             }
             self.ui.finish(u16::MAX);
-            self.ui.append_text(vertices, font, viewport);
+            self.ui
+                .append_text_styled(vertices, font, viewport, font.style().tracking_only());
         }
     }
 }
@@ -203,7 +206,7 @@ fn build_options<'a>(
         );
     }
     let input_y = height - 62.0 * scale;
-    let line_height = 22.0 * scale;
+    let line_height = 22.0 * scale * options.line_spacing;
     let top = 44.0 * scale;
     let bottom = input_y - 10.0 * scale;
     let available = ((bottom - top) / line_height).max(0.0) as usize;

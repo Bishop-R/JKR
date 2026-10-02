@@ -1,7 +1,7 @@
 //! Text storage and vector-font submission for [`MenuCanvas`].
 
 use super::MenuCanvas;
-use crate::text::{TextVertex, UiFont};
+use crate::text::{TextStyle, TextVertex, UiFont};
 use crate::ui_renderer;
 use jkr_ui::{Color, DrawCommand, FontWeight, Rect, TextAlign, TextId, TextOverflow};
 use std::fmt::{Arguments, Write as _};
@@ -83,12 +83,25 @@ impl MenuCanvas {
         });
     }
 
-    /// Append retained text commands to the existing cached vector-font path.
+    /// Append retained text commands to the existing cached vector-font path,
+    /// in the player's menu text style ([`UiFont::style`]).
     pub(crate) fn append_text(
         &self,
         vertices: &mut Vec<TextVertex>,
         font: &UiFont,
         viewport: [f32; 2],
+    ) {
+        self.append_text_styled(vertices, font, viewport, font.style());
+    }
+
+    /// Append retained text commands in an explicit style, for surfaces that
+    /// are not menus (chat, scoreboard) or size their text themselves (console).
+    pub(crate) fn append_text_styled(
+        &self,
+        vertices: &mut Vec<TextVertex>,
+        font: &UiFont,
+        viewport: [f32; 2],
+        style: TextStyle,
     ) {
         ui_renderer::append_text_commands(
             &self.draw,
@@ -96,6 +109,7 @@ impl MenuCanvas {
             vertices,
             font,
             viewport,
+            style,
         );
     }
 
