@@ -23,6 +23,13 @@ occlusion, reflections and post processing. Feature presence does not establish
 correctness on every map or GPU. Preserve the ordinary BSP/material path when
 working on optional effects and validate shared WGSL programs on an actual GPU.
 
+Material compilation merges a shader's first two stages into one multitextured
+pass under rd-vanilla's `CollapseMultitexture` rules, and never a later pair. The
+colour generators are compared after `ParseStage` defaults: an unset rgbGen is
+identity, or identityLighting when the blend source is `GL_ONE` or `GL_SRC_ALPHA`
+([stage_colour.rs](../crates/jkr-shader/src/stage_colour.rs),
+[world_stage_collapse.rs](../crates/jkr-viewer/src/world_stage_collapse.rs)).
+
 ## Selected controls
 
 | Cvar | Behavior |
