@@ -9,8 +9,10 @@ pub(crate) use hero::{HeroColumn, Scrim};
 pub(crate) use vote::VoteLayout;
 mod controls;
 mod form;
+mod slider_entry;
 
 pub(crate) use form::{BACK_TOKEN, FormLayout, TAB_BASE, cycler_direction, palette_index};
+pub(crate) use slider_entry::{EntryKey, NumberFormat, SliderEntry};
 
 use jkr_ui::{
     Color, DrawCommand, DrawList, FontWeight, InputRouter, Rect, TextAlign, Theme, WidgetId,

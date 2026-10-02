@@ -406,6 +406,12 @@ pub(crate) fn slider_ratio(rect: Rect, x: f32, scale: f32) -> f32 {
     ((x - start) / (end - start).max(1.0)).clamp(0.0, 1.0)
 }
 
+/// Whether the pointer at `x` is over the value text column a slider row
+/// `rect` keeps right of its rail at UI `scale` (clicking it types a value).
+pub(crate) fn slider_value_hit(rect: Rect, x: f32, scale: f32) -> bool {
+    x >= rect.right() - SLIDER_VALUE_COLUMN * scale && x <= rect.right()
+}
+
 /// Which of `count` equal palette cells across a row's value zone the
 /// pointer at `x` is in.
 pub(crate) fn palette_index(rect: Rect, x: f32, count: usize) -> usize {

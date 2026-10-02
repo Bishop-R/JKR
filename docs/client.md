@@ -28,6 +28,14 @@ console, HUD, screenshots, demo recording/playback and a Create game flow.
 Presence here describes implemented surfaces; validation limits are in
 [status.md](status.md).
 
+Sliders in the settings screen and the saber RGB channels of the player screen
+also take typed values: click the number right of the rail, press Enter on the
+row or start typing digits while it is selected. Enter applies the number,
+clamped to the slider's range and rounded to its step counted from the minimum;
+Escape cancels, a click elsewhere applies it and Space still steps the slider.
+See [slider_entry.rs](../crates/jkr-viewer/src/menu_widgets/slider_entry.rs) and
+[the settings rules](../crates/jkr-viewer/src/settings/numeric.rs).
+
 Create game starts a child `jkr-dedicated`, normally found beside the client.
 Set `JKR_DEDICATED` to its executable path if installed elsewhere. The child
 lifetime is managed by the client and defaults to local access; see

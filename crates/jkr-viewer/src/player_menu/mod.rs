@@ -3,6 +3,7 @@
 //! its cvars the moment it is made, so the stage model swaps instantly and
 //! there is nothing to apply or revert.
 
+mod channel_entry;
 mod controller;
 mod force;
 mod force_view;
@@ -16,7 +17,7 @@ mod team_filter;
 mod view;
 
 use crate::console::ViewerConsole;
-use crate::menu_widgets::MenuCanvas;
+use crate::menu_widgets::{MenuCanvas, SliderEntry};
 use jkr_client::{LegacyAssetCatalog, LegacyAssetCatalogLoader};
 use jkr_ui::DrawList;
 use jkr_vfs::VirtualFileSystem;
@@ -110,6 +111,8 @@ pub(crate) struct PlayerMenu {
     selected: usize,
     name_editing: bool,
     name_before_edit: String,
+    /// Typed value of an RGB channel slider, open while one is entered.
+    channel_entry: SliderEntry,
     return_target: ReturnTarget,
     resolved_catalogue: bool,
     page: ProfilePage,
@@ -135,6 +138,7 @@ impl PlayerMenu {
             selected: 0,
             name_editing: false,
             name_before_edit: String::with_capacity(32),
+            channel_entry: SliderEntry::new(),
             return_target: ReturnTarget::MainMenu,
             resolved_catalogue: false,
             page: ProfilePage::Character,
