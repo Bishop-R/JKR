@@ -65,12 +65,15 @@ fn maintained_rule(event: u16, channel: u32) -> Option<MaintainedRule> {
     }
 }
 
-// `CG_RegisterWeapon`, codemp/cgame/cg_weaponinit.c:136-607.
+// `CG_RegisterWeapon` flash sounds, codemp/cgame/cg_weaponinit.c:136-607,
+// indexed by `weapon_t` (codemp/game/bg_weapons.h:31-50). Only the stun baton
+// registers a flash sound in the baton/melee case; melee swings come from the
+// player's animevents.cfg instead.
 const WEAPON_PATHS: [[Option<&str>; 2]; 19] = [
-    [None, None],
-    [None, None],
-    [Some("sound/weapons/baton/fire.mp3"); 2],
-    [None, None],
+    [None, None],                              // WP_NONE
+    [Some("sound/weapons/baton/fire.mp3"); 2], // WP_STUN_BATON
+    [None, None],                              // WP_MELEE
+    [None, None],                              // WP_SABER
     [
         Some("sound/weapons/bryar/fire.wav"),
         Some("sound/weapons/bryar/alt_fire.wav"),
@@ -1943,3 +1946,18 @@ pub(crate) fn intern_sound(
 
 #[path = "sound_config_strings.rs"]
 mod config_strings;
+
+#[cfg(test)]
+mod tests {
+    use super::WEAPON_PATHS;
+
+    const WP_STUN_BATON: usize = 1; // codemp/game/bg_weapons.h:33
+    const WP_MELEE: usize = 2; // codemp/game/bg_weapons.h:34
+
+    #[test]
+    fn only_the_stun_baton_has_baton_flash_sounds() {
+        let baton = Some("sound/weapons/baton/fire.mp3");
+        assert_eq!(WEAPON_PATHS[WP_STUN_BATON], [baton, baton]);
+        assert_eq!(WEAPON_PATHS[WP_MELEE], [None, None]);
+    }
+}

@@ -52,6 +52,12 @@ view looked clean.
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
   marking individual capabilities complete.
+- The client does not play animation-event sounds from a model's
+  `animevents.cfg` (`AEV_SOUND`/`AEV_SOUNDCHAN`, played by codemp
+  `CG_PlayerAnimEventDo`). Stock melee punches and saber kicks get their swing
+  sounds only from there, so they are silent in JKR. The stun baton, unlike
+  melee, has a fire sound in the weapon table of
+  [sound_events.rs](../crates/jkr-client/src/sound_events.rs).
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map
