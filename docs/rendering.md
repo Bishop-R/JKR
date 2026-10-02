@@ -255,6 +255,71 @@ guard accordingly. Paired 3,330-frame 4K runs reduced the AO pass from 0.369 to
 differing by 12/255 and all others by at most 8/255. These are measurements on the
 same Vulkan setup, not exhaustive equivalence across all maps and backends.
 
+## Submission and lighting work reduction
+
+The renderer records uploads with their frame and hands completed batches to a
+submission thread. It finishes outstanding encoder work, applies those uploads,
+submits and presents in order while the render thread prepares the next frame.
+Only one handed-off frame can remain outstanding. With an offscreen scene target,
+swapchain acquisition happens after world recording; direct-to-surface rendering
+still acquires its image first. Resize, out-of-band submissions and teardown wait
+for the outstanding batch. `JKR_SUBMIT_THREAD=0` selects inline submission as a
+fallback. See [frame_queue.rs](../crates/jkr-viewer/src/frame_queue.rs),
+[frame_split.rs](../crates/jkr-viewer/src/frame_split.rs) and
+[frame_target.rs](../crates/jkr-viewer/src/frame_target.rs).
+
+Upload staging reuses byte and operation storage after warmup. Queue clones share
+a synchronized recording; this replaces immediate wgpu upload work on the render
+thread, rather than making all queue operations lock-free. Large load-time writes
+can bypass recording once pending submissions have completed.
+
+The in-game HUD shader is restricted to crosshair and damage-indicator regions.
+Intersecting regions become one rectangle so translucent pixels blend once.
+Menus and the shader's status-bar fallback retain full-screen coverage.
+
+Uncached deferred-light receivers are collected into a pixel list and shaded by
+four compute lanes per receiver. Cached receivers keep their existing path. The
+indirect dispatch uses bounded rows to support large light buffers; the final lamp
+sum can differ slightly in floating-point rounding from a serial sum. Receiver
+depth identifies valid texels, allowing attribute and light targets to retain data
+outside regions that will be overwritten or sampled. Floor mirrors use separate
+light images, preserving the main view without save/restore copies.
+
+Static sun-shadow bounds form an exact min/max mip hierarchy, starting at 8-texel
+tiles. A receiver chooses a level covering its filter footprint with at most four
+tiles. It skips the existing filter only when those conservative bounds determine
+the result; shadow radii, tap counts, cascades and visual settings are unchanged.
+
+
+Verification on 2026-10-02 compared this change against `f3f3db2`, using external
+release replay instrumentation on Linux, Ryzen 5 5500 and Radeon RX 9060 XT
+(RADV). Each 2560×1080 run measured 3,330 frames after replay warmup, with a
+31-player roster and unchanged graphics settings; visible/submitted actors ranged
+from 20–23 on `ffa3` and 16–27 on `ffa1`.
+
+| Route | Mean total frame | Mean GPU | Total-frame p99 |
+| --- | --- | --- | --- |
+| `mp/ffa3` | 2.464 → 1.822 ms | 1.780 → 1.697 ms | 3.517 → 3.316 ms |
+| `mp/ffa1` | 3.042 → 2.157 ms | 2.337 → 1.986 ms | 3.757 → 4.263 ms |
+
+These paired offscreen runs establish a mean improvement on the sampled routes,
+not universal sub-2 ms performance or improved tail latency. The `ffa1` p99 was
+higher despite its lower mean; longer native play and more hardware remain open.
+They exclude live networking/audio and window presentation. Comparison captures
+at 2560×1080 and 3840×2160 retained the scene appearance: maximum channel error
+was 4/255 on `ffa3`, 1/255 on `ffa1` outside its wall-clock kill-feed text, and
+3/255 in the 4K `ffa1` snapshot. This is finite image coverage.
+
+External checks covered overlapping HUD regions and viewport bounds at five
+resolutions through 8K, indirect-dispatch boundary cases and 7,308 shadow-bound
+footprints including non-power-of-two maps. Formatting, locked workspace build
+and tests, and release client/server builds passed. Verification harnesses and
+reports are kept outside the source repository.
+Two 45-second native `ffa1` replay process runs also passed without panic or GPU
+validation errors: threaded submission with HDR/FXAA, and inline submission with
+HDR/FXAA disabled to exercise direct surface acquisition. Both used isolated
+1280×720 settings; these are integration checks, not performance measurements.
+
 ## UI ownership
 
 `jkr-ui` provides renderer-independent retained widgets. The viewer supplies GPU

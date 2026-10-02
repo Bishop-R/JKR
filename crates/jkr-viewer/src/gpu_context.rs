@@ -41,7 +41,7 @@ pub(crate) struct Context {
     pub(crate) window: Option<Arc<Window>>,
     pub(crate) surface: Option<wgpu::Surface<'static>>,
     pub(crate) device: wgpu::Device,
-    pub(crate) queue: wgpu::Queue,
+    pub(crate) queue: crate::frame_queue::FrameQueue,
     pub(crate) format: wgpu::TextureFormat,
     pub(crate) alpha_mode: wgpu::CompositeAlphaMode,
     pub(crate) present_modes: Vec<wgpu::PresentMode>,
@@ -177,7 +177,7 @@ impl Context {
             window,
             surface,
             device,
-            queue,
+            queue: crate::frame_queue::FrameQueue::new(queue),
             format,
             alpha_mode: capabilities
                 .as_ref()
