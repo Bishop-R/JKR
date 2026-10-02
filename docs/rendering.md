@@ -11,6 +11,7 @@ BSP geometry, PVS visibility, lightmaps, shader stages and legacy models.
 | GPU/device setup | [gpu_context.rs](../crates/jkr-viewer/src/gpu_context.rs) |
 | World loading | [world_load.rs](../crates/jkr-viewer/src/world_load.rs) |
 | World materials | [world_materials.rs](../crates/jkr-viewer/src/world_materials.rs) |
+| Optional material maps | [material_maps.rs](../crates/jkr-viewer/src/material_maps.rs) |
 | Main scene passes | [main_scene_pass.rs](../crates/jkr-viewer/src/main_scene_pass.rs) |
 | Secondary views | [scene_views.rs](../crates/jkr-viewer/src/scene_views.rs) |
 | Sun and real-time lighting | [sun_shadows.rs](../crates/jkr-viewer/src/sun_shadows.rs) |
@@ -33,6 +34,9 @@ working on optional effects and validate shared WGSL programs on an actual GPU.
 | `jkr_dayMinutes` | Minutes per simulated day; 0 holds the hour |
 | `jkr_hdr` | Scene precision: 0 display format, 1 RGBA16F; restart required |
 | `jkr_hdrExposure` | Fixed exposure multiplier, 0.25–4; restart required |
+| `r_normalMapping` | Normal maps on lightmapped world surfaces (rend2 convention); default 0, restart required |
+| `r_specularMapping` | Specular, roughness and metalness maps on the same surfaces; default 0, restart required |
+| `r_parallaxMapping` | Parallax from the height in `_nh`/`normalHeightMap` images; needs `r_normalMapping`; default 0, restart required |
 
 See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 [sun_shadow_settings.rs](../crates/jkr-viewer/src/sun_shadow_settings.rs) and
@@ -254,6 +258,82 @@ guard accordingly. Paired 3,330-frame 4K runs reduced the AO pass from 0.369 to
 0.023 and 0.026 ms. Twenty captures retained the scene appearance, with one pixel
 differing by 12/255 and all others by at most 8/255. These are measurements on the
 same Vulkan setup, not exhaustive equivalence across all maps and backends.
+
+## Material maps
+
+The optional material maps follow OpenJK rend2 (`codemp/rd-rend2`), so rend2
+texture packs apply without conversion. Stage keywords (`ParseStage` in
+`tr_shader.cpp`) are parsed by
+[jkr-shader](../crates/jkr-shader/src/material.rs): `normalMap`,
+`normalHeightMap`, `specMap`/`specularMap`, the packed `rmoMap`, `moxrMap` and
+`ormMap` families, and `specularReflectance`, `specularExponent`, `gloss`,
+`roughness`, `normalScale`, `specularScale`, `parallaxDepth` and `parallaxBias`.
+Their order-dependent overrides are kept. rend2 selects a packed layout by
+comparing the image name with the keyword, so `rmosMap`, `mosrMap` and `ormsMap`
+load the three-channel layouts; JKR does the same. Without keywords,
+[the lookup](../crates/jkr-viewer/src/material_map_images.rs) tries `<diffuse>_nh`
+then `_n` for normals and `_specGloss`, ioquake3's `_s`, `_rmo` then `_orm` for
+specular, as in rend2's `CollapseStagesToGLSL`. ioquake3's typed
+`stage normalMap` stages are not supported. With the cvars off, the parser
+records the keywords and nothing else changes: no image lookup, layout,
+buffer or pipeline is created.
+
+Maps apply to lightmapped world surfaces (static and inline movers) whose
+lightmap and diffuse stages collapse into one opaque pass. On the retail
+`mp/ffa1`, `mp/ffa3` and `mp/duel1` this covers 84–87% of world triangles;
+`mp/siege_hoth` covers 52%. Vertex-lit surfaces, stacks that do not collapse,
+effect stages, deforms, sprites and models (MD3, Ghoul2) keep their authored shading.
+Each material-mapped stage compiles to its own pipeline key and a second bind
+group; ordinary stages keep their pipelines, groups and stage-table records.
+
+Map load computes [vertex frames](../crates/jkr-viewer/src/material_map_frames.rs)
+for the flattened world only when a stage has maps: a tangent with handedness,
+averaged over the triangles of patch and triangle-soup vertices, and the
+light-grid direction (`R_CalcVertexLightDirs`/`R_LightDirForPoint`). They use 8
+bytes per vertex. Building them for `mp/ffa3` (114,088 vertices) took about 24 ms
+in a release test build. Maps are uploaded as linear RGBA8 with box-filtered mips.
+
+Shading lives in [material_maps.wgsl](../crates/jkr-viewer/src/material_maps.wgsl):
+
+- Baked lighting: rend2's lightmap response, with the light-grid direction in
+  place of a deluxemap. The texel is taken as arriving along that direction,
+  divided by the face's own cosine (at most 4x) and received by the mapped normal;
+  the remainder stays ambient. A flat normal map reproduces the texel. Retail BSPs
+  have no deluxemaps, so this is an approximation.
+- Real-time lighting (`jkr_dayNight 1`): the sun share of the half-resolution
+  light buffer is moved to the mapped normal per pixel, using the visibility the
+  buffer keeps. It fades out toward the terminator, so mapped bumps never light a
+  face turned from the sun or a shadowed texel. Lamps and probe bounce remain as
+  the light pass evaluated them for the geometric normal. Without a specular map,
+  the existing sun highlight and sky rim use the mapped normal.
+- Specular maps use rend2's two paths: spec/gloss, and occlusion, roughness,
+  metalness and specular with the albedo as metal colour. Highlights use rend2's GGX
+  `CalcSpecular` for the sun or grid direction and for dynamic lights. They are
+  added after the albedo and dynamic-light modulation. Occlusion darkens only the
+  ambient share.
+- Parallax uses rend2's 16 linear and 8 binary steps through the height.
+
+As in rend2, frames come from the untransformed texture coordinates (`tcMod`
+rotation misaligns them) and an `animMap` stage uses its first frame's maps. In
+real-time mode material-mapped stages leave the stage table: the CPU colour pass
+draws them with per-stage bind groups and pipelines again.
+
+Unit tests cover keyword parsing, lookup order and conversions (synthetic
+in-memory images), frames (planar, mirrored and curved), the stage selection
+and the pipeline key. naga validates both material programs. A headless Vulkan
+render of a synthetic quad on an RTX 5080 (Windows 11, external harness) checked
+the response in both modes. Flat maps matched the ordinary program exactly, tilted
+normals brightened and darkened as computed (green follows +t, rend2's
+convention), and normal maps did not lighten a shadowed buffer texel.
+
+The same harness timed one full-screen 3840×2160 layer (64 runs, medians):
+baked lighting 0.103 ms ordinary, 0.196 with a normal map, 0.219 with a
+specular map as well and 0.50 with parallax. With the light buffer, those passes
+took 0.226, 0.30, 0.34 and 0.54 ms. Measure a real scene with `JKR_FRAME_BUDGET=1`
+in a release build: compare the same map, view and population with the cvars on
+and off. No rend2 pack was available for testing, and no in-game image has been
+checked. Visual correctness on real content and its frame cost in a match
+remain unverified.
 
 ## UI ownership
 

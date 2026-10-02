@@ -43,6 +43,8 @@ pub(super) struct Forge {
     pub(super) queue: wgpu::Queue,
     pub(super) pipeline_keys: Vec<PipelineKey>,
     pub(super) texture_cache: std::collections::HashMap<String, wgpu::TextureView>,
+    /// Material-map layout, textures, frames and program; only for maps that found any.
+    pub(super) material_maps: Option<super::material_maps::gpu::Gpu>,
 }
 
 impl Forge {
@@ -121,6 +123,21 @@ impl Forge {
             fallback_lightmap,
             pipeline_keys: Vec::new(),
             texture_cache: std::collections::HashMap::with_capacity(512),
+            material_maps: None,
+        }
+    }
+
+    /// The program a pipeline of `key` compiles against: the material program for a
+    /// material-mapped stage, the current stage program otherwise.
+    pub(super) fn program_for(
+        &self,
+        key: PipelineKey,
+    ) -> (&wgpu::PipelineLayout, &wgpu::ShaderModule) {
+        match &self.material_maps {
+            Some(maps) if key.geometry & super::material_maps::PIPELINE_BIT != 0 => {
+                maps.program(self)
+            }
+            _ => self.program(),
         }
     }
 
@@ -197,48 +214,60 @@ pub(super) fn build_passes(
             _ => primary.clone(),
         };
         let sampler = |clamp: bool| if clamp { &forge.clamp } else { &forge.repeat };
+        let entries = [
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: forge.model_grid.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&primary),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler(stage.primary_clamp)),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&secondary),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(sampler(stage.secondary_clamp)),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&stage.lightmap),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &stage_table,
+                    offset: u64::try_from(stage_index * stride)?,
+                    size: NonZeroU64::new(u64::try_from(entry_size)?),
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: dynamic_lights.as_entire_binding(),
+            },
+        ];
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("JKR Q3 world stage bind group"),
             layout: &forge.stage_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: forge.model_grid.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&primary),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler(stage.primary_clamp)),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&secondary),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(sampler(stage.secondary_clamp)),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&stage.lightmap),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &stage_table,
-                        offset: u64::try_from(stage_index * stride)?,
-                        size: NonZeroU64::new(u64::try_from(entry_size)?),
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: dynamic_lights.as_entire_binding(),
-                },
-            ],
+            entries: &entries,
         });
+        let material_group = match (&stage.maps, &mut forge.material_maps) {
+            (Some(maps), Some(gpu)) => {
+                let sampler = if maps.clamp {
+                    &forge.clamp
+                } else {
+                    &forge.repeat
+                };
+                Some(gpu.bind(device, queue, &entries, maps, sampler)?)
+            }
+            _ => None,
+        };
         let (pipeline, _) = forge.pipeline_index(stage.key);
         let (live_pipeline, _) =
             forge.pipeline_index(super::visible_emission::live_key(stage.key, &stage.gpu));
@@ -251,7 +280,7 @@ pub(super) fn build_passes(
                 clamp: [stage.primary_clamp, stage.secondary_clamp],
             }),
             ao_receiver: stage.allow_ssao && super::ssao::eligible(stage.key, &stage.gpu),
-            shadow_caster: stage.key.geometry == 0
+            shadow_caster: super::material_maps::without_maps(stage.key.geometry) == 0
                 && stage.gpu.generators[2] == 0.0
                 && stage.key.depth_write
                 && stage.key.source == wgpu::BlendFactor::One
@@ -269,6 +298,7 @@ pub(super) fn build_passes(
                 (stage_index * stride) as u64,
             ),
             bind_group,
+            material_group,
             pipeline,
             live_pipeline,
         });
@@ -312,7 +342,15 @@ impl Runtime {
         let known = self.forge.pipeline_keys.len();
         for key in materials {
             let lightmap = self.forge.fallback_lightmap.clone();
-            let material = compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache)?;
+            let material = compile_material(
+                vfs,
+                shaders,
+                key,
+                &lightmap,
+                true,
+                Default::default(),
+                &mut image_cache,
+            )?;
             let stages = build_passes(
                 device,
                 queue,
@@ -350,7 +388,15 @@ impl Runtime {
         let known = self.forge.pipeline_keys.len();
         for key in materials {
             let lightmap = self.forge.fallback_lightmap.clone();
-            let material = compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache)?;
+            let material = compile_material(
+                vfs,
+                shaders,
+                key,
+                &lightmap,
+                true,
+                Default::default(),
+                &mut image_cache,
+            )?;
             let stages = build_passes(
                 device,
                 queue,
@@ -436,7 +482,7 @@ impl Runtime {
             &self.entity_no_depth_pipelines[index]
         };
         slot.get_or_init(|| {
-            let (layout, shader) = self.forge.program();
+            let (layout, shader) = self.forge.program_for(self.forge.pipeline_keys[index]);
             timed(usize::from(!depth), || {
                 create_entity_pipeline(
                     &self.forge.device,
@@ -488,7 +534,7 @@ impl Runtime {
                     pass.set_pipeline(self.entity_pipeline(stage.pipeline, true));
                     last_pipeline = Some(stage.pipeline);
                 }
-                pass.set_bind_group(1, &stage.bind_group, &[]);
+                pass.set_bind_group(1, stage.color_group(), &[]);
                 pass.draw_indexed(draw.indices.clone(), 0, 0..1);
             }
         }

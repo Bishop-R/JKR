@@ -287,8 +287,12 @@ impl Table {
                 .stages
                 .iter()
                 .map(|stage| {
+                    // Material-mapped stages bind their own group (`material_maps`).
                     let source = stage.table.as_ref().filter(|_| {
-                        !material.blended && forge.pipeline_keys[stage.pipeline].geometry & 3 == 0
+                        !material.blended
+                            && forge.pipeline_keys[stage.pipeline].geometry
+                                & (3 | super::material_maps::PIPELINE_BIT)
+                                == 0
                     })?;
                     let images = [
                         slot(&mut self.images, &source.primary, MAX_IMAGES)?,

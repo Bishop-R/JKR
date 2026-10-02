@@ -37,6 +37,8 @@ pub(crate) struct Context {
     pub(crate) ssao: crate::world_materials::ssao::settings::Settings,
     /// Startup filtering survives map installs, whose inputs deliberately contain no console.
     pub(crate) filtering: crate::world_materials::filtering::Policy,
+    /// Startup material-map policy (rend2's latched `r_normalMapping` and friends).
+    pub(crate) material_maps: crate::world_materials::material_maps::Settings,
     pub(crate) id: u64,
     pub(crate) window: Option<Arc<Window>>,
     pub(crate) surface: Option<wgpu::Surface<'static>>,
@@ -173,6 +175,7 @@ impl Context {
                 .unwrap_or_default(),
             ssao: console.map(|c| c.ssao.clone()).unwrap_or_default(),
             filtering: crate::world_materials::filtering::Policy::sample(console, maximum),
+            material_maps: crate::world_materials::material_maps::Settings::sample(console),
             id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),
             window,
             surface,

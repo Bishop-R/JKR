@@ -4,12 +4,15 @@ use super::*;
 mod declared_emission;
 
 /// Resolve a material's stages the way `create_runtime` does for the world.
+/// `material_maps` enables the optional maps; detached and late entity materials pass
+/// the default (off).
 pub(in crate::world_materials) fn compile_material(
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,
     key: &ViewerMaterial,
     lightmap: &wgpu::TextureView,
     collapse: bool,
+    material_maps: crate::world_materials::material_maps::Settings,
     image_cache: &mut ImageCache,
 ) -> Result<CompiledMaterial, Box<dyn Error>> {
     let sprite_source = crate::scene_flatten::sprites::source(&key.shader);
@@ -144,6 +147,24 @@ pub(in crate::world_materials) fn compile_material(
                 }
             }
         }
+        // Material maps: ordinary lightmapped world paint only, never generated geometry.
+        let maps = if sprite_source.is_none()
+            && flare_source.is_none()
+            && definition.is_none_or(|d| d.deforms.is_empty() && d.sky.is_none())
+        {
+            crate::world_materials::material_maps::resolve(
+                vfs,
+                shaders,
+                material_maps,
+                stage,
+                key.lightmap,
+                cull == ShaderCull::TwoSided,
+                source_name,
+                image_cache,
+            )?
+        } else {
+            None
+        };
         compiled.push(PendingStage {
             allow_ssao: super::ssao::authored_diffuse(definition),
             gpu: {
@@ -193,8 +214,12 @@ pub(in crate::world_materials) fn compile_material(
                 if definition.is_some_and(|d| d.polygon_offset) {
                     key.geometry |= crate::world_stage::POLYGON_OFFSET;
                 }
+                if maps.is_some() {
+                    key.geometry |= crate::world_materials::material_maps::PIPELINE_BIT;
+                }
                 key
             },
+            maps,
         });
     }
     // rd-vanilla projects each dlight after the material stages. Our

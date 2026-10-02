@@ -279,37 +279,39 @@ pub(super) fn parse_generator(
 }
 
 pub(super) fn is_stage_directive(token: &str) -> bool {
-    matches!(
-        token.to_ascii_lowercase().as_str(),
-        "map"
-            | "clampmap"
-            | "animmap"
-            | "oneshotanimmap"
-            | "blendfunc"
-            | "alphafunc"
-            | "rgbgen"
-            | "alphagen"
-            | "tcgen"
-            | "tcmod"
-            | "depthfunc"
-            | "depthwrite"
-            | "detail"
-            | "glow"
-            | "surfacesprites"
-            | "ssfademax"
-            | "ssfadescale"
-            | "ssvariance"
-            | "sshangdown"
-            | "ssanyangle"
-            | "ssfaceup"
-            | "sswind"
-            | "sswindidle"
-            | "ssvertskew"
-            | "ssfxduration"
-            | "ssfxgrow"
-            | "ssfxalpharange"
-            | "ssfxweather"
-    )
+    let token = token.to_ascii_lowercase();
+    StageMaterial::is_directive(&token)
+        || matches!(
+            token.as_str(),
+            "map"
+                | "clampmap"
+                | "animmap"
+                | "oneshotanimmap"
+                | "blendfunc"
+                | "alphafunc"
+                | "rgbgen"
+                | "alphagen"
+                | "tcgen"
+                | "tcmod"
+                | "depthfunc"
+                | "depthwrite"
+                | "detail"
+                | "glow"
+                | "surfacesprites"
+                | "ssfademax"
+                | "ssfadescale"
+                | "ssvariance"
+                | "sshangdown"
+                | "ssanyangle"
+                | "ssfaceup"
+                | "sswind"
+                | "sswindidle"
+                | "ssvertskew"
+                | "ssfxduration"
+                | "ssfxgrow"
+                | "ssfxalpharange"
+                | "ssfxweather"
+        )
 }
 
 pub(super) fn tokenize(text: &str, source: &VirtualPath) -> Result<Vec<String>, ShaderError> {

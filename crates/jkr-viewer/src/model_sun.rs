@@ -347,6 +347,9 @@ impl super::Runtime {
         if let Some(table) = &mut self.stage_table {
             table.reset_program();
         }
+        if let Some(maps) = &mut self.forge.material_maps {
+            maps.reset_program();
+        }
         let count = self.forge.pipeline_keys.len();
         self.entity_pipelines = (0..count).map(|_| std::cell::OnceCell::new()).collect();
         self.entity_no_depth_pipelines = (0..count).map(|_| std::cell::OnceCell::new()).collect();
