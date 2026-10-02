@@ -51,6 +51,21 @@ On Linux the default is `$XDG_DATA_HOME/jkr/downloads/base`, falling back to
 root (the implementation appends `base`). See
 [download_store.rs](../crates/jkr-viewer/src/download_store.rs).
 
+## Key names and binds
+
+`bind`, the controls editor and the config name keys as stock JA does on Windows:
+by what the active keyboard layout prints on them. On a French AZERTY keyboard
+`bind w +forward` is the key labelled W, and the key left of W is named `<`.
+Character keys take the layout's unshifted character, including non-ASCII ones
+such as `é`, `ù` or `²`; a dead key is named by its accent, so AZERTY's `^` key is
+`^`. The digit row keeps `0`-`9` on every layout, keys without a character
+(arrows, F-keys, keypad, modifiers) keep their stock names, and letter keys of
+non-Latin layouts such as Cyrillic keep their US letter, so the default binds
+still reach a key there. A release runs the binds of the name its press had.
+Menu navigation keys (W/A/S/D beside the arrows) stay positional. See
+[keys.rs](../crates/jkr-viewer/src/input/keys.rs) and
+[key_names.rs](../crates/jkr-shell/src/key_names.rs).
+
 ## Useful console commands
 
 `connect host:port`, `disconnect` and `reconnect` control the session.

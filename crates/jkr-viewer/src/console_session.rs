@@ -243,6 +243,7 @@ impl ViewerConsole {
             shell,
             open: false,
             shift: false,
+            held_keys: Default::default(),
             input: String::with_capacity(INPUT_LIMIT),
             prompt: "] _".to_owned(),
             history: Vec::new(),

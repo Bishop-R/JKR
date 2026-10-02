@@ -262,6 +262,16 @@ pub fn canonical_key(key: &str) -> Option<&str> {
         }
         return Some(key);
     }
+    // Keys a layout labels outside ASCII (é, ù, ², ß) are named by that
+    // character, as stock names its Latin-1 keys (cl_keys.cpp:1003-1015).
+    let mut characters = key.chars();
+    if let (Some(character), None) = (characters.next(), characters.next())
+        && !character.is_ascii()
+        && !character.is_control()
+        && !character.is_whitespace()
+    {
+        return Some(key);
+    }
     KEY_NAMES
         .iter()
         .copied()
