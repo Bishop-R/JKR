@@ -261,3 +261,15 @@ same Vulkan setup, not exhaustive equivalence across all maps and backends.
 and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
+
+## Billboard icons
+
+Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0
+belongs at the top of the quad. Their local v is reflected before the shader's
+scale/scroll transform; ordinary FX billboards retain their existing convention.
+This covers simple-item icons and player-status icons when submitted through
+that path. The owner reported an inverted talk balloon during the player-icon
+PR playtest. An external probe compared the corrected production transform with
+OpenJK `RB_AddQuadStampExt`: four corners with three scale/scroll transforms
+matched, while ordinary FX transforms were unchanged. Native visual confirmation
+of the correction remains pending.
