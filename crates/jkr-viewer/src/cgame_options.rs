@@ -151,12 +151,7 @@ impl crate::GpuState {
             .as_ref()
             .and_then(|c| c.bool_cvar("cg_drawchat"))
             .unwrap_or(true);
-        self.chat.append(
-            visible,
-            &mut self.text_vertices,
-            &self.ui_font,
-            viewport,
-            scale,
-        );
+        let (vertices, font) = self.game_fonts.chat(&mut self.text_vertices, &self.ui_font);
+        self.chat.append(visible, vertices, font, viewport, scale);
     }
 }

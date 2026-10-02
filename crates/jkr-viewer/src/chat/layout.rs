@@ -37,6 +37,7 @@ pub(super) struct Wrapped {
     width: f32,
     size: f32,
     font_height: f32,
+    font_modern: bool,
 }
 
 impl Default for Wrapped {
@@ -47,6 +48,7 @@ impl Default for Wrapped {
             width: 0.0,
             size: 0.0,
             font_height: 0.0,
+            font_modern: true,
         }
     }
 }
@@ -58,12 +60,14 @@ impl Wrapped {
             && self.width == width
             && self.size == size
             && self.font_height == font.height
+            && self.font_modern == font.is_modern()
         {
             return;
         }
         self.width = width;
         self.size = size;
         self.font_height = font.height;
+        self.font_modern = font.is_modern();
         self.len = 0;
         let mut start = 0;
         while start < value.len() && self.len < WRAP_LINES {

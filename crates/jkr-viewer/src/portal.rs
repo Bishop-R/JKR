@@ -256,6 +256,7 @@ impl Destination {
                         client_menu: None,
                         game_data: game_data.to_path_buf(),
                         connect_timeline: None,
+                        game_fonts: false,
 
                         completed_map_changes: 0,
                     };

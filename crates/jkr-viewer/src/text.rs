@@ -3,9 +3,11 @@
 //! Inter is rasterized once when the graphics device is created.  The render
 //! loop only performs glyph lookup and appends vertices into reused buffers;
 //! it never rasterizes a glyph or grows the atlas.  The legacy JKA `fontdat`
-//! reader lives here as an optional compatibility path for the HUD only.
+//! reader ([`fontdat`]) feeds the optional classic HUD font and the optional
+//! game fonts for menus and chat ([`crate::game_font`]).
 
 mod bounded;
+pub(crate) mod fontdat;
 pub(crate) use bounded::append_bounded;
 
 use bytemuck::{Pod, Zeroable};
@@ -220,56 +222,12 @@ fn pack_glyphs(glyphs: &[RasterizedGlyph]) -> Vec<[u32; 2]> {
 
 /// Load Raven's retail bitmap font as an optional classic-HUD atlas.
 pub(crate) fn load_classic(vfs: &VirtualFileSystem) -> Result<FontAtlas, Box<dyn Error>> {
-    let data = vfs
-        .read("fonts/arialnb.fontdat")?
-        .ok_or("fonts/arialnb.fontdat is missing")?
-        .bytes;
-    const GLYPH_BYTES: usize = 28;
-    const HEADER_BYTES: usize = 10;
-    if data.len() < GLYPH_BYTES * GLYPH_COUNT + HEADER_BYTES {
-        return Err(format!("unexpected arialnb.fontdat size {}", data.len()).into());
-    }
-    let i16_at = |offset: usize| i16::from_le_bytes([data[offset], data[offset + 1]]);
-    let i32_at = |offset: usize| {
-        i32::from_le_bytes([
-            data[offset],
-            data[offset + 1],
-            data[offset + 2],
-            data[offset + 3],
-        ])
-    };
-    let f32_at = |offset: usize| f32::from_bits(i32_at(offset) as u32);
-    let header = GLYPH_BYTES * GLYPH_COUNT;
-    let point_size = f32::from(i16_at(header)).max(1.0);
-    let height = f32::from(i16_at(header + 2)).max(point_size);
-    let mut glyphs = [[FontGlyph::default(); GLYPH_COUNT]; 2];
-    for (index, glyph) in glyphs[0].iter_mut().enumerate() {
-        let offset = index * GLYPH_BYTES;
-        *glyph = FontGlyph {
-            width: f32::from(i16_at(offset)),
-            height: f32::from(i16_at(offset + 2)),
-            advance: f32::from(i16_at(offset + 4)),
-            offset_x: f32::from(i16_at(offset + 6)),
-            offset_y: height - i32_at(offset + 8) as f32,
-            uv: [
-                f32_at(offset + 12),
-                f32_at(offset + 16),
-                f32_at(offset + 20),
-                f32_at(offset + 24),
-            ],
-        };
-    }
-    let image = vfs
-        .read("fonts/arialnb.tga")?
-        .ok_or("fonts/arialnb.tga is missing")?;
+    let (fontdat, image) = fontdat::read(vfs, "arialnb")?;
+    // arialnb's header leaves mHeight empty; its baseline sits on the line bottom.
+    let height = fontdat.height.max(fontdat.point_size);
     Ok(FontAtlas {
-        font: UiFont {
-            glyphs,
-            height,
-            modern: false,
-        },
-        image: image::load_from_memory_with_format(&image.bytes, image::ImageFormat::Tga)?
-            .to_rgba8(),
+        font: fontdat.into_font(height, height),
+        image,
     })
 }
 

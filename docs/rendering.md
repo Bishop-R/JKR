@@ -130,3 +130,17 @@ empty scene demonstrates it.
 and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
+
+UI text uses the bundled Inter font, rasterized once per display scale in
+[text.rs](../crates/jkr-viewer/src/text.rs). Two options switch surfaces to
+the game's own bitmap fonts, read from the player's game data and never
+bundled: `cg_classicHudFont` draws the status HUD with `arialnb`, and
+`ui_gameFont` ("Game font for menus and chat", off by default) draws menus
+with `ergoec` and chat with `ocr_a`, the retail menu and chat-box fonts. Their
+`.fontdat` metrics are read by [fontdat.rs](../crates/jkr-viewer/src/text/fontdat.rs);
+the atlas is the highest-priority `fonts/<name>.tga` (or `.png`/`.jpg`), so an
+HD replacement atlas in a later PK3 is used with the retail metrics and is
+mipmapped down to the retail 512-texel size. The game fonts load when a world
+is installed with the option on, or on first use, from
+[game_font.rs](../crates/jkr-viewer/src/game_font.rs); a missing font leaves
+its surface on Inter.

@@ -66,6 +66,7 @@ mod frame_pacing;
 mod frame_split;
 
 mod frame_target;
+mod game_font;
 mod game_menu_actions;
 mod gpu_context;
 mod gpu_phases;
@@ -299,6 +300,7 @@ struct GpuState {
     classic_text_bind_group: Option<wgpu::BindGroup>,
     ui_font: UiFont,
     classic_hud_font: Option<UiFont>,
+    game_fonts: game_font::GameFonts,
     text_vertices: Vec<TextVertex>,
     classic_text_vertices: Vec<TextVertex>,
     hud: hud::HudOverlay,
@@ -442,6 +444,7 @@ impl GpuState {
             mut client_menu,
             game_data,
             mut connect_timeline,
+            game_fonts: preload_game_fonts,
             completed_map_changes,
         } = input;
         let mut load_profile = load_profile::LoadProfile::start();
@@ -752,6 +755,16 @@ impl GpuState {
                 });
                 (Some(atlas.font), Some(bind_group))
             });
+        let game_fonts = game_font::GameFonts::preload(
+            preload_game_fonts || game_font::enabled(console.as_ref()),
+            &vfs,
+            &game_font::Device {
+                device: &device,
+                queue: &queue,
+                layout: &text_layout,
+                sampler: &text_sampler,
+            },
+        );
         let (mut world_materials, resolved_world_stages) =
             world_materials::create_filtered_runtime(
                 &device,
@@ -1043,6 +1056,7 @@ impl GpuState {
             classic_text_bind_group,
             ui_font,
             classic_hud_font,
+            game_fonts,
             text_vertices: Vec::with_capacity(MAX_TEXT_VERTICES),
             classic_text_vertices: Vec::with_capacity(4_096),
             hud,
@@ -1400,6 +1414,7 @@ impl GpuState {
         );
         self.text_vertices.clear();
         self.classic_text_vertices.clear();
+        game_font::prepare(self);
         let information_visible = (self.live_session.is_some() || self.demo_session.is_some())
             && self
                 .console
@@ -1463,30 +1478,28 @@ impl GpuState {
             let team_sizes = self.live_session.as_ref().map_or([0, 0], |session| {
                 ingame_menu::team_sizes(session.game_state())
             });
-            self.in_game_menu.append(
-                ingame_menu::View {
-                    page: self.game_menu_page,
-                    selected_row: self.game_menu_row,
-                    team: self
-                        .live_session
-                        .as_ref()
-                        .map_or(3, |session| session.latest_snapshot().player.team()),
-                    team_game: self.is_team_game(),
-                    red_players: team_sizes[0],
-                    blue_players: team_sizes[1],
-                    vote_active: self.vote_active(),
-                    _frame: std::marker::PhantomData,
-                },
-                &mut self.text_vertices,
-                &self.ui_font,
-                viewport,
-            );
+            let view = ingame_menu::View {
+                page: self.game_menu_page,
+                selected_row: self.game_menu_row,
+                team: self
+                    .live_session
+                    .as_ref()
+                    .map_or(3, |session| session.latest_snapshot().player.team()),
+                team_game: self.is_team_game(),
+                red_players: team_sizes[0],
+                blue_players: team_sizes[1],
+                vote_active: self.vote_active(),
+                _frame: std::marker::PhantomData,
+            };
+            let (vertices, font) = self.game_fonts.menu(&mut self.text_vertices, &self.ui_font);
+            self.in_game_menu.append(view, vertices, font, viewport);
         }
         if scoreboard_visible {
             scoreboard::append_overlay(self, viewport, text_scale * 1.05);
         }
         if let Some(menu) = &mut self.client_menu {
-            menu.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
+            let (vertices, font) = self.game_fonts.menu(&mut self.text_vertices, &self.ui_font);
+            menu.append_overlay(vertices, font, viewport, text_scale);
         }
         if let Some(console) = &mut self.console {
             console.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
@@ -1520,6 +1533,7 @@ impl GpuState {
                 bytemuck::cast_slice(&self.text_vertices),
             );
         }
+        self.game_fonts.upload(&self.queue);
         let classic_text_vertex_count =
             u32::try_from(self.classic_text_vertices.len()).unwrap_or(0);
         if !self.classic_text_vertices.is_empty() {

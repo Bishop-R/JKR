@@ -129,6 +129,9 @@ impl GpuState {
         if let Some(mask) = &self.scope_mask {
             mask.draw(&mut pass);
         }
+        // Menu and chat game fonts sit under the Inter console and HUD text,
+        // as they did when every surface shared one buffer.
+        self.game_fonts.draw(&mut pass, &self.text_pipeline);
         if text != 0 {
             pass.set_pipeline(&self.text_pipeline);
             pass.set_bind_group(0, &self.text_bind_group, &[]);

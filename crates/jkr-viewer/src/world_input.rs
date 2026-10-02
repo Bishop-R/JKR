@@ -20,6 +20,8 @@ pub(crate) struct GpuWorldInput {
     pub(crate) client_menu: Option<menu::ClientMenu>,
     pub(crate) game_data: PathBuf,
     pub(crate) connect_timeline: Option<log::ConnectTimeline>,
+    /// Load the optional menu and chat game fonts while installing the world.
+    pub(crate) game_fonts: bool,
 
     pub(crate) completed_map_changes: u32,
 }
