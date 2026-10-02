@@ -240,8 +240,10 @@ pub(super) fn build_passes(
             ],
         });
         let (pipeline, _) = forge.pipeline_index(stage.key);
-        let (live_pipeline, _) =
-            forge.pipeline_index(super::visible_emission::live_key(stage.key, &stage.gpu));
+        let live_key = super::visible_emission::live_key(stage.key, &stage.gpu);
+        let (live_pipeline, _) = forge.pipeline_index(live_key);
+        let forced_alpha_pipelines =
+            [stage.key, live_key].map(|key| forge.pipeline_index(super::forced_alpha::key(key)).0);
         passes.push(StagePass {
             table: Some(super::stage_table::Source {
                 gpu: stage.gpu,
@@ -271,6 +273,7 @@ pub(super) fn build_passes(
             bind_group,
             pipeline,
             live_pipeline,
+            forced_alpha_pipelines,
         });
     }
     Ok(passes)

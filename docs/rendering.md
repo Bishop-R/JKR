@@ -118,6 +118,30 @@ release build passed; Cargo runs no bundled regression tests. The owner accepted
 the release playtest on 2026-10-02. Broader live-animation checks, other GPUs and
 exhaustive quality/map coverage remain open.
 
+## Entity render effects
+
+cgame custom shaders on actors (force shells, pickup placeholders) are extra
+instances of the same mesh in [entity_materials.rs](../crates/jkr-viewer/src/entity_materials.rs).
+The same path also draws rd-vanilla's `RF_FORCE_ENT_ALPHA`: the mesh keeps its
+own surface shaders, the stage program replaces vertex alpha with the
+instance's alpha, and each stage uses an alpha-blended, depth-tested,
+non-depth-writing variant of its pipeline
+([world_forced_alpha.rs](../crates/jkr-viewer/src/world_forced_alpha.rs)).
+These draws close the blended entity list, like the stock post-render queue,
+but particle effects still composite after them. Model materials compile these
+variants at map load (depth-tested only); most share keys with ordinary
+blended stages.
+
+The Force Speed afterimages use it: two copies of the actor in its current pose
+at alpha 100 and 50, spaced by `(int)(6 * speed * 0.004)` units along the
+recent path, while the entity has `PW_SPEED` and `cg_speedTrail` is nonzero
+([speed_trail.rs](../crates/jkr-viewer/src/speed_trail.rs), after
+`cg_players.c:10841-10906`). Copies are excluded from shadow casting. The
+mind-trick fade that also suppresses stock trails is not drawn by the viewer,
+so only an active trick suppresses them. The `PW_SPEED` saber trail
+(`cg_players.c:7319`) is not implemented. This has passed unit tests only;
+appearance has not yet been checked on a GPU against the stock client.
+
 Set `JKR_FRAME_BUDGET=1` for frame-work and GPU-phase diagnostics. Measurements
 must name the build mode, GPU, resolution, settings, map and population. Separate
 loading/shader warmup from steady frames and CPU work from GPU timings. The

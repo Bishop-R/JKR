@@ -271,9 +271,10 @@ pub(crate) fn append_instances(
             if override_instances.len() < override_instances.capacity() {
                 override_instances.push(OverrideInstance {
                     mesh: crate::entity_materials::OverrideMesh::Object(mesh_index),
-                    material,
+                    material: Some(material),
                     instance,
                     no_depth: false,
+                    forced_alpha: false,
                 });
             }
         } else {

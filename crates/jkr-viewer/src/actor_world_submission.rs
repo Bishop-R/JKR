@@ -17,6 +17,9 @@ pub(crate) mod model_scale;
 #[path = "monster_hold.rs"]
 pub(crate) mod monster_hold;
 
+#[path = "speed_trail.rs"]
+pub(crate) mod speed_trail;
+
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
     shield_mesh: Option<usize>,
@@ -40,6 +43,9 @@ struct Sinks<'a> {
     vfs: &'a VirtualFileSystem,
     game_audio: &'a mut Option<GameAudio>,
     force_tracker: &'a jkr_client::LegacyForceOverlayTracker,
+    speed_trails: &'a mut speed_trail::Trails,
+    /// `cg_speedTrail`.
+    speed_trail: bool,
     material_overrides: model_materials::Overrides,
     camera_position: Vec3,
     camera_yaw: f32,
@@ -92,6 +98,12 @@ pub(crate) fn submit(
         .and_then(|console| console.integer_cvar("cg_saberTrail"))
         .unwrap_or(1)
         != 0;
+    let speed_trail = gpu
+        .console
+        .as_ref()
+        .and_then(|console| console.integer_cvar("cg_speedTrail"))
+        .unwrap_or(1)
+        != 0;
     let mut sinks = Sinks {
         flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(
             game_state
@@ -126,6 +138,8 @@ pub(crate) fn submit(
             .expect("sessions retain their mounted VFS"),
         game_audio,
         force_tracker: &gpu.force_overlays,
+        speed_trails: &mut gpu.speed_trails,
+        speed_trail,
         material_overrides: gpu.model_material_overrides,
         camera_position: gpu.camera_position,
         camera_yaw: gpu.camera_yaw,
@@ -317,6 +331,10 @@ fn submit_actor(
             trails,
         );
     }
+    let ghosts = match (mesh, snapshot) {
+        (Some(_), Some(snapshot)) => speed_ghosts(sinks, transform, snapshot, state, local),
+        _ => [None; 2],
+    };
     if (draw_actor || sinks.portal_view)
         && let Some(mesh) = mesh
     {
@@ -328,6 +346,21 @@ fn submit_actor(
         .with_entity_color(entity.color());
         instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
         sinks.actor_groups[mesh].push(instance);
+        // The copies share the actor's pose, scale, colour and view flags.
+        for ghost in ghosts.into_iter().flatten() {
+            if sinks.overrides.len() == sinks.overrides.capacity() {
+                break;
+            }
+            let mut copy = instance.with_forced_alpha(ghost.alpha);
+            copy.position = ghost.origin.to_array();
+            sinks.overrides.push(entity_materials::OverrideInstance {
+                mesh: entity_materials::OverrideMesh::Actor(mesh),
+                material: None,
+                instance: copy,
+                no_depth: false,
+                forced_alpha: true,
+            });
+        }
         sinks.actor_meshes[mesh]
             .retained_pose
             .mark_drawn(entity.id, presentation_time);
@@ -362,6 +395,42 @@ fn submit_actor(
         });
     }
     0
+}
+
+/// Advance the Force Speed trail of one actor that stock passes through
+/// `CG_Player`. The local player is `cg.predictedPlayerEntity`, whose state
+/// comes from the predicted player state; others use their snapshot state.
+fn speed_ghosts(
+    sinks: &mut Sinks<'_>,
+    transform: &jkr_runtime::Transform,
+    snapshot: &Snapshot,
+    state: Option<&jkr_protocol::EntityState>,
+    local: bool,
+) -> [Option<speed_trail::Ghost>; 2] {
+    // `PW_SPEED`, as `BG_PlayerStateToEntityState` maps powerups to bits.
+    const PW_SPEED: usize = 10;
+    let local_client = snapshot.player.client_num();
+    let (number, velocity, trailing) = if local {
+        let velocity = sinks
+            .predicted_local_state
+            .map_or_else(|| snapshot.player.velocity(), |state| state.velocity);
+        let trailing = snapshot.player.powerups[PW_SPEED] != 0;
+        (local_client, velocity, trailing)
+    } else if let Some(state) = state {
+        // `doAlpha` covers more than the trick itself (its fade-in afterwards);
+        // the viewer does not draw that fade, so only the trick suppresses here.
+        let trailing =
+            state.powerups() & (1 << PW_SPEED) != 0 && !state.client_bitflag(local_client);
+        (state.number(), state.trajectory_delta(), trailing)
+    } else {
+        return [None; 2];
+    };
+    sinks.speed_trails.advance(
+        number,
+        Vec3::from_array(transform.translation),
+        Vec3::from_array(velocity),
+        trailing && sinks.speed_trail,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

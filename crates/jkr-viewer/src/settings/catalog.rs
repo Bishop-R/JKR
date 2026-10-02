@@ -280,6 +280,11 @@ pub(super) const GAME: &[Setting] = &[
         kind: ValueKind::Choice(&["0", "1", "2"]),
     },
     Setting {
+        label: "Force Speed trail",
+        cvar: "cg_speedTrail",
+        kind: ValueKind::Bool,
+    },
+    Setting {
         label: "Force Seeing aura",
         cvar: "cg_auraShell",
         kind: ValueKind::Bool,

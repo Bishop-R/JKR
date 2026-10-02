@@ -333,6 +333,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Saber motion trails; mode 2 currently uses the normal trail",
         ),
+        // Stock default "1" (`codemp/cgame/cg_xcvar.h`).
+        CvarDefinition::new(
+            "cg_speedTrail",
+            1_i64,
+            archive,
+            "Draw Force Speed afterimages behind players",
+        ),
         CvarDefinition::new(
             "cg_auraShell",
             1_i64,

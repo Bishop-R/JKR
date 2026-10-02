@@ -286,6 +286,7 @@ impl Runtime {
 
         let stage_major = |draw: &crate::entity_materials::Draw| {
             !draw.no_depth
+                && !draw.forced_alpha
                 && self
                     .material(draw.material)
                     .is_some_and(|material| !material.blended)
@@ -343,7 +344,11 @@ impl Runtime {
         };
         // Depth-tested stages on the stage table: the table group stays bound and an
         // immediate names the record, in place of a bind-group switch per draw.
-        let table = self.stage_table.as_ref().filter(|_| !draw.no_depth);
+        // Forced-alpha draws take the per-stage bind groups with their own pipelines.
+        let table = self
+            .stage_table
+            .as_ref()
+            .filter(|_| !draw.no_depth && !draw.forced_alpha);
         for (stage_index, stage) in material
             .stages
             .iter()
@@ -351,10 +356,10 @@ impl Runtime {
             .skip(levels.start)
             .take(levels.end.saturating_sub(levels.start))
         {
-            let index = if live_emission {
-                stage.live_pipeline
-            } else {
-                stage.pipeline
+            let index = match (draw.forced_alpha, live_emission) {
+                (false, false) => stage.pipeline,
+                (false, true) => stage.live_pipeline,
+                (true, live) => stage.forced_alpha_pipelines[usize::from(live)],
             };
             if let Some((table, record)) = table
                 .and_then(|table| Some((table, table.record(runtime_material_index, stage_index)?)))

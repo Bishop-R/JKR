@@ -30,6 +30,8 @@ pub(crate) mod flares;
 mod fog_draws;
 #[path = "fog_gpu.rs"]
 mod fog_gpu;
+#[path = "world_forced_alpha.rs"]
+mod forced_alpha;
 #[path = "world_material_forge.rs"]
 mod forge;
 #[path = "world_material_gpu.rs"]
@@ -181,6 +183,8 @@ struct StagePass {
     geometry_group: wgpu::BindGroup,
     pipeline: usize,
     live_pipeline: usize,
+    /// `pipeline` and `live_pipeline` under `RF_FORCE_ENT_ALPHA` ([`forced_alpha`]).
+    forced_alpha_pipelines: [usize; 2],
 }
 
 #[derive(Clone)]
@@ -433,6 +437,8 @@ fn finish_runtime(
     let pipelines_started = Instant::now();
     let mut world_keys = vec![false; keys.len()];
     let mut model_keys = vec![false; keys.len()];
+    // Forced-alpha (Force Speed trail) variants of model stages: depth-tested only.
+    let mut forced_keys = vec![false; keys.len()];
     for material in &runtime.materials {
         let world = !material.static_draws.is_empty() || !material.mover_draws.is_empty();
         for stage in &material.stages {
@@ -443,11 +449,16 @@ fn finish_runtime(
                     model_keys[index] = true;
                 }
             }
+            if !world {
+                for index in stage.forced_alpha_pipelines {
+                    forced_keys[index] = true;
+                }
+            }
         }
     }
     for index in 0..keys.len() {
         runtime.push_pipeline_slots();
-        if world_keys[index] || model_keys[index] {
+        if world_keys[index] || model_keys[index] || forced_keys[index] {
             runtime.entity_pipeline(index, true);
         }
         if model_keys[index] {
