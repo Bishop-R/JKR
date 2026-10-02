@@ -82,7 +82,7 @@ impl Runtime {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         camera_layout: &wgpu::BindGroupLayout,
         color_format: wgpu::TextureFormat,
         vfs: &VirtualFileSystem,
@@ -311,7 +311,7 @@ impl Runtime {
 
 fn load_box(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     layout: &wgpu::BindGroupLayout,
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,

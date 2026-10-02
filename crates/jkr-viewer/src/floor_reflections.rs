@@ -132,7 +132,7 @@ impl Floors {
     }
     pub(super) fn prepare(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         bsp: &Bsp,
         areas: &crate::world_materials::areas::Areas,
         view: Mat4,

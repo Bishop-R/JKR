@@ -396,7 +396,7 @@ impl Samplers {
 /// followed by the engine-generated neutral pair for custom RGB blades.
 pub(crate) fn create_materials(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,
     layout: &wgpu::BindGroupLayout,
@@ -431,7 +431,7 @@ pub(crate) fn create_materials(
 /// rd-vulkan's box mip chain (stored display values throughout).
 pub(crate) fn material(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     layout: &wgpu::BindGroupLayout,
     samplers: &Samplers,
     glow: &image::RgbaImage,

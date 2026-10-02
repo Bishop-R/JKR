@@ -1,13 +1,19 @@
 // Return a constant only if all texels of every PCF footprint satisfy the compare.
+// The bounds level is the finest whose tiles (8 texels at level 0, doubling per level)
+// are at least as wide as the footprint, which then spans at most 2x2 of them.
 fn bounded_visibility(p: Projection, dimensions: vec2<f32>, depth: f32, radius: f32, layer: i32) -> f32 {
     let at = p.uv*dimensions - 0.5;
-    let lo = vec2<i32>(clamp(floor(at - radius)-1.0, vec2(0.0), dimensions-1.0)) / 64;
-    let hi = vec2<i32>(clamp(floor(at + radius)+2.0, vec2(0.0), dimensions-1.0)) / 64;
-    if any(hi-lo > vec2(1)) { return -1.0; }
-    let a = textureLoad(shadow_bounds, lo, layer, 0).xy;
-    let b = textureLoad(shadow_bounds, vec2(hi.x,lo.y), layer, 0).xy;
-    let c = textureLoad(shadow_bounds, vec2(lo.x,hi.y), layer, 0).xy;
-    let d = textureLoad(shadow_bounds, hi, layer, 0).xy;
+    let first = vec2<i32>(clamp(floor(at - radius)-1.0, vec2(0.0), dimensions-1.0));
+    let last = vec2<i32>(clamp(floor(at + radius)+2.0, vec2(0.0), dimensions-1.0));
+    let span = u32(max(last.x - first.x, last.y - first.y)) + 1u;
+    let level = min(u32(max(i32(firstLeadingBit(max(span, 2u) - 1u)) - 2, 0)),
+        textureNumLevels(shadow_bounds) - 1u);
+    let lo = first >> vec2(level + 3u);
+    let hi = last >> vec2(level + 3u);
+    let a = textureLoad(shadow_bounds, lo, layer, i32(level)).xy;
+    let b = textureLoad(shadow_bounds, vec2(hi.x,lo.y), layer, i32(level)).xy;
+    let c = textureLoad(shadow_bounds, vec2(lo.x,hi.y), layer, i32(level)).xy;
+    let d = textureLoad(shadow_bounds, hi, layer, i32(level)).xy;
     let low = min(min(a.x,b.x),min(c.x,d.x));
     let high = max(max(a.y,b.y),max(c.y,d.y));
     let variation = dot(abs(p.gradient), vec2(radius)/dimensions) + 1e-6;
