@@ -56,6 +56,8 @@ pub(crate) enum InputAction {
     CenterView,
     /// Apply the current cl_freelook value when the viewer handles mouse-look release.
     MlookReleased,
+    /// `-grapple`: on JA+ servers EternalJK also taps `+use` to let go of the hook.
+    GrappleReleased,
 }
 
 /// Current logical gameplay-input state.
@@ -84,9 +86,24 @@ impl Default for GameplayInput {
 }
 
 impl GameplayInput {
+    /// Drop every held input, including holds typed at the console.
     pub(crate) fn clear(&mut self) {
         self.held = [state::KeyState::default(); 32];
         self.motion.clear();
+    }
+
+    /// Release keys when the console, a menu or chat takes the keyboard, as
+    /// `Key_ClearStates` does, keeping holds typed at the console such as `+button12`.
+    pub(crate) fn release_keys(&mut self) {
+        for state in &mut self.held {
+            state.release_keys();
+        }
+        self.motion.clear();
+    }
+
+    /// Set `button` in the next user command only, like a `+` and `-` one frame apart.
+    pub(crate) fn tap(&mut self, button: GameButton) {
+        self.held[button.slot()].pressed = true;
     }
 
     /// Latch `cl_run` (retail default 1); see `user_command`.
@@ -207,6 +224,9 @@ impl GameplayInput {
             if !pressed && button == GameButton::Mlook {
                 return Some(InputAction::MlookReleased);
             }
+            if name == "-grapple" {
+                return Some(InputAction::GrappleReleased);
+            }
             return (changed && pressed && button == GameButton::Scores)
                 .then_some(InputAction::RequestScores);
         }
@@ -273,6 +293,9 @@ fn button_for_command(command: &str) -> Option<GameButton> {
         "force_grip" => Some(GameButton::Button(6)),
         "force_lightning" => Some(GameButton::Button(10)),
         "force_drain" => Some(GameButton::Button(11)),
+        // EternalJK cg_consolecmds.c:1003-1015 (`+grapple`): `+button12`, the
+        // JA+/JaPRO grapple hook.
+        "grapple" => Some(GameButton::Button(12)),
         "scores" => Some(GameButton::Scores),
         _ => None,
     }
@@ -283,7 +306,7 @@ impl super::GpuState {
         match action {
             Some(InputAction::TargetMessage(attacker)) => self.targeted_chat(attacker),
             Some(InputAction::MessageMode(team)) if self.live_session.is_some() => {
-                self.gameplay_input.clear();
+                self.gameplay_input.release_keys();
                 self.chat.open(team);
                 self.sync_cursor_policy();
             }
@@ -307,6 +330,16 @@ impl super::GpuState {
                     })
                 {
                     self.camera_pitch = 0.0;
+                }
+            }
+            Some(InputAction::GrappleReleased) => {
+                if self.live_session.as_ref().is_some_and(|session| {
+                    matches!(
+                        session.compat_profile(),
+                        jkr_client::CompatProfile::JaPlus { .. }
+                    )
+                }) {
+                    self.gameplay_input.tap(GameButton::Button(5));
                 }
             }
             Some(InputAction::Weapon(weapon)) => self.select_weapon(weapon),
@@ -414,5 +447,61 @@ impl super::GpuState {
             self.weapon_selection_label
                 .push_str(crate::ingame_menu::weapon_name(weapon));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BUTTON_12: u16 = 1 << 12;
+
+    fn buttons(input: &GameplayInput) -> u16 {
+        input.user_command(0, 0.0, 0.0, [0; 3], 0, 0, 0).buttons
+    }
+
+    #[test]
+    fn typed_button_hold_survives_the_console_taking_the_keyboard() {
+        let mut input = GameplayInput::default();
+        assert!(GameplayInput::recognizes("+button12"));
+        input.apply("+button12");
+        // The console consumes the Enter release and clears key states.
+        input.release_keys();
+        assert_ne!(buttons(&input) & BUTTON_12, 0);
+        input.apply("-button12");
+        input.finish_command();
+        assert_eq!(buttons(&input) & BUTTON_12, 0);
+    }
+
+    #[test]
+    fn bound_button_is_released_with_the_keys() {
+        let mut input = GameplayInput::default();
+        input.apply("+button12 77 0");
+        input.release_keys();
+        input.finish_command();
+        assert_eq!(buttons(&input) & BUTTON_12, 0);
+    }
+
+    #[test]
+    fn grapple_holds_button_12_and_reports_its_release() {
+        let mut input = GameplayInput::default();
+        assert!(GameplayInput::recognizes("+grapple"));
+        assert_eq!(input.apply("+grapple 77 0"), None);
+        assert_ne!(buttons(&input) & BUTTON_12, 0);
+        assert_eq!(
+            input.apply("-grapple 77 10"),
+            Some(InputAction::GrappleReleased)
+        );
+        input.finish_command();
+        assert_eq!(buttons(&input) & BUTTON_12, 0);
+    }
+
+    #[test]
+    fn tap_sets_a_button_for_one_command() {
+        let mut input = GameplayInput::default();
+        input.tap(GameButton::Button(5));
+        assert_ne!(buttons(&input) & (1 << 5), 0);
+        input.finish_command();
+        assert_eq!(buttons(&input) & (1 << 5), 0);
     }
 }

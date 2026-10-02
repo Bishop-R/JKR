@@ -143,7 +143,7 @@ impl GpuState {
     pub(crate) fn pointer_focus(&mut self, focused: bool) {
         self.cursor_policy.set_focus(focused);
         if !focused {
-            self.gameplay_input.clear();
+            self.gameplay_input.release_keys();
         }
         self.sync_cursor_policy();
     }
@@ -163,7 +163,7 @@ impl GpuState {
 
     pub(crate) fn release_pointer(&mut self) {
         self.apply_cursor_mode(CursorMode::Free);
-        self.gameplay_input.clear();
+        self.gameplay_input.release_keys();
     }
 
     pub(crate) fn sync_cursor_policy(&mut self) {

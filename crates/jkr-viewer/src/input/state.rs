@@ -10,10 +10,14 @@ pub(super) struct KeyState {
     pub fraction: f32,
 }
 
+/// Key id of a hold typed at the console without one (`IN_KeyDown`'s `k = -1`,
+/// cl_input.cpp:403): it lasts until a matching command without a key.
+const TYPED: u64 = u64::MAX;
+
 impl KeyState {
     pub fn event(&mut self, down: bool, key: Option<u64>, time: u64) -> bool {
         if down {
-            let key = key.unwrap_or(u64::MAX);
+            let key = key.unwrap_or(TYPED);
             if self.keys.contains(&Some(key)) {
                 return false;
             }
@@ -52,6 +56,20 @@ impl KeyState {
         }
     }
 
+    /// `Key_ClearStates` (cl_keys.cpp:1606) releases every physical key when a
+    /// console, menu or chat catcher takes the keyboard; a typed hold survives.
+    pub fn release_keys(&mut self) {
+        if self.keys.contains(&Some(TYPED)) {
+            for slot in &mut self.keys {
+                if *slot != Some(TYPED) {
+                    *slot = None;
+                }
+            }
+        } else {
+            *self = Self::default();
+        }
+    }
+
     pub fn sample(&mut self, now: u64, millis: u64) {
         let mut elapsed = std::mem::take(&mut self.elapsed);
         if self.active {
@@ -60,5 +78,33 @@ impl KeyState {
         }
         self.fraction = (elapsed as f32 / millis.max(1) as f32).clamp(0.0, 1.0);
         self.command_elapsed += elapsed.min(millis);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KeyState;
+
+    #[test]
+    fn released_keys_keep_a_typed_hold() {
+        let mut state = KeyState::default();
+        state.event(true, None, 10);
+        state.event(true, Some(4), 20);
+        state.release_keys();
+        assert!(state.active);
+        // The key is gone: its own release no longer matters, the typed `-` does.
+        assert!(!state.event(false, Some(4), 30));
+        assert!(state.active);
+        assert!(state.event(false, None, 40));
+        assert!(!state.active);
+    }
+
+    #[test]
+    fn released_keys_drop_a_key_hold() {
+        let mut state = KeyState::default();
+        state.event(true, Some(4), 10);
+        state.release_keys();
+        assert!(!state.active);
+        assert!(!state.pressed);
     }
 }

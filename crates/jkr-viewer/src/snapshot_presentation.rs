@@ -248,7 +248,7 @@ impl GpuState {
             self.game_menu_page = GameMenuPage::Team;
             self.game_menu_row = 0;
             self.auto_opened_team_menu = true;
-            self.gameplay_input.clear();
+            self.gameplay_input.release_keys();
         }
         if observe_events {
             observe(

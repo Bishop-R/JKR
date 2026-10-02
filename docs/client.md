@@ -65,6 +65,14 @@ names containing it. The client sends the stock `tell <slot>` command; when no
 player or several players match, it lists them and sends nothing. See
 [console_tell.rs](../crates/jkr-viewer/src/console_tell.rs).
 
+Held actions such as `+button12` work from binds, cfg files and the console. A
+hold typed at the console lasts until its `-` command, as in the stock client:
+opening the console, a menu or chat, or losing window focus, releases held keys
+but not typed holds; `in_restart` and session changes release both. `+grapple` is
+EternalJK's name for `+button12`, the JA+/JaPRO grapple hook; on a JA+ server
+releasing it also taps `+use`, as EternalJK does. See
+[input.rs](../crates/jkr-viewer/src/input.rs).
+
 Tab completes the command or cvar name being typed, after a leading `/` or `\` and
 after the last `;`. A unique name completes with a trailing space; otherwise the
 input extends to the longest shared prefix and the matching commands and cvars,

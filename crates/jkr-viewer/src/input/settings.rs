@@ -28,6 +28,7 @@ pub(crate) fn register_commands(
         "force_grip",
         "force_lightning",
         "force_drain",
+        "grapple",
         "scores",
     ];
     for name in buttons
