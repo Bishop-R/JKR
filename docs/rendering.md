@@ -124,6 +124,16 @@ loading/shader warmup from steady frames and CPU work from GPU timings. The
 500+ FPS target remains open; neither a single GPU timestamp nor an uncapped
 empty scene demonstrates it.
 
+Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0
+belongs at the top of the quad. Their local v is reflected before the shader's
+scale/scroll transform; ordinary FX billboards retain their existing convention.
+This covers simple-item icons and player-status icons when submitted through
+that path. The owner reported an inverted talk balloon during the player-icon
+PR playtest. An external probe compared the corrected production transform with
+OpenJK `RB_AddQuadStampExt`: four corners with three scale/scroll transforms
+matched, while ordinary FX transforms were unchanged. Native visual confirmation
+of the correction remains pending.
+
 ## UI ownership
 
 `jkr-ui` provides renderer-independent retained widgets. The viewer supplies GPU
