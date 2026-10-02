@@ -47,6 +47,21 @@ without a panic or GPU validation error during a short startup check.
 The owner also playtested the release build and confirmed that the reported
 view looked clean.
 
+Sun-shadow edge refinement (2026-10-02, based on `980e693`): the owner
+accepted the release playtest with smoother structure shadows and more stable
+player-shadow overlaps. Cascades share a reconstruction footprint and wider
+transition bands. World and moving-caster depths are filtered independently;
+a world-space blocker search and Gaussian reconstruction smooth broad edges
+without letting a player change the building's separation estimate.
+
+External release GPU evidence covers the three marked `mp/ffa3` views, camera
+approaches and seven positions of an actor in the dynamic-caster pass. Adding
+the actor did not brighten unchanged receivers in that probe. Tier 2, day/night
+disabled and actor-only GPU smoke checks passed, as did formatting, workspace
+build/tests and the release client build. The tested 4K view adds about 0.49 ms
+of GPU work over the preceding playtest filter. See [rendering](rendering.md)
+for settings, the overlap approximation, memory cost and remaining limits.
+
 ## Open validation and limitations
 
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios

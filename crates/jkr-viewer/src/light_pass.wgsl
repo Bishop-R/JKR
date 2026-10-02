@@ -7,6 +7,8 @@
 @group(1) @binding(2) var<uniform> shadow: Shadow;
 @group(1) @binding(3) var far_map: texture_depth_2d;
 @group(1) @binding(4) var close_map: texture_depth_2d;
+@group(1) @binding(5) var world_map: texture_depth_2d;
+@group(1) @binding(6) var close_world_map: texture_depth_2d;
 // The occlusion term of the pre-pass (`light_occlusion.wgsl`), one texel per fragment.
 @group(1) @binding(22) var light_occlusion: texture_2d<f32>;
 // Pre-pass surfaces for contact-shadow intersections.

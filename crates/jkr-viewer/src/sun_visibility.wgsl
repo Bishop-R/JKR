@@ -30,47 +30,77 @@ fn project(vp: mat4x4<f32>, texel: f32, world: vec3<f32>, normal: vec3<f32>,
     let inside = all(uv > vec2(0.0)) && all(uv < vec2(1.0)) && clip.z > 0.0 && clip.z < 1.0;
     return Projection(uv, clip.z, gradient, inside);
 }
-// Blocker search then contact-hardening PCF on one cascade; `range` is its depth extent.
-fn filtered(map: texture_depth_2d, p: Projection, texel: f32, range: f32) -> f32 {
-    let dimensions = vec2<f32>(textureDimensions(map));
-    // A linear comparison samples the four surrounding texel centers. At an
-    // arbitrary sub-texel position, a center can be almost one texel away on
-    // either axis. Half a texel only covers the midpoint and lets planar
-    // receivers shadow themselves as the sample moves across the footprint.
-    let depth = p.depth - dot(abs(p.gradient), 1.0/dimensions) - 0.05 / range;
-    // The blocker search and the penumbra reach at most 24 world units: the receiver
-    // plane is extrapolated that far, and on the far cascade's 4 to 8 unit texels a
-    // twelve texel reach was 96 units, enough for curved patches and steps to read as
-    // blockers of their own neighbours (false penumbrae, dotted, at a distance).
-    let reach = clamp(24.0/texel, 1.0, 12.0);
-    var sum = 0.0;
-    var blockers = 0.0;
-    for (var i = 0u; i < 16u; i++) {
-        // Cover the full possible penumbra, with a center sample for thin/contact blockers.
-        let offset = select(disk(i, 16u)*reach, vec2(0.0), i == 0u);
-        let pixel = vec2<i32>((p.uv + offset/dimensions)*dimensions);
-        let sample = textureLoad(map, clamp(pixel, vec2(0), vec2<i32>(dimensions)-1), 0);
-        let adjusted = sample-dot(p.gradient, offset/dimensions);
-        if adjusted < depth { sum += adjusted; blockers += 1.0; }
-    }
-    // Parallel sunlight: penumbra grows with receiver/blocker separation, no extra pass.
-    // The hardware comparison already filters one texel. An extra fixed disk
-    // radius turns contact into a world-space penumbra that grows with cascade
-    // texel size, even when blocker and receiver touch. Only their separation
-    // should widen the sun's penumbra.
-    var radius = 0.0;
-    if blockers > 0.0 {
-        let gap = max(depth - sum/blockers, 0.0) * range;
-        radius = clamp(gap * 0.0093 / texel, 0.0, reach);
-    }
+// Bilinearly reconstruct separation and blocked coverage, correcting the receiver
+// plane at each texel centre. Interpolating raw depths would invent occluders at edges.
+fn blockers(map: texture_depth_2d, p: Projection, depth: f32,
+    dimensions: vec2<f32>, at: vec2<f32>) -> vec2<f32> {
+    let base = vec2<i32>(floor(at));
+    let blend = fract(at);
+    let lo = clamp(base, vec2(0), vec2<i32>(dimensions)-1);
+    let hi = clamp(base + vec2(1), vec2(0), vec2<i32>(dimensions)-1);
+    let samples = vec4(textureLoad(map, lo, 0),
+        textureLoad(map, vec2(hi.x, lo.y), 0),
+        textureLoad(map, vec2(lo.x, hi.y), 0), textureLoad(map, hi, 0));
+    let plane = dot(p.gradient, (vec2<f32>(lo) + 0.5)/dimensions - p.uv);
+    let step = p.gradient * vec2<f32>(hi-lo)/dimensions;
+    let gaps = max(vec4(depth + plane) + vec4(0.0, step.x, step.y, step.x+step.y)
+        - samples, vec4(0.0));
+    let weights = vec4((1.0-blend.x)*(1.0-blend.y), blend.x*(1.0-blend.y),
+        (1.0-blend.x)*blend.y, blend.x*blend.y);
+    return vec2(dot(gaps, weights), dot(select(vec4(0.0), weights, gaps > vec4(0.0)), vec4(1.0)));
+}
+// Same full-texel receiver-plane allowance for both layers; no added depth bias.
+fn receiver_depth(p: Projection, dimensions: vec2<f32>, range: f32) -> f32 {
+    return p.depth - dot(abs(p.gradient), 1.0/dimensions) - 0.05 / range;
+}
+// Sample a truncated Gaussian disk rather than an equal-weight disk with a hard rim.
+// Fixed angles need no temporal history. A fractional final tap avoids count jumps.
+fn reconstruct(map: texture_depth_2d, p: Projection, depth: f32,
+    dimensions: vec2<f32>, radius: f32) -> f32 {
+    let base_taps = shadow.quality.z;
+    let count = clamp(base_taps * radius / 1.5, base_taps, base_taps * 4.0);
     var visibility = 0.0;
-    let taps = u32(shadow.quality.z);
-    for (var i = 0u; i < taps; i++) {
-        visibility += textureSampleCompareLevel(map, comparison,
-            p.uv + disk(i, taps)*radius/dimensions,
-            depth+dot(p.gradient, disk(i, taps)*radius/dimensions));
+    for (var i = 0u; i < u32(ceil(count)); i++) {
+        let angle = f32(i) * 2.39996323;
+        let quantile = min((f32(i)+0.5)/count, 1.0);
+        // Inverse radial CDF of exp(-4*r*r), truncated at radius 1.
+        let radial = sqrt(-log(1.0-quantile*0.98168436)*0.25);
+        let offset = radial * vec2(cos(angle), sin(angle)) * radius/dimensions;
+        visibility += min(count-f32(i), 1.0) * textureSampleCompareLevel(map,
+            comparison, p.uv + offset, depth+dot(p.gradient, offset));
     }
-    return visibility/f32(taps);
+    return visibility/count;
+}
+// Static-world penumbra: separation from the receiver, not camera distance. Search
+// in world units so the close cascade cannot clip a tall caster's broad shadow at
+// twelve tiny texels. The 24-unit bound limits receiver-plane extrapolation.
+fn filtered(map: texture_depth_2d, p: Projection, texel: f32, range: f32,
+    footprint: f32) -> f32 {
+    let dimensions = vec2<f32>(textureDimensions(map));
+    let depth = receiver_depth(p, dimensions, range);
+    let reach = max(24.0, footprint*1.41421356);
+    var blocked = vec2(0.0);
+    for (var i = 0u; i < 16u; i++) {
+        let offset = select(disk(i, 16u)*reach/texel, vec2(0.0), i == 0u);
+        blocked += blockers(map, p, depth, dimensions, p.uv*dimensions+offset-0.5);
+    }
+    let gap = blocked.x/max(blocked.y, 1e-6)*range;
+    // Gaussian reconstruction retains approximately the disk's contact width.
+    let radius = min(max(footprint, gap*0.0093)*1.41421356, reach)/texel;
+    return reconstruct(map, p, depth, dimensions, radius);
+}
+// Moving casters use their own contact reconstruction. They cannot change the
+// world's blocker estimate or kernel. Multiplying the separately filtered sun
+// visibility approximates their union without brightening/reshaping the broad edge.
+fn layered(moving: texture_depth_2d, world: texture_depth_2d, p: Projection,
+    texel: f32, range: f32, footprint: f32) -> f32 {
+    if shadow.quality.w <= 0.0 { return filtered(moving, p, texel, range, footprint); }
+    let static_visibility = filtered(world, p, texel, range, footprint);
+    if static_visibility <= 0.0 { return 0.0; }
+    let dimensions = vec2<f32>(textureDimensions(moving));
+    let dynamic_visibility = reconstruct(moving, p, receiver_depth(p, dimensions, range),
+        dimensions, footprint*1.41421356/texel);
+    return static_visibility*dynamic_visibility;
 }
 // Visibility and how much of it is known, respectively. The finest cascade covering the
 // point answers; across each fit's axial fade band neighbouring cascades cross-blend;
@@ -91,9 +121,11 @@ fn sun_visibility_masked(world: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>,
     let slope = shadow.quality.w > 0.0;
     if slope {
         let distance = dot(world-eye, forward);
-        coverage = 1.0-smoothstep(shadow.quality.w*0.9, shadow.quality.w, distance);
+        // Refine gradually as the camera approaches. The old final-ten-percent
+        // band changed close-map sharpness over only 25.6 units at default settings.
+        coverage = 1.0-smoothstep(shadow.quality.w*0.75, shadow.quality.w, distance);
         if shadow.close_quality.w > 0.0 {
-            close_coverage = 1.0-smoothstep(shadow.close_quality.z*0.9,
+            close_coverage = 1.0-smoothstep(shadow.close_quality.z*0.5,
                 shadow.close_quality.z, distance);
         }
     }
@@ -104,19 +136,25 @@ fn sun_visibility_masked(world: vec3<f32>, normal: vec3<f32>, eye: vec3<f32>,
     var visibility = 1.0;
     var known = 0.0;
     if !close.inside { close_coverage = 0.0; }
+    // Adjacent maps reconstruct the same world-space width while blending. The
+    // width itself changes continuously toward the finer map's footprint, instead
+    // of cross-fading an independently sharp edge with an independently soft one.
+    let far_texel = select(shadow.quality.x, shadow.far_quality.x, shadow.far_quality.w > 0.0);
+    let view_footprint = mix(far_texel, shadow.quality.x, coverage);
+    let footprint = 1.5 * mix(view_footprint, shadow.close_quality.x, close_coverage);
     if shadow.far_quality.w > 0.0 && far.inside && coverage < 1.0 &&
         (u32(shadow.realtime.w) & 8u) == 0u {
-        visibility = filtered(far_map, far, shadow.far_quality.x, shadow.far_quality.y);
+        visibility = filtered(far_map, far, shadow.far_quality.x, shadow.far_quality.y, footprint);
         known = 1.0;
     }
     if near.inside && coverage > 0.0 && close_coverage < 1.0 {
-        let sharp = filtered(depth_map, near, shadow.quality.x, shadow.quality.y);
+        let sharp = layered(depth_map, world_map, near, shadow.quality.x, shadow.quality.y, footprint);
         visibility = mix(visibility, sharp, coverage);
         known = max(known, coverage);
     }
     // Bit 64: no close cascade (the near cascade serves the first 256 units too).
     if close_coverage > 0.0 && (debug & 64u) == 0u {
-        let finest = filtered(close_map, close, shadow.close_quality.x, shadow.close_quality.y);
+        let finest = layered(close_map, close_world_map, close, shadow.close_quality.x, shadow.close_quality.y, footprint);
         visibility = mix(visibility, finest, close_coverage);
         known = max(known, close_coverage);
     }

@@ -62,10 +62,10 @@ pub(super) struct Runtime {
     camera: wgpu::BindGroup,
     /// Map-wide world-only cascade behind the view fit; absent in the actor-only mode.
     far: Option<FarCascade>,
-    /// Finest cascade: the view frustum truncated at `settings.near`, world and actors.
+    /// Finest moving-caster cascade, truncated at `settings.near`.
     close: Option<Cascade>,
-    /// The static casters of the view fit and of the close cascade, kept between frames
-    /// (`settings.held`).
+    /// Separate static casters for the view and close fits. Their contents are
+    /// reused between frames only with `settings.held`.
     held: Option<[held::Held; 2]>,
     /// Probe global illumination traced through the voxel world; needs the far cascade.
     pub(crate) probes: Option<super::gi_probes::Runtime>,
@@ -448,6 +448,7 @@ impl super::Runtime {
                     .as_ref()
                     .map_or(&shadow.depth, |close| &close.depth),
                 shadow.far.as_ref().map(|far| &far.cascade.depth),
+                shadow.held.as_ref().map(|w| [w[0].depth(), w[1].depth()]),
                 &self.fog.table,
                 settings.volumetrics,
             ));
@@ -861,14 +862,14 @@ impl super::Runtime {
         distance: f32,
     ) -> Option<(fit::Fit, bool)> {
         match &shadow.held {
-            Some(held) => held[index].fit(
+            Some(held) if shadow.settings.held => held[index].fit(
                 view,
                 sun,
                 self.shadow_bounds,
                 distance,
                 shadow.settings.resolution,
             ),
-            None => volume::fit(
+            _ => volume::fit(
                 view,
                 sun,
                 self.shadow_bounds,
@@ -881,8 +882,8 @@ impl super::Runtime {
 
     /// Render one shadow map: the static casters (the world, where the mode has world
     /// casters), then the moving ones — movers, and actors up to `actors`. With `held`, the
-    /// static casters go into the held map, only when it is `fresh`, and are copied under
-    /// the moving ones.
+    /// static casters go into their own map when `fresh`; moving casters clear
+    /// and fill the separate cascade each frame. Receivers combine their visibility.
     fn render_cascade(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -988,8 +989,7 @@ impl super::Runtime {
                 shadow.gap_width.get(),
             );
         }
-        held.copy_to(encoder, &cascade.depth);
-        let mut pass = open(encoder, &cascade.depth, false);
+        let mut pass = open(encoder, &cascade.depth, true);
         bind(&mut pass);
         moving(&mut pass);
     }

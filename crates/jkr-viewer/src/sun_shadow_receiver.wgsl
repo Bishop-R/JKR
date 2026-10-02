@@ -7,6 +7,8 @@ struct Camera {
 @group(1) @binding(2) var<uniform> shadow: Shadow;
 @group(1) @binding(3) var far_map: texture_depth_2d;
 @group(1) @binding(4) var close_map: texture_depth_2d;
+@group(1) @binding(5) var world_map: texture_depth_2d;
+@group(1) @binding(6) var close_world_map: texture_depth_2d;
 struct Input { @location(0) position: vec3<f32>, @location(1) normal: vec3<f32> };
 struct Output {
     @builtin(position) position: vec4<f32>, @location(0) world: vec3<f32>,

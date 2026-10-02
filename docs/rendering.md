@@ -57,6 +57,67 @@ nearby `ffa3` view and 4.122 → 4.125 ms for `ffa1` (64 measured frames each).
 These isolated captures are not a full gameplay benchmark or coverage of every
 map, sun angle, graphics backend or shadow quality setting.
 
+Sun-shadow cascades share a world-space reconstruction footprint while blending.
+The close transition covers the last half of its axial range; the view/far
+transition covers the last quarter. The minimum footprint is based on 1.5 texels
+of the active cascade, interpolated toward the finer map during a transition.
+This avoids cross-fading independently sharp and soft versions of an edge.
+The accepted transition refinement added approximately 0.074 ms of GPU work in
+the marked 4K ship view on Linux/RADV (Radeon RX 9060 XT, tier 0, HDR,
+2048-pixel shadow maps, 16 base taps, fixed 11:00 sun). It does not establish
+complete temporal invariance.
+
+Static world and moving casters now keep separate depths in the close and view
+cascades. A nearby player cannot replace a distant building's depth in the world
+filter's separation estimate. Receivers multiply the independently filtered
+visibilities. This approximates their union; it is not exact area-light visibility
+for multiple blocker depths. Volumetric lighting samples both depths at each tap.
+Tiers 0/1 reuse the existing static maps without copying them under moving casters.
+Tier 2 refreshes separate world maps each frame, adding two depth textures
+(32 MiB at 2048 pixels, 128 MiB at 4096) and two render-pass boundaries.
+
+World penumbra width still grows with caster-to-receiver separation. The blocker
+search bilinearly reconstructs positive gaps and coverage from 16 positions,
+correcting for the receiver plane at each texel. Its reach is 24 world units,
+expanded if needed for the minimum reconstruction footprint; it no longer clips
+the close cascade's broad penumbrae at twelve tiny shadow texels. Reconstruction
+uses a truncated Gaussian disk to reduce the visible rim of an equal-weight disk.
+`jkr_shadowTaps` (4–32) supplies the base count, with up to four times that budget
+for broad filters and a fractional final tap for continuous count changes.
+The full-texel slope correction and small normal offset remain unchanged.
+
+Moving casters use the shared contact footprint, independently of the building's
+penumbra. Their shadows therefore remain comparatively sharp even when a moving
+caster is high above its receiver. Actor-only shadow mode retains separation-based
+filtering. Neither approach resolves all shadow-map occlusion or sampling limits.
+
+The preceding combined-map RMS filter was rejected in owner playtesting: the
+reported ground-fixed boundary and player interaction remained visible, especially
+when structures were far from the surface receiving their shadow. The current
+separation/filter changes were checked at the third `mp/ffa3` mark
+`(-425.691, -1061.451, 73.832)`, yaw `132.718`, pitch `38.102`, with an external
+release harness carrying the production shadow code from the working tree based
+on `980e693`. Linux/RADV captures on the same RX 9060 XT at 1080p and 4K,
+HDR, tier 0, 2048 maps, 16 base taps and fixed 11:00 sun showed a smoother broad
+edge. A frozen Kyle model was moved through seven positions in the actual dynamic
+caster pass. GPU attribute readback found no visibility increase on unchanged
+receivers when adding the actor (over 515,000 compared pixels per position).
+The previous combined-map filter's maximum increase was only 0.000119 in this
+particular probe; the more visible improvement is the distinct player shadow
+instead of its inheriting the building's broad blur. This is not a complete
+reproduction of every reported player interaction.
+
+Earlier wall/ship views and a seven-position camera approach were also captured.
+Tier 2, day/night disabled and actor-only modes passed GPU smoke checks. At 4K,
+64-frame means compared with the preceding combined-map filter were
+1.579 → 2.100 ms for the light pass and 4.212 → 4.700 ms for GPU work excluding
+capture/readback, approximately 0.49 ms added. These are empty-scene measurements
+on an active desktop, with release compilation running concurrently, not a
+populated-match benchmark. Workspace build/tests, formatting and the production
+release build passed; Cargo runs no bundled regression tests. The owner accepted
+the release playtest on 2026-10-02. Broader live-animation checks, other GPUs and
+exhaustive quality/map coverage remain open.
+
 Set `JKR_FRAME_BUDGET=1` for frame-work and GPU-phase diagnostics. Measurements
 must name the build mode, GPU, resolution, settings, map and population. Separate
 loading/shader warmup from steady frames and CPU work from GPU timings. The
