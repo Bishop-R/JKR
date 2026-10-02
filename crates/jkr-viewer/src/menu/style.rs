@@ -2,9 +2,11 @@
 //!
 //! `modern` is the native hero layout ([`super::main_view`]); `classic`
 //! follows the original Jedi Academy multiplayer menus ([`super::classic`]).
+//! The in-game menu follows the same setting ([`crate::ingame_menu`]).
 //! Screens without a classic version yet use their modern layout in both.
 
 use super::ClientMenu;
+use super::art::{self, ArtSet};
 
 /// Archived cvar naming the menu style.
 pub(crate) const CVAR: &str = "ui_menuStyle";
@@ -46,6 +48,36 @@ impl ClientMenu {
             self.main_selection = 0;
             self.classic.reset();
         }
+    }
+
+    /// The retail artwork the classic pages can draw this frame.
+    pub(crate) fn set_menu_art(&mut self, art: ArtSet) {
+        self.art = art;
+    }
+}
+
+impl crate::GpuState {
+    /// Apply `ui_menuStyle` to the main and in-game menus. While the
+    /// classic style is on, the player's retail menu artwork is decoded
+    /// (once, on a worker) and uploaded when ready; both menus are told
+    /// which pieces they can draw.
+    pub(crate) fn sync_menu_style(&mut self) {
+        let Some(console) = &self.console else {
+            return;
+        };
+        let style = MenuStyle::from_cvar(console.text_value(CVAR));
+        if style == MenuStyle::Classic {
+            if let Some(vfs) = &self.vfs {
+                art::request(vfs);
+            }
+            self.ui_shapes.install_menu_art(&self.device, &self.queue);
+        }
+        let art = self.ui_shapes.menu_art();
+        if let Some(menu) = &mut self.client_menu {
+            menu.set_menu_style(style);
+            menu.set_menu_art(art);
+        }
+        self.in_game_menu.set_style(style, art);
     }
 }
 

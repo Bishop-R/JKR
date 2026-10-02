@@ -5,15 +5,19 @@
 //! widgets in [`view`], and lead to the same screens as the modern style
 //! through [`MainDestination`].
 //!
-//! Implemented: the main menu with its Play (multiplayer) and quit pages.
-//! Every other screen it opens is still the modern one; the follow-up plan
-//! is kept in `docs/client.md`.
+//! Implemented: the main menu with its Play (multiplayer), Controls, Setup
+//! and quit pages, and the in-game menu ([`crate::ingame_menu`]). The
+//! screens these pages open (server browser, Create game, Player, settings,
+//! key bindings) are still the modern ones; the follow-up plan is kept in
+//! `docs/client.md`.
 
 pub(crate) mod layout;
+mod pages;
 pub(crate) mod view;
 
 use super::{ClientMenu, MenuAction};
 use crate::console::ViewerConsole;
+use crate::menu::destination::MainDestination;
 use crate::settings::SettingsMenu;
 use jkr_ui::AbstractAction;
 use layout::{Outcome, Page, Slot};
@@ -77,8 +81,7 @@ impl ClassicMain {
 
     /// What activating the focused entry does.
     fn outcome(&self) -> Option<Outcome> {
-        let slot = self.slots().get(self.selection)?;
-        Some(slot.entry.outcome(SettingsMenu::keybinds_tab()))
+        Some(self.slots().get(self.selection)?.entry.outcome())
     }
 }
 
@@ -107,7 +110,17 @@ impl ClientMenu {
                 MenuAction::None
             }
             Some(Outcome::Open(destination)) => self.open_main_destination(destination, console),
-            None => MenuAction::None,
+            Some(Outcome::Settings(caption)) => {
+                let tab = SettingsMenu::tab_index(caption).unwrap_or(0);
+                self.open_main_destination(MainDestination::Settings { tab }, console)
+            }
+            Some(Outcome::Keybinds(category)) => self.open_main_destination(
+                MainDestination::Keybinds {
+                    category: category as usize,
+                },
+                console,
+            ),
+            Some(Outcome::Unavailable) | None => MenuAction::None,
         }
     }
 
@@ -124,7 +137,7 @@ impl ClientMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::menu::destination::MainDestination;
+    use crate::keybind_editor::Category;
     use layout::Entry;
 
     fn focus(menu: &mut ClassicMain, entry: Entry) {
@@ -149,27 +162,42 @@ mod tests {
         let mut menu = ClassicMain::new();
         assert_eq!(menu.outcome(), Some(Outcome::Page(Page::Play)));
         menu.show(Page::Play);
-        assert_eq!(
-            menu.outcome(),
-            Some(Outcome::Open(MainDestination::Browser))
-        );
-        focus(&mut menu, Entry::CreateServer);
+        // Retail focuses Solo Game, a local match with bots.
         assert_eq!(
             menu.outcome(),
             Some(Outcome::Open(MainDestination::CreateGame))
         );
+        focus(&mut menu, Entry::JoinServer);
+        assert_eq!(
+            menu.outcome(),
+            Some(Outcome::Open(MainDestination::Browser))
+        );
+        focus(&mut menu, Entry::PlayDemo);
+        assert_eq!(menu.outcome(), Some(Outcome::Unavailable));
     }
 
     #[test]
-    fn controls_opens_the_key_binding_tab() {
+    fn controls_pages_open_the_key_binding_tabs() {
         let mut menu = ClassicMain::new();
         focus(&mut menu, Entry::Controls);
-        assert_eq!(
-            menu.outcome(),
-            Some(Outcome::Open(MainDestination::Settings {
-                tab: SettingsMenu::keybinds_tab()
-            }))
-        );
+        assert_eq!(menu.outcome(), Some(Outcome::Page(Page::Controls)));
+        menu.show(Page::Controls);
+        assert_eq!(menu.outcome(), Some(Outcome::Keybinds(Category::Movement)));
+        focus(&mut menu, Entry::ForcePowers2);
+        assert_eq!(menu.outcome(), Some(Outcome::Keybinds(Category::Force)));
+        focus(&mut menu, Entry::MouseJoystick);
+        assert_eq!(menu.outcome(), Some(Outcome::Settings("CONTROLS")));
+    }
+
+    #[test]
+    fn setup_pages_open_settings_tabs() {
+        let mut menu = ClassicMain::new();
+        menu.show(Page::Setup);
+        assert_eq!(menu.outcome(), Some(Outcome::Settings("VIDEO")));
+        focus(&mut menu, Entry::Sound);
+        assert_eq!(menu.outcome(), Some(Outcome::Settings("AUDIO")));
+        focus(&mut menu, Entry::Mods);
+        assert_eq!(menu.outcome(), Some(Outcome::Unavailable));
     }
 
     #[test]

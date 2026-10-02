@@ -1,6 +1,7 @@
 //! Native main-menu and server-browser input/presentation on the shared UI path.
 
 pub(crate) mod address_view;
+pub(crate) mod art;
 mod controller;
 mod pointer;
 
@@ -124,6 +125,11 @@ pub(crate) struct ClientMenu {
     menu_style: MenuStyle,
     /// Page and entry of the classic main menu.
     classic: classic::ClassicMain,
+    /// Retail menu artwork the classic style can draw this frame.
+    art: art::ArtSet,
+    /// The key-binding editor was opened straight from a classic Controls
+    /// entry, so closing it leaves the settings screen out.
+    keybinds_direct: bool,
     settings: SettingsMenu,
     /// Where the settings screen (and the key-bindings editor it hosts)
     /// returns when closed: the main menu, or the game menu that opened it.
@@ -184,6 +190,8 @@ impl ClientMenu {
             main_selection: 0,
             menu_style: MenuStyle::default(),
             classic: classic::ClassicMain::new(),
+            art: art::ArtSet::default(),
+            keybinds_direct: false,
             settings: SettingsMenu::new(),
             settings_return: ReturnTarget::MainMenu,
             browser_return: ReturnTarget::MainMenu,
@@ -627,6 +635,7 @@ impl ClientMenu {
                 SettingsResult::Back => self.close_settings(),
                 SettingsResult::OpenKeybinds => {
                     self.keybinds.open(console);
+                    self.keybinds_direct = false;
                     self.state.open_keybinds();
                     MenuAction::None
                 }
@@ -634,10 +643,10 @@ impl ClientMenu {
             },
             ClientPhase::Keybinds => {
                 if matches!(self.keybinds.handle_key(event, console), EditorResult::Back) {
-                    self.settings.open(console);
-                    self.state.open_settings();
+                    self.close_keybinds(console)
+                } else {
+                    MenuAction::None
                 }
-                MenuAction::None
             }
             ClientPhase::Player => match self.player.handle_key(event, console) {
                 PlayerMenuResult::None => MenuAction::None,

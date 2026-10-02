@@ -1,13 +1,15 @@
 //! Pages, entries and geometry of the classic main menu, taken from the
 //! retail multiplayer menus (`ui/jamp/main.menu`, `multiplayer.menu`,
-//! `quit.menu`): which entries each page has, in which order, where they sit
-//! on the original 640x480 menu canvas, and where each one leads.
+//! `controls.menu`, `setup.menu`, `quit.menu`): which entries each page has,
+//! in which order, where they sit on the original 640x480 menu canvas, and
+//! where each one leads. The page tables themselves are in [`super::pages`].
 //!
 //! Positions are the retail item rectangles reduced to a text centre; labels
 //! are the retail words. Hints and titles are JKR's own text.
 
+use crate::keybind_editor::Category;
 use crate::menu::destination::MainDestination;
-use jkr_ui::Rect;
+use jkr_ui::{Rect, TextAlign};
 
 /// Size of the canvas the retail menus are authored on.
 pub(crate) const CANVAS: [f32; 2] = [640.0, 480.0];
@@ -22,8 +24,12 @@ pub(crate) const LOGO: [f32; 4] = [107.0, 8.0, 428.0, 112.0];
 pub(crate) enum Page {
     /// The opening menu: Play, Profile, Controls, Setup and Exit.
     Main,
-    /// Retail "multiplayer" menu behind Play: join or create a server.
+    /// Retail "multiplayer" menu behind Play: solo, join or create a game.
     Play,
+    /// Retail "controls" menu: the key-binding pages and mouse options.
+    Controls,
+    /// Retail "setup" menu: video, sound and game options.
+    Setup,
     /// Retail quit confirmation behind Exit and Escape.
     Quit,
 }
@@ -36,19 +42,39 @@ pub(crate) enum Entry {
     Controls,
     Setup,
     Exit,
+    SoloGame,
     JoinServer,
     CreateServer,
+    PlayDemo,
+    Rules,
+    Movement,
+    Interaction,
+    Weapons,
+    ForcePowers1,
+    ForcePowers2,
+    MouseJoystick,
+    OtherControls,
+    Video,
+    MoreVideo,
+    Sound,
+    GameOptions,
+    Mods,
+    Defaults,
+    Hud,
+    Network,
     Back,
     No,
     Yes,
 }
 
-/// Label size class: the main page's big buttons, or the smaller ones of
-/// the navigation row and lists.
+/// Label size class: the main page's big buttons, the smaller ones of the
+/// navigation row and centre lists, and the option lists of Controls and
+/// Setup.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Size {
     Large,
     Medium,
+    List,
 }
 
 impl Size {
@@ -57,6 +83,7 @@ impl Size {
         match self {
             Self::Large => 22.0,
             Self::Medium => 17.0,
+            Self::List => 14.0,
         }
     }
 }
@@ -66,224 +93,54 @@ impl Size {
 pub(crate) struct Slot {
     pub(crate) entry: Entry,
     pub(crate) label: &'static str,
-    /// The description line shown while the entry has focus.
+    /// The description line shown while the entry has focus; for an entry
+    /// JKR cannot open yet, the note saying so.
     pub(crate) hint: &'static str,
-    /// Centre of the label on the 640x480 canvas.
+    /// Centre of the target on the 640x480 canvas.
     pub(crate) center: [f32; 2],
     /// Width of the pointer target and focus glow on the canvas: the
-    /// retail item width (130 for buttons, 190 for list entries).
+    /// retail item width.
     pub(crate) width: f32,
+    /// Height of the pointer target and focus glow on the canvas.
+    pub(crate) height: f32,
     pub(crate) size: Size,
+    /// Label alignment inside the target: centred buttons, or the option
+    /// lists' labels set against their right edge as retail does.
+    pub(crate) align: TextAlign,
 }
 
 impl Slot {
     /// Pointer target and focus glow on the 640x480 canvas.
     pub(crate) fn target(&self) -> [f32; 4] {
-        let width = self.width;
-        let height = 30.0;
         [
-            self.center[0] - width * 0.5,
-            self.center[1] - height * 0.5,
-            width,
-            height,
+            self.center[0] - self.width * 0.5,
+            self.center[1] - self.height * 0.5,
+            self.width,
+            self.height,
         ]
     }
-}
 
-const fn slot(
-    entry: Entry,
-    label: &'static str,
-    hint: &'static str,
-    center: [f32; 2],
-    width: f32,
-    size: Size,
-) -> Slot {
-    Slot {
-        entry,
-        label,
-        hint,
-        center,
-        width,
-        size,
+    /// Whether activating the entry does something; the others are drawn
+    /// dimmed with their note as the hint.
+    pub(crate) fn enabled(&self) -> bool {
+        self.entry.outcome() != Outcome::Unavailable
     }
 }
-
-const PLAY_HINT: &str = "Join a server or start your own";
-const PROFILE_HINT: &str = "Name, model, saber and Force";
-const CONTROLS_HINT: &str = "Mouse and key bindings";
-const SETUP_HINT: &str = "Video, audio, HUD and game options";
-const EXIT_HINT: &str = "Leave the game";
-
-/// Retail `main.menu`: two columns either side of the centre window, Exit
-/// below. Order is the retail item order, which keyboard focus follows.
-const MAIN: [Slot; 5] = [
-    slot(
-        Entry::Play,
-        "PLAY",
-        PLAY_HINT,
-        [101.0, 224.0],
-        190.0,
-        Size::Large,
-    ),
-    slot(
-        Entry::Profile,
-        "PROFILE",
-        PROFILE_HINT,
-        [101.0, 322.0],
-        190.0,
-        Size::Large,
-    ),
-    slot(
-        Entry::Controls,
-        "CONTROLS",
-        CONTROLS_HINT,
-        [521.0, 224.0],
-        190.0,
-        Size::Large,
-    ),
-    slot(
-        Entry::Setup,
-        "SETUP",
-        SETUP_HINT,
-        [521.0, 322.0],
-        190.0,
-        Size::Large,
-    ),
-    slot(
-        Entry::Exit,
-        "EXIT",
-        EXIT_HINT,
-        [320.0, 456.0],
-        190.0,
-        Size::Large,
-    ),
-];
-
-/// The navigation row every retail sub-menu repeats along its top.
-const fn nav_row() -> [Slot; 4] {
-    [
-        slot(
-            Entry::Play,
-            "PLAY",
-            PLAY_HINT,
-            [72.0, 138.0],
-            130.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::Profile,
-            "PROFILE",
-            PROFILE_HINT,
-            [235.0, 138.0],
-            130.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::Controls,
-            "CONTROLS",
-            CONTROLS_HINT,
-            [405.0, 138.0],
-            130.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::Setup,
-            "SETUP",
-            SETUP_HINT,
-            [567.0, 138.0],
-            130.0,
-            Size::Medium,
-        ),
-    ]
-}
-
-/// Retail `multiplayer.menu`, reduced to the entries JKR has a screen for:
-/// Join Server and Create Server in the centre list, Back and Exit below.
-const PLAY: [Slot; 8] = {
-    let [play, profile, controls, setup] = nav_row();
-    [
-        play,
-        profile,
-        controls,
-        setup,
-        slot(
-            Entry::JoinServer,
-            "JOIN SERVER",
-            "Browse servers and join a game",
-            [320.0, 209.0],
-            190.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::CreateServer,
-            "CREATE SERVER",
-            "Host a match with bots on this machine",
-            [320.0, 244.0],
-            190.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::Back,
-            "BACK",
-            "Return to the main menu",
-            [124.0, 456.0],
-            130.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::Exit,
-            "EXIT",
-            EXIT_HINT,
-            [320.0, 456.0],
-            130.0,
-            Size::Medium,
-        ),
-    ]
-};
-
-/// Retail `quit.menu`: No bottom left, Yes bottom right.
-const QUIT: [Slot; 6] = {
-    let [play, profile, controls, setup] = nav_row();
-    [
-        play,
-        profile,
-        controls,
-        setup,
-        slot(
-            Entry::No,
-            "NO",
-            "Return to the main menu",
-            [124.0, 456.0],
-            130.0,
-            Size::Medium,
-        ),
-        slot(
-            Entry::Yes,
-            "YES",
-            "Exit to the desktop",
-            [519.0, 456.0],
-            130.0,
-            Size::Medium,
-        ),
-    ]
-};
 
 impl Page {
     /// The page's entries in focus order.
     pub(crate) fn slots(self) -> &'static [Slot] {
-        match self {
-            Self::Main => &MAIN,
-            Self::Play => &PLAY,
-            Self::Quit => &QUIT,
-        }
+        super::pages::slots(self)
     }
 
-    /// Entry focused when the page opens: retail focuses the first list
-    /// entry of the multiplayer menu; the quit page starts on No.
+    /// Entry focused when the page opens: the first entry of the page's own
+    /// list, as retail sets focus; the quit page starts on No.
     pub(crate) fn initial_selection(self) -> usize {
         let entry = match self {
             Self::Main => Entry::Play,
-            Self::Play => Entry::JoinServer,
+            Self::Play => Entry::SoloGame,
+            Self::Controls => Entry::Movement,
+            Self::Setup => Entry::Video,
             Self::Quit => Entry::No,
         };
         self.index_of(entry).unwrap_or(0)
@@ -294,11 +151,13 @@ impl Page {
         self.slots().iter().position(|slot| slot.entry == entry)
     }
 
-    /// Page heading under the logo, if the page has one.
+    /// Page heading and its vertical centre on the canvas.
     pub(crate) fn title(self) -> (&'static str, f32) {
         match self {
             Self::Main => ("MULTIPLAYER", 132.0),
             Self::Play => ("START PLAYING", 172.0),
+            Self::Controls => ("CONFIGURE CONTROLS", 172.0),
+            Self::Setup => ("SETUP OPTIONS", 172.0),
             Self::Quit => ("QUIT", 172.0),
         }
     }
@@ -308,7 +167,7 @@ impl Page {
     pub(crate) fn escape(self) -> Page {
         match self {
             Self::Main => Self::Quit,
-            Self::Play | Self::Quit => Self::Main,
+            _ => Self::Main,
         }
     }
 }
@@ -320,22 +179,41 @@ pub(crate) enum Outcome {
     Page(Page),
     /// Leave the main menu for a screen it opens.
     Open(MainDestination),
+    /// Open the settings screen on the tab with this caption.
+    Settings(&'static str),
+    /// Open the key-binding editor on this category.
+    Keybinds(Category),
+    /// A retail screen JKR has no equivalent for yet: nothing happens.
+    Unavailable,
 }
 
 impl Entry {
-    /// What activating this entry does; `controls_tab` is the settings tab
-    /// holding the mouse options and the key-bindings editor.
-    pub(crate) fn outcome(self, controls_tab: usize) -> Outcome {
+    /// What activating this entry does.
+    pub(crate) fn outcome(self) -> Outcome {
         match self {
             Self::Play => Outcome::Page(Page::Play),
+            Self::Controls => Outcome::Page(Page::Controls),
+            Self::Setup => Outcome::Page(Page::Setup),
             Self::Exit => Outcome::Page(Page::Quit),
             Self::Back | Self::No => Outcome::Page(Page::Main),
             Self::Profile => Outcome::Open(MainDestination::Player),
-            Self::Controls => Outcome::Open(MainDestination::Settings { tab: controls_tab }),
-            Self::Setup => Outcome::Open(MainDestination::Settings { tab: 0 }),
             Self::JoinServer => Outcome::Open(MainDestination::Browser),
-            Self::CreateServer => Outcome::Open(MainDestination::CreateGame),
+            // Retail's Solo Game is a local match with bots, which is what
+            // Create game hosts.
+            Self::SoloGame | Self::CreateServer => Outcome::Open(MainDestination::CreateGame),
             Self::Yes => Outcome::Open(MainDestination::Quit),
+            Self::Movement => Outcome::Keybinds(Category::Movement),
+            Self::Interaction => Outcome::Keybinds(Category::Interaction),
+            Self::Weapons => Outcome::Keybinds(Category::Weapons),
+            Self::ForcePowers1 | Self::ForcePowers2 => Outcome::Keybinds(Category::Force),
+            Self::OtherControls => Outcome::Keybinds(Category::Other),
+            Self::MouseJoystick => Outcome::Settings("CONTROLS"),
+            Self::Video | Self::MoreVideo => Outcome::Settings("VIDEO"),
+            Self::Sound => Outcome::Settings("AUDIO"),
+            Self::GameOptions => Outcome::Settings("GAME"),
+            Self::Hud => Outcome::Settings("HUD"),
+            Self::Network => Outcome::Settings("NETWORK"),
+            Self::PlayDemo | Self::Rules | Self::Mods | Self::Defaults => Outcome::Unavailable,
         }
     }
 }
@@ -386,24 +264,67 @@ impl Placement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::SettingsMenu;
 
-    const PAGES: [Page; 3] = [Page::Main, Page::Play, Page::Quit];
+    const PAGES: [Page; 5] = [
+        Page::Main,
+        Page::Play,
+        Page::Controls,
+        Page::Setup,
+        Page::Quit,
+    ];
 
     fn overlaps(a: [f32; 4], b: [f32; 4]) -> bool {
         a[0] < b[0] + b[2] && b[0] < a[0] + a[2] && a[1] < b[1] + b[3] && b[1] < a[1] + a[3]
     }
 
+    fn entries(page: Page) -> Vec<Entry> {
+        page.slots().iter().map(|slot| slot.entry).collect()
+    }
+
     #[test]
-    fn main_page_keeps_the_retail_entry_order() {
-        let entries: Vec<_> = Page::Main.slots().iter().map(|slot| slot.entry).collect();
+    fn pages_keep_the_retail_entry_order() {
         assert_eq!(
-            entries,
+            entries(Page::Main),
             [
                 Entry::Play,
                 Entry::Profile,
                 Entry::Controls,
                 Entry::Setup,
                 Entry::Exit
+            ]
+        );
+        assert_eq!(
+            entries(Page::Play)[4..9],
+            [
+                Entry::SoloGame,
+                Entry::JoinServer,
+                Entry::CreateServer,
+                Entry::PlayDemo,
+                Entry::Rules
+            ]
+        );
+        assert_eq!(
+            entries(Page::Controls)[4..11],
+            [
+                Entry::Movement,
+                Entry::Interaction,
+                Entry::Weapons,
+                Entry::ForcePowers1,
+                Entry::ForcePowers2,
+                Entry::MouseJoystick,
+                Entry::OtherControls
+            ]
+        );
+        assert_eq!(
+            entries(Page::Setup)[4..10],
+            [
+                Entry::Video,
+                Entry::MoreVideo,
+                Entry::Sound,
+                Entry::GameOptions,
+                Entry::Mods,
+                Entry::Defaults
             ]
         );
     }
@@ -429,14 +350,10 @@ mod tests {
     }
 
     #[test]
-    fn pages_open_on_a_valid_entry() {
+    fn pages_open_on_an_enabled_entry() {
         for page in PAGES {
-            assert!(page.initial_selection() < page.slots().len());
+            assert!(page.slots()[page.initial_selection()].enabled(), "{page:?}");
         }
-        assert_eq!(
-            Page::Play.slots()[Page::Play.initial_selection()].entry,
-            Entry::JoinServer
-        );
         assert_eq!(
             Page::Quit.slots()[Page::Quit.initial_selection()].entry,
             Entry::No
@@ -447,34 +364,73 @@ mod tests {
     fn only_yes_quits() {
         for page in PAGES {
             for slot in page.slots() {
-                let quits = slot.entry.outcome(3) == Outcome::Open(MainDestination::Quit);
+                let quits = slot.entry.outcome() == Outcome::Open(MainDestination::Quit);
                 assert_eq!(quits, slot.entry == Entry::Yes, "{:?}", slot.entry);
             }
         }
         assert_eq!(Page::Main.escape(), Page::Quit);
-        assert_eq!(Page::Quit.escape(), Page::Main);
-        assert_eq!(Page::Play.escape(), Page::Main);
+        for page in [Page::Play, Page::Controls, Page::Setup, Page::Quit] {
+            assert_eq!(page.escape(), Page::Main);
+        }
     }
 
     #[test]
-    fn every_main_destination_except_quit_is_one_page_away() {
-        let reachable: Vec<_> = Page::Main
-            .slots()
+    fn settings_entries_name_real_tabs() {
+        for page in PAGES {
+            for slot in page.slots() {
+                if let Outcome::Settings(caption) = slot.entry.outcome() {
+                    assert!(
+                        SettingsMenu::tab_index(caption).is_some(),
+                        "{:?} names missing tab {caption}",
+                        slot.entry
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unavailable_entries_say_so() {
+        for page in PAGES {
+            for slot in page.slots() {
+                assert!(!slot.hint.is_empty(), "{:?}", slot.entry);
+                assert_eq!(
+                    !slot.enabled(),
+                    slot.hint.starts_with("Not in JKR yet"),
+                    "{:?}",
+                    slot.entry
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn main_page_reaches_every_page_and_screen() {
+        let reachable: Vec<_> = PAGES
             .iter()
-            .chain(Page::Play.slots())
-            .filter_map(|slot| match slot.entry.outcome(3) {
+            .flat_map(|page| page.slots())
+            .filter_map(|slot| match slot.entry.outcome() {
                 Outcome::Open(destination) => Some(destination),
-                Outcome::Page(_) => None,
+                _ => None,
             })
             .collect();
         for destination in [
             MainDestination::Browser,
             MainDestination::CreateGame,
             MainDestination::Player,
-            MainDestination::Settings { tab: 0 },
-            MainDestination::Settings { tab: 3 },
         ] {
             assert!(reachable.contains(&destination), "{destination:?}");
+        }
+        let pages: Vec<_> = Page::Main
+            .slots()
+            .iter()
+            .filter_map(|slot| match slot.entry.outcome() {
+                Outcome::Page(page) => Some(page),
+                _ => None,
+            })
+            .collect();
+        for page in [Page::Play, Page::Controls, Page::Setup, Page::Quit] {
+            assert!(pages.contains(&page), "{page:?}");
         }
     }
 

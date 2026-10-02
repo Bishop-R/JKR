@@ -1,51 +1,96 @@
 //! Drawing of the classic main menu: the retail page composition (logo,
 //! page title, gold entries with a glow behind the focused one, the
 //! description line underneath) on the 640x480 canvas fitted into the
-//! window, over a dimmed live map. Only JKR's own vector shapes and text
-//! are drawn; no retail artwork is needed.
+//! window.
+//!
+//! With the player's retail artwork loaded ([`crate::menu::art`]) the pages
+//! are built from it in the retail item order: backdrop, side glyph
+//! columns, the main page's ring and windows or the sub-pages' frames, the
+//! logo and the button glow. The dimmed live map shows where the art is
+//! transparent (retail played its logo video there) and in the pillarbox of
+//! a wide window. Without the art, the same layout is drawn with JKR's own
+//! vector shapes and text.
 
 use super::ClassicMain;
-use super::layout::{CANVAS, HINT_Y, LOGO, Page, Placement};
+use super::layout::{CANVAS, HINT_Y, LOGO, Page, Placement, Slot};
+use crate::menu::art::{ArtPiece, ArtSet};
 use crate::menu_widgets::MenuCanvas;
 use jkr_ui::{Color, DrawCommand, FontWeight, Gradient, Rect, TextAlign};
 
 /// Retail entry colour (`forecolor 1 .682 0`).
-const GOLD: Color = Color::new(1.0, 0.682, 0.0, 1.0);
+pub(crate) const GOLD: Color = Color::new(1.0, 0.682, 0.0, 1.0);
 /// Retail focus colour (`focusColor 1 1 1 1`).
-const FOCUS: Color = Color::new(1.0, 1.0, 1.0, 1.0);
+pub(crate) const FOCUS: Color = Color::new(1.0, 1.0, 1.0, 1.0);
+/// Retail disabled colour (`disableColor .5 .5 .5 1`).
+pub(crate) const DISABLED: Color = Color::new(0.5, 0.5, 0.5, 1.0);
 /// Retail page-title colour (`forecolor .695 .760 .861`).
-const TITLE: Color = Color::new(0.695, 0.760, 0.861, 1.0);
+pub(crate) const TITLE: Color = Color::new(0.695, 0.760, 0.861, 1.0);
 /// Retail description colour (`descColor 1 .682 0 .8`).
 const HINT: Color = Color::new(1.0, 0.682, 0.0, 0.8);
 const INK: [f32; 3] = [0.004, 0.008, 0.020];
+const WHITE: Color = Color::new(1.0, 1.0, 1.0, 1.0);
 
-fn ink(alpha: f32) -> Color {
+/// Retail `main.menu` artwork in draw order, with its canvas rectangles.
+const MAIN_ART: [(ArtPiece, [f32; 4]); 7] = [
+    (ArtPiece::SideLeft, [0.0, 0.0, 160.0, 480.0]),
+    (ArtPiece::SideRight, [480.0, 0.0, 160.0, 480.0]),
+    (ArtPiece::Background, [0.0, 0.0, 640.0, 480.0]),
+    (ArtPiece::Ring, [193.0, 145.0, 256.0, 256.0]),
+    (ArtPiece::CenterWindow, [156.0, 154.0, 320.0, 240.0]),
+    (ArtPiece::LeftWindow, [0.0, 150.0, 320.0, 240.0]),
+    (ArtPiece::RightWindow, [320.0, 150.0, 320.0, 240.0]),
+];
+
+/// Artwork shared by the retail sub-pages (`multiplayer.menu`,
+/// `controls.menu`, `setup.menu`, `quit.menu`), in draw order.
+const SUB_PAGE_ART: [(ArtPiece, [f32; 4]); 6] = [
+    (ArtPiece::CenterBlue, [156.0, 154.0, 320.0, 240.0]),
+    (ArtPiece::SideLeft, [0.0, 0.0, 160.0, 480.0]),
+    (ArtPiece::SideRight, [480.0, 0.0, 160.0, 480.0]),
+    (ArtPiece::Background, [0.0, 0.0, 640.0, 480.0]),
+    (ArtPiece::BoxesLeft, [0.0, 50.0, 320.0, 160.0]),
+    (ArtPiece::BoxesRight, [320.0, 50.0, 320.0, 160.0]),
+];
+
+pub(crate) fn ink(alpha: f32) -> Color {
     Color::new(INK[0], INK[1], INK[2], alpha)
 }
 
-fn gold(alpha: f32) -> Color {
+pub(crate) fn gold(alpha: f32) -> Color {
     Color::new(GOLD.r, GOLD.g, GOLD.b, alpha)
 }
 
-/// Build the classic main menu into `canvas` at `reveal` opacity.
-pub(crate) fn build(canvas: &mut MenuCanvas, viewport: [f32; 2], menu: &ClassicMain, reveal: f32) {
+/// Draw `piece` stretched over window rectangle `rect`.
+pub(crate) fn art(canvas: &mut MenuCanvas, piece: ArtPiece, rect: Rect) {
+    let _ = canvas.draw_list_mut().push(DrawCommand::TexturedQuad {
+        rect,
+        texture: piece.texture(),
+        color: WHITE,
+    });
+}
+
+/// Build the classic main menu into `canvas` at `reveal` opacity, drawing
+/// the retail artwork in `art_set` where it is loaded.
+pub(crate) fn build(
+    canvas: &mut MenuCanvas,
+    viewport: [f32; 2],
+    menu: &ClassicMain,
+    reveal: f32,
+    art_set: ArtSet,
+) {
     let place = Placement::new(viewport);
     let s = place.scale;
+    let page = menu.page();
     canvas.begin_transparent(viewport);
     canvas.push_opacity(reveal);
-    backdrop(canvas, viewport, &place);
-    logo(canvas, &place);
-    let page = menu.page();
-    let (title, title_y) = page.title();
-    canvas.text_aligned(
-        title,
-        place.centered([CANVAS[0] * 0.5, title_y], 400.0, 20.0),
-        16.0 * s,
-        TITLE,
-        FontWeight::Semibold,
-        3.0 * s,
-        TextAlign::Center,
-    );
+    let textured = art_set.has(ArtPiece::Background);
+    if textured {
+        backdrop_art(canvas, viewport, &place, page, art_set);
+    } else {
+        backdrop(canvas, viewport, &place);
+    }
+    logo(canvas, &place, art_set);
+    title(canvas, &place, page, art_set);
     if page == Page::Quit {
         canvas.text_aligned(
             "Quit to the desktop?",
@@ -66,19 +111,10 @@ pub(crate) fn build(canvas: &mut MenuCanvas, viewport: [f32; 2], menu: &ClassicM
             described = index;
         }
         let active = index == menu.selection() || hovered;
-        if active {
-            glow(canvas, target, s);
+        if active && slot.enabled() {
+            glow(canvas, target, s, art_set);
         }
-        let size = slot.size.text();
-        canvas.text_aligned(
-            slot.label,
-            place.centered(slot.center, slot.width + 40.0, size * 1.2),
-            size * s,
-            if active { FOCUS } else { GOLD },
-            FontWeight::Semibold,
-            1.2 * s,
-            TextAlign::Center,
-        );
+        entry_label(canvas, &place, slot, active);
         canvas.hit_region(token, target);
     }
     if let Some(slot) = menu.slots().get(described) {
@@ -86,7 +122,7 @@ pub(crate) fn build(canvas: &mut MenuCanvas, viewport: [f32; 2], menu: &ClassicM
             slot.hint,
             place.centered([CANVAS[0] * 0.5, HINT_Y], 560.0, 18.0),
             13.0 * s,
-            HINT,
+            if slot.enabled() { HINT } else { DISABLED },
             FontWeight::Regular,
             0.3 * s,
             TextAlign::Center,
@@ -109,6 +145,98 @@ pub(crate) fn build(canvas: &mut MenuCanvas, viewport: [f32; 2], menu: &ClassicM
     );
     canvas.pop_opacity();
     canvas.finish(menu.selection() as u16);
+}
+
+/// One entry's label: gold, white while focused, grey when JKR cannot open
+/// it yet.
+fn entry_label(canvas: &mut MenuCanvas, place: &Placement, slot: &Slot, active: bool) {
+    let s = place.scale;
+    let size = slot.size.text();
+    let [x, _, width, _] = slot.target();
+    let line = size * 1.2;
+    let top = slot.center[1] - line * 0.5;
+    let rect = match slot.align {
+        // Retail list labels end 10 units inside their item.
+        TextAlign::End => place.rect([x, top, width - 10.0, line]),
+        _ => place.centered(slot.center, width + 40.0, line),
+    };
+    let color = match (slot.enabled(), active) {
+        (false, _) => DISABLED,
+        (true, true) => FOCUS,
+        (true, false) => GOLD,
+    };
+    canvas.text_aligned(
+        slot.label,
+        rect,
+        size * s,
+        color,
+        FontWeight::Semibold,
+        1.2 * s,
+        slot.align,
+    );
+}
+
+/// Page heading: the main page's "MULTIPLAYER" under the logo, the
+/// sub-pages' title over a glow band (retail `title_glow`).
+fn title(canvas: &mut MenuCanvas, place: &Placement, page: Page, art_set: ArtSet) {
+    let s = place.scale;
+    let (text, y) = page.title();
+    if page != Page::Main {
+        let band = place.rect([150.0, y - 10.0, 340.0, 20.0]);
+        if art_set.has(ArtPiece::ButtonBack) {
+            art(canvas, ArtPiece::ButtonBack, band);
+        } else {
+            soft_band(canvas, band, 0.16);
+        }
+    }
+    canvas.text_aligned(
+        text,
+        place.centered([CANVAS[0] * 0.5, y], 400.0, 20.0),
+        16.0 * s,
+        TITLE,
+        FontWeight::Semibold,
+        3.0 * s,
+        TextAlign::Center,
+    );
+}
+
+/// The retail backdrop from the player's artwork. The pillarbox of a wide
+/// window is darkened to match the art's edges.
+fn backdrop_art(
+    canvas: &mut MenuCanvas,
+    viewport: [f32; 2],
+    place: &Placement,
+    page: Page,
+    art_set: ArtSet,
+) {
+    let [width, height] = viewport;
+    let page_rect = place.rect([0.0, 0.0, CANVAS[0], CANVAS[1]]);
+    {
+        let draw = canvas.draw_list_mut();
+        let _ = draw.push(DrawCommand::SolidRect {
+            rect: Rect::new(0.0, 0.0, width, height),
+            color: ink(0.58),
+        });
+        for side in [
+            Rect::new(0.0, 0.0, page_rect.x, height),
+            Rect::new(page_rect.right(), 0.0, width - page_rect.right(), height),
+        ] {
+            let _ = draw.push(DrawCommand::SolidRect {
+                rect: side,
+                color: ink(0.82),
+            });
+        }
+    }
+    let pieces: &[(ArtPiece, [f32; 4])] = if page == Page::Main {
+        &MAIN_ART
+    } else {
+        &SUB_PAGE_ART
+    };
+    for (piece, rect) in pieces {
+        if art_set.has(*piece) {
+            art(canvas, *piece, place.rect(*rect));
+        }
+    }
 }
 
 /// Dim the live map so the page reads as one surface (retail drew an
@@ -161,8 +289,12 @@ fn backdrop(canvas: &mut MenuCanvas, viewport: [f32; 2], place: &Placement) {
     }
 }
 
-/// Game title where the retail logo sits.
-fn logo(canvas: &mut MenuCanvas, place: &Placement) {
+/// The retail logo, or the game title where it sits.
+fn logo(canvas: &mut MenuCanvas, place: &Placement, art_set: ArtSet) {
+    if art_set.has(ArtPiece::Logo) {
+        art(canvas, ArtPiece::Logo, place.rect(LOGO));
+        return;
+    }
     let s = place.scale;
     let [x, y, width, height] = LOGO;
     let center = x + width * 0.5;
@@ -186,35 +318,15 @@ fn logo(canvas: &mut MenuCanvas, place: &Placement) {
     );
 }
 
-/// The retail `menu_buttonback` glow behind a focused entry: a soft gold
-/// band, brightest in the middle.
-fn glow(canvas: &mut MenuCanvas, target: Rect, scale: f32) {
-    let half = Rect::new(target.x, target.y, target.width * 0.5, target.height);
-    let draw = canvas.draw_list_mut();
-    let _ = draw.push(DrawCommand::GradientRect {
-        rect: half,
-        radius: 0.0,
-        gradient: Gradient {
-            start: gold(0.0),
-            end: gold(0.26),
-            vertical: false,
-        },
-    });
-    let _ = draw.push(DrawCommand::GradientRect {
-        rect: Rect::new(
-            half.right(),
-            target.y,
-            target.width - half.width,
-            target.height,
-        ),
-        radius: 0.0,
-        gradient: Gradient {
-            start: gold(0.26),
-            end: gold(0.0),
-            vertical: false,
-        },
-    });
-    let _ = draw.push(DrawCommand::SolidRect {
+/// The retail `menu_buttonback` glow behind a focused entry, or a soft gold
+/// band with an underline where that art is missing.
+pub(crate) fn glow(canvas: &mut MenuCanvas, target: Rect, scale: f32, art_set: ArtSet) {
+    if art_set.has(ArtPiece::ButtonBack) {
+        art(canvas, ArtPiece::ButtonBack, target);
+        return;
+    }
+    soft_band(canvas, target, 0.26);
+    let _ = canvas.draw_list_mut().push(DrawCommand::SolidRect {
         rect: Rect::new(
             target.x + target.width * 0.2,
             target.bottom() - 1.5 * scale,
@@ -222,5 +334,29 @@ fn glow(canvas: &mut MenuCanvas, target: Rect, scale: f32) {
             1.5 * scale,
         ),
         color: gold(0.7),
+    });
+}
+
+/// A gold band over `rect`, brightest (`peak` alpha) in the middle.
+fn soft_band(canvas: &mut MenuCanvas, rect: Rect, peak: f32) {
+    let half = Rect::new(rect.x, rect.y, rect.width * 0.5, rect.height);
+    let draw = canvas.draw_list_mut();
+    let _ = draw.push(DrawCommand::GradientRect {
+        rect: half,
+        radius: 0.0,
+        gradient: Gradient {
+            start: gold(0.0),
+            end: gold(peak),
+            vertical: false,
+        },
+    });
+    let _ = draw.push(DrawCommand::GradientRect {
+        rect: Rect::new(half.right(), rect.y, rect.width - half.width, rect.height),
+        radius: 0.0,
+        gradient: Gradient {
+            start: gold(peak),
+            end: gold(0.0),
+            vertical: false,
+        },
     });
 }

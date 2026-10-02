@@ -6,7 +6,7 @@ use crate::menu_widgets::{BACK_TOKEN, FormLayout, MenuCanvas, Scrim, TAB_BASE};
 mod catalog;
 mod pointer;
 
-pub(crate) use catalog::{ACTIONS, default_bindings, migrate_missing_defaults};
+pub(crate) use catalog::{ACTIONS, Category, default_bindings, migrate_missing_defaults};
 use catalog::{CATEGORIES, category_range};
 use jkr_ui::{DrawList, Rect};
 use std::ops::Range;
@@ -61,6 +61,13 @@ impl KeybindEditor {
 
     pub(crate) fn open(&mut self, console: &ViewerConsole) {
         self.capture = false;
+        self.refresh(console);
+    }
+
+    /// Open on category tab `category` (retail's controls pages, in
+    /// [`catalog::Category`] order), clamped to the last tab.
+    pub(crate) fn open_category(&mut self, console: &ViewerConsole, category: usize) {
+        self.set_tab(category.min(CATEGORIES.len() - 1));
         self.refresh(console);
     }
 

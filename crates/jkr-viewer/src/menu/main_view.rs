@@ -88,7 +88,7 @@ impl ClientMenu {
     ) {
         let reveal = self.screen_reveal();
         if self.menu_style == super::MenuStyle::Classic {
-            super::classic::view::build(&mut self.ui, viewport, &self.classic, reveal);
+            super::classic::view::build(&mut self.ui, viewport, &self.classic, reveal, self.art);
         } else {
             build(&mut self.ui, viewport, self.main_selection, reveal);
         }

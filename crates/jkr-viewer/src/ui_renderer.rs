@@ -4,7 +4,9 @@ use crate::text::{self, TextVertex, UiFont};
 use bytemuck::{Pod, Zeroable};
 use jkr_ui::{Color, DrawCommand, DrawList, FontWeight, Rect, TextAlign, TextId};
 
+mod art;
 mod icons;
+use art::{ArtTextures, Run, Source};
 use icons::IconAtlas;
 pub(crate) use icons::{
     BANNER_SIZE, BANNER_TEXTURE, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE, LEVELSHOT_TEXTURE,
@@ -54,6 +56,12 @@ pub(crate) struct ShapeRenderer {
     vertex_buffer: wgpu::Buffer,
     vertices: Vec<ShapeVertex>,
     icons: IconAtlas,
+    /// Bind-group runs of `vertices`, in draw order.
+    runs: Vec<Run>,
+    /// Layout the icon atlas and the classic menu art are bound with.
+    texture_layout: wgpu::BindGroupLayout,
+    /// The player's retail menu artwork, one texture per piece.
+    art: ArtTextures,
 }
 
 impl ShapeRenderer {
@@ -127,12 +135,36 @@ impl ShapeRenderer {
             Ok(wordmark) => icons.upload_banner(queue, &wordmark.into_rgba8()),
             Err(error) => eprintln!("menu wordmark: {error}"),
         }
-        Self {
+        let mut renderer = Self {
             pipeline,
             vertex_buffer,
             vertices: Vec::with_capacity(MAX_SHAPE_VERTICES),
             icons,
+            runs: Vec::with_capacity(art::MAX_RUNS),
+            texture_layout,
+            art: ArtTextures::new(),
+        };
+        // Artwork decoded for an earlier world is uploaded with this one, on
+        // the install worker rather than the frame thread.
+        renderer.install_menu_art(device, queue);
+        renderer
+    }
+
+    /// Upload the classic menu artwork once its decode has finished; does
+    /// nothing before that or after it has been installed.
+    pub(crate) fn install_menu_art(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        if self.art.installed() {
+            return;
         }
+        if let Some(decoded) = crate::menu::art::decoded() {
+            self.art
+                .install(device, queue, &self.texture_layout, decoded);
+        }
+    }
+
+    /// Classic menu art pieces this renderer can draw.
+    pub(crate) fn menu_art(&self) -> crate::menu::art::ArtSet {
+        self.art.ready()
     }
 
     /// Translate every active retained layer and upload one shared vertex batch.
@@ -143,6 +175,11 @@ impl ShapeRenderer {
         viewport: [f32; 2],
     ) {
         self.vertices.clear();
+        self.runs.clear();
+        self.runs.push(Run {
+            start: 0,
+            source: Source::Atlas,
+        });
         let mut opacity = [1.0_f32; 8];
         let mut opacity_depth = 0_usize;
         let mut clips = [Rect::new(0.0, 0.0, viewport[0], viewport[1]); 8];
@@ -239,15 +276,31 @@ impl ShapeRenderer {
                     rect,
                     texture,
                     color,
-                } => icons::push_textured(
-                    &mut self.vertices,
-                    clipped(rect, clips[clip_depth]),
-                    texture,
-                    color,
-                    opacity[opacity_depth],
-                    viewport,
-                    MAX_SHAPE_VERTICES,
-                ),
+                } => {
+                    let source = match crate::menu::art::ArtPiece::from_texture(texture) {
+                        Some(piece) if self.art.ready().has(piece) => Source::Art(piece),
+                        // Art that is not loaded draws nothing; its screen
+                        // falls back to vector shapes.
+                        Some(_) => continue,
+                        None => Source::Atlas,
+                    };
+                    if !art::switch(&mut self.runs, self.vertices.len(), source) {
+                        continue;
+                    }
+                    let uv = match source {
+                        Source::Art(_) => ([0.0, 0.0], [1.0, 1.0]),
+                        Source::Atlas => icons::uv_range(texture),
+                    };
+                    icons::push_quad(
+                        &mut self.vertices,
+                        clipped(rect, clips[clip_depth]),
+                        uv,
+                        color,
+                        opacity[opacity_depth],
+                        viewport,
+                        MAX_SHAPE_VERTICES,
+                    );
+                }
                 DrawCommand::Text { .. }
                 | DrawCommand::PushClip(_)
                 | DrawCommand::PushOpacity(_) => {}
@@ -264,9 +317,20 @@ impl ShapeRenderer {
             return;
         }
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, self.icons.bind_group(), &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.draw(0..self.vertices.len() as u32, 0..1);
+        let total = self.vertices.len() as u32;
+        for (index, run) in self.runs.iter().enumerate() {
+            let end = self.runs.get(index + 1).map_or(total, |next| next.start);
+            if end <= run.start {
+                continue;
+            }
+            let group = match run.source {
+                Source::Art(piece) => self.art.group(piece),
+                Source::Atlas => None,
+            };
+            pass.set_bind_group(0, group.unwrap_or(self.icons.bind_group()), &[]);
+            pass.draw(run.start..end, 0..1);
+        }
     }
 
     fn push_rect(

@@ -34,12 +34,18 @@ impl GpuState {
             self.game_menu_page = GameMenuPage::CallVote;
             self.game_menu_row = 0;
         } else {
+            // The classic bar keeps focus on the button whose pop-up closed.
+            let tab = ingame_menu::classic::Tab::of_page(self.game_menu_page)
+                .filter(|_| self.in_game_menu.is_classic());
             self.game_menu_page = GameMenuPage::Main;
-            self.game_menu_row = 0;
+            self.game_menu_row = tab.map_or(0, ingame_menu::classic::Tab::index);
         }
     }
 
     pub(crate) fn activate_game_menu_row(&mut self) {
+        if self.in_game_menu.is_classic() && self.activate_classic_row() {
+            return;
+        }
         match self.game_menu_page {
             GameMenuPage::Main => self.activate_main_menu_row(),
             GameMenuPage::Team => self.activate_team_row(),
@@ -157,7 +163,7 @@ impl GpuState {
 
     /// Hand over to the shell's settings screen on `tab`; it returns to
     /// the game menu when closed.
-    fn open_settings_from_game(&mut self, tab: usize) {
+    pub(crate) fn open_settings_from_game(&mut self, tab: usize) {
         if let (Some(menu), Some(console)) = (&mut self.client_menu, &self.console) {
             menu.open_settings_from(console, crate::player_menu::ReturnTarget::InGame, tab);
             self.game_menu = false;
@@ -198,7 +204,7 @@ impl GpuState {
             .is_some_and(|vote| vote.active)
     }
 
-    fn send_vote(&mut self, yes: bool) {
+    pub(crate) fn send_vote(&mut self, yes: bool) {
         self.send_menu_reliable(if yes { "vote yes" } else { "vote no" });
     }
 
@@ -210,7 +216,7 @@ impl GpuState {
         }
     }
 
-    fn open_game_menu_page(&mut self, page: GameMenuPage) {
+    pub(crate) fn open_game_menu_page(&mut self, page: GameMenuPage) {
         self.game_menu_page = page;
         self.game_menu_row = 0;
     }

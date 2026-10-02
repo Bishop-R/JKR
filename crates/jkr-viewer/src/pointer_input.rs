@@ -241,6 +241,10 @@ impl GpuState {
                 return true;
             }
             if let Some((kind, row)) = self.in_game_menu.pointer(event) {
+                if let Some(tab) = crate::ingame_menu::classic::bar_tab(row) {
+                    self.classic_bar_pointer(kind, tab);
+                    return true;
+                }
                 if row < self.game_menu_row_count()
                     && matches!(kind, UiEventKind::HoverEnter | UiEventKind::Hover)
                 {

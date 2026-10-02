@@ -44,6 +44,11 @@ impl SettingsMenu {
         KEYBINDS_TAB
     }
 
+    /// Index of the tab captioned `caption` (`"AUDIO"`), if there is one.
+    pub(crate) fn tab_index(caption: &str) -> Option<usize> {
+        TABS.iter().position(|tab| *tab == caption)
+    }
+
     pub(crate) fn open(&mut self, console: &ViewerConsole) {
         self.open_tab(console, 0);
     }

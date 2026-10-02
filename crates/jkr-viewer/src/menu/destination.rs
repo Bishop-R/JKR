@@ -14,6 +14,9 @@ pub(crate) enum MainDestination {
     Player,
     /// The settings screen, on tab `tab`.
     Settings { tab: usize },
+    /// The key-binding editor on category tab `category`, closing straight
+    /// back to the main menu.
+    Keybinds { category: usize },
     /// Exit to the desktop.
     Quit,
 }
@@ -57,7 +60,26 @@ impl ClientMenu {
                 self.open_settings_from(console, ReturnTarget::MainMenu, tab);
                 MenuAction::None
             }
+            MainDestination::Keybinds { category } => {
+                self.settings_return = ReturnTarget::MainMenu;
+                self.keybinds.open_category(console, category);
+                self.keybinds_direct = true;
+                self.state.open_keybinds();
+                MenuAction::None
+            }
             MainDestination::Quit => MenuAction::Quit,
         }
+    }
+
+    /// Leave the key-binding editor: back to the settings screen that hosts
+    /// it, or straight to wherever settings return when the editor was
+    /// opened directly.
+    pub(super) fn close_keybinds(&mut self, console: &ViewerConsole) -> MenuAction {
+        if std::mem::take(&mut self.keybinds_direct) {
+            return self.close_settings();
+        }
+        self.settings.open(console);
+        self.state.open_settings();
+        MenuAction::None
     }
 }

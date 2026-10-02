@@ -1,6 +1,9 @@
 //! Retained in-game menu: the pages reached with Escape during a match,
-//! drawn in the main menu's hero style over the live world.
+//! drawn in the main menu's hero style over the live world, or, with
+//! `ui_menuStyle classic`, as the retail bar and pop-ups ([`classic`]).
 
+use crate::menu::art::ArtSet;
+use crate::menu::style::MenuStyle;
 use crate::menu_widgets::MenuCanvas;
 use crate::text::{TextVertex, UiFont};
 use jkr_protocol::{GameState, InfoString};
@@ -9,6 +12,9 @@ use std::fmt::Write as _;
 
 mod about;
 mod callvote;
+pub(crate) mod classic;
+mod classic_actions;
+mod classic_view;
 pub(crate) mod shot;
 mod siege;
 pub(crate) mod siege_data;
@@ -27,8 +33,15 @@ pub(crate) enum Page {
     Siege,
     /// Host, map, game type and limits (`ingame_about` in the stock UI).
     About,
-    /// Disconnect or quit, with the choice as the confirmation.
+    /// Disconnect or quit, with the choice as the confirmation (classic:
+    /// the retail exit pop-up, confirmed on the next two pages).
     Leave,
+    /// Classic only: the retail vote pop-up (Yes, No).
+    Vote,
+    /// Classic only: "Go to Main Menu?" after the exit pop-up's Main Menu.
+    ConfirmLeave,
+    /// Classic only: "Quit Program?" after the exit pop-up's Quit Program.
+    ConfirmQuit,
     CallVote,
     VoteMap,
     VoteGameType,
@@ -44,6 +57,8 @@ pub(crate) struct View<'a> {
     pub(crate) selected_row: usize,
     pub(crate) team: u8,
     pub(crate) team_game: bool,
+    /// The server runs Siege, where retail swaps two bar buttons.
+    pub(crate) siege: bool,
     pub(crate) red_players: usize,
     pub(crate) blue_players: usize,
     pub(crate) vote_active: bool,
@@ -90,6 +105,10 @@ pub(crate) struct InGameMenu {
     active_page: Page,
     siege: siege::State,
     pub(crate) shot: shot::Panel,
+    /// Layout family (`ui_menuStyle`).
+    style: MenuStyle,
+    /// Retail artwork the classic layout can draw.
+    art: ArtSet,
 }
 
 impl InGameMenu {
@@ -105,7 +124,21 @@ impl InGameMenu {
             active_page: Page::Main,
             siege: siege::State::default(),
             shot: shot::Panel::default(),
+            style: MenuStyle::Modern,
+            art: ArtSet::default(),
         }
+    }
+
+    /// Follow the player's `ui_menuStyle`, with the retail artwork `art`
+    /// the classic layout can draw.
+    pub(crate) fn set_style(&mut self, style: MenuStyle, art: ArtSet) {
+        self.style = style;
+        self.art = art;
+    }
+
+    /// Whether the classic (retail bar and pop-ups) layout is in use.
+    pub(crate) fn is_classic(&self) -> bool {
+        self.style == MenuStyle::Classic
     }
 
     pub(crate) fn append(
@@ -129,14 +162,18 @@ impl InGameMenu {
             scroll: self.callvote.scroll_metrics(view.page),
             info: info_lines(&self.about, view.page),
         };
-        view::build(
-            &mut self.canvas,
-            &view,
-            &self.kicker,
-            rows,
-            hint_for(&view),
-            viewport,
-        );
+        if self.style == MenuStyle::Classic {
+            classic_view::build(&mut self.canvas, &view, rows, self.art, viewport);
+        } else {
+            view::build(
+                &mut self.canvas,
+                &view,
+                &self.kicker,
+                rows,
+                hint_for(&view),
+                viewport,
+            );
+        }
         self.canvas.append_text(vertices, font, viewport);
     }
 
@@ -196,7 +233,9 @@ impl InGameMenu {
     }
 
     pub(crate) fn row_count(&self, page: Page, team_game: bool, vote_active: bool) -> usize {
-        if page == Page::Siege {
+        if let Some(count) = classic::row_count(page, team_game).filter(|_| self.is_classic()) {
+            count
+        } else if page == Page::Siege {
             self.siege.row_count()
         } else if page.is_vote_page() {
             self.callvote.row_count(page)
@@ -216,7 +255,15 @@ impl InGameMenu {
         for row in &mut self.rows {
             row.clear();
         }
-        self.row_count = if view.page == Page::Siege {
+        self.enabled = [true; 24];
+        let classic_rows = if self.style == MenuStyle::Classic {
+            classic::prepare(view, &mut self.rows, &mut self.enabled)
+        } else {
+            None
+        };
+        self.row_count = if let Some(count) = classic_rows {
+            count
+        } else if view.page == Page::Siege {
             self.siege.prepare(&mut self.rows)
         } else if view.page.is_vote_page() {
             self.callvote.prepare_rows(view.page, &mut self.rows)
@@ -225,8 +272,8 @@ impl InGameMenu {
         };
         for row in 0..self.row_count {
             let current = current_team_row(view, row);
-            self.enabled[row] = !current;
-            if current {
+            self.enabled[row] &= !current;
+            if current && self.style != MenuStyle::Classic {
                 self.rows[row].push_str("  /  current");
             }
         }

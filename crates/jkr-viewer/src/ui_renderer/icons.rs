@@ -150,7 +150,7 @@ impl IconAtlas {
 }
 
 /// Atlas UV corners of `texture`.
-fn uv_range(texture: TextureId) -> ([f32; 2], [f32; 2]) {
+pub(super) fn uv_range(texture: TextureId) -> ([f32; 2], [f32; 2]) {
     let atlas = ATLAS_SIZE as f32;
     if texture == BANNER_TEXTURE {
         let [width, height] = BANNER_SIZE;
@@ -180,10 +180,12 @@ fn uv_range(texture: TextureId) -> ([f32; 2], [f32; 2]) {
     (uv(x, y), uv(x + ICON_SIZE, y + ICON_SIZE))
 }
 
-pub(super) fn push_textured(
+/// Push one textured quad sampling `uv` (top-left and bottom-right corners)
+/// of whatever texture its draw run binds.
+pub(super) fn push_quad(
     vertices: &mut Vec<ShapeVertex>,
     rect: Rect,
-    texture: TextureId,
+    (uv0, uv1): ([f32; 2], [f32; 2]),
     color: Color,
     opacity: f32,
     viewport: [f32; 2],
@@ -192,7 +194,6 @@ pub(super) fn push_textured(
     if rect.width <= 0.0 || rect.height <= 0.0 || vertices.len() + 6 > capacity {
         return;
     }
-    let (uv0, uv1) = uv_range(texture);
     let position = |x: f32, y: f32| [x / viewport[0] * 2.0 - 1.0, 1.0 - y / viewport[1] * 2.0];
     let tint = [color.r, color.g, color.b, color.a * opacity];
     let points = [

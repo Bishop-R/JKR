@@ -60,6 +60,11 @@ impl GpuState {
                         .filter(|row| *row < count)
                         .unwrap_or((self.game_menu_row + 1) % count);
                 }
+                KeyCode::ArrowLeft | KeyCode::ArrowRight | KeyCode::KeyA | KeyCode::KeyD
+                    if self.in_game_menu.is_classic() =>
+                {
+                    self.classic_menu_sideways(matches!(key, KeyCode::ArrowRight | KeyCode::KeyD));
+                }
                 KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
                     if self.in_game_menu.activation_allowed(self.game_menu_row) {
                         self.activate_game_menu_row();
