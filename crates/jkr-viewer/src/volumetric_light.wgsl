@@ -255,6 +255,7 @@ var<workgroup> partial: array<vec3<f32>, 64>;
     let uv = (vec2<f32>(id.xy)+0.5)/vec2<f32>(p.grid.xy);
     let cosine = dot(ray(uv),p.forward.xyz);
     var scattering = vec3(0.0);
+    var start_depth = slice_depth(0.0);
     for (var z = 0u; z < p.grid.z; z++) {
         var cell = textureLoad(input_volume,vec3<i32>(vec2<i32>(id.xy),i32(z)),0).rgb;
         // Rays are the contrast in sunlit air, not its mean: air lit uniformly across a
@@ -264,8 +265,10 @@ var<workgroup> partial: array<vec3<f32>, 64>;
         let tile_uv = vec3(uv,(f32(z)+0.5)/f32(p.grid.z));
         let wide = textureSampleLevel(tile_means,volume_sampler,tile_uv,0.0).rgb;
         cell = max(cell-p.range.z*wide,vec3(0.0));
-        let length = (slice_depth(f32(z+1u)/f32(p.grid.z))-
-            slice_depth(f32(z)/f32(p.grid.z)))/cosine;
+        // The previous end is this slice's exact start; avoid repeating its power.
+        let end_depth = slice_depth(f32(z+1u)/f32(p.grid.z));
+        let length = (end_depth-start_depth)/cosine;
+        start_depth = end_depth;
         // Thin-air approximation: sunlit in-scattering only, no global extinction.
         scattering += cell*length;
         textureStore(output_volume,vec3<i32>(vec2<i32>(id.xy),i32(z)),

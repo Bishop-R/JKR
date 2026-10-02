@@ -359,6 +359,10 @@ impl Runtime {
                 material.stages,
             )?;
             self.source_to_runtime.push(self.materials.len());
+            self.source_order.push((
+                material.sort,
+                stages.first().map_or(0, |stage| stage.pipeline),
+            ));
             self.materials.push(Material {
                 view_bounded: false,
                 flare: false,

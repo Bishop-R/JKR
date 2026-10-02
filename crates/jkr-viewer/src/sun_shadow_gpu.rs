@@ -109,9 +109,19 @@ pub(super) fn new(
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    let bounds = super::bounds::Bounds::new(
+        device,
+        settings.resolution,
+        [
+            held.as_ref().map_or(&depth, |h| h[0].depth()),
+            held.as_ref().map_or(&depth, |h| h[1].depth()),
+            far.as_ref().map_or(&depth, |f| &f.cascade.depth),
+        ],
+    );
     let receiver_entries = cascade_entries(
         &depth,
         &sampler,
+        &bounds.view,
         &receiver_buffer,
         far.as_ref(),
         close.as_ref(),
@@ -340,6 +350,7 @@ pub(super) fn new(
 
         point_lights: forge.point_lights.clone(),
         sampler,
+        bounds,
         lamps,
         lamp_shadows,
         caster,
@@ -360,11 +371,12 @@ pub(super) fn new(
 fn cascade_entries<'a>(
     depth: &'a wgpu::TextureView,
     sampler: &'a wgpu::Sampler,
+    bounds: &'a wgpu::TextureView,
     buffer: &'a wgpu::Buffer,
     far: Option<&'a FarCascade>,
     close: Option<&'a Cascade>,
     world: Option<&'a [held::Held; 2]>,
-) -> [wgpu::BindGroupEntry<'a>; 7] {
+) -> [wgpu::BindGroupEntry<'a>; 8] {
     [
         wgpu::BindGroupEntry {
             binding: 0,
@@ -396,6 +408,10 @@ fn cascade_entries<'a>(
         wgpu::BindGroupEntry {
             binding: 6,
             resource: wgpu::BindingResource::TextureView(world.map_or(depth, |w| w[1].depth())),
+        },
+        wgpu::BindGroupEntry {
+            binding: 7,
+            resource: wgpu::BindingResource::TextureView(bounds),
         },
     ]
 }
@@ -432,6 +448,7 @@ impl Runtime {
         let entries = cascade_entries(
             &self.depth,
             &self.sampler,
+            &self.bounds.view,
             &self.receiver_buffer,
             self.far.as_ref(),
             self.close.as_ref(),
