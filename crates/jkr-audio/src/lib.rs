@@ -8,6 +8,8 @@ use std::error::Error;
 use std::fmt;
 use std::io::Cursor;
 
+mod id3;
+
 /// Opaque index of decoded PCM in a [`SoundBank`].
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct SoundHandle(pub u32);
@@ -887,6 +889,7 @@ fn decode_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32), DecodeError> {
 }
 
 fn decode_mp3(bytes: &[u8]) -> Result<(Vec<f32>, u32), DecodeError> {
+    let bytes = id3::without_id3v1(bytes);
     let mut decoder = minimp3_fixed::Decoder::new(Cursor::new(bytes));
     let mut output = Vec::new();
     let mut rate = None;
