@@ -44,6 +44,8 @@ mod console_profile;
 mod console_scripting;
 #[path = "console_session.rs"]
 mod console_session;
+#[path = "console_tell.rs"]
+mod console_tell;
 #[path = "console_view.rs"]
 mod console_view;
 use console_cvars::register_daily_cvars;

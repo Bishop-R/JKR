@@ -59,6 +59,12 @@ root (the implementation appends `base`). See
 console output. See [console registration](../crates/jkr-viewer/src/console_session.rs)
 and [file commands](../crates/jkr-viewer/src/console_files.rs) for argument handling.
 
+`tell <player> <message>` takes a slot number or, as in EternalJK, a name or a
+unique part of one, ignoring case and colour codes; an exact name wins over longer
+names containing it. The client sends the stock `tell <slot>` command; when no
+player or several players match, it lists them and sends nothing. See
+[console_tell.rs](../crates/jkr-viewer/src/console_tell.rs).
+
 Tab completes the command or cvar name being typed, after a leading `/` or `\` and
 after the last `;`. A unique name completes with a trailing space; otherwise the
 input extends to the longest shared prefix and the matching commands and cvars,
