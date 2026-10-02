@@ -33,6 +33,8 @@ mod console_command;
 mod console_forward;
 #[path = "console_keyboard.rs"]
 mod console_keyboard;
+#[path = "console_text.rs"]
+mod console_text;
 #[path = "console_edit_view.rs"]
 mod edit_view;
 #[path = "console_editing.rs"]

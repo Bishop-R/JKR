@@ -1,6 +1,8 @@
 //! Retained drop-down console presentation; command behavior remains in `console.rs`.
 
+use super::console_text::ConsoleText;
 use super::edit_view::{EditFrame, OutputRows};
+use super::selection::Mark;
 use crate::menu_widgets::MenuCanvas;
 use crate::text::{TextVertex, UiFont};
 use jkr_shell::{ConsoleLine, ConsoleLineKind};
@@ -223,13 +225,16 @@ fn build_options<'a>(
         Rect::new(0.0, top, viewport[0], (input_y - top).max(0.0)),
         Rect::new(0.0, input_y, viewport[0], (height - input_y).max(0.0)),
     );
+    // The input line and scrollback rows are drawn, measured and hit-tested with
+    // these, so carets, highlights and pointer hits follow any size or spacing.
+    let input_text = ConsoleText::new(font, 15.0 * scale, 0.0);
+    let row_text = ConsoleText::new(font, 14.0 * scale, 0.0);
     // Submit the fixed input before history so a full glyph budget cannot hide it.
     ui.separator(Rect::new(margin, input_y, width, 1.0));
     super::edit_view::prompt(
         ui,
-        font,
+        input_text,
         Rect::new(margin, input_y + 8.0 * scale, width, 24.0 * scale),
-        15.0 * scale,
         &prompt,
         selection,
     );
@@ -247,7 +252,7 @@ fn build_options<'a>(
     );
 
     ui.scroll_region(0, Rect::new(margin, top, width, (bottom - top).max(0.0)));
-    let mut rows = OutputRows::new(ui, font, selection, 14.0 * scale, line_height, bottom);
+    let mut rows = OutputRows::new(ui, row_text, selection, line_height, bottom);
     for (index, (kind, line, start, text)) in lines
         .rev()
         .zip((0..lines_end).rev())
@@ -273,8 +278,7 @@ fn build_options<'a>(
             width,
             line_height,
         );
-        rows.row(ui, index, line, start, text, rect);
-        ui.text(text, rect, 14.0 * scale, color, FontWeight::Regular, 0.0);
+        rows.row(ui, index, Mark { line, byte: start }, text, rect, color);
     }
     rows.finish();
     selection.end_frame();

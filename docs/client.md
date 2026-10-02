@@ -73,7 +73,11 @@ caret and selects the same way. Ctrl+C (or Ctrl+Insert) copies selected output
 without colour codes, else the selected input, else the whole input line, or the
 last `viewpos` or `mark` answer when the line is empty. Up and Down stay history.
 See [console_editing.rs](../crates/jkr-viewer/src/console_editing.rs) and
-[console_selection.rs](../crates/jkr-viewer/src/console_selection.rs).
+[console_selection.rs](../crates/jkr-viewer/src/console_selection.rs). The input
+line and output rows are drawn and measured through one
+[ConsoleText](../crates/jkr-viewer/src/console_text.rs) per text size, so the
+caret, highlights and mouse hits follow the drawn glyphs at any size or letter
+spacing.
 
 Tab completes the command or cvar name being typed, after a leading `/` or `\` and
 after the last `;`. A unique name completes with a trailing space; otherwise the

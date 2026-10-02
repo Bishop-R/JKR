@@ -1,12 +1,14 @@
 //! Drawing for console editing, and pointer resolution against what is drawn: the
 //! input line with its caret, scrolled sideways to keep the caret in view, and
-//! selection highlights on the input line and on scrollback rows.
+//! selection highlights on the input line and on scrollback rows. Every position is
+//! measured with the [`ConsoleText`] the text is drawn with.
 
+use super::console_text::ConsoleText;
 use super::line_edit::token_at;
 use super::selection::{Gesture, Mark, PromptPointer, Selection, floor_boundary};
 use crate::menu_widgets::MenuCanvas;
-use crate::text::{TextFace, UiFont, glyph_byte_at, visible_text_width_face};
-use jkr_ui::{Color, FontWeight, Rect};
+use crate::text::glyph_byte_at;
+use jkr_ui::{Color, Rect};
 use std::ops::Range;
 
 /// Drawn before the input line, as stock does.
@@ -39,16 +41,6 @@ fn highlight(ui: &MenuCanvas) -> Color {
 /// The vertical band a row of `size` text drawn at `y` occupies, `pitch` tall.
 fn band(y: f32, size: f32, pitch: f32) -> (f32, f32) {
     (y + (size - pitch) * 0.5, pitch)
-}
-
-/// Pen advance of each glyph at `size`.
-fn advance(font: &UiFont, size: f32) -> impl Fn(u8) -> f32 + Copy + '_ {
-    let scale = size / font.height.max(1.0);
-    move |glyph| font.glyph(TextFace::Regular, glyph).advance * scale
-}
-
-fn width(font: &UiFont, text: &str, size: f32) -> f32 {
-    visible_text_width_face(font, text, size / font.height.max(1.0), TextFace::Regular)
 }
 
 /// Walk the caret stops of `text`: before each glyph (with any colour codes that lead
@@ -104,31 +96,32 @@ pub(super) fn scroll_start(
     walk(&text[..cursor], advance, |_, pen, _| caret - pen <= room)
 }
 
-/// Draw the input line in `rect`: the prompt, the visible part of the text, a
-/// selection highlight and the caret. A pointer gesture on the line resolves here.
+/// Draw the input line in `rect` with `text`: the prompt, the visible part of the
+/// input, a selection highlight and the caret. A pointer gesture on the line resolves
+/// here.
 pub(super) fn prompt(
     ui: &mut MenuCanvas,
-    font: &UiFont,
+    text: ConsoleText<'_>,
     rect: Rect,
-    size: f32,
     line: &PromptLine<'_>,
     selection: &mut Selection,
 ) {
     let foreground = ui.theme().foreground;
     let input = line.input;
     let cursor = floor_boundary(input, line.cursor);
-    let prefix = width(font, PROMPT_PREFIX, size);
-    let caret_width = width(font, CARET, size);
+    let advance = |glyph| text.advance(glyph);
+    let prefix = text.width(PROMPT_PREFIX);
+    let caret_width = text.width(CARET);
     let text_x = rect.x + prefix;
     let room = (rect.width - prefix - caret_width).max(0.0);
-    let start = scroll_start(input, cursor, room, advance(font, size));
+    let start = scroll_start(input, cursor, room, advance);
     let shown = &input[start..];
-    let x_of = |byte: usize| text_x + width(font, &input[start..byte.max(start)], size);
+    let x_of = |byte: usize| text_x + text.width(&input[start..byte.max(start)]);
 
     if selection.gesture() == Gesture::Prompt
         && let Some(position) = selection.pending_position()
     {
-        let byte = start + byte_at(shown, position.x - text_x, advance(font, size));
+        let byte = start + byte_at(shown, position.x - text_x, advance);
         selection.set_prompt(match selection.press() {
             Some(press) if press.double => PromptPointer::Token(byte),
             Some(press) => PromptPointer::Place {
@@ -139,6 +132,7 @@ pub(super) fn prompt(
         });
     }
 
+    let size = text.size();
     let (y, height) = band(rect.y, size, size * 1.3);
     if let Some(range) = &line.selection {
         let left = x_of(floor_boundary(input, range.start));
@@ -148,40 +142,33 @@ pub(super) fn prompt(
             ui.accent_bar(Rect::new(left, y, right - left, height), color);
         }
     }
-    ui.text(
+    text.draw(
+        ui,
         PROMPT_PREFIX,
         Rect::new(rect.x, rect.y, prefix, rect.height),
-        size,
         foreground,
-        FontWeight::Regular,
-        0.0,
     );
-    ui.text(
+    text.draw(
+        ui,
         shown,
         Rect::new(text_x, rect.y, rect.width - prefix, rect.height),
-        size,
         foreground,
-        FontWeight::Regular,
-        0.0,
     );
-    ui.text(
+    text.draw(
+        ui,
         CARET,
         Rect::new(x_of(cursor), rect.y, caret_width, rect.height),
-        size,
         foreground,
-        FontWeight::Regular,
-        0.0,
     );
 }
 
-/// Scrollback rows of one frame, bottom row first: draws their selection highlight
-/// and resolves a pointer gesture over them.
+/// Scrollback rows of one frame, bottom row first: draws them with their selection
+/// highlight and resolves a pointer gesture over them, all with one [`ConsoleText`].
 pub(super) struct OutputRows<'a> {
-    font: &'a UiFont,
+    text: ConsoleText<'a>,
     selection: &'a mut Selection,
     range: Option<(Mark, Mark)>,
     color: Color,
-    size: f32,
     line_height: f32,
     /// Row (counted up from the bottom, negative below it) and x of a pointer
     /// position still to resolve.
@@ -192,17 +179,16 @@ pub(super) struct OutputRows<'a> {
 }
 
 impl<'a> OutputRows<'a> {
-    /// Rows of `size` text, `line_height` apart, the bottom one laid out to end at
+    /// Rows of `text`, `line_height` apart, the bottom one laid out to end at
     /// `bottom`. A row's pointer area is its highlight band, centred on its text.
     pub(super) fn new(
         ui: &MenuCanvas,
-        font: &'a UiFont,
+        text: ConsoleText<'a>,
         selection: &'a mut Selection,
-        size: f32,
         line_height: f32,
         bottom: f32,
     ) -> Self {
-        let edge = bottom + (size - line_height) * 0.5;
+        let edge = bottom + (text.size() - line_height) * 0.5;
         let target = (selection.gesture() == Gesture::Output)
             .then(|| selection.pending_position())
             .flatten()
@@ -211,11 +197,10 @@ impl<'a> OutputRows<'a> {
                 (rows.max(-1.0) as isize, position.x)
             });
         Self {
-            font,
+            text,
             range: selection.range(),
             selection,
             color: highlight(ui),
-            size,
             line_height,
             target,
             bottom: None,
@@ -223,18 +208,18 @@ impl<'a> OutputRows<'a> {
         }
     }
 
-    /// Row `index` (0 at the bottom) shows `text`, which starts `start` bytes into
-    /// scrollback line `line`, drawn at `rect`.
+    /// Draw row `index` (0 at the bottom) in `color` at `rect`: `text`, which starts
+    /// at `begin` in its scrollback line.
     pub(super) fn row(
         &mut self,
         ui: &mut MenuCanvas,
         index: usize,
-        line: u64,
-        start: usize,
+        begin: Mark,
         text: &str,
         rect: Rect,
+        color: Color,
     ) {
-        let begin = Mark { line, byte: start };
+        let Mark { line, byte: start } = begin;
         let end = Mark {
             line,
             byte: start + text.len(),
@@ -249,19 +234,19 @@ impl<'a> OutputRows<'a> {
         {
             let left = from.max(begin).byte - start;
             let right = to.min(end).byte - start;
-            let left = rect.x + width(self.font, &text[..floor_boundary(text, left)], self.size);
-            let mut right =
-                rect.x + width(self.font, &text[..floor_boundary(text, right)], self.size);
+            let left = rect.x + self.text.width(&text[..floor_boundary(text, left)]);
+            let mut right = rect.x + self.text.width(&text[..floor_boundary(text, right)]);
             // A selection running on past this row shows its line break as a space.
             if to > end {
-                right += width(self.font, " ", self.size);
+                right += self.text.width(" ");
             }
             let right = right.min(rect.right());
             if right > left {
-                let (y, height) = band(rect.y, self.size, self.line_height);
+                let (y, height) = band(rect.y, self.text.size(), self.line_height);
                 ui.accent_bar(Rect::new(left, y, right - left, height), self.color);
             }
         }
+        self.text.draw(ui, text, rect, color);
         if let Some((row, x)) = self.target
             && row == index as isize
         {
@@ -269,7 +254,8 @@ impl<'a> OutputRows<'a> {
             let byte = if x > rect.right() {
                 text.len()
             } else {
-                byte_at(text, x - rect.x, advance(self.font, self.size))
+                let measure = self.text;
+                byte_at(text, x - rect.x, |glyph| measure.advance(glyph))
             };
             let token = token_at(text, byte);
             self.resolve(
@@ -343,5 +329,63 @@ mod tests {
         assert_eq!(scroll_start(text, 10, 50.0, even), 5);
         assert_eq!(scroll_start(text, 10, 45.0, even), 6);
         assert_eq!(scroll_start(text, 0, 0.0, even), 0);
+    }
+
+    /// With letter spacing on, the caret and a pointer hit land on the glyph the text
+    /// renderer actually draws: the input line goes through the real draw path and the
+    /// emitted glyph quads are compared with the measured positions.
+    #[test]
+    fn caret_and_hits_match_drawn_glyphs_with_letter_spacing() {
+        use crate::text::TextFace;
+        use jkr_ui::DrawCommand;
+
+        let font = crate::text::load_modern(1.0).expect("bundled font").font;
+        let viewport = [1920.0, 1080.0];
+        let text = ConsoleText::new(&font, 15.0, 0.12);
+        let rect = Rect::new(24.0, 900.0, 1200.0, 24.0);
+        // Distinct glyphs that the "] " prefix and the "_" caret do not use.
+        let line = PromptLine {
+            input: "kdm",
+            cursor: 2,
+            selection: None,
+        };
+        let mut ui = MenuCanvas::new();
+        ui.begin_transparent(viewport);
+        prompt(&mut ui, text, rect, &line, &mut Selection::new());
+        // The caret is the last text drawn; its pen starts at its rectangle.
+        let caret = ui
+            .draw_list()
+            .commands()
+            .iter()
+            .rev()
+            .find_map(|command| match command {
+                DrawCommand::Text { rect, .. } => Some(rect.x),
+                _ => None,
+            })
+            .expect("caret drawn");
+        let mut vertices = Vec::new();
+        ui.append_text(&mut vertices, &font, viewport);
+
+        // Pen position of the drawn 'm', from its glyph quad (not its black shadow).
+        let glyph = font.glyph(TextFace::Regular, b'm');
+        let floats: &[f32] = bytemuck::cast_slice(&vertices);
+        let left = floats
+            .chunks_exact(6 * 8)
+            .find(|quad| quad[2] == glyph.uv[0] && quad[3] == glyph.uv[1] && quad[4] > 0.0)
+            .map(|quad| (quad[0] + 1.0) * 0.5 * viewport[0])
+            .expect("'m' drawn");
+        let drawn = left - glyph.offset_x * 15.0 / font.height;
+
+        assert!((caret - drawn).abs() < 0.01, "caret {caret}, glyph {drawn}");
+        let text_x = rect.x + text.width(PROMPT_PREFIX);
+        assert!((text_x + text.width("kd") - drawn).abs() < 0.01);
+        // Without the spacing the caret would sit visibly left of the glyph.
+        let plain = ConsoleText::new(&font, 15.0, 0.0);
+        assert!(drawn - (rect.x + plain.width("] kd")) > 4.0 * 0.12 * 15.0 - 0.01);
+        // A click just right of the glyph's left edge places the caret before it.
+        let hit = byte_at(line.input, drawn + 1.0 - text_x, |glyph| {
+            text.advance(glyph)
+        });
+        assert_eq!(hit, 2);
     }
 }
