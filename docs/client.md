@@ -51,6 +51,15 @@ On Linux the default is `$XDG_DATA_HOME/jkr/downloads/base`, falling back to
 root (the implementation appends `base`). See
 [download_store.rs](../crates/jkr-viewer/src/download_store.rs).
 
+## Chat and console text
+
+Server text is split as in stock `codemp` cgame. `print` replies go to the
+console and its notify lines (`con_notifytime`, `con_notifylines`), never the chat
+box. Chat (`chat`, `tchat` and their location forms) goes to the chat box and is
+also kept in the console scrollback, but not in the notify lines, like the stock
+`*` print prefix. Centre prints stay on screen only. See
+[server_commands.rs](../crates/jkr-viewer/src/server_commands.rs).
+
 ## Useful console commands
 
 `connect host:port`, `disconnect` and `reconnect` control the session.

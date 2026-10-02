@@ -125,7 +125,10 @@ impl ConsolePresentation {
                 let color = self.ui.theme().foreground;
                 for (i, line) in lines
                     .rev()
-                    .filter(|line| now.saturating_sub(line.written_millis) < options.notify_millis)
+                    .filter(|line| {
+                        line.notify
+                            && now.saturating_sub(line.written_millis) < options.notify_millis
+                    })
                     .take(options.notify_lines)
                     .enumerate()
                 {

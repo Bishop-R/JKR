@@ -38,7 +38,6 @@ struct ChatLine {
     sender: Option<ChatTarget>,
     channel: Channel,
     received_ms: u64,
-    system: bool,
     muted: bool,
     wrap: layout::Wrapped,
     y: Option<Tween>,
@@ -121,6 +120,8 @@ impl ChatOverlay {
             .retain(|target| self.roster.name(*target).is_some());
     }
 
+    /// Take a chat line or centre print. Server `print` text belongs to the
+    /// console (stock `CG_Print_f`), never the chat box, so it is ignored here.
     pub(crate) fn receive(
         &mut self,
         kind: ServerEventKind,
@@ -135,14 +136,16 @@ impl ChatOverlay {
             self.center = Some((text, ms));
             return;
         }
-        let system = kind == ServerEventKind::Print;
+        if kind == ServerEventKind::Print {
+            return;
+        }
         if kind == ServerEventKind::Chat && self.options.clean != 0 {
             let plain = options::clean_body(&text, 1).to_ascii_lowercase();
             if plain.contains("media - currently playing: ") || plain.contains("hi everybody!") {
                 return;
             }
         }
-        let target = (!system).then(|| self.roster.target(sender)).flatten();
+        let target = self.roster.target(sender);
         // Display keeps `^n`; identity, whisper destinations and muting keep
         // using the plain roster name.
         let name = target
@@ -155,9 +158,8 @@ impl ChatOverlay {
         } else {
             chat_body(&display, &name)
         };
-        let body = options::clean_body(body, if system { 0 } else { self.options.clean });
-        if !system
-            && self.options.clean != 0
+        let body = options::clean_body(body, self.options.clean);
+        if self.options.clean != 0
             && self
                 .lines
                 .back()
@@ -177,7 +179,6 @@ impl ChatOverlay {
                 Channel::Global
             },
             received_ms: ms,
-            system,
             muted: target.is_some_and(|target| self.muted.contains(&target)),
             wrap: layout::Wrapped::default(),
             y: None,

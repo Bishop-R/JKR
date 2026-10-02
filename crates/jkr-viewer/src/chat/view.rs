@@ -199,11 +199,7 @@ impl ChatOverlay {
                 );
             } else {
                 for (row, range) in line.wrap.rows[..line.wrap.len].iter().enumerate() {
-                    let color = if line.system {
-                        Color::new(0.68, 0.75, 0.81, alpha)
-                    } else {
-                        Color::new(0.96, 0.97, 0.99, alpha)
-                    };
+                    let color = Color::new(0.96, 0.97, 0.99, alpha);
                     let truncated = row + 1 == line.wrap.len && range.end < line.body.len();
                     self.ui.text_fmt_aligned(
                         format_args!(
