@@ -140,13 +140,17 @@ impl std::ops::Deref for SaberRows {
     }
 }
 
-/// Row index of the Force side cycler.
+/// Row index of the Force side picker.
 pub(super) const FORCE_SIDE_ROW: usize = 0;
 /// Row index of the first Force power; power `i` is row `FORCE_POWER_ROW + i`.
 pub(super) const FORCE_POWER_ROW: usize = 1;
-/// Row index of the Force reset action.
+/// Row index of the Force reset action, the first of the action buttons.
 pub(super) const FORCE_RESET_ROW: usize = 19;
-const FORCE_ROWS: usize = 20;
+/// Row index of the action returning the draft to the applied profile.
+pub(super) const FORCE_DISCARD_ROW: usize = 20;
+/// Row index of the action writing the draft to `forcepowers`.
+pub(super) const FORCE_APPLY_ROW: usize = 21;
+const FORCE_ROWS: usize = 22;
 
 impl PlayerMenu {
     pub(super) fn character_rows(&self) -> &'static [CharacterRow] {
@@ -198,7 +202,7 @@ impl PlayerMenu {
                 .saber_rows()
                 .get(self.selected)
                 .is_some_and(|row| row.channel().is_none() && !row.is_blade()),
-            ProfilePage::Force => self.selected != FORCE_RESET_ROW,
+            ProfilePage::Force => self.selected < FORCE_RESET_ROW,
         }
     }
 }

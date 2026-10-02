@@ -33,6 +33,17 @@ Set `JKR_DEDICATED` to its executable path if installed elsewhere. The child
 lifetime is managed by the client and defaults to local access; see
 [local_server.rs](../crates/jkr-viewer/src/local_server.rs).
 
+The player screen's Character and Saber pages write their cvars as soon as a
+value changes. The Force page edits a draft instead: Apply writes `forcepowers`
+once, in the stock format and legalized as before, Discard returns to the applied
+profile, and leaving the screen drops unapplied changes. While a draft is pending,
+the page's points line reads NOT APPLIED and the footer's Back cap says that
+leaving drops it. Power icons (`gfx/mp/f_icon_*`) and side emblems
+(`gfx/hud/mpi_jlight`, `gfx/hud/mpi_dklight`) come from the installed game data;
+without them the page shows text only. See
+[force.rs](../crates/jkr-viewer/src/player_menu/force.rs) and
+[force_view.rs](../crates/jkr-viewer/src/player_menu/force_view.rs).
+
 ## Configuration and content
 
 The Linux configuration is `$XDG_CONFIG_HOME/jkr/config.cfg`, falling back to

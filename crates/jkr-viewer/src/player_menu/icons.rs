@@ -1,7 +1,8 @@
-//! Model icons for the character grid: decoded on a background thread once
-//! the catalogue is known, then uploaded into the UI icon atlas a few per
-//! frame. Tile `i` of the grid (characters first, then species) samples
-//! [`TextureId`] `i + 1`; cell 0 stays free for the HUD.
+//! Player-screen icons: decoded on a background thread, then uploaded into
+//! the UI icon atlas a few per frame. Tile `i` of the character grid
+//! (characters first, then species) samples [`TextureId`] `i + 1`; cell 0
+//! stays free for the HUD. The last [`FORCE_CELLS`] menu cells hold the
+//! Force page's power icons and side emblems (see `force_icons`).
 
 use crate::ui_renderer::{ICON_SIZE, ShapeRenderer};
 use jkr_client::LegacyAssetCatalog;
@@ -10,9 +11,15 @@ use jkr_vfs::VirtualFileSystem;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 
-/// Most icons the loader tracks; the atlas has as many cells.
-/// Atlas cells available to model icons (the banner strip takes the rest).
+/// Atlas cells the player screen owns (the banner strip takes the rest).
 pub(super) const MAX_ICONS: usize = crate::ui_renderer::ICON_CELLS as usize;
+/// Cells kept at the end of the player screen's range for the Force page.
+pub(super) const FORCE_CELLS: usize = 20;
+/// Model icons the character grid can show: cells `1..=MODEL_ICONS`.
+const MODEL_ICONS: usize = MAX_ICONS - 1 - FORCE_CELLS;
+
+/// One icon to decode: its atlas cell and the paths to try, in order.
+pub(super) type IconRequest = (TextureId, Vec<String>);
 
 struct DecodedIcon {
     id: TextureId,
@@ -48,9 +55,19 @@ impl IconLoader {
         TextureId(index as u32 + 1)
     }
 
+    /// Atlas cell `slot` (0..[`FORCE_CELLS`]) of the Force page.
+    pub(super) fn force_texture(slot: usize) -> TextureId {
+        TextureId((MAX_ICONS - FORCE_CELLS + slot) as u32)
+    }
+
     /// Whether the icon of grid tile `index` is in the atlas.
     pub(super) fn is_ready(&self, index: usize) -> bool {
-        let cell = Self::texture_of(index).0 as usize;
+        index < MODEL_ICONS && self.is_texture_ready(Self::texture_of(index))
+    }
+
+    /// Whether atlas cell `texture` holds a finished upload of this loader.
+    pub(super) fn is_texture_ready(&self, texture: TextureId) -> bool {
+        let cell = texture.0 as usize;
         cell < MAX_ICONS && self.ready[cell / 64] & (1 << (cell % 64)) != 0
     }
 
@@ -75,7 +92,24 @@ impl IconLoader {
                     .to_vec(),
             ));
         }
-        requests.truncate(MAX_ICONS - 1);
+        requests.truncate(MODEL_ICONS);
+        self.spawn(vfs, requests);
+    }
+
+    /// Decode `requests` off-thread; each takes the first path that decodes.
+    pub(super) fn request_paths(
+        &mut self,
+        vfs: Arc<VirtualFileSystem>,
+        requests: Vec<IconRequest>,
+    ) {
+        if self.requested {
+            return;
+        }
+        self.requested = true;
+        self.spawn(vfs, requests);
+    }
+
+    fn spawn(&mut self, vfs: Arc<VirtualFileSystem>, requests: Vec<IconRequest>) {
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let decoded = requests

@@ -108,6 +108,22 @@ impl ForcePower {
     const fn index(self) -> usize {
         self as usize
     }
+
+    /// Side this power belongs to (`forcePowerDarkLight` in `bg_misc.c`),
+    /// or `None` for a neutral power.
+    pub const fn side(self) -> Option<ForceSide> {
+        match POWER_SIDES[self.index()] {
+            1 => Some(ForceSide::Light),
+            2 => Some(ForceSide::Dark),
+            _ => None,
+        }
+    }
+
+    /// Whether this is a team power, which `BG_LegalizedForcePowers` strips
+    /// below `GT_TEAM`.
+    pub const fn is_team_power(self) -> bool {
+        matches!(self, Self::TeamHeal | Self::TeamForce)
+    }
 }
 
 /// Parsed player-selected Force allocation.
@@ -426,3 +442,33 @@ impl fmt::Display for ForceProfileError {
 }
 
 impl std::error::Error for ForceProfileError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `side` and `is_team_power` must agree with what legalization strips.
+    #[test]
+    fn power_side_matches_legalization() {
+        let team = ForceLegalizeRules {
+            gametype: 6,
+            ..ForceLegalizeRules::default()
+        };
+        for (index, power) in ForcePower::ALL.into_iter().enumerate() {
+            // Offense stays at one: without it defense and throw are cleared.
+            let mut digits = [b'0'; FORCE_POWER_COUNT];
+            digits[SABER_OFFENSE] = b'1';
+            digits[index] = b'1';
+            let digits = std::str::from_utf8(&digits).unwrap();
+            for side in [ForceSide::Light, ForceSide::Dark] {
+                let input = format!("7-{}-{digits}", side as u8);
+                let kept = legalize_force_powers(&input, team).allocation.levels[index] > 0;
+                let expected = power.side().is_none_or(|power_side| power_side == side);
+                assert_eq!(kept, expected, "{power:?} on {side:?}");
+                let ffa = legalize_force_powers(&input, ForceLegalizeRules::default());
+                let kept = ffa.allocation.levels[index] > 0;
+                assert_eq!(kept, expected && !power.is_team_power(), "{power:?} in FFA");
+            }
+        }
+    }
+}
