@@ -23,6 +23,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, atomic::Ordering};
 use std::time::Instant;
 
+#[path = "audio_animation_events.rs"]
+mod animation_events;
 #[path = "audio_assets.rs"]
 mod assets;
 #[path = "audio_commands.rs"]
@@ -73,6 +75,8 @@ pub(crate) struct GameAudio {
     transitions: transitions::Transitions,
     /// `JKR_TRACE_AUDIO=1`: when the next level line is due.
     trace_due: Option<Instant>,
+    /// Skeleton `animevents.cfg` tables and the actors' frame memory.
+    animation_events: animation_events::AnimationEventSounds,
 }
 
 impl GameAudio {
@@ -140,6 +144,7 @@ impl GameAudio {
             kill_sounds: 2,
             transitions: transitions::Transitions::default(),
             trace_due: std::env::var_os("JKR_TRACE_AUDIO").map(|_| Instant::now()),
+            animation_events: animation_events::AnimationEventSounds::default(),
         };
         // `s_volume`/`s_musicvolume` defaults from `S_Init` in
         // codemp/client/snd_dma.cpp:462-466. The console overwrites these on

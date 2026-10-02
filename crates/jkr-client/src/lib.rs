@@ -3,6 +3,7 @@
 mod actor_color;
 mod ambient_sets;
 mod ambient_world;
+mod animation_events;
 mod animation_selection;
 mod asset_catalog;
 mod base_server_commands;
@@ -86,6 +87,10 @@ mod weapon_selection;
 pub use actor_color::{TeamColorPolicy, legacy_body_color, legacy_player_color};
 pub use ambient_sets::{AmbientSet, AmbientSetKind, AmbientSets};
 pub use ambient_world::{CS_GLOBAL_AMBIENT_SET, LegacyAmbientShot, LegacyRandom};
+pub use animation_events::{
+    LEGACY_ANIMATION_EVENT_LIMIT, LegacyAnimationEvent, LegacyAnimationEventTracker,
+    LegacyAnimationEvents, LegacyAnimationSound, LegacyAnimationSoundStart, LegacyFramePassage,
+};
 pub use animation_selection::legacy_predicted_animation_inputs;
 pub use asset_catalog::{
     LEGACY_SABER_COLORS, LegacyAssetCatalog, LegacyAssetCatalogLoader, LegacyCatalogStatus,

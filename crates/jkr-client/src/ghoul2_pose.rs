@@ -59,6 +59,9 @@ pub struct LegacyGhoul2Animator {
     humanoid: Option<HumanoidBones>,
     applied_lower: Option<AnimationTrackState>,
     applied_upper: Option<AnimationTrackState>,
+    /// The override installed for `applied_lower`, kept so the legs frame
+    /// can be queried without touching the evaluated pose.
+    lower_command: Option<BoneAnimationCommand>,
     /// The override installed for `applied_upper`, kept so the torso frame
     /// can be queried without touching the evaluated pose.
     upper_command: Option<BoneAnimationCommand>,
@@ -101,6 +104,7 @@ impl LegacyGhoul2Animator {
             humanoid,
             applied_lower: None,
             applied_upper: None,
+            lower_command: None,
             upper_command: None,
         })
     }
@@ -207,6 +211,7 @@ impl LegacyGhoul2Animator {
             self.pose
                 .set_bone_animation(animation, self.legs_root, command)?;
             self.applied_lower = Some(state.lower);
+            self.lower_command = Some(command);
         }
         if let Some(torso_root) = self.torso_root
             && (self.applied_upper.is_none() || time_millis >= state.upper.started_at_millis)
@@ -258,9 +263,22 @@ impl LegacyGhoul2Animator {
     /// `G2API_GetBoneFrame(lower_lumbar)` reports it (`G2_bones.cpp:899-901`:
     /// `float(currentFrame) + lerp`). `None` before the first torso override.
     pub fn torso_frame(&self, animation: &Gla, time_millis: i64) -> Option<f32> {
-        let command = self.upper_command?;
-        let sample = BoneOverridePose::sample_command(animation, command, time_millis).ok()?;
-        Some(sample.current_frame as f32 + sample.fraction)
+        command_frame(animation, self.upper_command?, time_millis)
+    }
+
+    /// The legs (`model_root`) and torso (`lower_lumbar`) tracks at
+    /// `time_millis`: each installed clip with its fractional frame, as
+    /// `CG_TriggerAnimSounds` reads them through `G2API_GetBoneFrame`
+    /// (`cg_players.c:3048-3090`). The torso is `None` for a `noLumbar`
+    /// skeleton, and either is `None` before its first override.
+    pub fn track_frames(&self, animation: &Gla, time_millis: i64) -> [Option<(usize, f32)>; 2] {
+        [self.lower_command, self.upper_command].map(|command| {
+            let command = command?;
+            Some((
+                command.clip,
+                command_frame(animation, command, time_millis)?,
+            ))
+        })
     }
 
     /// Addresses of fixed override/evaluation storage for allocation gates.
@@ -277,6 +295,12 @@ impl LegacyGhoul2Animator {
     pub fn local_matrices(&self) -> &[[[f32; 4]; 3]] {
         self.pose.local_matrices()
     }
+}
+
+/// `float(currentFrame) + lerp` of an installed override at `time_millis`.
+fn command_frame(animation: &Gla, command: BoneAnimationCommand, time_millis: i64) -> Option<f32> {
+    let sample = BoneOverridePose::sample_command(animation, command, time_millis).ok()?;
+    Some(sample.current_frame as f32 + sample.fraction)
 }
 
 fn command_for_track(

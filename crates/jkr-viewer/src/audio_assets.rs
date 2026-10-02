@@ -273,6 +273,7 @@ impl GpuState {
             vfs,
             crate::audio::ui_cues::CUE_SOUNDS.iter().map(|cue| cue.1),
         );
+        audio.preload_animation_events(vfs);
         let effects_done = Instant::now();
         crate::log::progress(format_args!(
             "sound profile: music-read={:.1}ms effect-reads={:.1}ms table-dispatch={:.1}ms",

@@ -1588,6 +1588,12 @@ impl GpuState {
                     active_world,
                     &self.bsp,
                 );
+                audio.play_animation_events(
+                    &self.actor_meshes,
+                    active_world,
+                    Some(snapshot.player.client_num()),
+                    presentation_time,
+                );
             }
             self.map_effects.update(snapshot, presentation_time as i32);
             effect_runtime::spawn_map_effect_requests(

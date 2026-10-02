@@ -67,11 +67,17 @@ for settings, the overlap approximation, memory cost and remaining limits.
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
   marking individual capabilities complete.
-- The client does not play animation-event sounds from a model's
-  `animevents.cfg` (`AEV_SOUND`/`AEV_SOUNDCHAN`, played by codemp
-  `CG_PlayerAnimEventDo`). Stock melee punches and saber kicks get their swing
-  sounds only from there, so they are silent in JKR. The stun baton, unlike
-  melee, has a fire sound in the weapon table of
+- The client plays the sound events of a skeleton's `animevents.cfg`
+  (`AEV_SOUND`/`AEV_SOUNDCHAN`, and the saber swing and spin sounds codemp makes
+  of `saberhup`/`saberspin` lines) as actors' legs and torso reach their frames:
+  [animation_events.rs](../crates/jkr-client/src/animation_events.rs), played by
+  [audio_animation_events.rs](../crates/jkr-viewer/src/audio_animation_events.rs).
+  These are the fast-style taunt's saber spins, saber kicks and katas, melee
+  punches and body falls. Covered by unit tests and a parse of the retail
+  humanoid file; not yet heard in game. Not played from the same file:
+  `AEV_FOOTSTEP` (dry footsteps), `AEV_EFFECT`, `AEV_FIRE`, a saber's own
+  `swingSound`/`spinSound`, and corpses' events. The stun baton, unlike melee,
+  has a fire sound in the weapon table of
   [sound_events.rs](../crates/jkr-client/src/sound_events.rs).
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
