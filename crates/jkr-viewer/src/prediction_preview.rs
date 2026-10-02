@@ -30,7 +30,7 @@ pub(crate) fn tick(
     gpu.gameplay_input
         .selection
         .sync(&snapshot.player, presentation_time);
-    let command = gpu.gameplay_input.user_command(
+    let mut command = gpu.gameplay_input.user_command(
         gpu.server_clock.server_time(now),
         gpu.camera_pitch,
         gpu.camera_yaw,
@@ -43,6 +43,8 @@ pub(crate) fn tick(
         snapshot.player.selected_force_power(),
         0,
     );
+    command.buttons =
+        jkr_game_jka::pmove_talk::command_buttons(command.buttons, gpu.key_catcher_active());
     gpu.local_prediction
         .preview_command(command, &gpu.bsp, &mut gpu.trace_scratch);
     let presented_snapshot = session.snapshot_at_or_before(presentation_time);

@@ -49,6 +49,7 @@ mod player_angles;
 mod player_identity;
 pub use client_info::{LegacyClientInfo, legacy_body_frame};
 mod player_profile;
+mod player_sprites;
 pub use jkr_game_jka::pmove;
 use jkr_game_jka::pmove_anim;
 use jkr_game_jka::pmove_roll;
@@ -172,6 +173,10 @@ pub use player_identity::{
 };
 pub use player_profile::{
     PlayerProfile, PlayerProfileError, SaberColor, pack_saber_rgb, unpack_saber_rgb,
+};
+pub use player_sprites::{
+    LEGACY_PLAYER_SPRITE_HEIGHT, LEGACY_PLAYER_SPRITE_RADIUS, LegacyPlayerSprite,
+    legacy_player_sprite,
 };
 pub use pmove_anim::{AnimationLengthTable, AnimationLengths, AnimationTiming};
 pub use pmove_roll::{PMF_ROLLING, RollRules};
