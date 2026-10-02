@@ -35,16 +35,3 @@ impl<'a> LegacyClientInfo<'a> {
         self.text(key)?.parse().ok()
     }
 }
-
-/// Resolve a body death pose without permitting a respawn's standing animation.
-///
-/// CG_BodyQueueCopy (`cg_servercmds.c:1256-1296`) falls back to BOTH_DEAD1.
-/// This selects the completed pose; source-frame blending is not reproduced.
-pub fn legacy_body_frame(config: &jkr_model::AnimationConfig, clip: usize) -> Option<usize> {
-    if crate::animation_selection::death_animation(clip) {
-        let sequence = config.get_exact(crate::legacy_animation_name(clip)?)?;
-        Some(sequence.first_frame + sequence.frame_count.saturating_sub(1))
-    } else {
-        Some(config.get_exact("BOTH_DEAD1")?.first_frame)
-    }
-}

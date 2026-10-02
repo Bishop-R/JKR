@@ -57,6 +57,7 @@ pub(crate) fn build_actor_mesh(
         entity_id,
         corpse_pool,
         body_identity: None,
+        body_clock: None,
         appearance,
         angle_controller: actor_pose::angle_storage(&preview.animation),
         force_bones: actor_pose::ForceBones::new(&preview.animation),

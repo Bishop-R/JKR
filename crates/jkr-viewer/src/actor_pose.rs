@@ -111,15 +111,11 @@ pub(crate) fn update(gpu: &mut GpuState, presentation_time: i64) -> Result<(), B
         let Some((Some(state), pose)) = requested else {
             continue;
         };
-        let mut state = state;
-        if mesh.corpse_pool {
-            state.lower.forced_frame =
-                jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);
-            state.upper.forced_frame =
-                jkr_client::legacy_body_frame(&mesh.preview.config, state.upper.clip);
-            state.lower.transition = None;
-            state.upper.transition = None;
-        }
+        let state = if mesh.corpse_pool {
+            jkr_client::legacy_body_animation(state, mesh.body_clock, &mesh.preview.config)
+        } else {
+            state
+        };
         // Non-humanoids skip `CG_G2PlayerAngles` and face their entity yaw
         // (`cg_players.c:4274`, `:4366`).
         if !mesh.animator.humanoid() {

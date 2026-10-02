@@ -6,6 +6,8 @@ pub(crate) struct ActorMesh {
     pub(crate) entity_id: Option<EntityId>,
     pub(crate) corpse_pool: bool,
     pub(crate) body_identity: Option<jkr_client::BodyIdentity>,
+    /// The death clock a copied body continues ([`jkr_client::legacy_body_clock`]).
+    pub(crate) body_clock: Option<jkr_runtime::AnimationTrackState>,
     pub(crate) appearance: Appearance,
     pub(crate) preview: PlayerPreview,
     pub(crate) draws: Vec<ActorDraw>,
