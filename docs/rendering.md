@@ -37,6 +37,7 @@ working on optional effects and validate shared WGSL programs on an actual GPU.
 | `r_normalMapping` | Normal maps on lightmapped world surfaces (rend2 convention); default 0, restart required |
 | `r_specularMapping` | Specular, roughness and metalness maps on the same surfaces; default 0, restart required |
 | `r_parallaxMapping` | Parallax from the height in `_nh`/`normalHeightMap` images; needs `r_normalMapping`; default 0, restart required |
+| `r_materialMapsDebug` | Material-mapped surfaces only: 1 mapped normal as colour, 2 tint by maps found, 3 normal-map relief; default 0, live, not archived |
 
 See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 [sun_shadow_settings.rs](../crates/jkr-viewer/src/sun_shadow_settings.rs) and
@@ -314,9 +315,54 @@ Shading lives in [material_maps.wgsl](../crates/jkr-viewer/src/material_maps.wgs
 - Parallax uses rend2's 16 linear and 8 binary steps through the height.
 
 As in rend2, frames come from the untransformed texture coordinates (`tcMod`
-rotation misaligns them) and an `animMap` stage uses its first frame's maps. In
-real-time mode material-mapped stages leave the stage table: the CPU colour pass
-draws them with per-stage bind groups and pipelines again.
+rotation misaligns them) and an `animMap` stage uses its first frame's maps.
+Material-mapped stages stay off the stage table (which only real-time mode
+uses): the CPU colour pass draws them with per-stage bind groups and pipelines.
+
+The controls are sampled once, when the GPU context is created. A change after
+that logs `<cvar> changed: restart the viewer to apply material maps`; the
+configuration file setting them at startup does not. Each map load logs what
+it found, for example `material maps (normal+specular+parallax): 429 stages,
+429 normal, 57 parallax, 429 specular; frames for 77283 vertices in 18 ms`, or
+`no stage of this map has maps` when the cvars are on and nothing was found.
+
+### What to expect, and checking it
+
+`r_materialMapsDebug` is live and draws only material-mapped stages (one uniform
+branch in the material program; the ordinary programs do not change): 1 shows the
+mapped world-space normal as colour, 2 tints each stage by the maps it found (red
+parallax, green normal, blue specular, so normal plus specular is cyan), 3 shows
+the normal map's relief, four times its departure from the face, on grey.
+Surfaces without maps keep their ordinary look in every view, so 2 shows at a
+glance which surfaces take maps.
+
+The baked response is subtle by construction. rend2 credits all of a lightmap
+texel to one direction, so a normal tilted by a small angle α changes the texel
+by about tan θ · α, where θ is the angle between the face and the light-grid
+direction. A face whose grid direction is more than 78° from its normal falls
+back to that normal (`R_LightDirForPoint`) and then only darkens by 1 − cos α. On
+the retail `mp/ffa3`, 59% of lightmapped vertices have a usable grid direction
+(55% on `mp/duel1`), with a mean tan θ of 1.5 there. Maps generated for ffa3
+and duel1 by `jkr-materialgen` (strength 1) are gentle: their normals tilt 3.8°
+on average (90th percentile 4–17° per image), so lighting changes by about 5%
+on the surfaces that respond. A local headless render (not committed) of six
+ffa3 spawn views at 960×540 (Vulkan, RTX 5080), with the generated maps and an
+HD texture pack, measured against the cvars off: normal maps alone changed
+pixels by 0.06–1.8/255 on average (at most 36/255), specular maps by
+0.6–2.6/255 (at most 11/255; the generated `_rmo` maps average roughness 0.68
+and metalness 0.02, so highlights are faint). Parallax changed pixels by up to
+23/255 on average, but by shifting the texture: it reads as the same texture,
+not as relief. Turning the cvars on in baked lighting therefore
+shows no obvious change with these maps; that is the model, not a missing draw.
+Authored rend2 packs with stronger normal maps respond in proportion to their
+tilt.
+
+Real-time lighting shows normal maps far more clearly: the sun share is moved
+per pixel, and a low sun lights floors at grazing angles. With `jkr_dayNight 1`
+and `jkr_dayHour 7`, the sun stands 15° high, so a floor's tan θ is about 3.7
+(2.4 at the default hour 7.5) against 1.5 for baked grid directions. This
+estimate is from the formulas above; no real-time render of real content has
+been measured.
 
 Unit tests cover keyword parsing, lookup order and conversions (synthetic
 in-memory images), frames (planar, mirrored and curved), the stage selection
@@ -331,9 +377,10 @@ baked lighting 0.103 ms ordinary, 0.196 with a normal map, 0.219 with a
 specular map as well and 0.50 with parallax. With the light buffer, those passes
 took 0.226, 0.30, 0.34 and 0.54 ms. Measure a real scene with `JKR_FRAME_BUDGET=1`
 in a release build: compare the same map, view and population with the cvars on
-and off. No rend2 pack was available for testing, and no in-game image has been
-checked. Visual correctness on real content and its frame cost in a match
-remain unverified.
+and off. No authored rend2 pack was available for testing. Generated maps on
+real ffa3 data were rendered headless in baked lighting only (above); real-time
+lighting on real content, an in-game image and the frame cost in a match remain
+unverified.
 
 ## UI ownership
 

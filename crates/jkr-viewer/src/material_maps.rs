@@ -28,11 +28,12 @@ pub(super) mod program;
 use crate::world_stage::{CollapseOperator, CompiledStage};
 use image::RgbaImage;
 use jkr_shader::{ShaderCatalog, StageBlend, TextureGenerator};
-use jkr_shell::{CvarDefinition, CvarError, CvarFlags, CvarRegistry};
+use jkr_shell::{CvarDefinition, CvarError, CvarFlags, CvarRegistry, CvarValue};
 use jkr_vfs::VirtualFileSystem;
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// [`crate::world_stage::PipelineKey::geometry`] bit of a material-mapped stage.
 pub(crate) const PIPELINE_BIT: u8 = 16;
@@ -42,6 +43,19 @@ pub(crate) const PIPELINE_BIT: u8 = 16;
 pub(crate) const fn without_maps(geometry: u8) -> u8 {
     geometry & !PIPELINE_BIT
 }
+
+/// First bit of `r_materialMapsDebug` in the scene lighting-mode word
+/// (`world_lighting_mode.rs`); the material program reads two bits from here.
+pub(crate) const DEBUG_SHIFT: u32 = 8;
+
+/// The controls in the order of their [`LATCH`] bits.
+const CONTROLS: [&str; 3] = ["r_normalMapping", "r_specularMapping", "r_parallaxMapping"];
+/// [`LATCH`] has been written: the viewer sampled its controls.
+const LATCHED: u8 = 0x80;
+/// The control values the running viewer sampled (bit `i` for `CONTROLS[i]`, plus
+/// [`LATCHED`]). Before the sample, changes are the startup configuration being
+/// applied, not changes that need a restart.
+static LATCH: AtomicU8 = AtomicU8::new(0);
 
 /// Startup policy, rend2's names and default-off.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -55,15 +69,23 @@ pub(crate) struct Settings {
 }
 
 impl Settings {
-    /// Read the registered values once, at context creation.
+    /// Read the registered values once, at context creation, and remember them so a
+    /// later change can tell whether it needs a restart.
     pub(crate) fn sample(console: Option<&crate::console::ViewerConsole>) -> Self {
         let on = |name| console.and_then(|c| c.integer_cvar(name)).unwrap_or(0) != 0;
-        let normal = on("r_normalMapping");
+        let [normal, specular, parallax] = CONTROLS.map(on);
+        if console.is_some() {
+            let bits = [normal, specular, parallax]
+                .iter()
+                .enumerate()
+                .fold(LATCHED, |bits, (index, on)| bits | (u8::from(*on) << index));
+            LATCH.store(bits, Ordering::Relaxed);
+        }
         Self {
             normal,
-            specular: on("r_specularMapping"),
+            specular,
             // Parallax reads the normal map's height: nothing to do without normal maps.
-            parallax: normal && on("r_parallaxMapping"),
+            parallax: normal && parallax,
         }
     }
 
@@ -73,9 +95,37 @@ impl Settings {
     }
 }
 
+/// Whether setting control `index` to `on` differs from what the viewer runs with
+/// (`latch`, the [`LATCH`] word). Nothing differs before the startup sample: the
+/// configuration file setting a control is what the sample then reads.
+fn restart_needed(latch: u8, index: usize, on: bool) -> bool {
+    latch & LATCHED != 0 && (latch >> index & 1 != 0) != on
+}
+
+/// The enabled kinds for the load log, as `normal+specular+parallax` (or `off`).
+impl std::fmt::Display for Settings {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kinds = [
+            (self.normal, "normal"),
+            (self.specular, "specular"),
+            (self.parallax, "parallax"),
+        ];
+        let mut first = true;
+        for (_, name) in kinds.iter().filter(|(on, _)| *on) {
+            formatter.write_str(if first { "" } else { "+" })?;
+            formatter.write_str(name)?;
+            first = false;
+        }
+        if first {
+            formatter.write_str("off")?;
+        }
+        Ok(())
+    }
+}
+
 /// Register the rend2-named controls; a change asks for a restart, like rend2's latch.
 pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
-    for (name, help) in [
+    for (index, (name, help)) in [
         (
             "r_normalMapping",
             "Normal maps on world surfaces (rend2 _n/_nh images and normalMap keywords); \
@@ -91,12 +141,19 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
             "Parallax from the height in a normal map's alpha (_nh images, normalHeightMap); \
              needs r_normalMapping; restart required",
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        debug_assert_eq!(name, CONTROLS[index]);
         cvars.register(CvarDefinition::new(name, 0_i64, CvarFlags::ARCHIVE, help))?;
-        cvars.on_change(name, move |_| {
-            crate::log::progress(format_args!(
-                "{name} changed: restart the viewer to apply material maps"
-            ))
+        cvars.on_change(name, move |change| {
+            let on = matches!(change.current, CvarValue::Integer(value) if value != 0);
+            if restart_needed(LATCH.load(Ordering::Relaxed), index, on) {
+                crate::log::progress(format_args!(
+                    "{name} changed: restart the viewer to apply material maps"
+                ))
+            }
         })?;
     }
     Ok(())
@@ -185,6 +242,29 @@ pub(super) struct StageMaps {
     pub(super) params: Params,
     /// Clamp the maps like the diffuse texture.
     pub(super) clamp: bool,
+}
+
+/// How many stages of a map found which maps, for the load log.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(super) struct Counts {
+    pub(super) stages: usize,
+    pub(super) normal: usize,
+    pub(super) parallax: usize,
+    pub(super) specular: usize,
+}
+
+impl Counts {
+    pub(super) fn of<'a>(maps: impl Iterator<Item = &'a StageMaps>) -> Self {
+        maps.fold(Self::default(), |found, maps| {
+            let flags = maps.params.control[0] as u32;
+            Self {
+                stages: found.stages + 1,
+                normal: found.normal + usize::from(maps.normal.is_some()),
+                parallax: found.parallax + usize::from(flags & FLAG_PARALLAX != 0),
+                specular: found.specular + usize::from(maps.specular.is_some()),
+            }
+        })
+    }
 }
 
 /// Find, decode and convert the maps of one hardware stage. `None` when the stage
@@ -322,6 +402,53 @@ mod tests {
     }
 
     #[test]
+    fn counts_name_the_maps_each_stage_found() {
+        let image = MapImage {
+            key: "material:normal:t".into(),
+            pixels: Arc::new(RgbaImage::new(1, 1)),
+        };
+        let stage = |normal: bool, specular: bool, flags: u32| StageMaps {
+            normal: normal.then(|| image.clone()),
+            specular: specular.then(|| image.clone()),
+            params: Params {
+                control: [flags as f32, 0.0, 0.0, 0.0],
+                ..Default::default()
+            },
+            clamp: false,
+        };
+        let stages = [
+            stage(true, true, FLAG_NORMAL | FLAG_PARALLAX),
+            stage(true, false, FLAG_NORMAL),
+            stage(false, true, 0),
+        ];
+        assert_eq!(
+            Counts::of(stages.iter()),
+            Counts {
+                stages: 3,
+                normal: 2,
+                parallax: 1,
+                specular: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn settings_name_their_kinds_for_the_log() {
+        assert_eq!(Settings::default().to_string(), "off");
+        let all = Settings {
+            normal: true,
+            specular: true,
+            parallax: true,
+        };
+        assert_eq!(all.to_string(), "normal+specular+parallax");
+        let specular = Settings {
+            specular: true,
+            ..Default::default()
+        };
+        assert_eq!(specular.to_string(), "specular");
+    }
+
+    #[test]
     fn pipeline_bit_only_separates_shading() {
         // Distinct from deforms (1), sprites (2), live emission (4) and polygon offset (8).
         assert_eq!(
@@ -345,6 +472,22 @@ mod tests {
             mapped,
             &crate::world_stage::compile_hardware_stage(stage)
         ));
+    }
+
+    #[test]
+    fn only_changes_after_the_startup_sample_ask_for_a_restart() {
+        // The configuration file sets the controls before the viewer samples them.
+        assert!(!restart_needed(0, 0, true));
+        assert!(!restart_needed(0, 2, false));
+        // Sampled with normal maps on and the others off.
+        let latch = LATCHED | 1;
+        assert!(!restart_needed(latch, 0, true));
+        assert!(restart_needed(latch, 0, false));
+        assert!(restart_needed(latch, 1, true));
+        assert!(!restart_needed(latch, 1, false));
+        // Parallax latches its own value, not the effective one: a restart with it
+        // on is what the change asks for, even while normal maps are off.
+        assert!(restart_needed(LATCHED, 2, true));
     }
 
     #[test]

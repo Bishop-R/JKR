@@ -231,3 +231,29 @@ fn material_map_point_highlights(input: VertexOutput) {
                 response.specular, response.roughness);
     }
 }
+
+// The stage's final colour: the highlights added after the albedo product and dynamic-light
+// modulation, or one of the `r_materialMapsDebug` views (lighting-mode bits 8-9,
+// `material_maps::DEBUG_SHIFT`). Only material-mapped stages run this program, so the
+// views leave every other surface as it is. A uniform branch: nothing to pay when off.
+fn material_map_finish(output: vec4<f32>) -> vec4<f32> {
+    let lit = vec4(output.rgb + material_map_highlight, output.a);
+    let view = (point_lights.metadata.z >> 8u) & 3u;
+    if view == 0u { return lit; }
+    let surface = material_map_surface;
+    if view == 1u {
+        // The mapped normal in world space, as an object-space normal map shows it.
+        return vec4(surface.normal*0.5 + 0.5, lit.a);
+    }
+    if view == 2u {
+        // Which maps the stage found: red parallax, green normal, blue specular.
+        let flags = material_map_flags();
+        let found = vec3(f32((flags & 2u) != 0u), f32((flags & 1u) != 0u),
+            f32(material_map_layout() != 0u));
+        return vec4(mix(lit.rgb, found, 0.6), lit.a);
+    }
+    // The normal map's relief: the mapped normal's departure from the face, four times
+    // over, on grey. A flat (or missing) normal map stays uniformly grey.
+    return vec4(clamp(vec3(0.5) + 4.0*(surface.normal - surface.geometric), vec3(0.0),
+        vec3(1.0)), lit.a);
+}

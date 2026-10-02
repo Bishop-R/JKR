@@ -104,13 +104,19 @@ fn build(
     let compile_done = Instant::now();
     // Material maps: the extended layout and the world's vertex frames, only when some
     // stage of this map found maps.
-    let mapped = compiled_materials
-        .iter()
-        .flatten()
-        .flat_map(|material| &material.stages)
-        .filter(|stage| stage.maps.is_some())
-        .count();
-    if mapped > 0 {
+    let found = super::material_maps::Counts::of(
+        compiled_materials
+            .iter()
+            .flatten()
+            .flat_map(|material| &material.stages)
+            .filter_map(|stage| stage.maps.as_ref()),
+    );
+    if material_maps.enabled() && found.stages == 0 {
+        crate::log::progress(format_args!(
+            "material maps ({material_maps}): no stage of this map has maps"
+        ));
+    }
+    if found.stages > 0 {
         let frames_started = Instant::now();
         let mut gpu = super::material_maps::gpu::Gpu::new(device, queue);
         let grid = crate::entity_lighting::EntityLighting::from_world(bsp).layout();
@@ -122,7 +128,12 @@ fn build(
         gpu.set_frames(device, &frames);
         forge.material_maps = Some(gpu);
         crate::log::progress(format_args!(
-            "material maps: {mapped} stages; frames for {} vertices in {:.1} ms",
+            "material maps ({material_maps}): {} stages, {} normal, {} parallax, {} specular; \
+             frames for {} vertices in {:.1} ms",
+            found.stages,
+            found.normal,
+            found.parallax,
+            found.specular,
             geometry.0.len(),
             frames_started.elapsed().as_secs_f64() * 1e3
         ));

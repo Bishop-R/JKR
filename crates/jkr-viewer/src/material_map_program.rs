@@ -11,7 +11,8 @@
 //!   at the offset texture coordinate;
 //! - the lightmap (or the real-time light buffer) response is replaced by
 //!   `material_map_lightmap`, point lights use the mapped normal, and highlights
-//!   are added after the albedo product and dynamic-light modulation.
+//!   are added after the albedo product and dynamic-light modulation
+//!   (`material_map_finish`, which also draws the `r_materialMapsDebug` views).
 
 use super::super::{STAGE_SHADER, world_sun_shader};
 
@@ -61,7 +62,7 @@ pub(in crate::world_materials) fn source(realtime: bool) -> String {
             "        output = vec4(output.rgb * (vec3(1.0) + dynamic_light_modulation(input)), output.a);\n    }\n    return output;\n}",
             "        output = vec4(output.rgb * (vec3(1.0) + dynamic_light_modulation(input)), output.a);\n        \
              material_map_point_highlights(input);\n    }\n    \
-             return vec4(output.rgb + material_map_highlight, output.a);\n}",
+             return material_map_finish(output);\n}",
         ),
         // Point lights shine on the mapped normal.
         (
@@ -122,6 +123,20 @@ mod tests {
             for entry in ["entity_vertex_main", "fragment_main"] {
                 assert!(source.contains(&format!("fn {entry}(")), "{entry}");
             }
+        }
+    }
+
+    #[test]
+    fn debug_views_read_the_lighting_mode_bits_the_cvar_writes() {
+        let shift = format!(
+            "(point_lights.metadata.z >> {}u) & 3u",
+            super::super::DEBUG_SHIFT
+        );
+        for realtime in [false, true] {
+            let source = source(realtime);
+            assert_eq!(source.matches(&shift).count(), 1, "{shift}");
+            // The views replace the final colour after every other hook ran.
+            assert!(source.contains("return material_map_finish(output);"));
         }
     }
 
