@@ -49,15 +49,6 @@ impl TextStyle {
         }
     }
 
-    /// The same tracking at the layout's own size, for surfaces such as the
-    /// console that size their text with their own setting.
-    pub(crate) const fn tracking_only(self) -> Self {
-        Self {
-            scale: 1.0,
-            tracking: self.tracking,
-        }
-    }
-
     /// Resolve one text command laid out at `size` inside `rect`.
     pub(crate) fn place(self, rect: Rect, size: f32, letter_spacing: f32) -> Placement {
         let styled = size * self.scale;
@@ -172,12 +163,5 @@ mod tests {
         let style = TextStyle::from_cvars(Some(4.0), Some(-1.0));
         assert_eq!(style.scale, SCALE_RANGE.1);
         assert_eq!(style.tracking, TRACKING_RANGE.0);
-        assert_eq!(
-            style.tracking_only(),
-            TextStyle {
-                scale: 1.0,
-                tracking: TRACKING_RANGE.0,
-            }
-        );
     }
 }

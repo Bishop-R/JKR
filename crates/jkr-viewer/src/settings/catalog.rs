@@ -376,7 +376,7 @@ pub(super) const TEXT: &[Setting] = &[
         label: "Console line spacing",
         cvar: "con_lineSpacing",
         kind: ValueKind::Float {
-            min: 0.65,
+            min: 1.0,
             max: 2.0,
             step: 0.05,
         },

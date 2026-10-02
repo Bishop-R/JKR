@@ -1,7 +1,7 @@
 //! Retained drop-down console presentation; command behavior remains in `console.rs`.
 
 use crate::menu_widgets::MenuCanvas;
-use crate::text::{TextVertex, UiFont};
+use crate::text::{TextStyle, TextVertex, UiFont};
 use jkr_shell::{ConsoleLine, ConsoleLineKind};
 use jkr_ui::{Color, DrawList, FontWeight, InputEvent, Rect, TextAlign, UiEventKind};
 
@@ -75,7 +75,7 @@ impl ConsolePresentation {
             &self.header,
         );
         self.ui
-            .append_text_styled(vertices, font, viewport, font.style().tracking_only());
+            .append_text_styled(vertices, font, viewport, TextStyle::NEUTRAL);
     }
 
     pub(crate) fn pointer(&mut self, event: InputEvent) -> Option<f32> {
@@ -124,7 +124,8 @@ impl ConsolePresentation {
             if !open {
                 let scale = (viewport[1] / 1080.0).clamp(0.75, 2.5) * options.scale;
                 let color = self.ui.theme().foreground;
-                let pitch = 20.0 * scale * options.line_spacing;
+                let size = 14.0 * scale;
+                let pitch = size * options.line_spacing;
                 for (i, line) in lines
                     .rev()
                     .filter(|line| now.saturating_sub(line.written_millis) < options.notify_millis)
@@ -142,18 +143,18 @@ impl ConsolePresentation {
                             12.0 * scale + options.notify_x * viewport[0] / 640.0,
                             12.0 * scale + (options.notify_lines - i - 1) as f32 * pitch,
                             viewport[0] - 24.0 * scale,
-                            pitch.max(14.0 * scale),
+                            pitch,
                         ),
-                        14.0 * scale,
+                        size,
                         color,
                         FontWeight::Regular,
-                        0.0,
+                        options.tracking * size,
                     );
                 }
             }
             self.ui.finish(u16::MAX);
             self.ui
-                .append_text_styled(vertices, font, viewport, font.style().tracking_only());
+                .append_text_styled(vertices, font, viewport, TextStyle::NEUTRAL);
         }
     }
 }
@@ -176,13 +177,16 @@ fn build_options<'a>(
     let width = (viewport[0] - margin * 2.0).max(0.0);
     ui.column_tint_opacity(Rect::new(0.0, 0.0, viewport[0], height), options.opacity);
     let theme = ui.theme();
+    // Console text is laid out with the player's letter spacing here, where its
+    // positions are decided, rather than added when glyphs are emitted.
+    let spacing = |size: f32| options.tracking * size;
     ui.text(
         header,
         Rect::new(margin, 12.0 * scale, width, 20.0 * scale),
         12.0 * scale,
         theme.muted,
         FontWeight::Semibold,
-        1.0 * scale,
+        1.0 * scale + spacing(12.0 * scale),
     );
     // Hide the secondary hint when it would compete with the title.
     if width >= 440.0 * scale {
@@ -201,12 +205,12 @@ fn build_options<'a>(
             12.0 * scale,
             theme.muted,
             FontWeight::Regular,
-            0.0,
+            spacing(12.0 * scale),
             TextAlign::End,
         );
     }
     let input_y = height - 62.0 * scale;
-    let line_height = 22.0 * scale * options.line_spacing;
+    let line_height = 14.0 * scale * options.line_spacing;
     let top = 44.0 * scale;
     let bottom = input_y - 10.0 * scale;
     let available = ((bottom - top) / line_height).max(0.0) as usize;
@@ -219,7 +223,7 @@ fn build_options<'a>(
         15.0 * scale,
         theme.foreground,
         FontWeight::Regular,
-        0.0,
+        spacing(15.0 * scale),
     );
     ui.text(
         if completion.is_empty() {
@@ -231,7 +235,7 @@ fn build_options<'a>(
         12.0 * scale,
         theme.muted,
         FontWeight::Regular,
-        0.0,
+        spacing(12.0 * scale),
     );
 
     ui.scroll_region(0, Rect::new(margin, top, width, (bottom - top).max(0.0)));
@@ -258,7 +262,7 @@ fn build_options<'a>(
             14.0 * scale,
             color,
             FontWeight::Regular,
-            0.0,
+            spacing(14.0 * scale),
         );
     }
     ui.finish(u16::MAX);

@@ -75,18 +75,32 @@ For graphics controls and diagnostics, see [rendering.md](rendering.md).
 
 ## Text size and spacing
 
-The Settings screen's TEXT tab holds four archived cvars; their defaults draw
-text exactly as before.
+The Settings screen's TEXT tab holds four archived cvars. Menu text draws as
+before at the defaults; the console's rows are closer together than before.
 
 | Cvar | Default | Range | Effect |
 | --- | --- | --- | --- |
 | `ui_textScale` | 1 | 0.8 to 1.2 | Text size on menu screens and the in-game menu |
 | `ui_letterSpacing` | 0 | -0.05 to 0.15 | Extra space after each letter in menus and the console, as a fraction of the text size |
 | `con_scale` | 1 | above 0 (menu: 0.5 to 2) | Size of the whole console: text, margins and rows |
-| `con_lineSpacing` | 1 | 0.65 to 2 | Console history and notify row pitch; 0.65 makes rows touch |
+| `con_lineSpacing` | 1.15 | 1 to 2 | Console history and notify row pitch as a multiple of the text size; 1 makes rows touch |
 
 Menu text grows or shrinks about the centre of its line without moving the
-layout, so the range is limited to what menu rows can hold. Chat, the
-scoreboard and the HUD are not affected. The style is applied where retained
-text commands become glyph quads; see [text/style.rs](../crates/jkr-viewer/src/text/style.rs)
-and [console_options.rs](../crates/jkr-viewer/src/console_options.rs).
+layout, so the range is limited to what menu rows can hold; that style is
+applied where retained text commands become glyph quads, see
+[text/style.rs](../crates/jkr-viewer/src/text/style.rs). The console sizes its
+own text with `con_scale` and puts the letter spacing into its layout
+([console_view.rs](../crates/jkr-viewer/src/console_view.rs)), so anything that
+measures console text, such as a caret, sees the spacing it is drawn with.
+Chat, the scoreboard and the HUD are not affected.
+
+Console defaults, compared with stock at 1080p: stock draws 8 x 16 px cells, so
+its rows are 16 px apart. JKR's console text is 14 px Inter (11.6 px em, 8.4 px
+capitals), and its old 22 px pitch was 1.9 em, loose for a log. A pitch of 1.15
+times the text size gives 16.1 px at 1080p, stock's row pitch, and about 1.4 em
+of leading. `con_maxLines` defaults to 32 so the default-height console fills
+with rows (26 fit at 1080p) instead of stopping at the old 18. Letter spacing
+stays 0: Inter's average advance relative to its x-height (0.89) is already
+close to stock's cells (0.8), Inter's own size-specific tracking at this size
+is +0.002 em, and tighter text would run digits and `il1` together. See
+[console_options.rs](../crates/jkr-viewer/src/console_options.rs).
