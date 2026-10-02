@@ -178,6 +178,9 @@ pub struct Peer {
     pub(crate) suffocation: i32,
     /// `noCorpse`: it died in space or in its fighter, and leaves no body.
     pub(crate) no_corpse: bool,
+    /// `client->noclip`: the `noclip` cheat is on ([`jkr_game_jka::noclip`]). A spawn
+    /// clears it with the rest of the client.
+    pub(crate) noclip: bool,
     /// The player's movement, simulated with the rules the client predicts with.
     /// Spectating is the only state with the evidence a server needs so far.
     pub(crate) movement: Predictor,
@@ -281,6 +284,7 @@ impl Peer {
             in_space: 0,
             suffocation: 0,
             no_corpse: false,
+            noclip: false,
             last_command_time: 0,
             movement,
         }

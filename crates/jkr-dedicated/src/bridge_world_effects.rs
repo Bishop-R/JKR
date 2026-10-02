@@ -144,8 +144,7 @@ impl NativeGame {
             level_time,
             water_level: movement.water_level,
             water_type: movement.water_type,
-            // `noclip` is a cheat this server does not offer.
-            noclip: false,
+            noclip: peer.noclip,
             health: peer.health,
             battlesuit_until: peer.state.powerups[PW_BATTLESUIT] as i32,
             // `tempSpectate` (siege's wait as a spectator) is not kept on this server.

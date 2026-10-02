@@ -2391,9 +2391,11 @@ impl NativeGame {
         let mut rng = self.deaths.rng;
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
-        let sheltered = self
-            .peer(target)
-            .is_some_and(|victim| self.npcs.roster.shelters(&victim.state, request.flags));
+        // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`):
+        // only a DEMP2's shock, which comes first, lands.
+        let sheltered = self.peer(target).is_some_and(|victim| {
+            victim.noclip || self.npcs.roster.shelters(&victim.state, request.flags)
+        });
         let Some(victim) = self.peer_mut(target) else {
             return Damaged::default();
         };
