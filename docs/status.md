@@ -113,6 +113,14 @@ combined performance preview before publication.
   8 MiB Linux size. On Windows 11 (Rust 1.96, MSVC), release and debug clients
   then loaded `mp/ffa3`, and a release client joined a local JKR server and
   completed its map load. Longer play, other maps and the GNU toolchain are unchecked.
+- DX12 rendering is unverified. JKR does not select DX12 itself (Vulkan is preferred
+  where present); with `WGPU_BACKEND=dx12` and no `dxcompiler.dll`, wgpu compiles
+  shaders with FXC. A headless pipeline build of every entry point of the 39 viewer
+  shader modules on DX12/FXC (Windows 11, RTX 5080, 2026-10-02) fails only for the
+  HUD fragment program (error X3507: the function ends in `discard` without a
+  return) and the GI probe update (error X4026: a workgroup barrier after
+  storage-dependent early returns). The stage programs' skinning loop no longer
+  fails with X3511.
 - The 500+ FPS / roughly 2 ms frame target is not certified. Measure representative
   release workloads, including populated matches and chosen graphics settings.
 - The repository does not bundle a regression suite. Required reference evidence

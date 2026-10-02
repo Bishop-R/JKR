@@ -21,6 +21,9 @@ mod lighting_environment;
 #[path = "world_lighting_mode.rs"]
 pub(crate) mod lighting_mode;
 
+#[cfg(test)]
+#[path = "world_shader_fxc_tests.rs"]
+mod fxc_tests;
 #[path = "sun_shadows.rs"]
 pub(crate) mod shadows;
 #[path = "stage_table.rs"]
