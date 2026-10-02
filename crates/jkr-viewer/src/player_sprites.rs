@@ -7,6 +7,10 @@ use crate::particle_types::PrimitiveShape;
 /// `ET_PLAYER`: the local player is drawn from its own (predicted) player state.
 const ET_PLAYER: u8 = 1;
 
+/// `RT_SPRITE`: a camera-facing frame billboard. Its image is upright, v=0 at the
+/// top of the quad (`effect_submission::billboard_uv_transform`).
+const SHAPE: PrimitiveShape = PrimitiveShape::FrameBillboard;
+
 /// Float the stock sprite over one submitted actor, without growing the pool.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn submit(
@@ -79,6 +83,31 @@ pub(super) fn submit(
             0.0,
             jkr_effect::PrimitiveFlags::default(),
         ),
-        shape: PrimitiveShape::FrameBillboard,
+        shape: SHAPE,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SHAPE;
+    use crate::effect_submission::{billboard_corner_texcoord, billboard_uv_transform};
+
+    #[test]
+    fn balloon_quad_samples_the_image_top_at_its_top() {
+        // Neither `gfx/mp/chat_icon` nor `gfx/2d/net` has a tcMod: identity layer.
+        let transform = billboard_uv_transform(SHAPE, [1.0, 1.0, 0.0, 0.0]);
+        // `RB_AddQuadStampExt`: origin + left + up is (0, 0), going clockwise.
+        for (corner, texcoord) in [
+            ([-1.0, 1.0], [0.0, 0.0]),
+            ([1.0, 1.0], [1.0, 0.0]),
+            ([1.0, -1.0], [1.0, 1.0]),
+            ([-1.0, -1.0], [0.0, 1.0]),
+        ] {
+            assert_eq!(
+                billboard_corner_texcoord(corner, transform),
+                texcoord,
+                "corner {corner:?}"
+            );
+        }
+    }
 }

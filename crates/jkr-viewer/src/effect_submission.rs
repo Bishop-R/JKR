@@ -83,16 +83,7 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
             if emitted >= capacity {
                 break 'particles;
             }
-            // Frame icons use RT_SPRITE's top-down image coordinates: OpenJK's
-            // RB_AddQuadStamp puts t=0 at +up. The particle quad instead has v=1
-            // there. Reflect its local v before applying the authored tcMod so
-            // chat/connection and simple-item icons are upright; FX keep their
-            // existing texture convention.
-            let mut uv_transform = layer.uv_transform;
-            if matches!(particle.shape, PrimitiveShape::FrameBillboard) {
-                uv_transform[3] += uv_transform[1];
-                uv_transform[1] = -uv_transform[1];
-            }
+            let uv_transform = billboard_uv_transform(particle.shape, layer.uv_transform);
             let instance = EntityInstance {
                 position: motion.origin.to_array(),
                 kind: if particle.normal.is_some() {
@@ -133,6 +124,34 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
     }
 }
 
+/// The `[scale_u, scale_v, offset_u, offset_v]` texture transform for one billboard layer.
+///
+/// Frame icons use `RT_SPRITE`'s top-down image coordinates: OpenJK's
+/// `RB_AddQuadStamp` puts t=0 at +up. The particle quad in `entity.wgsl` instead
+/// has local v=1 there. Reflect its local v before applying the authored tcMod so
+/// chat/connection and simple-item icons are upright; FX keep their existing
+/// texture convention.
+pub(crate) fn billboard_uv_transform(shape: PrimitiveShape, uv_transform: [f32; 4]) -> [f32; 4] {
+    let [scale_u, scale_v, offset_u, offset_v] = uv_transform;
+    if matches!(shape, PrimitiveShape::FrameBillboard) {
+        [scale_u, -scale_v, offset_u, offset_v + scale_v]
+    } else {
+        uv_transform
+    }
+}
+
+/// The texture coordinate, before `fract`, that `entity.wgsl` samples at one billboard
+/// corner: corner `(x, y)` sits at `right * x + up * y`, its local coordinate is
+/// `corner * 0.5 + 0.5`, and the layer transform scales then offsets it.
+#[cfg(test)]
+pub(crate) fn billboard_corner_texcoord(corner: [f32; 2], uv_transform: [f32; 4]) -> [f32; 2] {
+    let [scale_u, scale_v, offset_u, offset_v] = uv_transform;
+    [
+        (corner[0] * 0.5 + 0.5) * scale_u + offset_u,
+        (corner[1] * 0.5 + 0.5) * scale_v + offset_v,
+    ]
+}
+
 fn streak_direction(particle: &Particle, streak: Vec3, progress: f32) -> Vec3 {
     if streak.length_squared() <= f32::EPSILON {
         return Vec3::ZERO;
@@ -142,4 +161,43 @@ fn streak_direction(particle: &Particle, streak: Vec3, progress: f32) -> Vec3 {
     }
     streak.normalize()
         * (particle.start_length + (particle.end_length - particle.start_length) * progress)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{billboard_corner_texcoord, billboard_uv_transform};
+    use crate::particle_types::PrimitiveShape;
+
+    /// `RB_AddQuadStampExt` corners: top-left, top-right, bottom-right, bottom-left
+    /// with their `(s, t)` texture coordinates.
+    const RT_SPRITE_CORNERS: [([f32; 2], [f32; 2]); 4] = [
+        ([-1.0, 1.0], [0.0, 0.0]),
+        ([1.0, 1.0], [1.0, 0.0]),
+        ([1.0, -1.0], [1.0, 1.0]),
+        ([-1.0, -1.0], [0.0, 1.0]),
+    ];
+
+    #[test]
+    fn frame_billboard_applies_tc_mod_after_rt_sprite_coordinates() {
+        // tcMod scale 2 3, then a scroll offset: stock scales and offsets the
+        // RT_SPRITE coordinates, top of the quad at t=0.
+        let layer = [2.0, 3.0, 0.25, 0.5];
+        let transform = billboard_uv_transform(PrimitiveShape::FrameBillboard, layer);
+        for (corner, [s, t]) in RT_SPRITE_CORNERS {
+            assert_eq!(
+                billboard_corner_texcoord(corner, transform),
+                [s * 2.0 + 0.25, t * 3.0 + 0.5],
+                "corner {corner:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_billboard_keeps_its_transform() {
+        let layer = [2.0, 3.0, 0.25, 0.5];
+        assert_eq!(
+            billboard_uv_transform(PrimitiveShape::Billboard, layer),
+            layer
+        );
+    }
 }

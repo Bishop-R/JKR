@@ -272,4 +272,7 @@ that path. The owner reported an inverted talk balloon during the player-icon
 PR playtest. An external probe compared the corrected production transform with
 OpenJK `RB_AddQuadStampExt`: four corners with three scale/scroll transforms
 matched, while ordinary FX transforms were unchanged. Native visual confirmation
-of the correction remains pending.
+of the correction remains pending. Unit tests in
+[effect_submission.rs](../crates/jkr-viewer/src/effect_submission.rs) and
+[player_sprites.rs](../crates/jkr-viewer/src/player_sprites.rs) pin the corner
+texture coordinates of `billboard_uv_transform` against `RB_AddQuadStampExt`.

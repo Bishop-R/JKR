@@ -80,6 +80,8 @@ While the console, a menu or the chat field is open, each command carries
 discards the player's other input, so a typing player stands still. Over players
 with `EF_TALK` the client floats the chat icon, and over players the server flags
 with `EF_CONNECTION` the connection icon instead, as `CG_PlayerSprites` does. The
-siege voice-command icon is not drawn. See
+siege voice-command icon is not drawn. Both are frame billboards, upright as
+`RT_SPRITE` draws them (see
+[rendering.md](rendering.md#billboard-icons)). See
 [pmove_talk.rs](../crates/jkr-game-jka/src/pmove_talk.rs) and
 [player_sprites.rs](../crates/jkr-viewer/src/player_sprites.rs).
