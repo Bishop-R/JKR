@@ -59,6 +59,22 @@ root (the implementation appends `base`). See
 console output. See [console registration](../crates/jkr-viewer/src/console_session.rs)
 and [file commands](../crates/jkr-viewer/src/console_files.rs) for argument handling.
 
+The console input line has a caret, drawn as stock's underscore: Left and Right
+move it, Ctrl+Left and Ctrl+Right by word, Home and End to either end, and Shift
+with any of them selects. Backspace and Delete remove a character, or a word with
+Ctrl; words end at anything but a letter or digit, so `cg_drawFPS` and
+`127.0.0.1` are edited a piece at a time. Ctrl+A selects the line, Ctrl+X cuts,
+and Ctrl+V or Shift+Insert pastes, replacing a selection. Typing inserts at the
+caret, a long line scrolls sideways to keep it in view, and Enter runs the whole
+line. Dragging the mouse over console output selects it, a double click selects
+one whitespace-separated word (a whole `host:port`), Shift+click extends a
+selection and a click elsewhere clears it; in the input line the mouse places the
+caret and selects the same way. Ctrl+C (or Ctrl+Insert) copies selected output
+without colour codes, else the selected input, else the whole input line, or the
+last `viewpos` or `mark` answer when the line is empty. Up and Down stay history.
+See [console_editing.rs](../crates/jkr-viewer/src/console_editing.rs) and
+[console_selection.rs](../crates/jkr-viewer/src/console_selection.rs).
+
 Tab completes the command or cvar name being typed, after a leading `/` or `\` and
 after the last `;`. A unique name completes with a trailing space; otherwise the
 input extends to the longest shared prefix and the matching commands and cvars,

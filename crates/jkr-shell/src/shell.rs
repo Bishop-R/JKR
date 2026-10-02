@@ -64,6 +64,8 @@ pub struct Shell {
     file_log: file_log::FileLog,
     lines: VecDeque<ConsoleLine>,
     log_capacity: usize,
+    /// Lines ever appended, so frontends can name a line across scrollback trimming.
+    lines_written: u64,
     external_command_help: BTreeMap<String, String>,
     command_buffer: CommandBuffer,
 }
@@ -81,6 +83,7 @@ impl Shell {
             file_log: file_log::FileLog::default(),
             lines: VecDeque::with_capacity(DEFAULT_LOG_CAPACITY),
             log_capacity: DEFAULT_LOG_CAPACITY,
+            lines_written: 0,
             external_command_help: BTreeMap::new(),
             command_buffer: CommandBuffer::new(),
         }
@@ -124,6 +127,15 @@ impl Shell {
     /// Iterate bounded scrollback from oldest to newest.
     pub fn lines(&self) -> impl DoubleEndedIterator<Item = &ConsoleLine> {
         self.lines.iter()
+    }
+
+    /// Number of lines ever appended to scrollback. Lines are numbered from zero in
+    /// the order they were appended, so the newest line in [`Self::lines`] is number
+    /// `lines_written() - 1`. Numbers are never reused, even after trimming or
+    /// clearing, so a frontend can keep one (for a text selection, say) and later
+    /// find the line again or learn that it is gone.
+    pub fn lines_written(&self) -> u64 {
+        self.lines_written
     }
 
     /// Remove every scrollback line.
@@ -321,6 +333,7 @@ impl Shell {
             written_millis,
             stamped_text,
         });
+        self.lines_written += 1;
     }
 }
 

@@ -6,6 +6,7 @@ use jkr_ui::InputEvent;
 impl ViewerConsole {
     pub(crate) fn handle_pointer(&mut self, event: InputEvent) {
         let Some(delta) = self.presentation.pointer(event) else {
+            self.selection.pointer(event, self.shift);
             return;
         };
         let line_count = self

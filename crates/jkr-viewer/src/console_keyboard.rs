@@ -120,26 +120,11 @@ impl ViewerConsole {
         match key {
             KeyCode::Escape => self.set_open(false),
             KeyCode::Enter | KeyCode::NumpadEnter => self.submit(session),
-            KeyCode::Backspace => {
-                self.input.pop();
-                self.rebuild_prompt();
-            }
             KeyCode::Tab => self.complete_command(CompletionKey::Tab),
             KeyCode::ArrowUp if !event.repeat => self.navigate_history(-1),
             KeyCode::ArrowDown if !event.repeat => self.navigate_history(1),
-            // Ctrl+V and Ctrl+C arrive as the control characters they have always been.
-            _ if event.text.as_deref() == Some("\u{16}") => {
-                if let Some(text) = super::clipboard::paste() {
-                    self.type_text(&text);
-                }
-            }
-            _ if event.text.as_deref() == Some("\u{3}") => {
-                super::clipboard::copy(if self.input.is_empty() {
-                    &self.copied
-                } else {
-                    &self.input
-                });
-            }
+            // Caret, deletion and clipboard keys: see `console_editing.rs`.
+            _ if self.edit_key(event, key) => {}
             _ if !event.repeat => {
                 if let Some(text) = event.text.as_deref() {
                     self.type_text(text);
@@ -148,18 +133,5 @@ impl ViewerConsole {
             _ => {}
         }
         true
-    }
-}
-
-impl ViewerConsole {
-    /// Append typed or pasted text to the prompt: no control characters, up to the limit.
-    fn type_text(&mut self, text: &str) {
-        let remaining = INPUT_LIMIT.saturating_sub(self.input.len());
-        self.input.extend(
-            text.chars()
-                .filter(|character| !character.is_control())
-                .take(remaining),
-        );
-        self.rebuild_prompt();
     }
 }

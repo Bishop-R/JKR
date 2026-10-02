@@ -33,6 +33,14 @@ mod console_command;
 mod console_forward;
 #[path = "console_keyboard.rs"]
 mod console_keyboard;
+#[path = "console_edit_view.rs"]
+mod edit_view;
+#[path = "console_editing.rs"]
+mod editing;
+#[path = "console_line_edit.rs"]
+mod line_edit;
+#[path = "console_selection.rs"]
+mod selection;
 
 #[path = "console_options.rs"]
 mod console_options;
@@ -72,7 +80,6 @@ pub(crate) struct ViewerConsole {
     /// Shift held, for the Shift+Escape console toggle.
     shift: bool,
     input: String,
-    prompt: String,
     history: Vec<String>,
     history_index: Option<usize>,
     scroll_offset: usize,
@@ -115,6 +122,12 @@ pub(crate) struct ViewerConsole {
     window_options: window_options::Options,
     chat_log: chat_log::ChatLog,
     qcommon: qcommon::Settings,
+    /// Ctrl held, for word motion and clipboard shortcuts.
+    control: bool,
+    /// Caret and selection of `input`.
+    edit: line_edit::LineEdit,
+    /// Scrollback selection and the pointer gesture editing it or the caret.
+    selection: selection::Selection,
 }
 
 impl ViewerConsole {
@@ -334,11 +347,20 @@ impl ViewerConsole {
             })
             .unwrap_or(18);
         let completion = self.shell.completion_hint(&self.input).unwrap_or("");
+        let edit = edit_view::EditFrame {
+            prompt: edit_view::PromptLine {
+                input: &self.input,
+                cursor: self.edit.cursor(&self.input),
+                selection: self.edit.selection(&self.input),
+            },
+            selection: &mut self.selection,
+            lines_end: self.shell.lines_written(),
+        };
         self.presentation.append_options(
             self.shell.lines(),
             configured,
             self.scroll_offset,
-            &self.prompt,
+            edit,
             completion,
             vertices,
             font,
@@ -347,6 +369,7 @@ impl ViewerConsole {
             self.open,
             self.shell.command_clock_millis(),
         );
+        self.apply_prompt_pointer();
     }
 
     pub(crate) fn draw_list(&self) -> &jkr_ui::DrawList {
@@ -386,6 +409,7 @@ impl ViewerConsole {
 
     /// Change the console catcher and its existing animated presentation state.
     pub(crate) fn set_open(&mut self, open: bool) {
+        self.selection.clear();
         if self.bool_cvar("con_autoclear").unwrap_or(true) {
             self.input.clear();
             self.rebuild_prompt();
@@ -419,11 +443,9 @@ impl ViewerConsole {
         }
     }
 
+    /// The input line was replaced as a whole: put the caret at its end.
     fn rebuild_prompt(&mut self) {
-        self.prompt.clear();
-        self.prompt.push_str("] ");
-        self.prompt.push_str(&self.input);
-        self.prompt.push('_');
+        self.edit.to_end(&self.input);
     }
 
     fn persist(&mut self) {
