@@ -355,6 +355,8 @@ pub struct Mixer {
     spatial: Box<dyn SpatialModel>,
     serial: u64,
     loop_generation: u64,
+    /// True between [`Mixer::clear_loops`] and [`Mixer::commit_loops`].
+    loop_frame_open: bool,
     loop_attenuation: Attenuation,
     listener_source: Option<SourceId>,
     rendered_frames: u64,
@@ -403,6 +405,7 @@ impl Mixer {
             spatial,
             serial: 0,
             loop_generation: 0,
+            loop_frame_open: false,
             loop_attenuation,
             listener_source: None,
             rendered_frames: 0,
@@ -568,8 +571,24 @@ impl Mixer {
     }
 
     /// Begin rebuilding the current frame's loop set.
+    ///
+    /// The previous frame's loops keep sounding until [`Self::commit_loops`]
+    /// closes the rebuild, so a render that lands between this call and the
+    /// frame's last [`Self::set_loop`] cannot cut them for a block. Loops not
+    /// re-added by the commit stop at the next render.
     pub fn clear_loops(&mut self) {
         self.loop_generation = self.loop_generation.wrapping_add(1);
+        self.loop_frame_open = true;
+    }
+
+    /// Finish the loop set begun by [`Self::clear_loops`].
+    pub fn commit_loops(&mut self) {
+        self.loop_frame_open = false;
+    }
+
+    /// Whether a loop set has been cleared but not yet committed.
+    pub const fn loop_frame_open(&self) -> bool {
+        self.loop_frame_open
     }
 
     /// Re-add or start a looping sound for this frame without allocation.
@@ -603,11 +622,13 @@ impl Mixer {
         if self.bank.get(handle).is_none() {
             return false;
         }
+        let (generation, open) = (self.loop_generation, self.loop_frame_open);
         if let Some(loop_voice) = self.loops.iter_mut().find(|loop_voice| {
             loop_voice.request.source == request.source && loop_voice.handle == handle
         }) {
-            let continuously_readded =
-                loop_voice.active && loop_voice.generation.wrapping_add(1) == self.loop_generation;
+            let continuously_readded = loop_voice.active
+                && (loop_voice.generation == generation
+                    || loop_voice.generation.wrapping_add(1) == generation);
             if !continuously_readded {
                 loop_voice.cursor = self.rendered_frames as f64;
             }
@@ -617,9 +638,18 @@ impl Mixer {
             loop_voice.generation = self.loop_generation;
             return true;
         }
-        let Some(index) = self.loops.iter().position(|loop_voice| {
-            !loop_voice.active || loop_voice.generation != self.loop_generation
-        }) else {
+        // Prefer a slot nobody is mixing; a previous-frame loop that has not
+        // been re-added yet is only taken when the table is otherwise full.
+        let Some(index) = self
+            .loops
+            .iter()
+            .position(|loop_voice| !loop_audible(loop_voice, generation, open))
+            .or_else(|| {
+                self.loops
+                    .iter()
+                    .position(|loop_voice| loop_voice.generation != generation)
+            })
+        else {
             return false;
         };
         self.loops[index] = LoopVoice {
@@ -719,27 +749,22 @@ impl Mixer {
     }
 
     fn render_loops(&mut self, out: &mut [f32]) {
+        let (generation, open) = (self.loop_generation, self.loop_frame_open);
         for index in 0..self.loops.len() {
-            if self.loops[index].active && self.loops[index].generation != self.loop_generation {
+            if !loop_audible(&self.loops[index], generation, open) {
                 self.loops[index].active = false;
-            }
-            if !self.loops[index].active {
                 continue;
             }
             let handle = self.loops[index].handle;
-            if self.loops[..index].iter().any(|earlier| {
-                earlier.active
-                    && earlier.generation == self.loop_generation
-                    && earlier.handle == handle
-            }) {
+            if self.loops[..index]
+                .iter()
+                .any(|earlier| loop_audible(earlier, generation, open) && earlier.handle == handle)
+            {
                 continue;
             }
             let mut gains = [0.0; 2];
             for loop_voice in &self.loops[index..] {
-                if !loop_voice.active
-                    || loop_voice.generation != self.loop_generation
-                    || loop_voice.handle != handle
-                {
+                if !loop_audible(loop_voice, generation, open) || loop_voice.handle != handle {
                     continue;
                 }
                 let spatial = loop_voice.request.origin.map_or([1.0; 2], |origin| {
@@ -776,10 +801,7 @@ impl Mixer {
                 cursor += f64::from(pitch);
             }
             for loop_voice in &mut self.loops[index..] {
-                if loop_voice.active
-                    && loop_voice.generation == self.loop_generation
-                    && loop_voice.handle == handle
-                {
+                if loop_audible(loop_voice, generation, open) && loop_voice.handle == handle {
                     loop_voice.cursor = cursor;
                 }
             }
@@ -836,6 +858,14 @@ impl Mixer {
             .filter(|loop_voice| loop_voice.active)
             .count()
     }
+}
+
+/// Whether a loop belongs to the set being mixed: re-added this frame, or, while
+/// a rebuild is still open, carried over from the previous frame.
+fn loop_audible(loop_voice: &LoopVoice, generation: u64, open: bool) -> bool {
+    loop_voice.active
+        && (loop_voice.generation == generation
+            || (open && loop_voice.generation.wrapping_add(1) == generation))
 }
 
 fn doppler_scale(
@@ -952,3 +982,6 @@ fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
 fn length(value: [f32; 3]) -> f32 {
     dot(value, value).sqrt()
 }
+
+#[cfg(test)]
+mod loop_frame_tests;
