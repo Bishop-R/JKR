@@ -215,7 +215,6 @@ impl GpuState {
                     &self.actor_instance_buffer,
                     self.entity_draw_queue.blended(),
                 );
-                self.draw_dust_motes(&mut pass);
                 self.menu_stage.draw(
                     &mut pass,
                     &self.world_materials,
@@ -251,6 +250,7 @@ impl GpuState {
                 target_view,
                 &self.depth.sample_bind_group,
             );
+            self.draw_dust_motes(encoder, target_view);
         }
         if let Some(phases) = &self.gpu_phases {
             phases.mark(encoder, "volumetrics");

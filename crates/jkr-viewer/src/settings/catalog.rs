@@ -285,7 +285,7 @@ pub(super) const GAME: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
-        label: "Dust motes (0 off)",
+        label: "Sunbeam dust (0 off)",
         cvar: crate::dust_motes::CVAR,
         kind: ValueKind::Float {
             min: 0.0,

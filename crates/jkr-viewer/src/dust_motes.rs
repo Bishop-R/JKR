@@ -5,10 +5,10 @@
 //! buffer: one pipeline and a 16-byte uniform are created per world, and a
 //! frame draws `6 × count` vertices. Motes are fixed in world space inside a
 //! cube that wraps around the camera, fade out with distance and near the eye,
-//! depth-test against the scene without writing depth, and take their colour
-//! from the BSP light grid at the camera (sampled once per frame on the CPU).
+//! depth-test against the scene without writing depth, and appear only where
+//! the current godray volume contains local beam contrast. No volume means no dust.
 //!
-//! Competitive visibility is protected by construction: motes are one to two
+//! To limit visual obstruction, motes are one to two
 //! world units across, their opacity is capped at [`PEAK_ALPHA`] and no mote is
 //! drawn within 16 units of the eye.
 //!
@@ -16,7 +16,8 @@
 //! [`Settings::intensity`] in [`Frame::new`]'s caller, resolved once at map load
 //! (for example from a worldspawn key or a map-name table).
 
-use crate::actor_instance::EntityLight;
+#[path = "dust_beams.rs"]
+pub(crate) mod beams;
 use bytemuck::{Pod, Zeroable};
 use jkr_shell::{CvarDefinition, CvarError, CvarFlags, CvarRegistry, CvarValue};
 use std::sync::{
@@ -33,9 +34,6 @@ pub(crate) const MAX_MOTES: u32 = 2048;
 pub(crate) const PEAK_ALPHA: f32 = 0.35;
 /// Opacity kept at the lowest nonzero intensity, so sparse motes stay visible.
 const ALPHA_FLOOR: f32 = 0.4;
-/// Share of the directed light-grid term added to ambient: motes scatter light
-/// from every side, so they are not shaded by a single direction.
-const DIRECTED_SHARE: f32 = 0.5;
 
 /// Live intensity shared by the console and every installed world.
 #[derive(Clone, Default)]
@@ -48,7 +46,7 @@ impl Settings {
             CVAR,
             0.0_f64,
             CvarFlags::ARCHIVE,
-            "Floating dust motes around the camera, 0 off to 1; presentation only, applies immediately",
+            "Dust in godrays, 0 off to 1; requires jkr_volumetrics, applies immediately",
         ))?;
         Self::from_registered(cvars)
     }
@@ -82,14 +80,14 @@ impl Settings {
     }
 }
 
-/// Per-frame shader input: rgb = mote colour, w = peak opacity.
+/// Peak mote opacity and uniform-buffer padding. Beam colour comes from the GPU volume.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
 struct DustUniform {
-    color: [f32; 4],
+    opacity: [f32; 4],
 }
 
-/// What one frame draws, derived without allocation from the intensity and light.
+/// What one frame draws, derived without allocation from the intensity.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Frame {
     count: u32,
@@ -97,8 +95,8 @@ pub(crate) struct Frame {
 }
 
 impl Frame {
-    /// Scale the mote count with intensity and light the motes from the grid.
-    pub(crate) fn new(intensity: f32, light: &EntityLight) -> Self {
+    /// Scale count and peak opacity; beam lighting is sampled at each mote on the GPU.
+    pub(crate) fn new(intensity: f32) -> Self {
         let intensity = if intensity.is_finite() {
             intensity.clamp(0.0, 1.0)
         } else {
@@ -108,14 +106,11 @@ impl Frame {
         if count == 0 {
             return Self::default();
         }
-        let color = std::array::from_fn::<f32, 3, _>(|axis| {
-            (light.ambient[axis] + DIRECTED_SHARE * light.directed[axis]).clamp(0.0, 1.0)
-        });
         let alpha = PEAK_ALPHA * (ALPHA_FLOOR + (1.0 - ALPHA_FLOOR) * intensity);
         Self {
             count,
             uniform: DustUniform {
-                color: [color[0], color[1], color[2], alpha],
+                opacity: [alpha, 0.0, 0.0, 0.0],
             },
         }
     }
@@ -170,12 +165,19 @@ impl Runtime {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("JKR dust pipeline layout"),
-            bind_group_layouts: &[Some(camera), Some(&layout)],
+            bind_group_layouts: &[Some(camera), Some(&layout), Some(&beams::layout(device))],
             immediate_size: 0,
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("JKR dust shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("dust_motes.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                concat!(
+                    include_str!("volumetric_coordinates.wgsl"),
+                    include_str!("dust_beams.wgsl"),
+                    include_str!("dust_motes.wgsl"),
+                )
+                .into(),
+            ),
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("JKR dust pipeline"),
@@ -228,11 +230,12 @@ impl Runtime {
         }
     }
 
-    /// Draw inside the world pass, after blended world and entity surfaces.
+    /// Draw after the current frame's godray volume has been computed.
     fn draw<'pass>(
         &'pass self,
         pass: &mut wgpu::RenderPass<'pass>,
         camera: &'pass wgpu::BindGroup,
+        beams: &'pass wgpu::BindGroup,
     ) {
         if self.frame.count() == 0 {
             return;
@@ -240,25 +243,38 @@ impl Runtime {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, camera, &[]);
         pass.set_bind_group(1, &self.bind_group, &[]);
+        pass.set_bind_group(2, beams, &[]);
         pass.draw(0..6, 0..self.frame.count());
     }
 }
 
 impl crate::GpuState {
-    /// Light the motes at the final view origin; called with the main camera upload.
-    pub(crate) fn prepare_dust_motes(&mut self, view_origin: [f32; 3]) {
-        let intensity = self.context.dust_motes.intensity();
-        let frame = if intensity > 0.0 {
-            let light = self.entity_lighting.sample(&self.bsp, view_origin, &[]);
-            Frame::new(intensity, &light)
-        } else {
-            Frame::default()
-        };
+    /// Prepare intensity only; the camera's room lighting must not light distant dust.
+    pub(crate) fn prepare_dust_motes(&mut self) {
+        let frame = Frame::new(self.context.dust_motes.intensity());
         self.dust_motes.prepare(&self.queue, frame);
     }
 
-    /// Submit the motes into the open main-view world pass.
-    pub(crate) fn draw_dust_motes<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
-        self.dust_motes.draw(pass, &self.camera_bind_group);
+    /// Depth-tested motes consume this frame's local scattering after the godray pass.
+    pub(crate) fn draw_dust_motes(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+    ) {
+        if self.dust_motes.frame.count() == 0 {
+            return;
+        }
+        let Some(beams) = self.world_materials.dust_beams() else {
+            return;
+        };
+        let mut pass = crate::main_scene_pass::scene_pass(
+            encoder,
+            target,
+            &self.depth.view,
+            wgpu::LoadOp::Load,
+            wgpu::LoadOp::Load,
+        );
+        self.dust_motes
+            .draw(&mut pass, &self.camera_bind_group, beams);
     }
 }

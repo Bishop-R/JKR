@@ -1093,6 +1093,15 @@ impl super::Runtime {
         }
     }
 
+    /// Dust samples the current main-view godray source, never a previous or hidden volume.
+    pub(crate) fn dust_beams(&self) -> Option<&wgpu::BindGroup> {
+        self.shadows
+            .as_ref()
+            .filter(|s| s.debug.get() & 256 == 0)
+            .and_then(|s| s.volumetrics.as_ref())
+            .and_then(|medium| medium.dust_beams())
+    }
+
     /// Main-view medium only; reflected/remote views never reuse this volume or depth.
     pub(crate) fn draw_volumetrics(
         &self,

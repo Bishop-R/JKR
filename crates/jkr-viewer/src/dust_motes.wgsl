@@ -8,9 +8,9 @@ struct Camera {
     view_flags: f32,
 };
 
-// rgb = light-grid colour at the camera; w = peak opacity (already capped on the CPU).
+// Peak opacity (already capped on the CPU); remaining lanes are padding.
 struct Dust {
-    color: vec4<f32>,
+    opacity: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> camera: Camera;
@@ -29,6 +29,7 @@ struct DustOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) corner: vec2<f32>,
     @location(1) alpha: f32,
+    @location(2) color: vec3<f32>,
 };
 
 // PCG hash (Jarzynski and Olano, 2020), three decorrelated unit values per input.
@@ -57,6 +58,7 @@ fn corner(vertex: u32) -> vec2<f32> {
     var output: DustOutput;
     output.corner = corner(vertex);
     output.alpha = 0.0;
+    output.color = vec3(0.0);
     output.position = vec4(2.0, 2.0, 2.0, 1.0);
     // Secondary views and sky-portal scenes keep their own presentation.
     if (u32(camera.view_flags) & 5u) != 0u { return output; }
@@ -75,6 +77,11 @@ fn corner(vertex: u32) -> vec2<f32> {
         * smoothstep(NEAR_FADE.x, NEAR_FADE.y, range);
     if fade <= 0.0 { return output; }
 
+    let center = camera.position + local;
+    let beam = dust_beam(center, camera.view_projection*vec4(center,1.0));
+    if beam.a <= 0.0 { return output; }
+    output.color = beam.rgb;
+
     let forward = normalize(camera.forward);
     var right = cross(forward, vec3(0.0, 0.0, 1.0));
     if dot(right, right) < 1e-4 { right = vec3(0.0, 1.0, 0.0); }
@@ -85,7 +92,7 @@ fn corner(vertex: u32) -> vec2<f32> {
     // A slow shimmer, as motes turn and catch the light.
     let shimmer = 0.6 + 0.4 * sin(t * (0.7 + motion.y) + seed.x * 6.2831853);
     output.position = camera.view_projection * vec4(world, 1.0);
-    output.alpha = dust.color.w * fade * shimmer;
+    output.alpha = dust.opacity.x * fade * shimmer * beam.a;
     return output;
 }
 
@@ -93,5 +100,5 @@ fn corner(vertex: u32) -> vec2<f32> {
     let falloff = max(1.0 - dot(input.corner, input.corner), 0.0);
     let alpha = input.alpha * falloff * falloff;
     // Premultiplied: the pipeline blends One / OneMinusSrcAlpha.
-    return vec4(dust.color.rgb * alpha, alpha);
+    return vec4(input.color * alpha, alpha);
 }
