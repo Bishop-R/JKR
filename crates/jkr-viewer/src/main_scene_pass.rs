@@ -207,6 +207,7 @@ impl GpuState {
                     &self.actor_instance_buffer,
                     self.entity_draw_queue.blended(),
                 );
+                self.draw_dust_motes(&mut pass);
                 self.menu_stage.draw(
                     &mut pass,
                     &self.world_materials,

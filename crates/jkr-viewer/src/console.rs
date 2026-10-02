@@ -90,6 +90,8 @@ pub(crate) struct ViewerConsole {
     pub(crate) dynamic_light_settings: crate::dynamic_lights::Settings,
     /// Live soft-particle policy survives background world installation.
     pub(crate) soft_particles: crate::particle_draw::settings::Settings,
+    /// Optional dust-mote intensity shared with graphics contexts.
+    pub(crate) dust_motes: crate::dust_motes::Settings,
     /// Optional ambient correction for supported main-view world surfaces.
     pub(crate) ssao: crate::world_materials::ssao::settings::Settings,
     pub(crate) director: director::Director,
