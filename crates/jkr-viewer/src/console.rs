@@ -179,6 +179,12 @@ impl ViewerConsole {
         self.open
     }
 
+    /// The command and cvar browser is open and covers the whole frame; overlays
+    /// under it should not build their text.
+    pub(crate) fn covers_frame(&self) -> bool {
+        self.open && self.browser.is_open()
+    }
+
     /// Add an application diagnostic to the visible bounded scrollback.
     pub(crate) fn push_log(&mut self, text: impl Into<String>) {
         self.shell.push_log(text);
@@ -382,7 +388,7 @@ impl ViewerConsole {
     ) {
         // Overlay text draws above every overlay's shapes, so the browser replaces the
         // console's drawing rather than covering it.
-        if self.open && self.browser.is_open() {
+        if self.covers_frame() {
             self.browser.append(vertices, font, viewport);
             return;
         }

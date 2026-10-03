@@ -10,8 +10,9 @@ use jkr_ui::{Color, FontWeight, Rect, TextAlign};
 
 impl Browser {
     /// Draw the browser over the whole frame. Overlay text draws above every overlay's
-    /// shapes, so the text other overlays appended earlier this frame (menus, HUD,
-    /// chat) is dropped rather than shown through the browser.
+    /// shapes, so menus and chat build no text while it is open (see
+    /// `Console::covers_frame`), and any other text appended earlier this frame is
+    /// dropped rather than shown through the browser.
     pub(crate) fn append(
         &mut self,
         vertices: &mut Vec<TextVertex>,

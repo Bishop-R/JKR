@@ -76,7 +76,9 @@ every command and cvar with its description, and each cvar's value and default. 
 searches names, then descriptions; Tab cycles All, Commands, Cvars and Changed (cvars
 away from their default). Enter edits the selected cvar in place and applies it, or
 starts a console line with the selected command; Delete restores a cvar's default;
-Escape or F3 returns to the console. Read-only cvars are listed but not edited. See
+Escape or F3 returns to the console. Read-only cvars are listed but not edited. The
+browser covers the whole frame: while it is open, the menus and chat under it build no
+text, since overlay text draws above every overlay's shapes. See
 [console_browser.rs](../crates/jkr-viewer/src/console_browser.rs).
 
 For graphics controls and diagnostics, see [rendering.md](rendering.md).
