@@ -82,7 +82,7 @@ pub(crate) fn attach_world(
 pub(crate) fn upload_menu_images(
     menu: &mut Option<ClientMenu>,
     renderer: &crate::ui_renderer::ShapeRenderer,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
 ) {
     let Some(menu) = menu else { return };
     match menu.state.phase() {

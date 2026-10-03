@@ -187,7 +187,7 @@ impl PlayerMenu {
     pub(crate) fn upload_icons(
         &mut self,
         renderer: &crate::ui_renderer::ShapeRenderer,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
     ) {
         self.icons.upload_batch(renderer, queue, 32);
     }
