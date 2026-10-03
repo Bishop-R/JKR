@@ -1,8 +1,8 @@
 //! Player-screen icons: decoded on a background thread, then uploaded into
 //! the UI icon atlas a few per frame. Tile `i` of the character grid
 //! (characters first, then species) samples [`TextureId`] `i + 1`; cell 0
-//! stays free for the HUD. The last [`FORCE_CELLS`] menu cells hold the
-//! Force page's power icons and side emblems (see `force_icons`).
+//! stays free for the HUD. The Force page's power icons and side emblems
+//! (see `force_icons`) use [`FORCE_CELLS`] cells of their own after the HUD's.
 
 use crate::ui_renderer::{ICON_SIZE, ShapeRenderer};
 use jkr_client::LegacyAssetCatalog;
@@ -13,10 +13,12 @@ use std::sync::mpsc::{self, Receiver};
 
 /// Atlas cells the player screen owns (the banner strip takes the rest).
 pub(super) const MAX_ICONS: usize = crate::ui_renderer::ICON_CELLS as usize;
-/// Cells kept at the end of the player screen's range for the Force page.
-pub(super) const FORCE_CELLS: usize = 20;
+/// Atlas cells of the Force page, outside the player screen's range.
+pub(super) const FORCE_CELLS: usize = crate::ui_renderer::FORCE_ICON_CELLS as usize;
 /// Model icons the character grid can show: cells `1..=MODEL_ICONS`.
-const MODEL_ICONS: usize = MAX_ICONS - 1 - FORCE_CELLS;
+pub(super) const MODEL_ICONS: usize = MAX_ICONS - 1;
+/// Every atlas cell a loader may fill and track.
+const TRACKED_CELLS: usize = crate::ui_renderer::ATLAS_CELLS as usize;
 
 /// One icon to decode: its atlas cell and the paths to try, in order.
 pub(super) type IconRequest = (TextureId, Vec<String>);
@@ -32,7 +34,7 @@ pub(super) struct IconLoader {
     uploaded: usize,
     requested: bool,
     /// One bit per atlas cell that holds a finished upload.
-    ready: [u64; MAX_ICONS.div_ceil(64)],
+    ready: [u64; TRACKED_CELLS.div_ceil(64)],
 }
 
 impl IconLoader {
@@ -42,7 +44,7 @@ impl IconLoader {
             decoded: Vec::new(),
             uploaded: 0,
             requested: false,
-            ready: [0; MAX_ICONS.div_ceil(64)],
+            ready: [0; TRACKED_CELLS.div_ceil(64)],
         }
     }
 
@@ -57,7 +59,8 @@ impl IconLoader {
 
     /// Atlas cell `slot` (0..[`FORCE_CELLS`]) of the Force page.
     pub(super) fn force_texture(slot: usize) -> TextureId {
-        TextureId((MAX_ICONS - FORCE_CELLS + slot) as u32)
+        debug_assert!(slot < FORCE_CELLS);
+        TextureId(crate::ui_renderer::FORCE_ICON_FIRST + slot as u32)
     }
 
     /// Whether the icon of grid tile `index` is in the atlas.
@@ -68,7 +71,7 @@ impl IconLoader {
     /// Whether atlas cell `texture` holds a finished upload of this loader.
     pub(super) fn is_texture_ready(&self, texture: TextureId) -> bool {
         let cell = texture.0 as usize;
-        cell < MAX_ICONS && self.ready[cell / 64] & (1 << (cell % 64)) != 0
+        cell < TRACKED_CELLS && self.ready[cell / 64] & (1 << (cell % 64)) != 0
     }
 
     /// Decode every character and species icon of `catalog` off-thread.
@@ -146,7 +149,7 @@ impl IconLoader {
         for icon in &self.decoded[self.uploaded..end] {
             renderer.upload_icon(queue, icon.id, &icon.rgba);
             let cell = icon.id.0 as usize;
-            if cell < MAX_ICONS {
+            if cell < TRACKED_CELLS {
                 self.ready[cell / 64] |= 1 << (cell % 64);
             }
         }
@@ -173,4 +176,19 @@ fn decode_first(vfs: &VirtualFileSystem, id: TextureId, paths: &[String]) -> Opt
         return Some(DecodedIcon { id, rgba });
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn force_cells_leave_the_model_grid_its_full_range() {
+        // Every menu cell but the HUD's cell 0: 207 model icons, as before the Force art.
+        assert_eq!(MODEL_ICONS, MAX_ICONS - 1);
+        assert_eq!(MODEL_ICONS, 207);
+        let force = IconLoader::force_texture(0).0 as usize;
+        assert!(force > MODEL_ICONS);
+        assert!(force + FORCE_CELLS <= TRACKED_CELLS);
+    }
 }

@@ -85,13 +85,14 @@ mod tests {
         assert_eq!(requests.len(), POWER_ICONS.len() + SIDE_ICONS.len());
         let cells: HashSet<u32> = requests.iter().map(|(texture, _)| texture.0).collect();
         assert_eq!(cells.len(), requests.len());
-        let first = (super::super::icons::MAX_ICONS - FORCE_CELLS) as u32;
-        let end = super::super::icons::MAX_ICONS as u32;
+        let first = crate::ui_renderer::FORCE_ICON_FIRST;
+        let end = first + FORCE_CELLS as u32;
         assert!(cells.iter().all(|cell| (first..end).contains(cell)));
+        // Past every model icon cell and every HUD cell.
+        let model_end = super::super::icons::MODEL_ICONS as u32 + 1;
+        assert!(first >= model_end + 96);
+        assert!(end <= crate::ui_renderer::ATLAS_CELLS);
         assert_eq!(requests[0].1[0], "gfx/mp/f_icon_lt_heal.tga");
-        assert_eq!(
-            side_texture(ForceSide::Dark).0,
-            end - FORCE_CELLS as u32 + 19
-        );
+        assert_eq!(side_texture(ForceSide::Dark).0, first + 19);
     }
 }

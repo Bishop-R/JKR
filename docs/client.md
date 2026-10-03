@@ -40,7 +40,8 @@ profile, and leaving the screen drops unapplied changes. While a draft is pendin
 the page's points line reads NOT APPLIED and the footer's Back cap says that
 leaving drops it. Power icons (`gfx/mp/f_icon_*`) and side emblems
 (`gfx/hud/mpi_jlight`, `gfx/hud/mpi_dklight`) come from the installed game data;
-without them the page shows text only. See
+without them the page shows text only. They take icon-atlas cells of their own
+after the HUD's, so the character grid keeps all 207 of its icon cells. See
 [force.rs](../crates/jkr-viewer/src/player_menu/force.rs) and
 [force_view.rs](../crates/jkr-viewer/src/player_menu/force_view.rs).
 

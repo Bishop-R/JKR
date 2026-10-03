@@ -7,7 +7,6 @@ use super::ShapeVertex;
 use jkr_ui::{Color, Rect, TextureId};
 
 const ATLAS_SIZE: u32 = 2_048;
-const ATLAS_HEIGHT: u32 = ATLAS_SIZE + 768;
 /// Edge of one atlas cell; icons are uploaded at exactly this size.
 pub(crate) const ICON_SIZE: u32 = 128;
 const COLUMNS: u32 = ATLAS_SIZE / ICON_SIZE;
@@ -16,7 +15,17 @@ pub(crate) const BANNER_SIZE: [u32; 2] = [1_536, 384];
 const BANNER_Y: u32 = ATLAS_HEIGHT - BANNER_SIZE[1];
 /// Original menu-cell reservation; HUD cells follow without reducing menu capacity.
 pub(crate) const ICON_CELLS: u32 = COLUMNS * ((ATLAS_SIZE - BANNER_SIZE[1]) / ICON_SIZE);
-const TOTAL_CELLS: u32 = ICON_CELLS + 96;
+/// HUD icon cells, right after the menu cells.
+const HUD_CELLS: u32 = 96;
+/// First of the player screen's Force page cells, after the HUD cells, so the
+/// Force art never takes cells from the character grid.
+pub(crate) const FORCE_ICON_FIRST: u32 = ICON_CELLS + HUD_CELLS;
+/// Force page cells: two atlas rows.
+pub(crate) const FORCE_ICON_CELLS: u32 = 2 * COLUMNS;
+/// Every icon cell; the banner strip lies below the last row.
+pub(crate) const ATLAS_CELLS: u32 = FORCE_ICON_FIRST + FORCE_ICON_CELLS;
+const TOTAL_CELLS: u32 = ATLAS_CELLS;
+const ATLAS_HEIGHT: u32 = TOTAL_CELLS.div_ceil(COLUMNS) * ICON_SIZE + BANNER_SIZE[1];
 /// `TexturedQuad` texture naming the banner strip.
 pub(crate) const BANNER_TEXTURE: TextureId = TextureId(u32::MAX);
 /// Pixel size of the map-preview slot right of the banner (4:3, as the
