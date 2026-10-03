@@ -274,7 +274,13 @@ pub(crate) fn update(
         .map(|s| s.game_state())
         .or_else(|| gpu.demo_session.as_ref().map(|s| s.game_state()));
     {
-        if let Some(game) = game {
+        if let Some(game) = gpu
+            .resident
+            .session
+            .as_ref()
+            .map(|s| s.game_state())
+            .or(game)
+        {
             gpu.chat.update_roster(game);
         } else {
             gpu.hud.identification.list.clear();

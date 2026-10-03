@@ -6,6 +6,8 @@
 
 #[path = "resident_game.rs"]
 mod game;
+#[path = "resident_intermission.rs"]
+mod intermission;
 #[path = "resident_scenery.rs"]
 mod scenery;
 #[path = "resident_walk.rs"]
@@ -23,6 +25,7 @@ pub(crate) struct State {
     walk: Option<walk::Walk>,
     prepared_game: Option<game::Prepared>,
     local_game: bool,
+    intermission: bool,
     remote_command_due: Instant,
     last_playing: Option<jkr_protocol::PlayerState>,
     attached: bool,
@@ -68,6 +71,7 @@ impl State {
             walk: None,
             prepared_game: None,
             local_game: false,
+            intermission: false,
             remote_command_due: Instant::now(),
             last_playing: snapshot
                 .filter(|s| s.player.movement_type() != jkr_client::PM_INTERMISSION)
@@ -130,6 +134,7 @@ impl State {
         }
         self.walk = None;
         self.local_game = false;
+        self.intermission = false;
         self.after_sequence = None;
         self.attached = false;
         self.reuse_pending = false;
@@ -205,11 +210,15 @@ impl GpuState {
             !timed_out && failure.is_none() && !session.needs_download()
         });
         self.resident.after_sequence = after_sequence;
+        // Chat and scores belong to the real connection even while gameplay is local.
+        self.consume_resident_messages();
         if let Some(error) = failure {
             self.session_disconnected(error);
             return;
         }
         if changed {
+            self.resident.map_change_pending = true;
+            self.resident.intermission = false;
             self.pending_map_reload = true;
             self.resident.reuse_pending = true;
             self.world_load_task = None;
@@ -230,10 +239,7 @@ impl GpuState {
         if now < self.resident.remote_command_due {
             return;
         }
-        let command = jkr_protocol::UserCommand {
-            server_time: 0,
-            ..Default::default()
-        };
+        let command = self.resident_wait_command();
         if let Err(error) = self
             .resident
             .session
@@ -399,6 +405,7 @@ impl GpuState {
         self.gameplay_input.view_authority = Default::default();
         self.resident.walk = None;
         self.resident.local_game = false;
+        self.resident.intermission = false;
         self.resident.after_sequence = None;
         self.pending_generic_command = 0;
         self.selected_weapon = None;
