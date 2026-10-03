@@ -38,6 +38,7 @@ impl Texture {
         resolved: bool,
         declared: bool,
         self_lit: bool,
+        infer_fixture: bool,
     ) {
         if declared {
             if self.layers.is_empty()
@@ -93,7 +94,7 @@ impl Texture {
                         self.layers.push(Layer::new(
                             stage,
                             images,
-                            Vec3::from_array(gain) * RADIANCE,
+                            Vec3::from_array(gain) * super::stage_radiance(stage, infer_fixture),
                             false,
                         ));
                     }
