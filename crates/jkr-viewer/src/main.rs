@@ -71,6 +71,7 @@ mod frame_target;
 mod game_menu_actions;
 mod gpu_context;
 mod gpu_phases;
+mod gpu_priority;
 mod gpu_texture;
 mod ground_hud;
 mod hud;

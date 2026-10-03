@@ -6,6 +6,7 @@ members = [
     "crates/jkr-client",
     "crates/jkr-entity",
     "crates/jkr-game-jka",
+    "crates/jkr-gpu-priority",
     "crates/jkr-icarus",
     "crates/jkr-effect",
     "crates/jkr-model",
@@ -47,6 +48,7 @@ jkr-server = { path = "crates/jkr-server" }
 jkr-shader = { path = "crates/jkr-shader" }
 jkr-shell = { path = "crates/jkr-shell" }
 jkr-ui = { path = "crates/jkr-ui" }
+jkr-gpu-priority = { path = "crates/jkr-gpu-priority" }
 jkr-vfs = { path = "crates/jkr-vfs" }
 glam = "0.33.0"
 md4 = "0.10.2"

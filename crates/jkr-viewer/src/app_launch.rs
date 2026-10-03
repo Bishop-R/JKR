@@ -6,6 +6,8 @@ pub(super) fn run() -> Result<(), Box<dyn Error>> {
     let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
     let demo_request = demo_playback::request(&arguments)?;
     let mut console = console::ViewerConsole::new(platform::user_config_file()?)?;
+    // Before any device exists: the scheduler may read the class when contexts are created.
+    gpu_priority::sync(&console);
     assets::search_paths::initialize(&console)?;
     let (
         game_data,

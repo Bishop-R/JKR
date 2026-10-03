@@ -1,0 +1,17 @@
+[package]
+name = "jkr-gpu-priority"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The workspace forbids unsafe code. This crate holds its only exception: one
+# documented Windows call that lowers the process's GPU scheduling priority.
+# The lints otherwise mirror the workspace's.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+undocumented_unsafe_blocks = "deny"

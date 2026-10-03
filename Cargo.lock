@@ -909,6 +909,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "jkr-gpu-priority"
+version = "0.1.0"
+
+[[package]]
 name = "jkr-icarus"
 version = "0.1.0"
 
@@ -993,6 +997,7 @@ dependencies = [
  "jkr-effect",
  "jkr-entity",
  "jkr-game-jka",
+ "jkr-gpu-priority",
  "jkr-model",
  "jkr-network",
  "jkr-protocol",

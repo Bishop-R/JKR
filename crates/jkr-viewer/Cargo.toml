@@ -18,6 +18,7 @@ fontdue = "0.9.3"
 getrandom = { version = "0.3.4", features = ["std"] }
 jkr-bsp.workspace = true
 jkr-audio.workspace = true
+jkr-gpu-priority.workspace = true
 jkr-client.workspace = true
 jkr-game-jka.workspace = true
 jkr-entity.workspace = true

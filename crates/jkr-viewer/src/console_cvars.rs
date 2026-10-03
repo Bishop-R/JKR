@@ -157,6 +157,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Synchronize presentation (0/1)",
         ),
         CvarDefinition::new(
+            "jkr_yieldGpu",
+            true,
+            archive,
+            "Lower the GPU priority so recorders and streamers keep up (Windows)",
+        ),
+        CvarDefinition::new(
             "ui_accent",
             "ember",
             archive,

@@ -13,6 +13,7 @@ impl GpuState {
         let Some(console) = &self.console else {
             return; // evidence runs keep whatever accent they set
         };
+        super::gpu_priority::sync(console);
         if let Some(menu) = &mut self.client_menu {
             menu.set_accent(ui_accent(console));
         }
