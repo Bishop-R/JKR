@@ -284,18 +284,25 @@ fn animated_image_frame(animation: vec4<f32>, index: i32) -> i32 {
 fn stage_fragment(input: VertexOutput) -> vec4<f32> {
     fragment_point_mask = finite_point_mask(input.world_position);
     let uv = input.stage_uv;
-    let frame = animated_image_frame(stage.animation, input.animation_index);
-    var texel = textureSample(stage_images, stage_sampler, uv, frame);
+    // Uploaded BSP lightmaps (including the fallback) have alpha one. In these
+    // modes the composition hook replaces their RGB, so sampling them is wasted.
+    let replaced_lightmap = realtime_active() || (point_lights.metadata.z & 1u) != 0u;
+    var texel = vec4(1.0);
     if i32(stage.animation.w) == 1 {
-        texel = textureSample(lightmap_image, stage_sampler, uv);
+        if !replaced_lightmap { texel = textureSample(lightmap_image, stage_sampler, uv); }
+    } else {
+        let frame = animated_image_frame(stage.animation, input.animation_index);
+        texel = textureSample(stage_images, stage_sampler, uv, frame);
     }
     var secondary_texel = vec4(0.0);
     if stage.secondary_control.z > 0.5 {
-        let secondary_frame = animated_image_frame(stage.secondary_animation, input.animation_index);
-        secondary_texel = textureSample(secondary_images, secondary_sampler,
-            input.secondary_uv, secondary_frame);
+        secondary_texel = vec4(1.0);
         if i32(stage.secondary_animation.w) == 1 {
-            secondary_texel = textureSample(lightmap_image, secondary_sampler, input.secondary_uv);
+            if !replaced_lightmap { secondary_texel = textureSample(lightmap_image, secondary_sampler, input.secondary_uv); }
+        } else {
+            let secondary_frame = animated_image_frame(stage.secondary_animation, input.animation_index);
+            secondary_texel = textureSample(secondary_images, secondary_sampler,
+                input.secondary_uv, secondary_frame);
         }
     }
     var output = apply_lighting_mode(input, texel, secondary_texel);

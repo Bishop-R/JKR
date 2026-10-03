@@ -78,7 +78,7 @@ pub(super) fn fit(
 
 /// The static casters of one shadow map, kept between frames.
 pub(super) struct Held {
-    /// The map the static casters are drawn into; copied under the moving ones each frame.
+    /// Static-only depths, filtered independently from moving casters.
     depth: wgpu::TextureView,
     /// The sun direction and the fit its contents were drawn with.
     drawn: std::cell::Cell<Option<(Vec3, Fit)>>,
@@ -115,14 +115,5 @@ impl Held {
         let fit = fit(camera, sun, bounds, distance, resolution)?;
         self.drawn.set(Some((sun, fit)));
         Some((fit, true))
-    }
-
-    /// Put the held casters under this frame's moving ones.
-    pub(super) fn copy_to(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
-        encoder.copy_texture_to_texture(
-            self.depth.texture().as_image_copy(),
-            target.texture().as_image_copy(),
-            self.depth.texture().size(),
-        );
     }
 }

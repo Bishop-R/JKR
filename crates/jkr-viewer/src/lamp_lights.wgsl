@@ -61,11 +61,8 @@ fn lamp_cell(world: vec3<f32>) -> vec4<i32> {
     if any(index < vec3(0)) || any(index >= vec3<i32>(lamp_grid.counts.xyz)) { return vec4(0, 0, 0, -1); }
     return vec4(index, 0);
 }
-// Irradiance from the lamps reaching `world` on a surface facing `normal`, display units.
-fn lamp_light(world: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-    let at = lamp_cell(world);
-    if at.w < 0 { return vec3(0.0); }
-    let index = at.xyz;
+// The receiver's lamp list (first entry, count) in its grid cell `index` (`lamp_cell`).
+fn lamp_entry(world: vec3<f32>, index: vec3<i32>) -> vec2<u32> {
     let cell = u32(index.x) + (u32(index.y) + u32(index.z)*lamp_grid.counts.y)*lamp_grid.counts.x;
     let pair = lamp_data[lamp_grid.offsets.x + cell/2u];
     var entry = select(pair.xy, pair.zw, (cell & 1u) == 1u);
@@ -76,17 +73,30 @@ fn lamp_light(world: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
         let nested=lamp_data[lamp_grid.offsets.x+child/2u];
         entry=select(nested.xy,nested.zw,(child&1u)==1u);
     }
-    let threshold=lamp_importance_threshold(world,index);
+    return entry;
+}
+// Lamp list entry `k` at the receiver: unshadowed irradiance (rgb) and shadow (a), zero
+// when it cannot reach. Callers form rgb*a beside their running sum, so it still compiles
+// to the fused multiply-add the light has always been summed with.
+fn lamp_term(k: u32, world: vec3<f32>, normal: vec3<f32>, threshold: f32) -> vec4<f32> {
+    let lamp = lamp_data[lamp_grid.offsets.y + k/4u][k & 3u]*5u;
+    let term = lamp_unshadowed(lamp, world, normal, threshold);
+    if all(term <= vec3(0.0)) { return vec4(0.0); }
+    let to = bitcast<vec4<f32>>(lamp_data[lamp]).xyz - world;
+    let shadow = lamp_shadow(lamp/5u, world, -to, normal);
+    return vec4(term, shadow);
+}
+// Irradiance from the lamps reaching `world` on a surface facing `normal`, display units.
+fn lamp_light(world: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let at = lamp_cell(world);
+    if at.w < 0 { return vec3(0.0); }
+    let entry = lamp_entry(world, at.xyz);
+    let threshold = lamp_importance_threshold(world, at.xyz);
     var sum = vec3(0.0);
     for (var i = 0u; i < entry.y; i++) {
-        let k = entry.x + i;
-        let lamp = lamp_data[lamp_grid.offsets.y + k/4u][k & 3u]*5u;
-        let term = lamp_unshadowed(lamp, world, normal, threshold);
-        if all(term <= vec3(0.0)) { continue; }
-        let to = bitcast<vec4<f32>>(lamp_data[lamp]).xyz - world;
-        let shadow = lamp_shadow(lamp/5u, world, -to, normal);
-        if shadow <= 0.0 { continue; }
-        sum += term*shadow;
+        let light = lamp_term(entry.x + i, world, normal, threshold);
+        if light.w <= 0.0 { continue; }
+        sum += light.xyz*light.w;
     }
     return sum;
 }

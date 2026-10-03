@@ -22,7 +22,7 @@ pub(crate) struct Runtime {
 impl Runtime {
     pub(crate) fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         vfs: &VirtualFileSystem,
         shaders: &ShaderCatalog,
         camera_layout: &wgpu::BindGroupLayout,
@@ -114,7 +114,7 @@ impl Runtime {
 
     pub(crate) fn prepare(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         blades: &mut [Instance],
         trails: &mut SegmentPool,
         now: i64,

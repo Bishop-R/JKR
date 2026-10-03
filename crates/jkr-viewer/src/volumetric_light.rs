@@ -69,6 +69,7 @@ impl Runtime {
         shadow: &wgpu::TextureView,
         close: &wgpu::TextureView,
         far: Option<&wgpu::TextureView>,
+        world: Option<[&wgpu::TextureView; 2]>,
         fog: &crate::fog_volumes::Table,
         level: u32,
     ) -> Self {
@@ -228,6 +229,22 @@ impl Runtime {
                     },
                 ),
                 compute_entry(
+                    12,
+                    wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                ),
+                compute_entry(
+                    13,
+                    wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                ),
+                compute_entry(
                     9,
                     wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: false },
@@ -304,6 +321,8 @@ impl Runtime {
                 binding(8, texture(close)),
                 binding(9, texture(&column_range)),
                 binding(11, texture(far.unwrap_or(shadow))),
+                binding(12, texture(world.map_or(shadow, |w| w[0]))),
+                binding(13, texture(world.map_or(close, |w| w[1]))),
             ],
         });
         let reduction = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -445,7 +464,7 @@ impl Runtime {
     /// Upload only the camera/light uniforms; the renderer already evaluated the shadow fit.
     pub(super) fn update(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         view: Mat4,
         shadow: Mat4,
         sun: jkr_shader::SunParms,
