@@ -101,7 +101,13 @@ impl Finish {
         });
         Self { control, group }
     }
-    pub fn update(&self, queue: &wgpu::Queue, size: [u32; 2], scale: f32, roughness: f32) {
+    pub fn update(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        size: [u32; 2],
+        scale: f32,
+        roughness: f32,
+    ) {
         queue.write_buffer(
             &self.control,
             0,

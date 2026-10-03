@@ -32,13 +32,13 @@ pub(crate) fn texels(image: &image::RgbaImage) -> Vec<u16> {
 /// Upload [`texels`] once per material at map installation.
 pub(crate) fn upload(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     image: &image::RgbaImage,
 ) -> wgpu::TextureView {
     let (width, height) = image.dimensions();
     device
         .create_texture_with_data(
-            queue,
+            queue.raw(),
             &wgpu::TextureDescriptor {
                 label: Some("JKR saber glow column integral"),
                 size: wgpu::Extent3d {

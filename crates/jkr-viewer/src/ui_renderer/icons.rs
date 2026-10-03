@@ -77,7 +77,12 @@ impl IconAtlas {
         &self.bind_group
     }
 
-    pub(super) fn upload(&self, queue: &wgpu::Queue, texture: TextureId, rgba: &[u8]) {
+    pub(super) fn upload(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        texture: TextureId,
+        rgba: &[u8],
+    ) {
         if rgba.len() != (ICON_SIZE * ICON_SIZE * 4) as usize {
             return;
         }
@@ -108,17 +113,23 @@ impl IconAtlas {
     }
 
     /// Upload the [`BANNER_SIZE`] RGBA banner drawn by [`BANNER_TEXTURE`].
-    pub(super) fn upload_banner(&self, queue: &wgpu::Queue, rgba: &[u8]) {
+    pub(super) fn upload_banner(&self, queue: &crate::frame_queue::FrameQueue, rgba: &[u8]) {
         self.upload_region(queue, [0, BANNER_Y], BANNER_SIZE, rgba);
     }
 
     /// Upload the [`LEVELSHOT_SIZE`] RGBA map preview drawn by
     /// [`LEVELSHOT_TEXTURE`].
-    pub(super) fn upload_levelshot(&self, queue: &wgpu::Queue, rgba: &[u8]) {
+    pub(super) fn upload_levelshot(&self, queue: &crate::frame_queue::FrameQueue, rgba: &[u8]) {
         self.upload_region(queue, [BANNER_SIZE[0], BANNER_Y], LEVELSHOT_SIZE, rgba);
     }
 
-    fn upload_region(&self, queue: &wgpu::Queue, origin: [u32; 2], size: [u32; 2], rgba: &[u8]) {
+    fn upload_region(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        origin: [u32; 2],
+        size: [u32; 2],
+        rgba: &[u8],
+    ) {
         let [width, height] = size;
         if rgba.len() != (width * height * 4) as usize {
             return;

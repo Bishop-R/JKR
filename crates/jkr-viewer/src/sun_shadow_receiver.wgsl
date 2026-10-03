@@ -1,3 +1,4 @@
+@group(1) @binding(7) var shadow_bounds: texture_2d_array<f32>;
 struct Camera {
     vp: mat4x4<f32>, position: vec3<f32>, time: f32, forward: vec3<f32>, flags: f32,
 };
