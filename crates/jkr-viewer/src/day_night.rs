@@ -196,6 +196,16 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
             "Subtle fill in dark areas, 0 off..0.2; fades in existing light; live",
         ),
         (
+            "jkr_indirectBoost",
+            1.,
+            "Indirect sky and bounce brightness 0..4, 1 original; direct lights unchanged; live",
+        ),
+        (
+            "jkr_ambientFillOcclusion",
+            1.,
+            "Corner shading on readability fill: 1 original, 0 unoccluded; live",
+        ),
+        (
             "jkr_dayDebug",
             0.,
             "Real-time lighting diagnostics, bits: 1 no occlusion, 2 no contact shadows, \

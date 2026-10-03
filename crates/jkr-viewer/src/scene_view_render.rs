@@ -109,6 +109,7 @@ impl GpuState {
 
     /// Select visible secondary views and upload their small camera uniforms.
     pub(crate) fn prepare_scene_views(&mut self, view: Mat4, projection: Mat4, time: i32) {
+        self.world_materials.begin_world_frame();
         self.world_materials
             .view_culling
             .prepare_main(projection * view);

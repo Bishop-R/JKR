@@ -177,6 +177,14 @@ impl Lists {
 }
 
 impl super::Runtime {
+    /// Reset before any secondary or main view records indirect draws. Queue uploads
+    /// precede execution, so resetting between views would overwrite earlier commands.
+    pub(crate) fn begin_world_frame(&self) {
+        if let Some(lists) = &self.indirect {
+            lists.begin_frame();
+        }
+    }
+
     /// Map-lifetime argument storage for current-frame mirror visibility.
     pub(crate) fn mirror_arguments(&self) -> Option<&wgpu::Buffer> {
         self.indirect.as_ref().map(|lists| &lists.buffer)

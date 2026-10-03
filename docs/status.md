@@ -1,6 +1,7 @@
 # Status and priorities
 
-Reviewed 2026-10-01 against source baseline `0d215f1`.
+Reviewed 2026-10-03 against source baseline `8f692ac` and the owner-approved
+rendering changes described below.
 
 JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
@@ -130,14 +131,43 @@ and limits. Gameplay and protocol code are unchanged.
 - The repository does not bundle a regression suite. Required reference evidence
   must be supplied externally until an in-repository verification approach is agreed.
 
+Sky/terrain correction (2026-10-03, local preview based on `8f692ac`): the three
+`t1_danger` marks exposed sky draw-buffer reuse between views and smoothed normals
+flipping across visible hills. Both terrain bands are removed in fixed GPU views;
+a 24-turn capture reproduced sky disappearance in 12 old-reset frames and verified
+the corrected path against direct draws. Workspace checks and owner release build
+passed. Native owner playtesting remains pending; see
+[rendering](rendering.md#sky-scenery-and-hillside-orientation) for scope and timings.
+
 ## Current priorities
 
-1. Improve populated-match release frame times while preserving the owner-accepted
+1. Evaluate dark-area readability while preserving the accepted lighting style
+   (owner priority, 2026-10-03). A local, default-preserving indirect gain and fill
+   occlusion experiment passed workspace and external GPU checks; see
+   [rendering](rendering.md#indirect-lighting-and-dark-area-readability). Owner
+   acceptance and populated-match measurements are pending. The marked custom-map
+   ceiling lights were recognized but underpowered; an explicit-glow inference
+   refinement passed source-policy and GPU checks on that map plus two stock maps
+   ([fixture inference](rendering.md#inferring-fixture-light-from-legacy-materials)).
+   That refinement also awaits owner acceptance. Static model fixtures were also
+   missing from source extraction: both `t2_rancor` marks now gain local illumination,
+   with unchanged stock-map appearance in the sampled `ffa1`/`ffa3` views. The
+   Rancor checks add approximately 0.017–0.144 ms of GPU work; see
+   [static model fixtures](rendering.md#static-model-fixtures) for evidence and
+   remaining visibility limits. Owner acceptance is pending. A subsequent GPU audit
+   confirmed a sign error in GI voxel traversal. The corrected forward distances
+   and range checks pass 8,302 external GPU/reference cases and workspace checks.
+   Both Rancor captures remain byte-identical, so the correction has not solved
+   their low visibility. Readback confirms nonzero live probe lighting; receiver
+   coverage and effective bounce strength remain to investigate. See
+   [GI traversal correction](rendering.md#gi-traversal-correction).
+   Dust remains parked.
+2. Improve populated-match release frame times while preserving the owner-accepted
    appearance (owner priority, 2026-10-02). Target below 2 ms with 31 players;
    reaching that target is not a reason to stop investigating useful savings.
-2. Stabilize normal client and dedicated-server use with reproducible local reports.
-3. Audit compatibility gaps by subsystem and scenario; preserve exact combat and wire behavior.
-4. Broaden community-content and platform validation.
+3. Stabilize normal client and dedicated-server use with reproducible local reports.
+4. Audit compatibility gaps by subsystem and scenario; preserve exact combat and wire behavior.
+5. Broaden community-content and platform validation.
 
 These priorities guide requested work; they do not authorize an assistant to
 start an unrelated task. Update this page when evidence or agreed priorities
