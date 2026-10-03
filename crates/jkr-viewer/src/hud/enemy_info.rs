@@ -230,7 +230,7 @@ impl State {
         vfs: &jkr_vfs::VirtualFileSystem,
         shaders: &jkr_shader::ShaderCatalog,
         renderer: &ui_renderer::ShapeRenderer,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
     ) {
         if !self.visible {
             return;

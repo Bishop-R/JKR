@@ -416,7 +416,7 @@ impl Runtime {
     pub(crate) fn update_window(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         voxels: &super::gi::Runtime,
         light: &Light,
         far: Option<(glam::Mat4, f32, f32)>,
@@ -489,7 +489,7 @@ impl Runtime {
     pub(crate) fn update(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         voxels: &super::gi::Runtime,
         light: &Light,
         far: Option<(glam::Mat4, f32, f32)>,

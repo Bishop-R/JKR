@@ -335,3 +335,74 @@ pub(crate) fn update(
         gpu.configuration.width as f32 / gpu.configuration.height as f32,
     );
 }
+
+/// Pixel rectangles (x, y, width, height) the in-game HUD program (`hud.wgsl`) can draw
+/// into. Outside a menu it draws only the crosshair and the damage ring and discards
+/// every other pixel, so the full-screen pass is scissored to these instead of shading
+/// the whole screen; `None` keeps the full screen.
+pub(crate) type HudScissors = Option<[Option<[u32; 4]>; 2]>;
+
+impl HudUniform {
+    /// The rectangles for this uniform on a `width` x `height` target.
+    pub(crate) fn scissors(&self, width: u32, height: u32) -> HudScissors {
+        if self.menu_open > 0.5 || self.status_visible > 0.5 || width == 0 || height == 0 {
+            return None;
+        }
+        let [w, h] = [width as f32, height as f32];
+        // Shader UVs run right and up from the bottom-left corner; rows run down.
+        let rectangle = |center: [f32; 2], half: [f32; 2]| -> Option<[u32; 4]> {
+            let left = ((center[0] - half[0]) * w - 2.0).floor().clamp(0.0, w);
+            let right = ((center[0] + half[0]) * w + 2.0).ceil().clamp(0.0, w);
+            let top = ((1.0 - center[1] - half[1]) * h - 2.0)
+                .floor()
+                .clamp(0.0, h);
+            let bottom = ((1.0 - center[1] + half[1]) * h + 2.0).ceil().clamp(0.0, h);
+            (right > left && bottom > top).then_some([
+                left as u32,
+                top as u32,
+                (right - left) as u32,
+                (bottom - top) as u32,
+            ])
+        };
+        let visible = self.hud_visible > 0.5;
+        let mut crosshair = None;
+        if visible && self.crosshair > 0.0 {
+            let [x, y, scale_x, scale_y] = self.crosshair_parameters;
+            // Degenerate scales would put the crosshair test everywhere.
+            if !(scale_x > 0.0 && scale_y > 0.0 && x.is_finite() && y.is_finite()) {
+                return None;
+            }
+            // The outline reaches 14/26 of the crosshair size on each axis.
+            let reach = 14.0 / 26.0 * self.crosshair.max(0.001);
+            crosshair = rectangle([0.5 + x, 0.5 + y], [reach / scale_x, reach / scale_y]);
+        }
+        let mut damage = None;
+        if visible && self.damage_alpha > 0.0 {
+            let outer = 0.092 + 0.004 * self.damage_strength;
+            let aspect = self.inverse_height / self.inverse_width;
+            if !(aspect > 0.0 && outer.is_finite()) {
+                return None;
+            }
+            damage = rectangle([0.5, 0.5], [outer / aspect, outer]);
+        }
+        // A HUD draw runs the entire shader, so overlapping scissors would blend
+        // the crosshair twice while taking damage. Draw their union once instead.
+        if let (Some(a), Some(b)) = (crosshair, damage)
+            && a[0] < b[0] + b[2]
+            && b[0] < a[0] + a[2]
+            && a[1] < b[1] + b[3]
+            && b[1] < a[1] + a[3]
+        {
+            let left = a[0].min(b[0]);
+            let top = a[1].min(b[1]);
+            crosshair = Some([
+                left,
+                top,
+                (a[0] + a[2]).max(b[0] + b[2]) - left,
+                (a[1] + a[3]).max(b[1] + b[3]) - top,
+            ]);
+            damage = None;
+        }
+        Some([crosshair, damage])
+    }
+}

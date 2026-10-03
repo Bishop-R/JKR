@@ -4,7 +4,7 @@ use super::*;
 /// Create one map and pipelines at installation, with no changes to shared colour pipelines.
 pub(super) fn new(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     forge: &Forge,
     sun: jkr_shader::SunParms,
     mut settings: settings::Settings,
@@ -98,10 +98,11 @@ pub(super) fn new(
         .enabled
         .then(|| super::light_buffer::LightBuffer::new(device, scene, light_divisor));
     let receiver_layout = super::super::model_sun::receiver_layout(device);
-    let pass_binding = light.as_ref().map_or(
-        super::light_buffer::Binding::Absent,
-        super::light_buffer::Binding::Pass,
-    );
+    let pass_binding = light
+        .as_ref()
+        .map_or(super::light_buffer::Binding::Absent, |light| {
+            super::light_buffer::Binding::Pass(light.main_images())
+        });
     let pass_layout = super::super::model_sun::receiver_layout_with(device, pass_binding.layout());
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         compare: Some(wgpu::CompareFunction::LessEqual),
@@ -138,10 +139,11 @@ pub(super) fn new(
         &receiver_entries,
         probes.as_ref(),
         &sampler,
-        light.as_ref().map_or(
-            super::light_buffer::Binding::Neutral,
-            super::light_buffer::Binding::Buffer,
-        ),
+        light
+            .as_ref()
+            .map_or(super::light_buffer::Binding::Neutral, |light| {
+                super::light_buffer::Binding::Buffer(light.main_images())
+            }),
         &lamps,
         lamp_shadows.as_ref(),
         &forge.point_lights,
@@ -343,6 +345,7 @@ pub(super) fn new(
         receiver_buffer,
         receiver,
         light_group,
+        mirror_groups: None,
         sun_group,
         light,
         light_pipelines,
@@ -421,10 +424,11 @@ impl Runtime {
     pub(super) fn build_receiver(&self, device: &wgpu::Device) -> wgpu::BindGroup {
         self.build_group(
             device,
-            self.light.as_ref().map_or(
-                super::light_buffer::Binding::Neutral,
-                super::light_buffer::Binding::Buffer,
-            ),
+            self.light
+                .as_ref()
+                .map_or(super::light_buffer::Binding::Neutral, |light| {
+                    super::light_buffer::Binding::Buffer(light.main_images())
+                }),
         )
     }
 
@@ -432,11 +436,22 @@ impl Runtime {
     pub(super) fn build_light_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
         self.build_group(
             device,
-            self.light.as_ref().map_or(
-                super::light_buffer::Binding::Absent,
-                super::light_buffer::Binding::Pass,
-            ),
+            self.light
+                .as_ref()
+                .map_or(super::light_buffer::Binding::Absent, |light| {
+                    super::light_buffer::Binding::Pass(light.main_images())
+                }),
         )
+    }
+
+    /// The material receiver and light pass groups over the mirror images, when the
+    /// light buffer has them.
+    pub(super) fn build_mirror_groups(&self, device: &wgpu::Device) -> Option<MirrorGroups> {
+        let images = self.light.as_ref()?.mirror_images()?;
+        Some(MirrorGroups {
+            receiver: self.build_group(device, super::light_buffer::Binding::Buffer(images)),
+            light: self.build_group(device, super::light_buffer::Binding::Pass(images)),
+        })
     }
 
     fn build_group(
