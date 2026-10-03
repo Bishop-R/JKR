@@ -1,4 +1,4 @@
-//! Finish a frame's command encoders on worker threads.
+//! Finish and submit a frame's command encoders off the render thread.
 //!
 //! wgpu-core defers validation and backend encoding of every pass to
 //! `CommandEncoder::finish`, so a single frame encoder serializes all of that work on
@@ -7,11 +7,20 @@
 //! Command buffers are submitted in recording order in one `Queue::submit`, so the GPU
 //! executes exactly the command stream a single encoder would have produced.
 //!
+//! The submission itself runs on a submit thread: it waits for the frame's cuts,
+//! finishes the last encoder, applies the frame's recorded uploads (see `frame_queue`),
+//! submits and presents, while the render thread already records the next frame. Two
+//! frame batches alternate between the threads, so the render thread is never more
+//! than one frame ahead and a frame's swapchain image is presented before the next one
+//! is acquired.
+//!
 //! `JKR_FRAME_SPLIT=0` keeps the single encoder; any other number sets the worker count.
-//! Hand-off uses bounded channels allocated once: a cut neither allocates nor takes a lock
-//! on the render thread. Idle workers share one queue, so the next cut always goes to a
-//! free worker instead of waiting behind a long one.
-use std::cell::{Cell, RefCell};
+//! `JKR_SUBMIT_THREAD=0` submits on the render thread instead. Hand-off uses bounded
+//! channels allocated once: a cut neither allocates nor takes a lock on the render
+//! thread. Idle workers share one queue, so the next cut always goes to a free worker
+//! instead of waiting behind a long one.
+use crate::frame_queue::{FrameQueue, Writes};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -84,27 +93,112 @@ fn work(jobs: &Mutex<Receiver<Job>>) {
     }
 }
 
-/// One renderer's frame cuts; owned by its frame pacer.
-pub(crate) struct Splitter {
-    workers: Option<&'static SyncSender<Job>>,
+/// One frame's cuts, last encoder, uploads and swapchain image; reused frame to frame.
+struct Batch {
     reply: SyncSender<Done>,
     done: Receiver<Done>,
-    sent: Cell<usize>,
-    ordered: RefCell<Vec<Option<wgpu::CommandBuffer>>>,
+    sent: usize,
+    ordered: Vec<Option<wgpu::CommandBuffer>>,
+    last: Option<wgpu::CommandEncoder>,
+    present: Option<wgpu::SurfaceTexture>,
+    writes: Writes,
 }
 
-impl Splitter {
+impl Batch {
     /// Reply storage is allocated here, outside the frame loop.
-    pub(crate) fn new() -> Self {
+    fn new() -> Self {
         let (reply, done) = sync_channel(CAPACITY);
         let mut ordered = Vec::with_capacity(MAX_CUTS + 1);
         ordered.resize_with(MAX_CUTS + 1, || None);
         Self {
-            workers: workers(),
             reply,
             done,
-            sent: Cell::new(0),
-            ordered: RefCell::new(ordered),
+            sent: 0,
+            ordered,
+            last: None,
+            present: None,
+            writes: Writes::default(),
+        }
+    }
+
+    /// Finish the last cut, gather earlier cuts in recording order, apply the frame's
+    /// uploads, submit once and present.
+    fn submit(&mut self, queue: &wgpu::Queue) {
+        let last = self.last.take().expect("frame encoder handed off").finish();
+        for _ in 0..std::mem::take(&mut self.sent) {
+            let (order, command) = self.done.recv().expect("frame encode worker stopped");
+            self.ordered[order] = Some(command.expect("frame encoder cut failed on its worker"));
+        }
+        self.writes.apply(queue);
+        queue.submit(
+            self.ordered
+                .iter_mut()
+                .filter_map(Option::take)
+                .chain(Some(last)),
+        );
+        if let Some(frame) = self.present.take() {
+            queue.present(frame);
+        }
+    }
+}
+
+/// The submit thread's ends of the hand-off.
+struct Submitter {
+    frames: SyncSender<Batch>,
+    returned: Receiver<Option<Batch>>,
+    in_flight: Cell<bool>,
+}
+
+impl Submitter {
+    /// `None` when `JKR_SUBMIT_THREAD=0` or the thread cannot start: submit inline.
+    fn start(queue: &FrameQueue) -> Option<Self> {
+        if std::env::var("JKR_SUBMIT_THREAD").is_ok_and(|value| value == "0") {
+            return None;
+        }
+        let (frames, take) = sync_channel::<Batch>(1);
+        let (give, returned) = sync_channel(2);
+        let queue = queue.clone();
+        std::thread::Builder::new()
+            .name("jkr-submit".into())
+            .spawn(move || {
+                for mut batch in take {
+                    let submitted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        batch.submit(queue.raw())
+                    }))
+                    .is_ok();
+                    queue.end_flight();
+                    if give.send(submitted.then_some(batch)).is_err() {
+                        return;
+                    }
+                }
+            })
+            .ok()?;
+        Some(Self {
+            frames,
+            returned,
+            in_flight: Cell::new(false),
+        })
+    }
+}
+
+/// One renderer's frame cuts and submissions; owned by its frame pacer.
+pub(crate) struct Splitter {
+    workers: Option<&'static SyncSender<Job>>,
+    /// The frame being recorded; empty only during a hand-off.
+    current: RefCell<Option<Batch>>,
+    /// A batch back from the submit thread, ready for the next frame.
+    spare: RefCell<Option<Batch>>,
+    submitter: OnceCell<Option<Submitter>>,
+}
+
+impl Splitter {
+    /// Batch storage is allocated here, outside the frame loop.
+    pub(crate) fn new() -> Self {
+        Self {
+            workers: workers(),
+            current: RefCell::new(Some(Batch::new())),
+            spare: RefCell::new(Some(Batch::new())),
+            submitter: OnceCell::new(),
         }
     }
 
@@ -113,7 +207,9 @@ impl Splitter {
         let Some(workers) = self.workers else {
             return;
         };
-        let order = self.sent.get();
+        let mut current = self.current.borrow_mut();
+        let batch = current.as_mut().expect("frame batch");
+        let order = batch.sent;
         if order >= MAX_CUTS {
             return;
         }
@@ -123,33 +219,70 @@ impl Splitter {
         let job = Job {
             order,
             encoder: std::mem::replace(encoder, next),
-            reply: self.reply.clone(),
+            reply: batch.reply.clone(),
         };
         workers.send(job).expect("frame encode worker stopped");
-        self.sent.set(order + 1);
+        batch.sent = order + 1;
     }
 
-    /// Finish the last cut here, gather earlier cuts in recording order, submit once.
+    /// Hand the frame (its last encoder, uploads and swapchain image) to the submit
+    /// thread, or submit it here when there is none.
     pub(crate) fn submit(
         &self,
-        queue: &wgpu::Queue,
+        queue: &FrameQueue,
         encoder: wgpu::CommandEncoder,
+        present: Option<wgpu::SurfaceTexture>,
         timing: &mut crate::frame_pacing::budget::Timer,
     ) {
-        let last = encoder.finish();
-        let sent = self.sent.replace(0);
-
-        let mut ordered = self.ordered.borrow_mut();
-        for _ in 0..sent {
-            let (order, command) = self.done.recv().expect("frame encode worker stopped");
-            ordered[order] = Some(command.expect("frame encoder cut failed on its worker"));
-        }
+        let submitter = self.submitter.get_or_init(|| Submitter::start(queue));
+        // At most one frame in flight: the previous one must be back first.
+        self.wait_previous();
         timing.mark(crate::frame_pacing::budget::Phase::QueueSubmit);
-        queue.submit(
-            ordered[..sent]
-                .iter_mut()
-                .filter_map(Option::take)
-                .chain(Some(last)),
-        );
+        let mut batch = self.current.borrow_mut().take().expect("frame batch");
+        batch.last = Some(encoder);
+        batch.present = present;
+        queue.take_writes(&mut batch.writes);
+        let Some(submitter) = submitter else {
+            batch.submit(queue.raw());
+            *self.current.borrow_mut() = Some(batch);
+            return;
+        };
+        queue.begin_flight();
+        submitter
+            .frames
+            .send(batch)
+            .expect("frame submit thread stopped");
+        submitter.in_flight.set(true);
+        let next = self.spare.borrow_mut().take().expect("spare frame batch");
+        *self.current.borrow_mut() = Some(next);
+    }
+
+    /// Wait until the frame handed off last has been submitted and presented. Call
+    /// before acquiring the next swapchain image and before work that must follow that
+    /// submission.
+    pub(crate) fn wait_previous(&self) {
+        let Some(Some(submitter)) = self.submitter.get() else {
+            return;
+        };
+        if !submitter.in_flight.replace(false) {
+            return;
+        }
+        let batch = submitter
+            .returned
+            .recv()
+            .expect("frame submit thread stopped")
+            .expect("frame submission failed on the submit thread");
+        *self.spare.borrow_mut() = Some(batch);
+    }
+}
+
+impl Drop for Splitter {
+    fn drop(&mut self) {
+        // A frame still in flight completes before the renderer's resources go away.
+        if let Some(Some(submitter)) = self.submitter.get()
+            && submitter.in_flight.get()
+        {
+            let _ = submitter.returned.recv();
+        }
     }
 }

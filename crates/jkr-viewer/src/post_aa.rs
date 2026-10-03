@@ -386,7 +386,7 @@ impl Runtime {
     }
 
     /// Slider changes upload 16 bytes, without rebuilding pipelines or textures.
-    pub(super) fn set_gamma(&mut self, queue: &wgpu::Queue, gamma: f32) {
+    pub(super) fn set_gamma(&mut self, queue: &crate::frame_queue::FrameQueue, gamma: f32) {
         self.policy.gamma = gamma;
         if let Some(display) = &mut self.display {
             display.set_gamma(queue, gamma);

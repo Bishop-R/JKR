@@ -47,7 +47,7 @@ impl Uniform {
         }
     }
 
-    pub(super) fn update(&self, queue: &wgpu::Queue, value: f32) {
+    pub(super) fn update(&self, queue: &crate::frame_queue::FrameQueue, value: f32) {
         if !value.is_finite() {
             return;
         }
