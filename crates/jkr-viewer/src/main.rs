@@ -28,6 +28,7 @@ mod config_string_refresh;
 mod connection;
 mod connection_commands;
 mod console;
+mod console_overlay;
 mod console_runtime;
 mod crosshair_scan;
 mod cut_trace;
@@ -1376,6 +1377,7 @@ impl GpuState {
             .write_buffer(&self.hud_buffer, 0, bytemuck::bytes_of(&hud_uniform));
         self.hud_scissors =
             hud_uniform.scissors(self.configuration.width, self.configuration.height);
+        let console_covers_frame = self.console_covers_frame();
         self.text_vertices.clear();
         self.classic_text_vertices.clear();
         let information_visible = (self.live_session.is_some() || self.demo_session.is_some())
@@ -1410,10 +1412,11 @@ impl GpuState {
                 .as_ref()
                 .and_then(|c| c.bool_cvar("cg_drawScores"))
                 .unwrap_or(true);
-        let chat_visible = scoreboard::chat_visible(
-            information_visible,
-            self.chat.wants_history(self.console.as_ref()),
-        );
+        let chat_visible = !self.console_covers_frame()
+            && scoreboard::chat_visible(
+                information_visible,
+                self.chat.wants_history(self.console.as_ref()),
+            );
         if chat_visible {
             self.append_configured_chat(viewport, text_scale, scoreboard_visible);
         }
@@ -1436,7 +1439,7 @@ impl GpuState {
                 viewport,
             );
         }
-        if self.game_menu {
+        if self.game_menu && !self.console_covers_frame() {
             let team_sizes = self.live_session.as_ref().map_or([0, 0], |session| {
                 ingame_menu::team_sizes(session.game_state())
             });
@@ -1462,29 +1465,20 @@ impl GpuState {
         if scoreboard_visible {
             scoreboard::append_overlay(self, viewport, text_scale * 1.05);
         }
-        if let Some(menu) = &mut self.client_menu {
+        if let Some(menu) = self.client_menu.as_mut().filter(|_| !console_covers_frame) {
             menu.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
         }
-        if let Some(console) = &mut self.console {
-            console.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
-        }
-        if hud::family::fps(self.console.as_ref()) {
-            append_text(
-                &mut self.text_vertices,
-                &self.ui_font,
-                self.frame_pacer.label(),
-                [(viewport[0] - 780.0).max(8.0), 18.0],
-                text_scale * 0.8,
-                viewport,
-            );
-        }
+        self.append_console_overlay(viewport, text_scale);
         let layers = [
             information_visible.then(|| &self.hud.identification.list),
             information_visible.then(|| self.hud.draw_list()),
             chat_visible.then(|| self.chat.draw_list()),
             scoreboard_visible.then(|| self.scoreboard.draw_list()),
-            self.game_menu.then(|| self.in_game_menu.draw_list()),
-            self.client_menu.as_ref().and_then(|menu| menu.draw_list()),
+            (self.game_menu && !console_covers_frame).then(|| self.in_game_menu.draw_list()),
+            self.client_menu
+                .as_ref()
+                .filter(|_| !console_covers_frame)
+                .and_then(|menu| menu.draw_list()),
             self.console.as_ref().map(|console| console.draw_list()),
         ];
         self.ui_shapes

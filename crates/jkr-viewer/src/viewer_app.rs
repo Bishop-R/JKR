@@ -135,6 +135,7 @@ impl ApplicationHandler for ViewerApplication {
             WindowEvent::ModifiersChanged(modifiers) => {
                 if let Some(console) = gpu.console.as_mut() {
                     console.set_shift(modifiers.state().shift_key());
+                    console.set_control(modifiers.state().control_key());
                     console.window_alt(modifiers.state().alt_key());
                 }
             }
