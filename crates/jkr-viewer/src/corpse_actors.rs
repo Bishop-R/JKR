@@ -5,7 +5,7 @@ use jkr_client::BaseServerCommandEvent;
 
 impl GpuState {
     /// Process copies once per death, never by allocating in the entity loop.
-    pub(crate) fn apply_body_commands(&mut self) {
+    pub(crate) fn apply_body_commands(&mut self, presentation_time: i64) {
         if self.clientinfo_watch.body_commands.is_empty() {
             return;
         }
@@ -13,7 +13,7 @@ impl GpuState {
         for command in commands.drain(..) {
             match command {
                 BaseServerCommandEvent::CopyBody(body) => {
-                    if let Err(error) = self.copy_body_actor(body) {
+                    if let Err(error) = self.copy_body_actor(body, presentation_time) {
                         crate::log::progress(format_args!("body copy failed: {error}"));
                     }
                 }
@@ -23,7 +23,7 @@ impl GpuState {
                         if mesh.corpse_pool && mesh.entity_id == Some(id) {
                             mesh.entity_id = None;
                             mesh.body_identity = None;
-                            mesh.body_clock = None;
+                            mesh.body_copied = false;
                         }
                     }
                 }
@@ -33,13 +33,15 @@ impl GpuState {
         self.clientinfo_watch.body_commands = commands;
     }
 
-    fn copy_body_actor(&mut self, body: jkr_client::BodyIdentity) -> Result<(), Box<dyn Error>> {
+    fn copy_body_actor(
+        &mut self,
+        body: jkr_client::BodyIdentity,
+        time: i64,
+    ) -> Result<(), Box<dyn Error>> {
         let id = EntityId::new(u64::from(body.entity_num) + 1);
         for name in body.sabers.iter().flatten() {
             self.load_hilt(name)?;
         }
-        // The dying client's death clock, read before anything else touches the world.
-        let clock = self.body_source_clock(body.client_num);
         // Reuse only storage with the same appearance. Each active body needs
         // its own vertex ranges; sharing the live mesh overwrites its pose.
         let reusable = self.actor_meshes.iter().position(|mesh| {
@@ -54,9 +56,17 @@ impl GpuState {
             let mesh = &mut self.actor_meshes[index];
             mesh.entity_id = Some(id);
             mesh.saber_names = body.sabers.clone();
+            let client_num = body.client_num;
             mesh.body_identity = Some(body);
-            mesh.body_clock = clock;
-            mesh.animator = crate::actor_pose::storage(&mesh.preview.animation)?;
+            let animation = mesh.preview.animation.clone();
+            let config = mesh.preview.config.clone();
+            let copied = self.body_queue_animator(client_num, &animation, &config, time)?;
+            let mesh = &mut self.actor_meshes[index];
+            mesh.body_copied = copied.is_some();
+            mesh.animator = match copied {
+                Some(animator) => animator,
+                None => crate::actor_pose::storage(&mesh.preview.animation)?,
+            };
             return Ok(());
         }
         let preview = self
@@ -70,8 +80,16 @@ impl GpuState {
             self.build_live_actor(&body.appearance, id, body.sabers.clone())?
         };
         mesh.corpse_pool = true;
+        if let Some(animator) = self.body_queue_animator(
+            body.client_num,
+            &mesh.preview.animation,
+            &mesh.preview.config,
+            time,
+        )? {
+            mesh.animator = animator;
+            mesh.body_copied = true;
+        }
         mesh.body_identity = Some(body);
-        mesh.body_clock = clock;
         self.release_body_slot(id);
         self.actor_meshes.push(mesh);
         self.actor_groups.push(Vec::with_capacity(4));
@@ -89,19 +107,42 @@ impl GpuState {
             if old.corpse_pool && old.entity_id == Some(id) {
                 old.entity_id = None;
                 old.body_identity = None;
-                old.body_clock = None;
+                old.body_copied = false;
             }
         }
     }
 
-    /// The death clock of client `client_num` as presented now (`ci->frame` in
-    /// `CG_BodyQueueCopy`), `None` when it is not in view or not dying.
-    fn body_source_clock(&self, client_num: u8) -> Option<jkr_runtime::AnimationTrackState> {
-        let world = self
-            .demo_session
-            .as_ref()
-            .map_or(&self.live_world, crate::demo_playback::Session::world);
-        let source = world.entity(EntityId::new(u64::from(client_num) + 1))?;
-        jkr_client::legacy_body_clock(source.animation()?)
+    /// `CG_BodyQueueCopy`'s Ghoul2 copy: client `client_num`'s animator as last
+    /// presented, duplicated with the body animation installed at `time`. `None` when
+    /// the client was never presented here or its skeleton differs from the body's;
+    /// the body then holds its completed pose.
+    fn body_queue_animator(
+        &self,
+        client_num: u8,
+        animation: &jkr_model::Gla,
+        config: &jkr_model::AnimationConfig,
+        time: i64,
+    ) -> Result<Option<crate::actor_pose::evaluation::Slot>, Box<dyn Error>> {
+        let source_id = EntityId::new(u64::from(client_num) + 1);
+        let Some(source) = self
+            .actor_meshes
+            .iter()
+            .find(|mesh| !mesh.corpse_pool && mesh.entity_id == Some(source_id))
+        else {
+            return Ok(None);
+        };
+        if source.preview.animation.bones.len() != animation.bones.len() {
+            return Ok(None);
+        }
+        let Some((clip, frame)) = source.animator.presented_torso(&source.preview.animation) else {
+            return Ok(None);
+        };
+        let Some(command) = jkr_client::legacy_body_queue_command(config, clip, frame, time) else {
+            return Ok(None);
+        };
+        let animator = source.animator.body_queue_copy(animation, command)?;
+        Ok(Some(crate::actor_pose::evaluation::Slot::from_animator(
+            animator,
+        )))
     }
 }

@@ -48,7 +48,7 @@ mod permanent_entities;
 mod player_angle_rules;
 mod player_angles;
 mod player_identity;
-pub use body_animation::{legacy_body_animation, legacy_body_clock, legacy_body_frame};
+pub use body_animation::{legacy_body_frame, legacy_body_queue_command};
 pub use client_info::LegacyClientInfo;
 mod player_profile;
 pub use jkr_game_jka::pmove;
