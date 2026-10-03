@@ -68,7 +68,7 @@ impl Settings {
     pub(crate) fn upload(
         &self,
         world: &crate::world_materials::Runtime,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         lights: &mut super::PointLightList,
     ) {
         self.apply(lights);

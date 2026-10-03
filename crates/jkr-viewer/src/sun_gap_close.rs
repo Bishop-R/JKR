@@ -120,7 +120,7 @@ impl Runtime {
     pub(super) fn apply(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         encoder: &mut wgpu::CommandEncoder,
         depth: &wgpu::TextureView,
         texel: f32,

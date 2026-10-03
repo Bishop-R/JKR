@@ -21,7 +21,7 @@ pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
 /// Build all requested shader tiles into the effect texture atlas.
 pub(crate) fn create(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     layout: &wgpu::BindGroupLayout,
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,
