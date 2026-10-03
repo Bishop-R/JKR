@@ -17,6 +17,21 @@ pub(in crate::world_materials) struct LightBuffer {
     pub(super) scene: [u32; 2],
     pub(super) divisor: u32,
     size: [u32; 2],
+    /// The main view's images.
+    main: Images,
+    /// The images mirrors are lit into while floor reflections are enabled, so the main
+    /// view's light stays intact around them (`preserve`).
+    mirror: Option<Images>,
+    /// A mirror is being lit or drawn: `mirror` holds the active images.
+    mirroring: std::cell::Cell<bool>,
+    /// The occlusion term, filtered, with the scene-to-texel scale: what the SSAO
+    /// receivers pass samples in day mode instead of its own obscurance.
+    pub(in crate::world_materials) sample_group: wgpu::BindGroup,
+    receivers: receivers::Targets,
+}
+
+/// One set of light-buffer images: the main view's, or the set mirrors are lit into.
+pub(in crate::world_materials) struct Images {
     pub(super) color: wgpu::TextureView,
     pub(super) depth: wgpu::TextureView,
     /// Pre-pass normals and the occlusion term computed from them.
@@ -24,11 +39,72 @@ pub(in crate::world_materials) struct LightBuffer {
     occlusion: wgpu::TextureView,
     /// Occlusion pass group: depth and normals in, occlusion out.
     occlusion_group: wgpu::BindGroup,
-    /// The occlusion term, filtered, with the scene-to-texel scale: what the SSAO
-    /// receivers pass samples in day mode instead of its own obscurance.
-    pub(in crate::world_materials) sample_group: wgpu::BindGroup,
-    saved: Option<preserve::Saved>,
-    receivers: receivers::Targets,
+}
+
+impl Images {
+    fn new(device: &wgpu::Device, size: [u32; 2]) -> Self {
+        let (color, depth) = targets(device, size);
+        let normal = target(
+            device,
+            size,
+            "JKR light buffer normals",
+            NORMAL_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
+        let occlusion = target(
+            device,
+            size,
+            "JKR light buffer occlusion",
+            OCCLUSION_FORMAT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        );
+        let occlusion_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("JKR light occlusion"),
+            layout: &occlusion_layout(device),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&depth),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&normal),
+                },
+            ],
+        });
+        Self {
+            color,
+            depth,
+            normal,
+            occlusion,
+            occlusion_group,
+        }
+    }
+
+    /// Bind group entries at `base` for `layout` (see `layout_entries`).
+    pub(in crate::world_materials) fn entries(
+        &self,
+        base: u32,
+        layout: Layout,
+    ) -> Vec<wgpu::BindGroupEntry<'_>> {
+        let entry = |binding, view| wgpu::BindGroupEntry {
+            binding: base + binding,
+            resource: wgpu::BindingResource::TextureView(view),
+        };
+        match layout {
+            Layout::Absent => Vec::new(),
+            Layout::Pass => vec![
+                entry(1, &self.depth),
+                entry(2, &self.occlusion),
+                entry(3, &self.normal),
+            ],
+            Layout::Full => vec![
+                entry(0, &self.color),
+                entry(1, &self.depth),
+                entry(3, &self.normal),
+            ],
+        }
+    }
 }
 
 /// Layout of `LightBuffer::sample_group`.
@@ -67,10 +143,10 @@ pub(in crate::world_materials) enum Binding<'a> {
     Absent,
     /// The light pass's own group: it writes the colour, so it binds only the pre-pass
     /// depth, normals and the occlusion term.
-    Pass(&'a LightBuffer),
+    Pass(&'a Images),
     /// Stand-ins for the neutral model group and the baked mode.
     Neutral,
-    Buffer(&'a LightBuffer),
+    Buffer(&'a Images),
 }
 
 /// Which light-buffer bindings a receiver layout declares.
@@ -186,7 +262,13 @@ fn target(
 fn targets(device: &wgpu::Device, size: [u32; 2]) -> (wgpu::TextureView, wgpu::TextureView) {
     let attachment = wgpu::TextureUsages::RENDER_ATTACHMENT;
     (
-        target(device, size, "JKR light buffer", FORMAT, attachment),
+        target(
+            device,
+            size,
+            "JKR light buffer",
+            FORMAT,
+            attachment | wgpu::TextureUsages::STORAGE_BINDING,
+        ),
         target(
             device,
             size,
@@ -222,35 +304,7 @@ impl LightBuffer {
             scene[0].div_ceil(divisor).max(1),
             scene[1].div_ceil(divisor).max(1),
         ];
-        let (color, depth) = targets(device, size);
-        let normal = target(
-            device,
-            size,
-            "JKR light buffer normals",
-            NORMAL_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-        );
-        let occlusion = target(
-            device,
-            size,
-            "JKR light buffer occlusion",
-            OCCLUSION_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-        );
-        let occlusion_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("JKR light occlusion"),
-            layout: &occlusion_layout(device),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&depth),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&normal),
-                },
-            ],
-        });
+        let main = Images::new(device, size);
         let scale = [
             size[0] as f32 / scene[0].max(1) as f32,
             size[1] as f32 / scene[1].max(1) as f32,
@@ -278,7 +332,7 @@ impl LightBuffer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&occlusion),
+                    resource: wgpu::BindingResource::TextureView(&main.occlusion),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -290,25 +344,51 @@ impl LightBuffer {
                 },
             ],
         });
-        let receivers = receivers::Targets::new(device, size, &color);
+        let receivers = receivers::Targets::new(device, size, &main.color);
         Self {
             scene,
             divisor,
             size,
-            color,
-            depth,
-            normal,
-            occlusion,
-            occlusion_group,
+            main,
+            mirror: None,
+            mirroring: std::cell::Cell::new(false),
             sample_group,
-            saved: None,
             receivers,
         }
+    }
+
+    /// The images passes draw into and materials read: the mirror set while a mirror is
+    /// lit or drawn, otherwise the main view's.
+    pub(in crate::world_materials) fn images(&self) -> &Images {
+        match &self.mirror {
+            Some(mirror) if self.mirroring.get() => mirror,
+            _ => &self.main,
+        }
+    }
+
+    /// The main view's images.
+    pub(in crate::world_materials) fn main_images(&self) -> &Images {
+        &self.main
+    }
+
+    /// The mirror images, while floor reflections are enabled.
+    pub(in crate::world_materials) fn mirror_images(&self) -> Option<&Images> {
+        self.mirror.as_ref()
+    }
+
+    /// The mirror set is the active one.
+    pub(in crate::world_materials) fn mirror_active(&self) -> bool {
+        self.mirroring.get() && self.mirror.is_some()
     }
 
     /// The receivers' lamp cache coordinate target, when the device can attach it.
     pub(in crate::world_materials) fn receiver_cache(&self) -> Option<&wgpu::TextureView> {
         self.receivers.cache.as_ref()
+    }
+
+    /// The list of receivers the lamp cache cannot serve, beside the coordinate target.
+    pub(in crate::world_materials) fn direct_list(&self) -> Option<&wgpu::Buffer> {
+        self.receivers.direct.as_ref().map(|direct| &direct.list)
     }
 
     /// Scale from full-resolution pixel coordinates to buffer texel coordinates.
@@ -317,31 +397,6 @@ impl LightBuffer {
             self.size[0] as f32 / self.scene[0].max(1) as f32,
             self.size[1] as f32 / self.scene[1].max(1) as f32,
         ]
-    }
-
-    /// Bind group entries at `base` for `layout` (see `layout_entries`).
-    pub(in crate::world_materials) fn entries(
-        &self,
-        base: u32,
-        layout: Layout,
-    ) -> Vec<wgpu::BindGroupEntry<'_>> {
-        let entry = |binding, view| wgpu::BindGroupEntry {
-            binding: base + binding,
-            resource: wgpu::BindingResource::TextureView(view),
-        };
-        match layout {
-            Layout::Absent => Vec::new(),
-            Layout::Pass => vec![
-                entry(1, &self.depth),
-                entry(2, &self.occlusion),
-                entry(3, &self.normal),
-            ],
-            Layout::Full => vec![
-                entry(0, &self.color),
-                entry(1, &self.depth),
-                entry(3, &self.normal),
-            ],
-        }
     }
 }
 
@@ -599,9 +654,10 @@ impl super::super::Runtime {
         let (Some(buffer), Some(pipelines)) = (&shadow.light, &shadow.light_pipelines) else {
             return;
         };
+        let images = buffer.images();
         let depth = |ops| {
             Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &buffer.depth,
+                view: &images.depth,
                 depth_ops: ops,
                 stencil_ops: None,
             })
@@ -610,7 +666,7 @@ impl super::super::Runtime {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("JKR light pre-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &buffer.normal,
+                    view: &images.normal,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
@@ -649,11 +705,13 @@ impl super::super::Runtime {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("JKR light occlusion"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &buffer.occlusion,
+                    view: &images.occlusion,
                     resolve_target: None,
                     depth_slice: None,
+                    // Not cleared: the pass writes every texel of its scissor, and a
+                    // cropped mirror pass is read only inside that crop.
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -681,7 +739,7 @@ impl super::super::Runtime {
             }
             pass.set_pipeline(&pipelines.occlusion);
             pass.set_bind_group(0, input.camera, &[]);
-            pass.set_bind_group(1, &buffer.occlusion_group, &[]);
+            pass.set_bind_group(1, &images.occlusion_group, &[]);
             pass.draw(0..3, 0..1);
         }
         if let Some(phases) = phases {
