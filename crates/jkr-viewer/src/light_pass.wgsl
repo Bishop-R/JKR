@@ -1,3 +1,4 @@
+@group(1) @binding(7) var shadow_bounds: texture_2d_array<f32>;
 // Half-resolution light pass over the opaque world: a depth pre-pass, then the real-time
 // light (sun cascades plus probe gather) once per texel of the nearest surface only. The
 // stage shader upsamples the result (`sun_realtime_buffer.wgsl`). Group 1 is the shared

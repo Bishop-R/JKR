@@ -57,6 +57,8 @@ pub(crate) struct Draw {
     /// Drawn with the stage's forced-alpha pipeline after all other blends.
     pub(crate) forced_alpha: bool,
     distance_squared: f32,
+    /// Opaque, depth-tested and backed by a registered material.
+    pub(crate) stage_major: bool,
 }
 
 /// How one mesh's surfaces are submitted.
@@ -148,14 +150,12 @@ impl Queue {
             );
         }
         self.opaque.sort_unstable_by(|left, right| {
-            runtime
-                .material_sort(left.material)
-                .total_cmp(&runtime.material_sort(right.material))
-                .then(
-                    runtime
-                        .entity_pipeline_index(left.material)
-                        .cmp(&runtime.entity_pipeline_index(right.material)),
-                )
+            let left_order = runtime.material_order(left.material);
+            let right_order = runtime.material_order(right.material);
+            left_order
+                .0
+                .total_cmp(&right_order.0)
+                .then(left_order.1.cmp(&right_order.1))
                 .then(left.material.cmp(&right.material))
         });
         self.blended.sort_unstable_by(|left, right| {
@@ -163,8 +163,9 @@ impl Queue {
                 .cmp(&right.forced_alpha)
                 .then(
                     runtime
-                        .material_sort(left.material)
-                        .total_cmp(&runtime.material_sort(right.material)),
+                        .material_order(left.material)
+                        .0
+                        .total_cmp(&runtime.material_order(right.material).0),
                 )
                 .then(right.distance_squared.total_cmp(&left.distance_squared))
                 .then(left.material.cmp(&right.material))
@@ -190,7 +191,9 @@ impl Queue {
         } = submission;
         for surface in draws {
             let material = override_material.unwrap_or(surface.material);
-            if forced_alpha || runtime.material_blended(material) {
+            let blended = runtime.material_blended(material);
+            let stage_major = !no_depth && !forced_alpha && blended == Some(false);
+            if forced_alpha || blended == Some(true) {
                 for instance in instances_range.clone() {
                     let Some(value) = instances.get(instance as usize) else {
                         continue;
@@ -202,6 +205,7 @@ impl Queue {
                             instances: instance..instance + 1,
                             no_depth,
                             forced_alpha,
+                            stage_major,
                             distance_squared: Vec3::from_array(value.position)
                                 .distance_squared(camera),
                         },
@@ -216,6 +220,7 @@ impl Queue {
                         instances: instances_range.clone(),
                         no_depth,
                         forced_alpha: false,
+                        stage_major,
                         distance_squared: 0.0,
                     },
                     false,
