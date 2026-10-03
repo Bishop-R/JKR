@@ -239,6 +239,8 @@ struct GpuState {
     hud_pipeline: wgpu::RenderPipeline,
     ui_shapes: ShapeRenderer,
     text_pipeline: wgpu::RenderPipeline,
+    /// Text pipeline for the retail fonts' distance-field atlases.
+    sdf_text_pipeline: wgpu::RenderPipeline,
     saber_gpu: saber_gpu::Runtime,
     geometry: SharedGeometry,
     entity_instance_buffer: wgpu::Buffer,
@@ -301,6 +303,8 @@ struct GpuState {
     text_layout: wgpu::BindGroupLayout,
     text_sampler: wgpu::Sampler,
     classic_text_bind_group: Option<wgpu::BindGroup>,
+    /// The classic HUD atlas is a distance field (see `text::sdf::for_atlas`).
+    classic_text_sdf: bool,
     ui_font: UiFont,
     classic_hud_font: Option<UiFont>,
     game_fonts: game_font::GameFonts,
@@ -731,16 +735,18 @@ impl GpuState {
             ],
         });
         let classic_atlas = text::load_classic(&vfs).ok();
+        let classic_text_sdf = classic_atlas
+            .as_ref()
+            .is_some_and(|atlas| atlas.distance_field);
         let (classic_hud_font, classic_text_bind_group) =
             classic_atlas.map_or((None, None), |atlas| {
-                let view = create_rgba8_texture(
+                let view = gpu_texture::create_rgba8_texture_mipmapped(
                     &device,
                     &queue,
                     "JKR classic HUD font atlas",
-                    atlas.image.width(),
-                    atlas.image.height(),
-                    atlas.image.as_raw(),
+                    &atlas.image,
                     true,
+                    game_font::mip_levels(atlas.image.width(), atlas.image.height()),
                 );
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("JKR classic HUD text bind group"),
@@ -887,37 +893,44 @@ impl GpuState {
             bind_group_layouts: &[Some(&text_layout)],
             immediate_size: 0,
         });
-        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("JKR text pipeline"),
-            layout: Some(&text_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &text_shader,
-                entry_point: Some("vertex_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Some(TextVertex::layout())],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &text_shader,
-                entry_point: Some("fragment_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DepthTarget::FORMAT,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        // Inter's coverage atlas and the retail fonts' distance fields share one
+        // layout and vertex format; only the fragment entry differs.
+        let create_text_pipeline = |label, fragment_entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&text_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &text_shader,
+                    entry_point: Some("vertex_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[Some(TextVertex::layout())],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &text_shader,
+                    entry_point: Some(fragment_entry),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DepthTarget::FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let text_pipeline = create_text_pipeline("JKR text pipeline", "fragment_main");
+        let sdf_text_pipeline =
+            create_text_pipeline("JKR distance-field text pipeline", "fragment_sdf");
         let text_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("JKR dynamic text vertices"),
             size: (MAX_TEXT_VERTICES * std::mem::size_of::<TextVertex>()) as u64,
@@ -997,6 +1010,7 @@ impl GpuState {
             hud_pipeline,
             ui_shapes,
             text_pipeline,
+            sdf_text_pipeline,
             saber_gpu,
             geometry,
             entity_instance_buffer,
@@ -1058,6 +1072,7 @@ impl GpuState {
             text_layout,
             text_sampler,
             classic_text_bind_group,
+            classic_text_sdf,
             ui_font,
             classic_hud_font,
             game_fonts,

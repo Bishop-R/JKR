@@ -8,6 +8,7 @@
 
 mod bounded;
 pub(crate) mod fontdat;
+pub(crate) mod sdf;
 pub(crate) use bounded::append_bounded;
 
 use bytemuck::{Pod, Zeroable};
@@ -88,6 +89,8 @@ impl UiFont {
 pub(crate) struct FontAtlas {
     pub(crate) font: UiFont,
     pub(crate) image: RgbaImage,
+    /// `image` is a signed distance field for the distance-field text pipeline.
+    pub(crate) distance_field: bool,
 }
 
 /// Vertex consumed by `text.wgsl`.
@@ -197,6 +200,7 @@ pub(crate) fn load_modern(dpi_scale: f64) -> Result<FontAtlas, Box<dyn Error>> {
             modern: true,
         },
         image,
+        distance_field: false,
     })
 }
 
@@ -220,14 +224,17 @@ fn pack_glyphs(glyphs: &[RasterizedGlyph]) -> Vec<[u32; 2]> {
     positions
 }
 
-/// Load Raven's retail bitmap font as an optional classic-HUD atlas.
+/// Load Raven's retail bitmap font as an optional classic-HUD atlas, converted to
+/// a signed distance field unless it is a large HD replacement ([`sdf::for_atlas`]).
 pub(crate) fn load_classic(vfs: &VirtualFileSystem) -> Result<FontAtlas, Box<dyn Error>> {
     let (fontdat, image) = fontdat::read(vfs, "arialnb")?;
+    let (image, distance_field) = sdf::for_atlas(image);
     // arialnb's header leaves mHeight empty; its baseline sits on the line bottom.
     let height = fontdat.height.max(fontdat.point_size);
     Ok(FontAtlas {
         font: fontdat.into_font(height, height),
         image,
+        distance_field,
     })
 }
 

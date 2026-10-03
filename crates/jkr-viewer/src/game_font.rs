@@ -8,6 +8,10 @@
 //! `FONT_SMALL`), for chat. The fonts come from the mounted game data, so an
 //! HD replacement atlas in a later PK3 is used automatically; nothing is
 //! bundled. A font that is missing or unreadable leaves its surface on Inter.
+//! Retail-size atlases are uploaded as signed distance fields ([`text::sdf`])
+//! and drawn with the text pipeline's distance-field fragment, so magnified
+//! text keeps sharp edges instead of the bitmap's bilinear blur; large HD
+//! atlases are drawn from their own coverage.
 //!
 //! The fonts load the first time the option is on and stay resident for the
 //! world. A world installed while the option is on loads them on its install
@@ -37,6 +41,8 @@ struct Layer {
     vertices: Vec<TextVertex>,
     buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// The atlas was uploaded as a distance field.
+    distance_field: bool,
     count: u32,
 }
 
@@ -60,18 +66,28 @@ impl Layer {
                 return None;
             }
         };
-        crate::log::progress(format_args!(
-            "game font {name}: {}x{} atlas",
-            image.width(),
-            image.height()
-        ));
+        let started = std::time::Instant::now();
+        let (width, height) = image.dimensions();
+        let (field, distance_field) = text::sdf::for_atlas(image);
+        if distance_field {
+            crate::log::progress(format_args!(
+                "game font {name}: {width}x{height} atlas, {}x{} distance field in {:.1} ms",
+                field.width(),
+                field.height(),
+                started.elapsed().as_secs_f64() * 1_000.0
+            ));
+        } else {
+            crate::log::progress(format_args!(
+                "game font {name}: {width}x{height} HD atlas, drawn from coverage"
+            ));
+        }
         let view = gpu_texture::create_rgba8_texture_mipmapped(
             gpu.device,
             gpu.queue,
             "JKR game font atlas",
-            &image,
+            &field,
             true,
-            mip_levels(image.width(), image.height()),
+            mip_levels(field.width(), field.height()),
         );
         let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("JKR game font bind group"),
@@ -98,14 +114,16 @@ impl Layer {
             vertices: Vec::with_capacity(4_096),
             buffer,
             bind_group,
+            distance_field,
             count: 0,
         })
     }
 }
 
-/// Mip levels for an atlas of `width` x `height`: one per halving down to the
-/// retail atlas size, so HD atlases minify cleanly to UI text sizes.
-fn mip_levels(width: u32, height: u32) -> u32 {
+/// Mip levels for an atlas or its distance field of `width` x `height`: one per
+/// halving down to the retail atlas size, so HD atlases minify cleanly to UI
+/// text sizes.
+pub(crate) fn mip_levels(width: u32, height: u32) -> u32 {
     1 + (width.max(height) / RETAIL_ATLAS_SIZE).max(1).ilog2()
 }
 
@@ -167,11 +185,21 @@ impl GameFonts {
         }
     }
 
-    /// Draw the uploaded text with the shared text `pipeline`.
-    pub(crate) fn draw(&self, pass: &mut wgpu::RenderPass<'_>, pipeline: &wgpu::RenderPipeline) {
+    /// Draw the uploaded text: distance-field atlases with `sdf_pipeline`, HD
+    /// coverage atlases with the plain text `pipeline`.
+    pub(crate) fn draw(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        pipeline: &wgpu::RenderPipeline,
+        sdf_pipeline: &wgpu::RenderPipeline,
+    ) {
         for layer in self.menu.iter().chain(self.chat.iter()) {
             if layer.count != 0 {
-                pass.set_pipeline(pipeline);
+                pass.set_pipeline(if layer.distance_field {
+                    sdf_pipeline
+                } else {
+                    pipeline
+                });
                 pass.set_bind_group(0, &layer.bind_group, &[]);
                 pass.set_vertex_buffer(0, layer.buffer.slice(..));
                 pass.draw(0..layer.count, 0..1);

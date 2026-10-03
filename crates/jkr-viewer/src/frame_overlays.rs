@@ -142,7 +142,8 @@ impl GpuState {
         }
         // Menu and chat game fonts sit under the Inter console and HUD text,
         // as they did when every surface shared one buffer.
-        self.game_fonts.draw(&mut pass, &self.text_pipeline);
+        self.game_fonts
+            .draw(&mut pass, &self.text_pipeline, &self.sdf_text_pipeline);
         if text != 0 {
             pass.set_pipeline(&self.text_pipeline);
             pass.set_bind_group(0, &self.text_bind_group, &[]);
@@ -152,7 +153,11 @@ impl GpuState {
         if classic_text != 0
             && let Some(group) = &self.classic_text_bind_group
         {
-            pass.set_pipeline(&self.text_pipeline);
+            pass.set_pipeline(if self.classic_text_sdf {
+                &self.sdf_text_pipeline
+            } else {
+                &self.text_pipeline
+            });
             pass.set_bind_group(0, group, &[]);
             pass.set_vertex_buffer(0, self.classic_text_vertex_buffer.slice(..));
             pass.draw(0..classic_text, 0..1);

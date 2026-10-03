@@ -341,6 +341,31 @@ is installed with the option on, or on first use, from
 [game_font.rs](../crates/jkr-viewer/src/game_font.rs); a missing font leaves
 its surface on Inter.
 
+The retail atlases are 256–512 texels on the long side, so 1440p and 4K text
+magnifies them several times and bilinear sampling of their coverage blurs every
+edge over several pixels. Atlases under 2048 texels are therefore converted at
+load into signed distance fields by [sdf.rs](../crates/jkr-viewer/src/text/sdf.rs)
+and drawn by the text shader's `fragment_sdf`, which rebuilds each edge one screen
+pixel wide at any scale. The edge is the 0.5 contour of the bilinearly interpolated
+coverage, found on a grid of about 2048 texels with an exact Euclidean distance
+transform. Retail-size atlases (512 texels or less) store their field at twice the
+atlas size, because a one-texel stroke would otherwise be rebuilt half as wide; the
+field is the alpha of a white RGBA texture, so layout, mips and sampler are shared
+with Inter. HD replacements of 2048 texels or more (such as an 8x `ergoec`) already
+resolve 4K text and keep their own anti-aliasing, so they stay coverage atlases.
+
+Checks on 2026-10-03 (Windows 11, release scratch tool outside the repository, real
+retail atlases and the JoF HD pack): conversion took 36 ms (`arialnb` 256²),
+70–72 ms (`ergoec` and `ocr_a` 512×256, `ocr_a` HD 1024×512) and 159 ms (`arialnb`
+HD 512²) on one core; fields take 1–4 MiB before mips. At 1:1 the rebuilt coverage
+of each glyph matched its original area within 10% for all but 2 of 170 retail
+`ergoec`, 1 of 164 `ocr_a` and 3 of 157 `arialnb` glyphs (small, thin glyphs such as
+`}` and `¾`, down to −43%), and within 5% for every HD `ocr_a` and `arialnb` glyph.
+Magnified text keeps the retail letterforms, including the staircase detail of a
+low-resolution atlas, but with sharp edges; because the old ramp is gone, strokes
+read slightly heavier than the blurred version. The shader was validated with naga;
+nothing was run on a GPU.
+
 ## Billboard icons
 
 Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0
