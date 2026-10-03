@@ -233,6 +233,17 @@ untouched. External compiled OpenJK on-foot/force-jump checks passed again at
 the production release build passed. The owner accepted the combined preview
 for publication; broader mod and platform coverage remains open.
 
+Default visual profile (local change based on `a993436`): fresh profiles now
+use the selected day/night, volumetric, shadow, HDR, AO and filtering defaults.
+An external release/Vulkan check on Linux/RADV RX 9060 XT verified the graphics
+values for empty, explicit and existing override configs and rendered FFA5 and
+FFA1. The fresh and explicit FFA5 captures matched at 99.94% of pixels, with
+mean absolute RGB difference 0.00022 levels and maximum 2/255. Existing saved
+values remained authoritative. Formatting, workspace build/tests and the
+production release build passed on the combined local changes. Personal configuration is
+excluded; see [default visual profile](rendering.md#default-visual-profile).
+This is startup/rendering evidence, not a new populated-match performance claim.
+
 ## Open validation and limitations
 
 Volumetric silhouette correction (local changes based on `a993436`): excluded
