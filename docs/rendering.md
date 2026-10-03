@@ -43,6 +43,32 @@ See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 enable the day/night system. HDR here describes the scene buffer and display
 mapping, not a claim of HDR monitor output.
 
+## Volumetric silhouette coverage
+
+The volumetric injection pass averages lighting over visible air samples within
+each cell. Samples behind the scene surface are excluded from both the sum and
+the count; visible samples in shadow still count as zero illumination. Counting
+hidden samples as darkness reduced the background's light beside a foreground
+player or geometry edge. The final composite still integrates only to the
+pixel's surface depth, and wholly hidden cells remain empty. Grid sizes, sample
+counts, shadow filtering and clarity settings are unchanged.
+
+External Linux/RADV release captures on RX 9060 XT, based on `a993436` plus local
+changes, reproduced the fringe on `mp/ffa5`. Player-present/absent and volume-on/off
+comparisons isolated a 6-level RGB loss just outside the helmet; the correction
+reduced it to zero. A nearby outside strip's mean negative difference fell from
+4.415 to 0.001 levels. The camera matches the owner's mark, but the preview actor
+placement is approximate because marks do not retain actor state.
+
+At 1280×720, 600-frame throughput measurements were 1.116 ms before and 1.112 ms
+after; at 3840×2160 they were 3.375 and 3.380 ms. Increasing the old grid to quality
+3 instead measured 1.471 ms at 720p and retained a narrower fringe. These are
+single-actor scene measurements with another client open, not GPU-isolated or
+populated-match performance certification. Paired captures also cover `mp/ffa3`,
+the marked `T2_Rancor` interior and 24 camera turns on FFA5 at 4K. The correction
+does not remove all finite-grid undersampling; broader maps, motion and owner
+playtesting remain required.
+
 ## Inferring fixture light from legacy materials
 
 Prefer compiler-authored `q3map_surfacelight` power and `q3map_lightimage` masks.
