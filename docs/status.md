@@ -1,7 +1,7 @@
 # Status and priorities
 
 Reviewed 2026-10-03 against source baseline `8f692ac` and the owner-approved
-rendering changes described below.
+rendering and transition changes described below.
 
 JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
@@ -103,6 +103,101 @@ increased from 3.757 to 4.263 ms, so improved tail latency is not established.
 Finite image comparisons and workspace/release checks passed; see
 [rendering](rendering.md#submission-and-lighting-work-reduction) for evidence
 and limits. Gameplay and protocol code are unchanged.
+
+Resident world transitions (2026-10-03, local changes based on `8f692ac`):
+menu joining and live map changes retain a rendered, locally playable world.
+External release checks against an isolated loopback TaystJK server exercised
+FFA3 entry, FFA3 → FFA1, same-map restart, and two consecutive map changes.
+Cancellation after entering the destination restored the menu, and the transition
+sequence also passed with a local bot present. Artificially delaying delivery of
+the completed session from the connection worker allowed more than 1,600 locally controlled
+frames before the verified session attached without rebuilding the map. That
+check exercises delayed handoff, not a real slow-network handshake. The
+same-map restart reattached about 50 ms after its transition event. Old-map
+movement and rendering continued while the replacement was built, without a
+loading overlay or old remote actors in the resident runtime world.
+
+The installed-archive checksum comparison matched ordered CRC sequences for all
+73 previously readable PK3s. Six small external ZIP cases covered empty archives,
+empty files, Unicode names, duplicate names, an executable prefix and ZIP64
+sizes; malformed central-directory data was rejected. A catalogue with an invalid
+unused local payload header is now inventory-readable, matching OpenJK's
+central-directory inventory behavior; loading an affected asset still validates
+its header/data. One installed-set comparison measured 4,697 ms for the old
+payload-header inventory and 134 ms for the directory reader. These checks do not
+constitute a new pure-server/wire certification; protocol codecs were unchanged.
+
+Checks used Linux/RADV on a Radeon RX 9060 XT, 960×540, owner graphics settings,
+and external ignored harnesses. Normal joins measured about 7–18 seconds in these
+runs, depending on machine/cache pressure; the early pre-optimization run took
+41 seconds. Typical FFA1 background preparation was about 8–12 seconds. These
+are observations, not a controlled cold-cache speedup or a populated-match frame
+budget result. Simultaneous build pressure worsened some runs substantially.
+One default-backend headless run emitted an EGL destruction panic on the submit
+thread after all assertions passed and while exiting. The explicit Vulkan rerun
+completed without that diagnostic; native-window/backend shutdown coverage is
+still needed. Cold loading, missing-content downloads, platform coverage and visual acceptance
+remain open. The movement adapter calls the existing predictor; the external
+OpenJK on-foot/force-jump comparison still passed 560 cases / 72,275 commands,
+including 8/7/4/3 ms caps. See [client transitions](client.md#joining-and-changing-maps)
+for local-authority and exploration limits.
+
+Local gameplay continuation (2026-10-03, same unmerged baseline): departed live
+worlds now run the native dedicated gameplay behind a socket-free client session.
+Release GPU checks on isolated loopback TaystJK exercised FFA3 → FFA1, same-map
+restart, rapid map changes and cancellation, both with and without a bot. They
+asserted that only the local player remained, local saber moves advanced, and
+the real connection reattached. Screenshots confirmed the third-person model and
+saber remained visible. A further run granted test-only weapons and observed
+pistol projectiles after releasing the saber attack and switching weapons. It
+injected an intermission movement type at handoff to check recovery from the
+cached playable state; natural match-end timing remains unverified. A stock
+FFA3 door import check preserved its open position, area portal and closing timer.
+Native import/reuse checks covered slots 0/17/31 at
+8/7/4/3 ms; the 560-case movement/animation/event fixtures and compiled codemp
+weapon zoom/charge fixture passed. These are focused checks, not complete native
+combat, mod or vehicle compatibility certification. First gate entry is still
+movement-only until a server player is available. Its original connection notice
+and pointer Cancel action are restored for menu joins; in-server map changes
+keep the local gameplay presentation without that overlay. The notice restoration
+passed workspace build/test/format checks; native visual acceptance is pending.
+
+In the final 960×540 Vulkan run, local render calls after the first ten local
+frames measured 0.98 ms median, 2.72 ms p99 and 38.35 ms maximum, excluding the
+harness sleep and capture work. This is a single-player continuation while
+background loading, not a 31-player benchmark. Initial model, effect and shader
+work can still hitch; moving native skeleton loading into background preparation
+removed the observed roughly 0.6-second first-saber-command stall in that run.
+It does not establish hitch-free transitions or complete content coverage.
+
+Transition/input polish (2026-10-03, unmerged changes based on `8f692ac`):
+a queued Alt bind was reproduced surviving focus loss; focus handling now drops
+that frame's gameplay input and ignores synthetic keyboard events. Isolated
+TaystJK and native JKR runs observed a genuine saber throw return after focus
+loss. The retained actor keeps its animation tracks and displayed prediction,
+with local presentation paced by the same wall-clock origin as local commands.
+Remote world adoption and backwards server time retire stale runtime samples;
+a forced provisional-clock rollback restored every entity to the current epoch.
+
+Native server lifecycle checks also found bots waiting for an impossible network
+acknowledgement after a map change, loss of bot identity during `map_restart`,
+and old saber entity handles surviving a rebuilt entity pool. Bots now begin
+immediately on the new map, and transient player state is reset while preserving
+session/bot ownership, following multiplayer `SV_SpawnServer`/`ClientConnect`.
+External integration checks cover active bot slots, current-pool saber handles
+and advancing bot commands after both kinds of transition. No packet codec or
+movement/combat rules changed. The external 560-case on-foot reference checks
+passed again at 8/7/4/3 ms. Native visual acceptance and wider mod/vehicle coverage
+remain open.
+The final 960×540 Vulkan native-server run covered eight bots, FFA3 → FFA1,
+same-map restart, rapid map changes and cancellation. All 8,650 presented remote
+actor endpoints matched their received snapshot positions. The saber returned
+about 1.21 seconds after the test press, following focus loss. Local render calls
+measured 0.56 ms median and 1.93 ms p99, with a 287.81 ms maximum during background
+loading; this does not establish hitch-free transitions or 31-player performance.
+Workspace build/tests, formatting, standalone clock checks and release builds
+passed. The owner playtested the updated transitions and accepted the combined
+preview for publication. Wider mod, vehicle and platform coverage remains open.
 
 ## Open validation and limitations
 

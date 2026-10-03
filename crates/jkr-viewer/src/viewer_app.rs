@@ -138,11 +138,16 @@ impl ApplicationHandler for ViewerApplication {
                     console.window_alt(modifiers.state().alt_key());
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if !gpu
-                    .console
-                    .as_mut()
-                    .is_some_and(|console| console.window_key(&event))
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } => {
+                if gpu.gameplay_input.accepts_keyboard(is_synthetic)
+                    && !gpu
+                        .console
+                        .as_mut()
+                        .is_some_and(|console| console.window_key(&event))
                 {
                     gpu.keyboard(event);
                 }
@@ -188,7 +193,9 @@ impl ApplicationHandler for ViewerApplication {
                             menu.joined();
                         }
                         reloaded.configure_audio(&mut self.game_audio);
-                        reloaded.present_latest_live_snapshot(&mut self.game_audio);
+                        if reloaded.live_map_installed {
+                            reloaded.present_latest_live_snapshot(&mut self.game_audio);
+                        }
                         self.menu_world.install(gpu, reloaded);
                     }
                     Ok(None) => {}

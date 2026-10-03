@@ -187,7 +187,8 @@ pub(crate) fn update(
             gpu.obituaries.feed(),
             &gpu.lagometer,
             crosshair,
-            jkr_client::connection_interrupted(presentation_time, snapshot.server_time),
+            !session.is_local()
+                && jkr_client::connection_interrupted(presentation_time, snapshot.server_time),
             &gpu.localization,
         );
     } else if let Some(session) = &gpu.demo_session {
