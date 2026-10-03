@@ -10,6 +10,10 @@ pub(super) struct Runtime {
     shader: wgpu::ShaderModule,
     active: wgpu::BindGroup,
     neutral: wgpu::BindGroup,
+    /// `active` over the light buffer's mirror images, while floor reflections have them.
+    mirror: Option<wgpu::BindGroup>,
+    /// A mirror is being drawn: its images are the light buffer's active ones.
+    pub(super) mirroring: std::cell::Cell<bool>,
     /// True only after the current main frame has produced a usable shadow fit.
     pub(super) ready: std::cell::Cell<bool>,
 }
@@ -59,6 +63,7 @@ pub(super) fn receiver_layout_with(
         depth(4),
         depth(5),
         depth(6),
+        super::shadows::bounds::layout_entry(),
     ];
     // The GI sun test shares cascade binding 3. Avoid counting the same depth texture
     // twice against the fragment-stage texture limit (including cached lamp inputs).
@@ -92,6 +97,12 @@ pub(super) fn receiver_layout_with(
             },
             count: None,
         });
+    }
+    if light == super::shadows::light_buffer::Layout::Pass {
+        // The light pass's direct-lamp compute program evaluates the same light.
+        for entry in &mut entries {
+            entry.visibility |= wgpu::ShaderStages::COMPUTE;
+        }
     }
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("JKR shared sun receiver"),
@@ -301,16 +312,26 @@ impl Runtime {
             shader,
             active: active.cloned().unwrap_or_else(|| neutral.clone()),
             neutral,
+            mirror: None,
+            mirroring: std::cell::Cell::new(false),
             ready: std::cell::Cell::new(false),
         }
     }
 
+    /// The material group over the light buffer's mirror images, if it has them.
+    pub(super) fn set_mirror(&mut self, mirror: Option<&wgpu::BindGroup>) {
+        self.mirror = mirror.cloned();
+        self.mirroring.set(false);
+    }
+
     /// A failed or not-yet-rendered fit cannot expose the previous frame's sun.
     pub(super) fn binding(&self, main_view: bool) -> &wgpu::BindGroup {
-        if main_view && self.ready.get() {
-            &self.active
-        } else {
-            &self.neutral
+        if !main_view || !self.ready.get() {
+            return &self.neutral;
+        }
+        match &self.mirror {
+            Some(mirror) if self.mirroring.get() => mirror,
+            _ => &self.active,
         }
     }
 }
@@ -332,17 +353,21 @@ impl super::Runtime {
         &mut self,
         device: &wgpu::Device,
         active: Option<&wgpu::BindGroup>,
+        mirror: Option<&wgpu::BindGroup>,
     ) {
         if let Some(sun) = &mut self.forge.model_sun {
             // Program already compiled into every pipeline: only the live group changes.
             sun.active = active.cloned().unwrap_or_else(|| sun.neutral.clone());
+            sun.set_mirror(mirror);
             return;
         }
         let Some(active) = active else {
             return;
         };
         // Every slot starts empty again and compiles against the new program on first use.
-        self.forge.model_sun = Some(Runtime::new(device, &self.forge, Some(active)));
+        let mut sun = Runtime::new(device, &self.forge, Some(active));
+        sun.set_mirror(mirror);
+        self.forge.model_sun = Some(sun);
         if let Some(table) = &mut self.stage_table {
             table.reset_program();
         }

@@ -404,7 +404,7 @@ impl GpuState {
 }
 
 fn upload(
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     target: &gpu::Target,
     view: math::View,
     projection: Mat4,
