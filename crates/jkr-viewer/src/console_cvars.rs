@@ -240,9 +240,9 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
         ),
         CvarDefinition::new(
             "com_maxfps",
-            1000_i64,
-            archive,
-            "Maximum rendered frames per second; zero is uncapped",
+            -1_i64,
+            archive | CvarFlags::OMIT_DEFAULT,
+            "Maximum rendered frames per second; -1 matches the monitor's refresh rate              (125 when unknown), 0 is uncapped",
         ),
         CvarDefinition::new("cg_drawFPS", false, archive, "Display FPS and frame time"),
         CvarDefinition::new(
@@ -427,6 +427,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             0_i64,
             archive,
             "Internal migration marker for the move to stock sensitivity units",
+        ),
+        CvarDefinition::new(
+            "jkr_maxfpsDefaultVersion",
+            0_i64,
+            archive,
+            "Internal migration marker for the refresh-rate com_maxfps default",
         ),
         CvarDefinition::new(
             "jkr_bindDefaultsVersion",

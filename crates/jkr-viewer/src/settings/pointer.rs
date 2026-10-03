@@ -59,7 +59,7 @@ impl SettingsMenu {
                 self.selected = row;
                 if let Some(setting) = settings(self.tab).get(row) {
                     if matches!(setting.kind, ValueKind::Text) {
-                        self.editing = Some(value_text(console, setting.cvar));
+                        self.editing = Some(value_text(console, setting));
                     } else if let Some(position) = event.position {
                         if !self.set_numeric_from_pointer(console, row, position.x) {
                             self.adjust(console, 1);
@@ -94,8 +94,20 @@ impl SettingsMenu {
         let value = match setting.kind {
             ValueKind::Integer { min, max, step } => {
                 let raw = min as f32 + (max - min) as f32 * ratio;
-                let snapped = ((raw - min as f32) / step as f32).round() as i64 * step + min;
-                snapped.clamp(min, max).to_string()
+                if min < 0 {
+                    // The special value below zero (AUTO) is the rail's left end;
+                    // the rest snaps to multiples of the step from zero.
+                    if raw < 0.0 {
+                        min.to_string()
+                    } else {
+                        ((raw / step as f32).round() as i64 * step)
+                            .clamp(0, max)
+                            .to_string()
+                    }
+                } else {
+                    let snapped = ((raw - min as f32) / step as f32).round() as i64 * step + min;
+                    snapped.clamp(min, max).to_string()
+                }
             }
             ValueKind::Float { min, max, step } => {
                 let raw = min + (max - min) * f64::from(ratio);

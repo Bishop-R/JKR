@@ -51,10 +51,10 @@ pub(super) const VIDEO: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
-        label: "FPS cap (0 = uncapped)",
+        label: "FPS cap (AUTO = monitor, 0 = off)",
         cvar: "com_maxfps",
         kind: ValueKind::Integer {
-            min: 0,
+            min: -1,
             max: 2000,
             step: 25,
         },

@@ -2,6 +2,7 @@
 
 use super::pointer_input::MouseLook;
 use super::{DepthTarget, GpuState};
+use std::time::{Duration, Instant};
 use winit::dpi::PhysicalSize;
 
 impl GpuState {
@@ -98,20 +99,54 @@ impl GpuState {
     }
 
     pub(crate) fn maximum_fps(&self) -> u32 {
-        let normal = self
+        let normal = match self
             .console
             .as_ref()
             .and_then(|console| console.integer_cvar("com_maxfps"))
-            .and_then(|value| u32::try_from(value).ok())
-            .unwrap_or(1000);
+        {
+            Some(value) if value >= 0 => u32::try_from(value).unwrap_or(u32::MAX),
+            _ => self.refresh_rate_cap(),
+        };
         self.console
             .as_ref()
             .map_or(normal, |console| console.window_fps(normal))
     }
 
+    /// `com_maxfps -1`: the refresh rate of the window's monitor, rounded to whole
+    /// hertz (59.94 Hz caps at 60), or stock's 125 when it cannot be read.
+    fn refresh_rate_cap(&self) -> u32 {
+        let now = Instant::now();
+        if let Some((read, cap)) = self.refresh_cap.get()
+            && now.duration_since(read) < REFRESH_RECHECK
+        {
+            return cap;
+        }
+        let cap = self
+            .window
+            .as_ref()
+            .and_then(|window| window.current_monitor())
+            .and_then(|monitor| monitor.refresh_rate_millihertz())
+            .map_or(UNKNOWN_REFRESH_CAP, refresh_cap_from_millihertz);
+        self.refresh_cap.set(Some((now, cap)));
+        cap
+    }
+
     pub(crate) fn finish_frame(&mut self) {
         let maximum_fps = self.maximum_fps();
         self.frame_pacer.frame_rendered(maximum_fps);
+    }
+}
+
+/// Stock's `com_maxfps` default, used when the monitor reports no refresh rate.
+const UNKNOWN_REFRESH_CAP: u32 = 125;
+/// How long a monitor refresh-rate reading is reused; moving the window to
+/// another monitor is picked up within this.
+const REFRESH_RECHECK: Duration = Duration::from_secs(1);
+
+fn refresh_cap_from_millihertz(millihertz: u32) -> u32 {
+    match millihertz.saturating_add(500) / 1000 {
+        0 => UNKNOWN_REFRESH_CAP,
+        hertz => hertz,
     }
 }
 
@@ -195,4 +230,21 @@ pub(crate) fn parse_accent(text: &str) -> Option<jkr_ui::Color> {
         channel(4)?,
         1.0,
     ))
+}
+
+#[cfg(test)]
+mod refresh_cap_tests {
+    use super::refresh_cap_from_millihertz;
+
+    #[test]
+    fn rounds_reported_rates_to_whole_hertz() {
+        assert_eq!(refresh_cap_from_millihertz(59_940), 60);
+        assert_eq!(refresh_cap_from_millihertz(143_856), 144);
+        assert_eq!(refresh_cap_from_millihertz(240_000), 240);
+    }
+
+    #[test]
+    fn a_zero_rate_falls_back_to_stock() {
+        assert_eq!(refresh_cap_from_millihertz(0), 125);
+    }
 }
