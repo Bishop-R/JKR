@@ -127,7 +127,12 @@ impl FramePacer {
         self.next = if maximum_fps == 0 {
             now
         } else {
-            (self.frame_started + Duration::from_secs_f64(1.0 / f64::from(maximum_fps))).max(now)
+            next_deadline(
+                self.next,
+                self.frame_started,
+                now,
+                Duration::from_secs_f64(1.0 / f64::from(maximum_fps)),
+            )
         };
     }
 
@@ -138,5 +143,59 @@ impl FramePacer {
     /// Cached label, formatted only at the statistics refresh interval.
     pub(crate) fn label(&self) -> &str {
         &self.label
+    }
+}
+
+/// One interval after the previous deadline, not after this frame's start. The
+/// event loop wakes for a deadline late (Windows timers overshoot by a fraction of
+/// a millisecond), and measuring from the late start added that to every frame:
+/// a 240 cap ran at 223. A deadline already passed is kept, so the next frame
+/// starts at once and the average rate holds. More than one interval behind (a
+/// hitch, a cap change, a skipped attempt), the cadence restarts from this frame
+/// instead of bursting to catch up.
+fn next_deadline(
+    previous: Instant,
+    frame_started: Instant,
+    now: Instant,
+    interval: Duration,
+) -> Instant {
+    let anchored = previous + interval;
+    if anchored + interval < now {
+        (frame_started + interval).max(now)
+    } else {
+        anchored
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::next_deadline;
+    use std::time::{Duration, Instant};
+
+    const INTERVAL: Duration = Duration::from_micros(4_167);
+
+    #[test]
+    fn late_wakeups_do_not_accumulate() {
+        let start = Instant::now();
+        let late = Duration::from_micros(300);
+        let mut deadline = start;
+        for frame in 0..240 {
+            let woke = deadline.max(start + INTERVAL * frame) + late;
+            deadline = next_deadline(
+                deadline,
+                woke,
+                woke + Duration::from_micros(1_000),
+                INTERVAL,
+            );
+        }
+        assert_eq!(deadline, start + INTERVAL * 240);
+    }
+
+    #[test]
+    fn a_long_hitch_restarts_from_the_frame() {
+        let start = Instant::now();
+        let woke = start + INTERVAL * 10;
+        let now = woke + Duration::from_millis(1);
+        assert_eq!(next_deadline(start, woke, now, INTERVAL), woke + INTERVAL);
     }
 }
