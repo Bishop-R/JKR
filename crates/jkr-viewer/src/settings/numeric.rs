@@ -1,6 +1,6 @@
-//! Range and step rules of the numeric settings rows, shared by the pointer
-//! (a click or drag on the rail) and typed entry (a number in the value
-//! column), so both land on the values the slider itself can show.
+//! Range and step rules of the numeric settings rows. The pointer (a click or
+//! drag on the rail) lands on the values the slider itself can show; typed
+//! entry (a number in the value column) keeps the exact number, within range.
 
 use super::catalog::ValueKind;
 use crate::menu_widgets::NumberFormat;
@@ -28,6 +28,26 @@ impl ValueKind {
                 let scale = 10f64.powi(decimals(step));
                 let value = ((value * scale).round() / scale).clamp(min, max);
                 Some(value.to_string())
+            }
+            _ => None,
+        }
+    }
+
+    /// The cvar text for a typed `raw` on this slider: the number as entered,
+    /// only clamped to the range, so 142 stays 142 on a slider that steps by 25.
+    /// Integer rows round to the nearest whole number. `None` for rows that are
+    /// not sliders.
+    pub(super) fn exact(self, raw: f64) -> Option<String> {
+        match self {
+            Self::Integer { min, max, .. } => {
+                // `as` saturates, so huge or infinite input still clamps.
+                Some((raw.round() as i64).clamp(min, max).to_string())
+            }
+            Self::Float { min, max, .. } => {
+                // Typed text parses without noise; keep at most 6 decimals
+                // so the clamp cannot introduce any.
+                let value = raw.clamp(min, max);
+                Some(((value * 1e6).round() / 1e6).to_string())
             }
             _ => None,
         }
@@ -117,8 +137,29 @@ mod tests {
     }
 
     #[test]
+    fn typed_integers_keep_their_value() {
+        // Review case: 142 and 333 FPS must not snap to 150 and 325.
+        assert_eq!(FPS.exact(142.0).as_deref(), Some("142"));
+        assert_eq!(FPS.exact(333.0).as_deref(), Some("333"));
+        assert_eq!(FPS.exact(5000.0).as_deref(), Some("2000"));
+        assert_eq!(FPS.exact(-3.0).as_deref(), Some("0"));
+        assert_eq!(FPS.exact(1e300).as_deref(), Some("2000"));
+    }
+
+    #[test]
+    fn typed_floats_keep_their_value() {
+        assert_eq!(FOV.exact(103.0).as_deref(), Some("103"));
+        assert_eq!(FOV.exact(97.4).as_deref(), Some("97.4"));
+        assert_eq!(FOV.exact(10.0).as_deref(), Some("70"));
+        assert_eq!(VOLUME.exact(0.33).as_deref(), Some("0.33"));
+        assert_eq!(SENSITIVITY.exact(5.0).as_deref(), Some("5"));
+        assert_eq!(SENSITIVITY.exact(0.0).as_deref(), Some("0.1"));
+    }
+
+    #[test]
     fn non_sliders_have_no_number() {
         assert_eq!(ValueKind::Bool.snapped(1.0), None);
+        assert_eq!(ValueKind::Bool.exact(1.0), None);
         assert_eq!(ValueKind::Text.number_format(), None);
         assert_eq!(
             FOV.number_format(),

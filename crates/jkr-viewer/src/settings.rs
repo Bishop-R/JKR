@@ -203,13 +203,13 @@ impl SettingsMenu {
         true
     }
 
-    /// Set slider row `row` to the typed `value`, clamped to its range and
-    /// rounded to its step.
+    /// Set slider row `row` to the typed `value`, exactly as typed but
+    /// clamped to its range.
     fn set_typed(&mut self, console: &mut ViewerConsole, row: usize, value: f64) {
         let Some(setting) = settings(self.tab).get(row) else {
             return;
         };
-        if let Some(text) = setting.kind.snapped(value) {
+        if let Some(text) = setting.kind.exact(value) {
             console.set_cvar(setting.cvar, &text);
             self.refresh(console);
         }
