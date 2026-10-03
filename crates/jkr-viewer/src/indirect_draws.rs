@@ -91,7 +91,7 @@ impl Lists {
     /// one pipeline become one run. `None`: off, or the frame's regions are exhausted.
     pub(super) fn runs(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         build: impl FnOnce(&mut dyn FnMut(usize, Range<u32>, u32)),
     ) -> Option<std::cell::Ref<'_, [Run]>> {
         if !self.enabled {
@@ -133,7 +133,7 @@ impl Lists {
     /// in this view. `None`: indirect draws are off or the frame's regions are exhausted.
     pub(super) fn view(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         key: Key,
         ranges: impl FnOnce(&mut dyn FnMut(usize, Range<u32>)),
     ) -> Option<View> {

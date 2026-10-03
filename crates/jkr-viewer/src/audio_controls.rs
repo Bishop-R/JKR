@@ -108,6 +108,7 @@ impl GameAudio {
     pub(crate) fn idle_frame(&mut self) {
         self.poll_legacy_load();
         self.output.send(AudioCommand::ClearLoops);
+        self.output.send(AudioCommand::CommitLoops);
     }
 
     /// Lookup-only EFX sound playback; `vfs` remains in the signature so old
@@ -191,13 +192,14 @@ impl GameAudio {
         let stats = &self.output.stats;
         crate::log::progress(format_args!(
             "audio trace: peak={:.3} blocks={} music starts={} rejected={} \
-             decode failures={} handle mismatches={} sounds={}",
+             decode failures={} handle mismatches={} split loop frames={} sounds={}",
             stats.take_peak(),
             stats.rendered_blocks.load(Ordering::Relaxed),
             stats.music_starts.load(Ordering::Relaxed),
             stats.music_rejections.load(Ordering::Relaxed),
             stats.decode_failures.load(Ordering::Relaxed),
             stats.handle_mismatches.load(Ordering::Relaxed),
+            stats.split_loop_frames.load(Ordering::Relaxed),
             self.handles.len(),
         ));
     }

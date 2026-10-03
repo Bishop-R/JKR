@@ -139,7 +139,7 @@ impl IconLoader {
     pub(super) fn upload_batch(
         &mut self,
         renderer: &ShapeRenderer,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         limit: usize,
     ) {
         let end = (self.uploaded + limit).min(self.decoded.len());

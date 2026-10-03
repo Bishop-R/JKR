@@ -69,7 +69,11 @@ impl Runtime {
     }
 
     /// Match the directed sun used by surface lighting, shadows and godrays.
-    pub(crate) fn update_director_sun(&self, queue: &wgpu::Queue, sun: Option<(glam::Vec3, f32)>) {
+    pub(crate) fn update_director_sun(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        sun: Option<(glam::Vec3, f32)>,
+    ) {
         if let Some((buffer, _)) = &self.day_clock {
             let value = sun.map_or([0.; 4], |(v, weight)| [v.x, v.y, v.z, weight]);
             queue.write_buffer(buffer, 16, bytemuck::cast_slice(&value));
@@ -80,7 +84,7 @@ impl Runtime {
     /// authored sun azimuth (unit xy) the twilight glow sits over.
     pub(crate) fn update_day_clock(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         values: [f32; 2],
         azimuth: [f32; 2],
     ) {
