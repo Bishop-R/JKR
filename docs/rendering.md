@@ -27,14 +27,14 @@ working on optional effects and validate shared WGSL programs on an actual GPU.
 
 | Cvar | Behavior |
 | --- | --- |
-| `jkr_dayNight` | Map-relative sun/sky atmosphere; default 0, restart required |
-| `jkr_realtime` | Lighting tier; default 2. Tier 1 retains world shadow casters between frames; tier 0 also uses available baked indirect light. Applies at map load |
+| `jkr_dayNight` | Map-relative sun/sky atmosphere; default 1, restart required |
+| `jkr_realtime` | Lighting tier; default 0. Tier 1 retains world shadow casters between frames; tier 0 also uses available baked indirect light. Applies at map load |
 | `jkr_dayHour` | Solar hour, updated live when day/night resources are installed |
 | `jkr_dayMinutes` | Minutes per simulated day; 0 holds the hour |
 | `jkr_indirectBoost` | Live sky/bounce illumination multiplier, 0–4; default 1. Does not amplify direct lights or add bounce iterations |
 | `jkr_ambientFill` | Live material-lighting floor in dark areas, 0–0.2; default 0.025. Fades as existing illumination increases |
 | `jkr_ambientFillOcclusion` | Fraction of ambient occlusion applied to the readability fill, 0–1; default 1 preserves the previous response. Real indirect lighting keeps full occlusion |
-| `jkr_hdr` | Scene precision: 0 display format, 1 RGBA16F; restart required |
+| `jkr_hdr` | Scene precision: 0 display format, 1 RGBA16F (default); restart required |
 | `jkr_hdrExposure` | Fixed exposure multiplier, 0.25–4; restart required |
 
 See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
@@ -567,3 +567,27 @@ PR playtest. An external probe compared the corrected production transform with
 OpenJK `RB_AddQuadStampExt`: four corners with three scale/scroll transforms
 matched, while ordinary FX transforms were unchanged. Native visual confirmation
 of the correction remains pending.
+
+## Default visual profile
+
+New profiles use the owner-approved rendering setup: day/night enabled at a fixed
+11:00, volumetrics quality 3, actor/world sun shadows at 2048 resolution and
+16 filter taps, and lighting tier 0 (available baked indirect light under the
+live sun). Shadow gap closure and screen-space contact shadows are off.
+The scene uses HDR with exposure 1, FXAA, SSAO at strength 4, trilinear mipmapping
+and 16× anisotropy where supported. Bloom and the optional LDR tone curve are off.
+Soft particles, per-pixel model diffuse lighting and full rendering resolution
+remain enabled. These are ordinary cvar defaults, not a config imported at launch.
+
+Saved values take precedence, including explicitly disabled effects. Existing
+profiles are not silently migrated. Resolution/window mode, input and keyboard
+layout, FPS caps, audio levels, HUD/crosshair preferences, player identity,
+server history, credentials and filesystem locations retain their independent
+defaults. Stale MSAA/light-scale entries and the parked dust experiment are not
+part of this profile; the active antialiasing path is FXAA.
+
+External release/Vulkan validation on RX 9060 XT checks 36 graphics values with
+an empty config, an explicit equivalent config and an existing override config.
+Fresh FFA5 and FFA1 scenes rendered successfully. See [status](status.md) for the
+image comparison result and validation limits. No personal config or assets are
+included in the repository.

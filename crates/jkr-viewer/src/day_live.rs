@@ -29,13 +29,13 @@ pub(crate) const LIVE_CVARS: [&str; 10] = [
 impl Default for Clock {
     fn default() -> Self {
         Self(Arc::new([
-            AtomicU32::new(7.5_f32.to_bits()),
+            AtomicU32::new(11_f32.to_bits()),
             AtomicU32::new(0),
             AtomicU32::new(1_f32.to_bits()),
             AtomicU32::new(1_f32.to_bits()),
             AtomicU32::new(0),
             AtomicU32::new(0),
-            AtomicU32::new(4_f32.to_bits()),
+            AtomicU32::new(0),
             AtomicU32::new(0.025_f32.to_bits()),
             AtomicU32::new(1_f32.to_bits()),
             AtomicU32::new(1_f32.to_bits()),
