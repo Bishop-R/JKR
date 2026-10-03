@@ -68,6 +68,8 @@ pub(crate) struct GameplayInput {
     pub(crate) motion: motion::Motion,
     /// `cl_run`: the walk key toggles walking instead of running.
     always_run: bool,
+    focused: bool,
+    reset_after_buffer: bool,
 }
 
 impl Default for GameplayInput {
@@ -79,11 +81,41 @@ impl Default for GameplayInput {
             held: [state::KeyState::default(); 32],
             motion: motion::Motion::default(),
             always_run: true,
+            focused: true,
+            reset_after_buffer: false,
         }
     }
 }
 
 impl GameplayInput {
+    /// Window focus belongs to the shell, so carry it across GPU world installs.
+    pub(crate) fn inherit_focus(&mut self, previous: &Self) {
+        self.focused = previous.focused;
+        self.reset_after_buffer = previous.reset_after_buffer;
+    }
+
+    pub(crate) fn focus(&mut self, focused: bool) {
+        self.focused = focused;
+        if !focused {
+            self.clear();
+            self.reset_after_buffer = true;
+        }
+    }
+
+    /// Focus can change after a bind was queued but before its script executes.
+    /// Drop that frame's gameplay actions too, including a quick out-and-back.
+    pub(crate) fn finish_buffered_input(&mut self) -> bool {
+        let reset = std::mem::take(&mut self.reset_after_buffer) || !self.focused;
+        if reset {
+            self.clear();
+        }
+        reset
+    }
+
+    pub(crate) fn accepts_keyboard(&self, synthetic: bool) -> bool {
+        self.focused && !synthetic
+    }
+
     pub(crate) fn clear(&mut self) {
         self.held = [state::KeyState::default(); 32];
         self.motion.clear();
@@ -194,6 +226,9 @@ impl GameplayInput {
 
     /// Apply one command resolved by the bind table.
     pub(crate) fn apply(&mut self, command: &str) -> Option<InputAction> {
+        if !self.focused {
+            return None;
+        }
         let mut words = command.split_ascii_whitespace();
         let name = words.next()?.to_ascii_lowercase();
         if let Some(button) = button_for_command(&name) {

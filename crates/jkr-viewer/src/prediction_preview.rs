@@ -19,6 +19,9 @@ pub(crate) fn tick(
     now: Instant,
     presentation_time: i32,
 ) {
+    if !gpu.live_presentation_ready() {
+        return;
+    }
     let Some(session) = gpu.live_session.as_ref() else {
         return;
     };

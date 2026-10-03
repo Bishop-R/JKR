@@ -135,25 +135,36 @@ impl GpuState {
             .live_session
             .as_ref()
             .map(|s| s.game_state())
-            .or_else(|| self.demo_session.as_ref().map(|s| s.game_state()));
+            .or_else(|| self.demo_session.as_ref().map(|s| s.game_state()))
+            .or_else(|| self.resident.scenery.as_ref().map(|(game, _)| game));
         let snapshot = crate::first_person_view::presented_snapshot(
             self.live_session.as_ref(),
             self.demo_session.as_ref(),
             time,
-        );
+        )
+        .or_else(|| self.resident.scenery.as_ref().map(|(_, snapshot)| snapshot));
 
-        let (Some(game), Some(snapshot)) = (game, snapshot) else {
+        if let (Some(game), Some(snapshot)) = (game, snapshot) {
+            self.scene_views.select(
+                &self.bsp,
+                game,
+                snapshot,
+                view,
+                projection,
+                time,
+                self.world_materials.areas.mask(),
+            );
+        } else if self.resident.exploring() {
+            self.scene_views.select_sky(
+                &self.bsp,
+                self.scene_views.offline_sky,
+                view,
+                projection,
+                self.world_materials.areas.mask(),
+            );
+        } else {
             return;
-        };
-        self.scene_views.select(
-            &self.bsp,
-            game,
-            snapshot,
-            view,
-            projection,
-            time,
-            self.world_materials.areas.mask(),
-        );
+        }
 
         let scene_size = self.scene_size();
         let views = &mut self.scene_views;

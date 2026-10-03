@@ -33,6 +33,65 @@ Set `JKR_DEDICATED` to its executable path if installed elsewhere. The child
 lifetime is managed by the client and defaults to local access; see
 [local_server.rs](../crates/jkr-viewer/src/local_server.rs).
 
+## Joining and changing maps
+
+The menu's FFA3 gate opens onto the prepared destination world. Map preparation
+and connection run independently: when the world is ready first, you can walk,
+jump and crouch locally while the connection finishes. A matching verified world
+is reused when the server session becomes ready; joining does not build it twice.
+The opening and crossing animation takes about 2.1 seconds once the destination
+is ready. The gate stays closed while required content is unavailable. The
+existing connection notice shows the server address/status and Cancel action
+over the gate during joining; it disappears when the destination is entered.
+
+On a server map change, other players disappear while your player continues in
+an in-process native game on the old map. The ordinary client pipeline still
+presents your model, saber, weapons, HUD, animations and effects. Movement,
+attacks, pickups and doors use the existing dedicated-server gameplay. The last
+predicted player state seeds the continuation; after intermission, the last
+pre-intermission player state supplies the playable pose instead of the frozen
+intermission camera. Visible brush-door trajectories are carried across.
+The handoff retains the local actor's animation tracks and uses one monotonic
+local command/presentation timeline, without network drift adjustments. Remote
+adoption starts fresh entity samples; a backwards server timestamp also retires
+samples from the provisional server clock before applying the new snapshot.
+
+The remote connection has its own command timer and stays separate from this
+local authority. Local controls and position never go to the waiting server.
+Once the destination and a fresh, active remote snapshot are ready, the client adopts
+that world and the server's spawn state. Matching same-map restarts can reuse the
+resident world. These paths have no separate loading screen.
+
+This is a temporary local game, not a copy of a remote mod's hidden state. It
+uses standard native game rules. Unreplicated script state, entity timers,
+remote projectiles and other players are not imported; unseen map entities start
+from their authored state, and an already-thrown saber returns to the hand at
+handoff. Vehicles and custom scripted interactions need further verification.
+Demo recording is unavailable during local continuation. First entry through
+the gate before any server player exists still uses movement-only exploration
+with frozen brush collision. If native world preparation fails, map-change
+continuation also falls back to that path and reports the error in the console.
+The gate's through-door view still uses the existing lightweight rendering path;
+the full lighting path begins when the destination becomes the active world.
+
+Escape opens the normal menu during exploration. Disconnect/cancel abandons the
+pending connection and restores the retained main-menu world. Connection and asset
+errors still show an error message. Downloads retain their existing policy and
+limits; progress is available in the console. This does not eliminate disk,
+shader, network or download latency, and direct command-line startup is separate
+from the already-open menu's transition path.
+
+Implementation: [resident worlds](../crates/jkr-viewer/src/resident_world.rs),
+[local authority](../crates/jkr-viewer/src/resident_game.rs),
+[early exploration](../crates/jkr-viewer/src/resident_walk.rs),
+[world handoff](../crates/jkr-viewer/src/session_transition.rs) and
+[gate destination](../crates/jkr-viewer/src/portal.rs).
+
+Losing window focus releases held gameplay controls and discards gameplay actions
+already queued for that frame. Synthetic key events on refocus cannot re-press a
+held modifier such as Alt. This allows a saber throw already sent to the server
+to finish normally after Alt+Tab.
+
 ## Configuration and content
 
 The Linux configuration is `$XDG_CONFIG_HOME/jkr/config.cfg`, falling back to

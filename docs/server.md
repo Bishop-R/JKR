@@ -59,5 +59,10 @@ password. The console implementation lives in
 [bridge_console.rs](../crates/jkr-dedicated/src/bridge_console.rs) and the server's
 [command buffer](../crates/jkr-dedicated/src/command_buffer.rs).
 
+Bots retain their slots and bot identity across map changes and `map_restart`.
+They enter the new map immediately because they have no network handshake.
+Player session data survives, while transient state and entity handles are reset
+for the new world; saber entities are allocated from the new map's pool.
+
 The [networking page](networking.md) explains the boundary between native entity
 ownership, game behavior and the legacy endpoint.

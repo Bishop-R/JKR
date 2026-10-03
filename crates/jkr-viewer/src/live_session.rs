@@ -18,6 +18,13 @@ pub(crate) fn drain_snapshots(mut receive_and_present: impl FnMut() -> bool) {
 impl GpuState {
     /// Only the installed live world shares the session's snapshot time domain.
     pub(crate) fn live_presentation_ready(&self) -> bool {
+        if self
+            .live_session
+            .as_ref()
+            .is_some_and(jkr_client::ClientSession::is_local)
+        {
+            return self.live_map_installed && !self.is_menu_world;
+        }
         self.live_session.is_some()
             && self.live_map_installed
             && !self.is_menu_world
@@ -74,10 +81,19 @@ impl GpuState {
                 // world built for the new timeline anchors the clock again.
                 self.server_clock.restart();
                 self.pending_map_reload = true;
-                self.local_prediction.clear_pending();
+                self.retain_world_for_connection();
+                self.resident.after_sequence = reactions.gamestate_sequence.or_else(|| {
+                    self.resident
+                        .session
+                        .as_ref()
+                        .map(|s| s.latest_snapshot().message_sequence)
+                });
             }
             if let Some(reason) = reactions.disconnect_reason {
                 self.session_disconnected(reason);
+                return false;
+            }
+            if reactions.reload_world {
                 return false;
             }
             let snapshot = match received {
@@ -88,6 +104,17 @@ impl GpuState {
                     return false;
                 }
             };
+            if self.live_session.is_none() {
+                return false;
+            }
+            // CG_ProcessSnapshots does not install SNAPFLAG_NOT_ACTIVE frames.
+            // These may contain cleared player state while a new map is primed.
+            if !active_snapshot(&snapshot) {
+                return true;
+            }
+            if self.live_session.as_ref().is_some_and(|s| !s.is_local()) {
+                self.resident.remember_player(&snapshot.player);
+            }
             self.net_timing.snapshot_received(snapshot.server_time);
             self.present_live_snapshot(&snapshot, true, game_audio, visual_now);
             true
@@ -197,4 +224,8 @@ impl GpuState {
             self.network_command_due = now;
         }
     }
+}
+
+pub(crate) fn active_snapshot(snapshot: &jkr_protocol::Snapshot) -> bool {
+    snapshot.flags & 2 == 0
 }

@@ -77,6 +77,9 @@ impl Store {
                 continue;
             }
             for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err("connection cancelled".into());
+                }
                 let path = entry.map_err(|e| e.to_string())?.path();
                 if path
                     .extension()
@@ -86,6 +89,9 @@ impl Store {
                     checksums.push(pak.checksum());
                 }
             }
+        }
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("connection cancelled".into());
         }
         Ok(Self {
             root,

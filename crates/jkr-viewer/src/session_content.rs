@@ -6,7 +6,7 @@ use std::error::Error;
 use std::path::Path;
 
 /// Immutable request copied to the world-loading worker, never sampled per frame.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Selection {
     checksums: Vec<i32>,
     map_checksum: Option<i32>,
