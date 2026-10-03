@@ -464,7 +464,7 @@ impl Runtime {
     /// Upload only the camera/light uniforms; the renderer already evaluated the shadow fit.
     pub(super) fn update(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         view: Mat4,
         shadow: Mat4,
         sun: jkr_shader::SunParms,

@@ -43,7 +43,7 @@ struct Layer {
 /// Device resources the font layers are created with.
 pub(crate) struct Device<'a> {
     pub(crate) device: &'a wgpu::Device,
-    pub(crate) queue: &'a wgpu::Queue,
+    pub(crate) queue: &'a crate::frame_queue::FrameQueue,
     /// The text pipeline's atlas bind group layout.
     pub(crate) layout: &'a wgpu::BindGroupLayout,
     pub(crate) sampler: &'a wgpu::Sampler,
@@ -158,7 +158,7 @@ impl GameFonts {
     }
 
     /// Copy this frame's vertices to the GPU.
-    pub(crate) fn upload(&mut self, queue: &wgpu::Queue) {
+    pub(crate) fn upload(&mut self, queue: &crate::frame_queue::FrameQueue) {
         for layer in self.layers_mut() {
             layer.count = u32::try_from(layer.vertices.len()).unwrap_or(0);
             if layer.count != 0 {

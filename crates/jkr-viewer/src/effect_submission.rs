@@ -5,7 +5,7 @@ use crate::particle_types::PrimitiveShape;
 
 pub(crate) struct Inputs<'a> {
     pub(crate) geometry: &'a mut crate::effect_geometry_gpu::Runtime,
-    pub(crate) queue: &'a wgpu::Queue,
+    pub(crate) queue: &'a crate::frame_queue::FrameQueue,
     pub(crate) encoder: &'a mut wgpu::CommandEncoder,
     pub(crate) particles: &'a mut [Particle],
     pub(crate) decals: &'a mut crate::decal_store::DecalStore,
@@ -83,6 +83,16 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
             if emitted >= capacity {
                 break 'particles;
             }
+            // Frame icons use RT_SPRITE's top-down image coordinates: OpenJK's
+            // RB_AddQuadStamp puts t=0 at +up. The particle quad instead has v=1
+            // there. Reflect its local v before applying the authored tcMod so
+            // chat/connection and simple-item icons are upright; FX keep their
+            // existing texture convention.
+            let mut uv_transform = layer.uv_transform;
+            if matches!(particle.shape, PrimitiveShape::FrameBillboard) {
+                uv_transform[3] += uv_transform[1];
+                uv_transform[1] = -uv_transform[1];
+            }
             let instance = EntityInstance {
                 position: motion.origin.to_array(),
                 kind: if particle.normal.is_some() {
@@ -103,7 +113,7 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
                 ],
                 direction,
                 rotation: motion.rotation_degrees,
-                uv_transform: layer.uv_transform,
+                uv_transform,
             };
             inputs.blended[crate::effect_blend::slot(layer.blend)].push(instance);
         }

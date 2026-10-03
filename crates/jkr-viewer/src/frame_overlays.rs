@@ -77,6 +77,7 @@ impl GpuState {
         );
         if self.post_aa.is_some() || self.render_scale.is_some() {
             drop(pass);
+
             if let Some(scale) = &self.render_scale {
                 scale.draw(
                     encoder,
@@ -86,6 +87,7 @@ impl GpuState {
             if let Some(aa) = &self.post_aa {
                 aa.draw_scene(encoder, output);
             }
+
             if !hud {
                 if let Some(aa) = &self.post_aa {
                     aa.draw_display(encoder, output);
@@ -124,7 +126,16 @@ impl GpuState {
         }
         pass.set_pipeline(&self.hud_pipeline);
         pass.set_bind_group(0, &self.hud_bind_group, &[]);
-        pass.draw(0..3, 0..1);
+        match self.hud_scissors {
+            None => pass.draw(0..3, 0..1),
+            Some(rectangles) => {
+                for [x, y, width, height] in rectangles.into_iter().flatten() {
+                    pass.set_scissor_rect(x, y, width, height);
+                    pass.draw(0..3, 0..1);
+                }
+                pass.set_scissor_rect(0, 0, self.configuration.width, self.configuration.height);
+            }
+        }
         self.ui_shapes.draw(&mut pass);
         if let Some(mask) = &self.scope_mask {
             mask.draw(&mut pass);
@@ -147,6 +158,7 @@ impl GpuState {
             pass.draw(0..classic_text, 0..1);
         }
         drop(pass);
+
         if let Some(aa) = &self.post_aa {
             aa.draw_display(encoder, output);
         }

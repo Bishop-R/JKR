@@ -16,6 +16,43 @@ const AO_RANGE: f32 = 24.0;
 const AO_STRENGTH: f32 = 3.5;
 const AO_MAX: f32 = 0.45;
 const AO_SAMPLES: u32 = 16u;
+// Fixed sample directions and radii retain the original f32 expressions.
+const AO_DIRECTIONS = array<vec2<f32>, AO_SAMPLES>(
+    vec2(cos(0.0f * 2.39996323f), sin(0.0f * 2.39996323f)),
+    vec2(cos(1.0f * 2.39996323f), sin(1.0f * 2.39996323f)),
+    vec2(cos(2.0f * 2.39996323f), sin(2.0f * 2.39996323f)),
+    vec2(cos(3.0f * 2.39996323f), sin(3.0f * 2.39996323f)),
+    vec2(cos(4.0f * 2.39996323f), sin(4.0f * 2.39996323f)),
+    vec2(cos(5.0f * 2.39996323f), sin(5.0f * 2.39996323f)),
+    vec2(cos(6.0f * 2.39996323f), sin(6.0f * 2.39996323f)),
+    vec2(cos(7.0f * 2.39996323f), sin(7.0f * 2.39996323f)),
+    vec2(cos(8.0f * 2.39996323f), sin(8.0f * 2.39996323f)),
+    vec2(cos(9.0f * 2.39996323f), sin(9.0f * 2.39996323f)),
+    vec2(cos(10.0f * 2.39996323f), sin(10.0f * 2.39996323f)),
+    vec2(cos(11.0f * 2.39996323f), sin(11.0f * 2.39996323f)),
+    vec2(cos(12.0f * 2.39996323f), sin(12.0f * 2.39996323f)),
+    vec2(cos(13.0f * 2.39996323f), sin(13.0f * 2.39996323f)),
+    vec2(cos(14.0f * 2.39996323f), sin(14.0f * 2.39996323f)),
+    vec2(cos(15.0f * 2.39996323f), sin(15.0f * 2.39996323f))
+);
+const AO_REACH = array<f32, AO_SAMPLES>(
+    sqrt((0.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((1.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((2.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((3.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((4.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((5.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((6.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((7.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((8.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((9.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((10.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((11.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((12.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((13.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((14.0f + 0.5f)/f32(AO_SAMPLES)),
+    sqrt((15.0f + 0.5f)/f32(AO_SAMPLES))
+);
 // Solve the screen ray from two clip-plane equations, then Z/W along it: no inverse matrix.
 fn depth_position(pixel: vec2<i32>) -> vec4<f32> {
     let size = vec2<i32>(textureDimensions(light_depth));
@@ -28,13 +65,13 @@ fn depth_position(pixel: vec2<i32>) -> vec4<f32> {
     let ry = vec3(m[0].y, m[1].y, m[2].y);
     let rz = vec3(m[0].z, m[1].z, m[2].z);
     let rw = vec3(m[0].w, m[1].w, m[2].w);
-    var ray = cross(rx - ndc.x*rw, ry + ndc.y*rw);
+    let ray = cross(rx - ndc.x*rw, ry + ndc.y*rw);
     let magnitude = length(ray);
     if magnitude < 1e-6 { return vec4(0.0); }
-    ray /= magnitude;
+    // Ray scale cancels in ray * distance below; retain the scaled degeneracy guard.
     let origin = m*vec4(camera.camera_position, 1.0);
     let denominator = dot(rz - depth*rw, ray);
-    if abs(denominator) < 1e-8 { return vec4(0.0); }
+    if abs(denominator) < 1e-8*magnitude { return vec4(0.0); }
     let distance = (depth*origin.w - origin.z)/denominator;
     return vec4(camera.camera_position + ray*distance, 1.0);
 }
@@ -51,9 +88,8 @@ fn occlusion(pixel: vec2<i32>, world: vec3<f32>, normal: vec3<f32>, clip_w: f32)
     let rotation = vec2(cos(turn), sin(turn));
     var total = 0.0;
     for (var i = 0u; i < AO_SAMPLES; i++) {
-        let angle = f32(i)*2.39996323;
-        let reach = sqrt((f32(i) + 0.5)/f32(AO_SAMPLES))*radius;
-        var offset = vec2(cos(angle), sin(angle))*reach;
+        let reach = AO_REACH[i]*radius;
+        var offset = AO_DIRECTIONS[i]*reach;
         offset = vec2(offset.x*rotation.x - offset.y*rotation.y,
             offset.x*rotation.y + offset.y*rotation.x);
         let sample = depth_position(pixel + vec2<i32>(round(offset)));
