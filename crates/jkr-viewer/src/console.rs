@@ -106,6 +106,7 @@ pub(crate) struct ViewerConsole {
     copied: String,
     pending_quit: bool,
     pending_input: Vec<String>,
+    pending_chat: std::collections::VecDeque<String>,
 
     client_commands: console_client::Commands,
     script_vfs: Option<Arc<jkr_vfs::VirtualFileSystem>>,

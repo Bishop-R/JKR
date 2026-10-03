@@ -152,7 +152,15 @@ impl crate::GpuState {
         let Some(remote) = self.resident.session.as_mut() else {
             return false;
         };
-        let Some((game, mut snapshot)) = remote.take_retired_world() else {
+        let source = remote.take_retired_world().or_else(|| {
+            self.resident.intermission.then(|| {
+                (
+                    remote.game_state().clone(),
+                    remote.latest_snapshot().clone(),
+                )
+            })
+        });
+        let Some((game, mut snapshot)) = source else {
             return false;
         };
         if !crate::live_session::active_snapshot(&snapshot)
@@ -180,7 +188,8 @@ impl crate::GpuState {
             if let Some(player) = &self.resident.last_playing {
                 snapshot.player.copy_from(player);
             }
-        } else if let Some(predicted) = self.local_prediction.predicted_state() {
+        }
+        if let Some(predicted) = self.local_prediction.predicted_state() {
             predicted.write_player_state(&mut snapshot.player);
         }
         // Keep the already displayed pose and the new authority on one timeline.

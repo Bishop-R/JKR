@@ -112,6 +112,10 @@ impl GpuState {
             if !active_snapshot(&snapshot) {
                 return true;
             }
+            if self.begin_playable_intermission() {
+                self.finish_resident_attach(game_audio);
+                return false;
+            }
             if self.live_session.as_ref().is_some_and(|s| !s.is_local()) {
                 self.resident.remember_player(&snapshot.player);
             }
@@ -147,7 +151,7 @@ impl GpuState {
         server_commands::consume(
             session,
             &self.localization,
-            &mut self.chat,
+            self.resident.session.is_none().then_some(&mut self.chat),
             self.console.as_mut(),
             self.legacy_world_adapter.as_mut(),
             &mut self.clientinfo_watch,
@@ -158,7 +162,7 @@ impl GpuState {
         }
         let intermission =
             session.latest_snapshot().player.movement_type() == jkr_client::PM_INTERMISSION;
-        if !intermission {
+        if !intermission && !session.is_local() {
             self.intermission_score_request_time = None;
         }
         if intermission

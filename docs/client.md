@@ -48,16 +48,21 @@ On a server map change, other players disappear while your player continues in
 an in-process native game on the old map. The ordinary client pipeline still
 presents your model, saber, weapons, HUD, animations and effects. Movement,
 attacks, pickups and doors use the existing dedicated-server gameplay. The last
-predicted player state seeds the continuation; after intermission, the last
-pre-intermission player state supplies the playable pose instead of the frozen
-intermission camera. Visible brush-door trajectories are carried across.
+predicted player state seeds the continuation. At normal match end, local play
+starts before the first frozen intermission snapshot is presented, preserving the
+pre-intermission character and camera. The real server's scoreboard remains
+visible over local play and disappears when the server changes maps; your player
+continues until the destination is ready. Visible brush-door trajectories are
+carried across.
 The handoff retains the local actor's animation tracks and uses one monotonic
 local command/presentation timeline, without network drift adjustments. Remote
 adoption starts fresh entity samples; a backwards server timestamp also retires
 samples from the provisional server clock before applying the new snapshot.
 
 The remote connection has its own command timer and stays separate from this
-local authority. Local controls and position never go to the waiting server.
+local authority. Local movement, aim and simulation time never go to the waiting
+server. During intermission only, attack/use buttons retain the stock ready-to-exit
+behavior using the remote snapshot clock; once loading begins, commands are neutral.
 Once the destination and a fresh, active remote snapshot are ready, the client adopts
 that world and the server's spawn state. Matching same-map restarts can reuse the
 resident world. These paths have no separate loading screen.
@@ -73,6 +78,21 @@ with frozen brush collision. If native world preparation fails, map-change
 continuation also falls back to that path and reports the error in the console.
 The gate's through-door view still uses the existing lightweight rendering path;
 the full lighting path begins when the destination becomes the active world.
+
+Server console output (`print`) goes exclusively to the console, including match
+statistics, command replies and server announcements. It never enters chat history.
+Global, team and private chat retain their conversation overlay. Center-print
+gameplay notices keep their separate HUD presentation. The scoreboard continues
+to use structured server scores rather than parsing printed statistics tables.
+
+Chat remains connected to the real server during intermission and background
+loading, including global/team/private composer messages and console/bound chat
+commands. The scoreboard reserves a separate left column for messages and the
+composer, temporarily overriding chat position/width while scores are visible.
+Chat visibility/lifetime settings still apply. Typing captures gameplay input as
+usual, and the ordinary chat layout returns after the scoreboard closes.
+If local authority cannot be prepared, intermission keeps the standard remote
+scoreboard/camera rather than switching to movement-only exploration.
 
 Escape opens the normal menu during exploration. Disconnect/cancel abandons the
 pending connection and restores the retained main-menu world. Connection and asset
