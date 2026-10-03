@@ -39,8 +39,12 @@ game for reuse. The pre-gamestate gate path still uses the movement-only predict
 
 The local command clock advances monotonically without network drift correction.
 The parked remote transport sends neutral commands on a separate timer, and
-continues receiving lifecycle events. Only that transport owns its socket; local
-input and simulation state never cross into it. A retired gamestate/snapshot is
+continues receiving lifecycle events and communication. At match-end intermission,
+local gameplay starts before the frozen snapshot reaches presentation. Scores and
+chat retain the remote endpoint; only stock ready-to-exit attack/use buttons use
+the remote snapshot clock until its map change, after which commands are neutral.
+Only that transport owns its socket; local movement, aim and simulation state
+never cross into it. A retired gamestate/snapshot is
 captured once at transition, while the resident world retains the latest playable
 player state for intermission recovery. Reattachment invalidates presentation
 configstrings so native resource indices cannot leak into remote presentation.

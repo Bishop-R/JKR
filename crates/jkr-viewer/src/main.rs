@@ -1404,19 +1404,18 @@ impl GpuState {
             );
         }
         let scoreboard_visible = information_visible
-            && (intermission_view.is_some() || self.gameplay_input.held(input::GameButton::Scores))
+            && scoreboard::requested(self, intermission_view.is_some())
             && self
                 .console
                 .as_ref()
                 .and_then(|c| c.bool_cvar("cg_drawScores"))
                 .unwrap_or(true);
         let chat_visible = scoreboard::chat_visible(
-            scoreboard_visible,
             information_visible,
             self.chat.wants_history(self.console.as_ref()),
         );
         if chat_visible {
-            self.append_configured_chat(viewport, text_scale);
+            self.append_configured_chat(viewport, text_scale, scoreboard_visible);
         }
         if self
             .weapon_selected_at

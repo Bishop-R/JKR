@@ -199,6 +199,40 @@ Workspace build/tests, formatting, standalone clock checks and release builds
 passed. The owner playtested the updated transitions and accepted the combined
 preview for publication. Wider mod, vehicle and platform coverage remains open.
 
+Natural intermission and chat (2026-10-03, local changes based on `a993436`):
+the previous forced-map checks missed the frozen scoreboard phase at normal
+match end. The viewer now starts full local continuation before presenting that
+snapshot, while the real remote session retains scores and communication.
+A Linux/RADV 960×540 release check against an isolated loopback TaystJK server
+expired its timelimit, displayed authoritative scores over the local character,
+used the stock ready button and followed `nextmap` from FFA3 to FFA1. The final
+run observed 1,404 scoreboard frames and 2,450 loading frames with exactly one
+local actor and continuing movement, then adopted the destination. Local render
+calls measured 0.92 ms median, 2.37 ms p99 and 309.76 ms maximum; an earlier run
+under concurrent build pressure reached 3.11 seconds. This is not hitch-free or
+a populated-match performance certification.
+
+Socket-free mock endpoints verified global/team/private composer dispatch and
+console chat routing without sending test messages to any server. Incoming
+server announcements continued during intermission. They now go to the console
+exclusively: the owner requested a general separation of console prints from
+chat after observing TaystJK's `PrintStats` table in the conversation overlay.
+Global/team/private chat and separate center-print HUD notices are preserved;
+no server-specific table filter is used. An external offline check confirmed
+that 101 console prints, including a stats table, could not enter or displace
+chat history or close its composer; chat/team messages and a center notice still
+reached their intended presentation. Workspace build/tests, formatting and the
+updated production release build passed. This routing check sent no messages
+to a server. Captures cover the composer
+beside real scores and a synthetic 32-player team board; 576 geometry cases cover
+1–32 rows, FFA/team layouts and nine viewports from 640×480 through 4K, including
+ultrawide and portrait. These checks do not establish human-to-human delivery or
+all mod/platform behavior. Client changes leave gameplay rules and wire codecs
+untouched. External compiled OpenJK on-foot/force-jump checks passed again at
+8/7/4/3 ms (560 cases / 72,275 commands). Workspace build/tests, formatting and
+the production release build passed. The owner accepted the combined preview
+for publication; broader mod and platform coverage remains open.
+
 ## Open validation and limitations
 
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios

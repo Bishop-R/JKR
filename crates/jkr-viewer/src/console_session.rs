@@ -271,6 +271,7 @@ impl ViewerConsole {
             copied: String::new(),
             pending_quit: false,
             pending_input: Vec::with_capacity(64),
+            pending_chat: std::collections::VecDeque::with_capacity(16),
 
             client_commands,
             script_vfs: None,

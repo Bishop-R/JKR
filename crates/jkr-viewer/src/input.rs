@@ -369,7 +369,7 @@ impl super::GpuState {
                 }
             }
             Some(InputAction::RequestScores) => {
-                if let Some(session) = &mut self.live_session
+                if let Some(session) = self.communication_session_mut()
                     && let Err(error) = session.send_reliable_command(b"score")
                 {
                     eprintln!("failed to request scoreboard: {error}");
