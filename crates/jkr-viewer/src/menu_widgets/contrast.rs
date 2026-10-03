@@ -53,14 +53,19 @@ impl MenuContrast {
     /// or number (0 to 2).
     pub(crate) const CVAR: &'static str = "ui_menuContrast";
 
-    /// Parse a level name or number; `None` for anything else.
+    /// Parse a level name or number; `None` for anything else. Runs every
+    /// frame from the cvar sync, so it compares in place rather than
+    /// allocating a lowercased copy.
     pub(crate) fn parse(text: &str) -> Option<Self> {
-        match text.trim().to_ascii_lowercase().as_str() {
-            "off" | "0" => Some(Self::Off),
-            "standard" | "1" => Some(Self::Standard),
-            "strong" | "2" => Some(Self::Strong),
-            _ => None,
-        }
+        let text = text.trim();
+        [
+            (Self::Off, "off", "0"),
+            (Self::Standard, "standard", "1"),
+            (Self::Strong, "strong", "2"),
+        ]
+        .into_iter()
+        .find(|(_, name, number)| text.eq_ignore_ascii_case(name) || text == *number)
+        .map(|(level, _, _)| level)
     }
 
     /// The level a cvar value selects; the default when absent or malformed.
@@ -250,7 +255,9 @@ mod tests {
             MenuContrast::parse("standard"),
             Some(MenuContrast::Standard)
         );
+        assert_eq!(MenuContrast::parse("StRoNg"), Some(MenuContrast::Strong));
         assert_eq!(MenuContrast::parse("3"), None);
+        assert_eq!(MenuContrast::parse("offf"), None);
         assert_eq!(MenuContrast::from_cvar(None), MenuContrast::Standard);
         assert_eq!(MenuContrast::from_cvar(Some("x")), MenuContrast::Standard);
     }

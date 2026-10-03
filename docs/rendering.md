@@ -347,7 +347,9 @@ and dimmed labels gain just enough opacity to reach 4.5:1 on that backing.
 Disabled entries (drawn under half opacity) keep their dimmed look. The
 figures treat UI colours as linear values blended into an sRGB or float target
 and ignore the glyph drop shadow, so they are conservative; they are not
-measured on screen. See
+measured on screen. The cvar is read once per frame, menus open or not, and
+published as an atomic level; that read compares in place and does not
+allocate. See
 [contrast.rs](../crates/jkr-viewer/src/menu_widgets/contrast.rs) and
 [hero.rs](../crates/jkr-viewer/src/menu_widgets/hero.rs).
 
