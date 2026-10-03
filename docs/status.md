@@ -114,7 +114,8 @@ and limits. Gameplay and protocol code are unchanged.
   [animation_events.rs](../crates/jkr-client/src/animation_events.rs), played by
   [audio_animation_events.rs](../crates/jkr-viewer/src/audio_animation_events.rs).
   These are the fast-style taunt's saber spins, saber kicks and katas, melee
-  punches and body falls. Covered by unit tests and a parse of the retail
+  punches and body falls. Each table is parsed with its model and its sounds
+  registered when the actor list changes, so drawing never reads files. Covered by unit tests and a parse of the retail
   humanoid file; not yet heard in game. Not played from the same file:
   `AEV_FOOTSTEP` (dry footsteps), `AEV_EFFECT`, `AEV_FIRE`, a saber's own
   `swingSound`/`spinSound`, and corpses' events. The stun baton, unlike melee,

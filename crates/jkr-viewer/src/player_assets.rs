@@ -1,14 +1,18 @@
 //! Loading of deformable player appearances from the mounted VFS.
 
 use super::*;
+use jkr_client::LegacyAnimationEvents;
 use std::collections::HashMap;
 
 /// Parsed `.gla` skeletons keyed by animation path. Every humanoid player
 /// model shares `_humanoid.gla` (tens of MB), so the menu's stage keeps
-/// one parsed copy across model switches instead of re-reading it.
+/// one parsed copy across model switches instead of re-reading it. The
+/// skeleton's `animevents.cfg` table is kept the same way.
 #[derive(Default)]
 pub(crate) struct GlaCache {
     animations: HashMap<String, Arc<Gla>>,
+    /// By `Glm::animation_name`; `None` for a skeleton without a file.
+    animation_events: HashMap<String, Option<Arc<LegacyAnimationEvents>>>,
 }
 
 impl GlaCache {
@@ -24,6 +28,44 @@ impl GlaCache {
         self.animations.insert(path.to_owned(), animation.clone());
         Ok(animation)
     }
+
+    fn animation_events(
+        &mut self,
+        vfs: &VirtualFileSystem,
+        skeleton: &str,
+        config: &AnimationConfig,
+    ) -> Option<Arc<LegacyAnimationEvents>> {
+        if let Some(table) = self.animation_events.get(skeleton) {
+            return table.clone();
+        }
+        let table = read_animation_events(vfs, skeleton, config).map(Arc::new);
+        self.animation_events
+            .insert(skeleton.to_owned(), table.clone());
+        table
+    }
+}
+
+/// Read `skeleton`'s `animevents.cfg` (and its includes) against `config`.
+/// The file is the one beside the skeleton (`models/players/_humanoid/` for
+/// every humanoid), as `CG_G2EvIndexForModel` picks it
+/// (`codemp/cgame/cg_players.c`). Read with the model, so drawing an actor
+/// never touches the file system for its events.
+fn read_animation_events(
+    vfs: &VirtualFileSystem,
+    skeleton: &str,
+    config: &AnimationConfig,
+) -> Option<LegacyAnimationEvents> {
+    let directory = skeleton
+        .rsplit_once('/')
+        .map_or("", |(directory, _)| directory);
+    let read = |path: &str| {
+        let bytes = vfs.read(path).ok().flatten()?.bytes;
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    };
+    let text = read(&format!("{directory}/animevents.cfg"))?;
+    Some(LegacyAnimationEvents::parse(&text, config, &mut |name| {
+        read(&format!("models/players/{name}/animevents.cfg"))
+    }))
 }
 
 /// Split a legacy `model` cvar (`kyle/default`, `jedi_hm/head_a1|torso_a1|lower_a1`)
@@ -44,6 +86,8 @@ pub(super) struct PlayerPreview {
     pub(super) animation: Arc<Gla>,
     pub(super) skin: Skin,
     pub(super) config: Arc<AnimationConfig>,
+    /// The skeleton's `animevents.cfg`, parsed at load; `None` without one.
+    pub(super) animation_events: Option<Arc<LegacyAnimationEvents>>,
     pub(super) sequence: AnimationSequence,
     pub(super) origin: [f32; 3],
     pub(super) yaw: f32,
@@ -147,6 +191,7 @@ pub(super) fn load_player_appearance_with(
         .rsplit_once('/')
         .map_or("", |(directory, _)| directory);
     let config = AnimationConfig::parse(&read(&format!("{animation_directory}/animation.cfg"))?)?;
+    let animation_events = cache.animation_events(vfs, &mesh.animation_name, &config);
     let sequence = config
         .get("BOTH_STAND1IDLE1")
         .or_else(|| config.get("BOTH_STAND1"))
@@ -179,9 +224,44 @@ pub(super) fn load_player_appearance_with(
         animation,
         skin,
         config: Arc::new(config),
+        animation_events,
         sequence,
         origin,
         yaw: camera_yaw + std::f32::consts::PI,
         vehicle: vehicle_kind,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG: &str = "BOTH_RUN1 10 20 0 20\n";
+
+    #[test]
+    fn animation_events_are_read_beside_the_skeleton_once() {
+        let mut vfs = VirtualFileSystem::new();
+        vfs.mount_memory(
+            "test",
+            [(
+                "models/players/_humanoid/animevents.cfg",
+                "UPPEREVENTS {\nBOTH_RUN1 AEV_SOUND 4 sound/player/roll1.wav 0 0 0\n}\n",
+            )],
+        )
+        .unwrap();
+        let config = AnimationConfig::parse(CONFIG.as_bytes()).unwrap();
+        let mut cache = GlaCache::default();
+        let skeleton = "models/players/_humanoid/_humanoid";
+        let table = cache.animation_events(&vfs, skeleton, &config).unwrap();
+        let mut paths = Vec::new();
+        table.for_each_sound_path(|path| paths.push(path.to_owned()));
+        assert_eq!(paths, ["sound/player/roll1.wav"]);
+        let again = cache.animation_events(&vfs, skeleton, &config).unwrap();
+        assert!(Arc::ptr_eq(&table, &again));
+        assert!(
+            cache
+                .animation_events(&vfs, "models/players/rancor/rancor", &config)
+                .is_none()
+        );
+    }
 }

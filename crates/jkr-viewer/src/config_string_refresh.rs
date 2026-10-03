@@ -86,6 +86,15 @@ pub(crate) fn preload_effects(
 impl GpuState {
     /// Drain once per frame. An idle session performs only fixed bitset work.
     pub(crate) fn refresh_config_strings(&mut self, audio: &mut Option<GameAudio>) {
+        self.drain_config_strings(audio);
+        // Actors loaded above (clientinfo, forced models, NPCs) bring their
+        // animation-event tables; register those sounds here, not while drawing.
+        if let (Some(audio), Some(vfs)) = (audio.as_mut(), &self.vfs) {
+            audio.register_animation_events(vfs, &self.actor_meshes);
+        }
+    }
+
+    fn drain_config_strings(&mut self, audio: &mut Option<GameAudio>) {
         self.refresh_forced_models();
         if self.pending_map_reload
             || self.world_load_task.is_some()
