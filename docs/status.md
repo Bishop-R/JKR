@@ -201,6 +201,16 @@ preview for publication. Wider mod, vehicle and platform coverage remains open.
 
 ## Open validation and limitations
 
+Volumetric silhouette correction (local changes based on `a993436`): excluded
+depth samples no longer dilute the visible-air lighting estimate. External
+Linux/RADV release checks reproduced and removed the sampled FFA5 player fringe
+without increasing grid resolution. Paired 720p/4K timings showed no material
+change in the tested scene; captures also cover FFA3, a Rancor interior and 24
+camera turns. See [volumetric coverage](rendering.md#volumetric-silhouette-coverage)
+for measurements and reproduction limits. Formatting, workspace build/tests and
+the production release build passed. Owner acceptance and broad content coverage
+remain open.
+
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
   marking individual capabilities complete.
