@@ -179,11 +179,28 @@ pub(super) fn create_pipeline_for_vertex(
     } else {
         &static_buffers[..]
     };
-    // Bit 8 is a depth bias only; the shader sees the first three bits.
+    // Bit 8 is a depth bias only; the vertex shader sees the first three bits and the
+    // fragment shader bits 4 and 16.
     let specialization = [
         ("geometry_deforms", f64::from(key.geometry & 1 != 0)),
         ("geometry_sprites", f64::from(key.geometry & 2 != 0)),
     ];
+    let fragment_specialization = [
+        ("visible_emission", f64::from(key.geometry & 4 != 0)),
+        (
+            "forced_entity_alpha",
+            f64::from(key.geometry & crate::world_stage::FORCED_ALPHA != 0),
+        ),
+    ];
+    // Ordinary pipelines pass no constants; `forced_entity_alpha` only ever comes with
+    // `visible_emission` in the list, so a stage-program module always declares both.
+    let fragment_constants = if key.geometry & crate::world_stage::FORCED_ALPHA != 0 {
+        0..2
+    } else if key.geometry & 4 != 0 {
+        0..1
+    } else {
+        0..0
+    };
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(layout),
@@ -204,11 +221,7 @@ pub(super) fn create_pipeline_for_vertex(
             module: shader,
             entry_point: Some(fragment_entry),
             compilation_options: wgpu::PipelineCompilationOptions {
-                constants: if key.geometry & 4 != 0 {
-                    &[("visible_emission", 1.)]
-                } else {
-                    &[]
-                },
+                constants: &fragment_specialization[fragment_constants],
                 ..Default::default()
             },
             targets: &[Some(wgpu::ColorTargetState {

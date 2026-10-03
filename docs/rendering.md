@@ -127,10 +127,13 @@ own surface shaders, the stage program replaces vertex alpha with the
 instance's alpha, and each stage uses an alpha-blended, depth-tested,
 non-depth-writing variant of its pipeline
 ([world_forced_alpha.rs](../crates/jkr-viewer/src/world_forced_alpha.rs)).
+Like rd-vanilla's fixed `GL_State`, the variant has no alpha test: the stage
+program is specialized to skip it, so a GE128 cut-out whose forced alpha is
+below one half stays visible, and blending still hides its transparent texels.
 These draws close the blended entity list, like the stock post-render queue,
 but particle effects still composite after them. Model materials compile these
-variants at map load (depth-tested only); most share keys with ordinary
-blended stages.
+variants at map load (depth-tested only); stages without an alpha test share
+keys with ordinary blended stages.
 
 The Force Speed afterimages use it: two copies of the actor in its current pose
 at alpha 100 and 50, spaced by `(int)(6 * speed * 0.004)` units along the

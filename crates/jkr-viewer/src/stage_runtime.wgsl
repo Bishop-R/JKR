@@ -1,6 +1,9 @@
 // Quake 3 world stage evaluator. The only frame-varying uniform is
 // camera.shader_time; material tables and animation arrays are map-lifetime.
 
+// Set for RF_FORCE_ENT_ALPHA pipelines (`world_forced_alpha.rs`).
+override forced_entity_alpha: bool = false;
+
 @group(1) @binding(0) var stage_images: texture_2d_array<f32>;
 @group(1) @binding(1) var stage_sampler: sampler;
 @group(1) @binding(2) var secondary_images: texture_2d_array<f32>;
@@ -306,7 +309,9 @@ fn stage_fragment(input: VertexOutput) -> vec4<f32> {
         }
     }
     var output = apply_lighting_mode(input, texel, secondary_texel);
-    let alpha_test = i32(stage.generators.z);
+    // RF_FORCE_ENT_ALPHA replaces the stage's GL_State, alpha-test bits included
+    // (rd-vanilla `tr_shade.cpp:1745-1757`); blending still hides transparent texels.
+    let alpha_test = select(i32(stage.generators.z), 0, forced_entity_alpha);
     if alpha_test == 1 && output.a <= 0.0 { discard; }
     if alpha_test == 2 && output.a >= (128.0 / 255.0) { discard; }
     if alpha_test == 3 && output.a < (128.0 / 255.0) { discard; }

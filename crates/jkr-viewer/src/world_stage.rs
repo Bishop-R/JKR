@@ -72,7 +72,8 @@ pub(crate) enum CollapseOperator {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct PipelineKey {
     /// Specialization bits: 1 geometry deforms, 2 surface sprites, 4 live emission,
-    /// 8 `polygonOffset` (a depth bias, no shader work).
+    /// 8 `polygonOffset` (a depth bias, no shader work), 16 forced entity alpha
+    /// (no alpha test).
     /// Zero strips the extra work out of ordinary material pipelines.
     pub(crate) geometry: u8,
     pub(crate) source: wgpu::BlendFactor,
@@ -349,6 +350,9 @@ fn compile_tcmod(modification: &TextureModification) -> ([f32; 4], [f32; 4]) {
 
 /// [`PipelineKey::geometry`] bit of a `polygonOffset` material.
 pub(crate) const POLYGON_OFFSET: u8 = 8;
+/// [`PipelineKey::geometry`] bit of an `RF_FORCE_ENT_ALPHA` pipeline: its fixed
+/// `GL_State` carries no alpha-test bits, so the stage program skips the alpha test.
+pub(crate) const FORCED_ALPHA: u8 = 16;
 /// `qglPolygonOffset(r_offsetFactor, r_offsetUnits)` with the -1 / -2 defaults
 /// (`tr_shade.cpp:1811`, `tr_init.cpp:1666-1667`): markings laid onto a surface win the
 /// depth test against it instead of fighting with it.
