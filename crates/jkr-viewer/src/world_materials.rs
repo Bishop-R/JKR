@@ -343,7 +343,7 @@ pub(crate) mod filtering;
 
 fn finish_runtime(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     mut forge: Forge,
     sky: crate::sky_stage::Runtime,
     fog: FogGpu,

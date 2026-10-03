@@ -91,6 +91,18 @@ Fixed AO sample tables and equivalent depth-ray arithmetic save another
 and checked captures on both routes. The owner playtested and accepted the
 combined performance preview before publication.
 
+
+Submission and deferred-lighting work based on `f3f3db2` (2026-10-02) records
+frame uploads for a bounded submission worker, restricts HUD shading, shades
+uncached lamp receivers in compute, avoids redundant clears/copies and uses
+conservative shadow-bound mip levels. On Linux with Ryzen 5 5500 / RX 9060 XT,
+external 31-player replays at 2560×1080 reduced mean total frame time from
+2.464 to 1.822 ms on `ffa3` and 3.042 to 2.157 ms on `ffa1`. The latter's p99
+increased from 3.757 to 4.263 ms, so improved tail latency is not established.
+Finite image comparisons and workspace/release checks passed; see
+[rendering](rendering.md#submission-and-lighting-work-reduction) for evidence
+and limits. Gameplay and protocol code are unchanged.
+
 ## Open validation and limitations
 
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios

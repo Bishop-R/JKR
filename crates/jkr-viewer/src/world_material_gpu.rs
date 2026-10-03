@@ -321,7 +321,7 @@ pub(super) fn load_stage_images(
 
 pub(crate) fn upload_array(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     images: &[Arc<RgbaImage>],
 ) -> Result<wgpu::TextureView, Box<dyn Error>> {
     let width = images.iter().map(|image| image.width()).max().unwrap_or(1);
@@ -393,7 +393,7 @@ pub(crate) fn upload_array(
 
 pub(crate) fn upload_lightmaps(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     bsp: &Bsp,
 ) -> Result<HashMap<i32, wgpu::TextureView>, Box<dyn Error>> {
     let mut result = HashMap::new();

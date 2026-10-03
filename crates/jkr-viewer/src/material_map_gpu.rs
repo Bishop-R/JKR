@@ -33,7 +33,10 @@ pub(in crate::world_materials) struct Gpu {
 }
 
 impl Gpu {
-    pub(in crate::world_materials) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    pub(in crate::world_materials) fn new(
+        device: &wgpu::Device,
+        queue: &crate::frame_queue::FrameQueue,
+    ) -> Self {
         let mut entries = super::super::gpu::stage_layout_entries().to_vec();
         let texture = |binding| crate::texture_layout_entry(binding);
         entries.extend([
@@ -100,7 +103,7 @@ impl Gpu {
     pub(in crate::world_materials) fn bind(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         stage_entries: &[wgpu::BindGroupEntry<'_>],
         maps: &StageMaps,
         sampler: &wgpu::Sampler,
@@ -202,7 +205,11 @@ fn frames_buffer(device: &wgpu::Device, packed: &[[u32; 2]]) -> wgpu::Buffer {
 
 /// Upload one map as linear RGBA8 with a full box-filtered mip chain: the maps are
 /// data, never colour, and unfiltered normal maps shimmer at a distance.
-fn upload(device: &wgpu::Device, queue: &wgpu::Queue, image: &RgbaImage) -> wgpu::TextureView {
+fn upload(
+    device: &wgpu::Device,
+    queue: &crate::frame_queue::FrameQueue,
+    image: &RgbaImage,
+) -> wgpu::TextureView {
     let chain = mip_chain(image);
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("JKR material map"),

@@ -5,7 +5,7 @@ use crate::particle_types::PrimitiveShape;
 
 pub(crate) struct Inputs<'a> {
     pub(crate) geometry: &'a mut crate::effect_geometry_gpu::Runtime,
-    pub(crate) queue: &'a wgpu::Queue,
+    pub(crate) queue: &'a crate::frame_queue::FrameQueue,
     pub(crate) encoder: &'a mut wgpu::CommandEncoder,
     pub(crate) particles: &'a mut [Particle],
     pub(crate) decals: &'a mut crate::decal_store::DecalStore,

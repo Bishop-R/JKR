@@ -246,7 +246,11 @@ impl Layer {
     /// 16 bytes only when the rectangle changes. Interior edges are inset by a texel, so a
     /// filtered resolve (render scale) never reaches the older texels outside it; the
     /// effect bounds carry a wider margin than that.
-    pub(crate) fn set_merge_region(&self, queue: &wgpu::Queue, region: Option<[u32; 4]>) {
+    pub(crate) fn set_merge_region(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        region: Option<[u32; 4]>,
+    ) {
         let [w, h] = self.size.map(|n| n.max(1) as f32);
         let value = region.map_or([0.0, 0.0, 1.0, 1.0], |[x, y, width, height]| {
             // Only interior edges: at the target's border clamp-to-edge stays inside.

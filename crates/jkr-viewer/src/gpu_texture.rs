@@ -22,7 +22,7 @@ pub(crate) fn decode_image(
 /// Upload one two-dimensional RGBA image and return its default view.
 pub(crate) fn create_rgba8_texture(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     label: &str,
     width: u32,
     height: u32,
@@ -74,7 +74,7 @@ pub(crate) fn create_rgba8_texture(
 /// minified sampling (small UI text from a large glyph atlas) stays smooth.
 pub(crate) fn create_rgba8_texture_mipmapped(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     label: &str,
     image: &image::RgbaImage,
     srgb: bool,
@@ -144,7 +144,7 @@ pub(crate) fn create_rgba8_texture_mipmapped(
 /// any decode and blends them in display space (`effect_layer.rs`).
 pub(crate) fn load_shader_texture(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     vfs: &jkr_vfs::VirtualFileSystem,
     shaders: &jkr_shader::ShaderCatalog,
     shader: &str,
@@ -192,7 +192,7 @@ pub(crate) fn box_mip_chain(image: &image::RgbaImage) -> Vec<image::RgbaImage> {
 /// (`box_mip_chain`), for effects that stock samples with `r_textureMode`'s mipmaps.
 pub(crate) fn upload_display_image_mipmapped(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     label: &str,
     rgba: &image::RgbaImage,
 ) -> wgpu::TextureView {
@@ -239,7 +239,7 @@ pub(crate) fn upload_display_image_mipmapped(
 /// Upload a decoded effect image as stored display values (no sRGB decode).
 pub(crate) fn upload_display_image(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     label: &str,
     rgba: &image::RgbaImage,
 ) -> wgpu::TextureView {

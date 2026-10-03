@@ -63,6 +63,7 @@ mod fog_frame;
 mod fog_volumes;
 mod force_overlay_submission;
 mod frame_pacing;
+mod frame_queue;
 mod frame_split;
 
 mod frame_target;
@@ -222,7 +223,7 @@ struct GpuState {
     render_scale: Option<frame_target::scale::Runtime>,
     screenshots: screenshot::Manager,
     device: wgpu::Device,
-    queue: wgpu::Queue,
+    queue: frame_queue::FrameQueue,
     configuration: wgpu::SurfaceConfiguration,
     present_modes: Vec<wgpu::PresentMode>,
     adapter_name: String,
@@ -290,6 +291,8 @@ struct GpuState {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     hud_buffer: wgpu::Buffer,
+    /// Where this frame's HUD program can draw (`hud_runtime::HudScissors`).
+    hud_scissors: hud_runtime::HudScissors,
     hud_bind_group: wgpu::BindGroup,
     text_vertex_buffer: wgpu::Buffer,
     classic_text_vertex_buffer: wgpu::Buffer,
@@ -610,7 +613,7 @@ impl GpuState {
             label: Some("JKR camera layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -1035,6 +1038,7 @@ impl GpuState {
             camera_buffer,
             camera_bind_group,
             hud_buffer,
+            hud_scissors: None,
             hud_bind_group,
             text_vertex_buffer,
             classic_text_vertex_buffer,
@@ -1367,38 +1371,38 @@ impl GpuState {
                 (0.0, self.game_menu_row as f32),
                 menu::ClientMenu::visual_selection,
             );
-        self.queue.write_buffer(
-            &self.hud_buffer,
-            0,
-            bytemuck::bytes_of(&HudUniform {
-                crosshair_color: self.hud.targeting.color,
-                health_ratio,
-                armor_ratio,
-                force_ratio,
-                menu_open: menu_backdrop::shader_menu_state(self),
-                inverse_width: 1.0 / self.configuration.width as f32,
-                inverse_height: 1.0 / self.configuration.height as f32,
-                menu_row: visual_menu_row,
-                menu_row_count: self.game_menu_row_count() as f32,
-                crosshair: hud::options::crosshair_size(
-                    self.console.as_ref(),
-                    hud_visibility.crosshair,
-                ),
-                hud_visible: f32::from(hud_visibility.hud),
-                status_visible: 0.0,
-                menu_kind,
-                menu_phase: now.duration_since(self.ui_epoch).as_secs_f32(),
-                damage_x: damage.map_or(0.0, |sample| sample.x),
-                damage_y: damage.map_or(0.0, |sample| sample.y),
-                damage_alpha: damage.map_or(0.0, |sample| sample.alpha),
-                damage_strength: damage.map_or(0.0, |sample| sample.strength),
-                health_bar: hud_layout.health_bar,
-                armor_bar: hud_layout.armor_bar,
-                force_bar: hud_layout.force_bar,
-                _padding: [0.0; 3],
-                crosshair_parameters: self.hud.targeting.parameters(viewport),
-            }),
-        );
+        let hud_uniform = HudUniform {
+            crosshair_color: self.hud.targeting.color,
+            health_ratio,
+            armor_ratio,
+            force_ratio,
+            menu_open: menu_backdrop::shader_menu_state(self),
+            inverse_width: 1.0 / self.configuration.width as f32,
+            inverse_height: 1.0 / self.configuration.height as f32,
+            menu_row: visual_menu_row,
+            menu_row_count: self.game_menu_row_count() as f32,
+            crosshair: hud::options::crosshair_size(
+                self.console.as_ref(),
+                hud_visibility.crosshair,
+            ),
+            hud_visible: f32::from(hud_visibility.hud),
+            status_visible: 0.0,
+            menu_kind,
+            menu_phase: now.duration_since(self.ui_epoch).as_secs_f32(),
+            damage_x: damage.map_or(0.0, |sample| sample.x),
+            damage_y: damage.map_or(0.0, |sample| sample.y),
+            damage_alpha: damage.map_or(0.0, |sample| sample.alpha),
+            damage_strength: damage.map_or(0.0, |sample| sample.strength),
+            health_bar: hud_layout.health_bar,
+            armor_bar: hud_layout.armor_bar,
+            force_bar: hud_layout.force_bar,
+            _padding: [0.0; 3],
+            crosshair_parameters: self.hud.targeting.parameters(viewport),
+        };
+        self.queue
+            .write_buffer(&self.hud_buffer, 0, bytemuck::bytes_of(&hud_uniform));
+        self.hud_scissors =
+            hud_uniform.scissors(self.configuration.width, self.configuration.height);
         self.text_vertices.clear();
         self.classic_text_vertices.clear();
         let information_visible = (self.live_session.is_some() || self.demo_session.is_some())
@@ -1686,11 +1690,11 @@ impl GpuState {
             game_audio,
         );
         timing.mark(Phase::Acquire);
-        let (frame, output_view) = match frame_target::acquire(self) {
+        let target = match frame_target::prepare(self) {
             Ok(target) => target,
             Err(status) => return status,
         };
-        let target_view = self.scene_target(&output_view).clone();
+        let target_view = target.scene.clone();
         timing.mark(Phase::Effects);
         let mut encoder = self
             .device
@@ -1896,7 +1900,6 @@ impl GpuState {
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "views");
         }
-        let visibility = self.bsp.render().visibility();
         timing.mark(Phase::EncodeWorld);
         self.encode_world_scene(
             &mut encoder,
@@ -1906,6 +1909,11 @@ impl GpuState {
             &particle_ranges,
             has_entity_instances,
         );
+        let (frame, output_view, mut encoder) = match target.finish(self, encoder, timing) {
+            Ok(output) => output,
+            Err(status) => return status,
+        };
+        let visibility = self.bsp.render().visibility();
         timing.mark(Phase::EncodeOverlays);
         self.draw_frame_overlays(
             &mut encoder,
@@ -1920,24 +1928,16 @@ impl GpuState {
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "overlays+post+hud");
         }
-        let screenshot_encoded = self.encode_console_screenshot(&mut encoder, frame.as_ref());
+        self.encode_console_screenshot(&mut encoder, frame.as_ref());
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "capture");
             phases.finish(&mut encoder);
         }
         timing.mark(Phase::Submit);
-        self.frame_pacer.split.submit(&self.queue, encoder, timing);
-        if let Some(phases) = &self.gpu_phases {
-            phases.after_submit();
-            phases.report();
-        }
-        if screenshot_encoded {
-            self.screenshots.after_submit();
-        }
+        self.frame_pacer
+            .split
+            .submit(&self.queue, encoder, frame, timing);
         timing.mark(Phase::Present);
-        if let Some(frame) = frame {
-            self.queue.present(frame);
-        }
         timing.mark(Phase::Other);
         self.complete_render_transition(game_audio);
         FrameStatus::Rendered

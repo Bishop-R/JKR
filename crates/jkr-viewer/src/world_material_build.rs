@@ -9,7 +9,7 @@ mod flare_lamps;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn create_filtered_runtime(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     camera_layout: &wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
     bsp: &Bsp,
@@ -45,7 +45,7 @@ pub(crate) fn create_filtered_runtime(
 #[allow(clippy::too_many_arguments)]
 fn build(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     camera_layout: &wgpu::BindGroupLayout,
     format: wgpu::TextureFormat,
     bsp: &Bsp,
