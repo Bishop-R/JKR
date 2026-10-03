@@ -132,11 +132,38 @@ root (the implementation appends `base`). See
 
 ## Useful console commands
 
+Printable console shortcuts open the console but type normally once it is open;
+Escape and non-text toggle bindings can still close it. `^` is a literal colour
+prefix in the console and its browser, including on layouts that report it as a
+dead key, so `set name "^1Bishop"` does not close the console or lose the digit.
+Console transitions and literal dead-key `^` input clear the window's pending
+accent composition. Other dead keys retain normal accent composition.
+
 `connect host:port`, `disconnect` and `reconnect` control the session.
 `record`, `stoprecord`, `demo` and `playdemo` control demos.
 `screenshot` and `screenshotJPEG` request captures; `condump filename` saves
 console output. See [console registration](../crates/jkr-viewer/src/console_session.rs)
 and [file commands](../crates/jkr-viewer/src/console_files.rs) for argument handling.
+
+The console input line has a caret, drawn as stock's underscore: Left and Right
+move it, Ctrl+Left and Ctrl+Right by word, Home and End to either end, and Shift
+with any of them selects. Backspace and Delete remove a character, or a word with
+Ctrl; words end at anything but a letter or digit, so `cg_drawFPS` and
+`127.0.0.1` are edited a piece at a time. Ctrl+A selects the line, Ctrl+X cuts,
+and Ctrl+V or Shift+Insert pastes, replacing a selection. Typing inserts at the
+caret, a long line scrolls sideways to keep it in view, and Enter runs the whole
+line. Dragging the mouse over console output selects it, a double click selects
+one whitespace-separated word (a whole `host:port`), Shift+click extends a
+selection and a click elsewhere clears it; in the input line the mouse places the
+caret and selects the same way. Ctrl+C (or Ctrl+Insert) copies selected output
+without colour codes, else the selected input, else the whole input line, or the
+last `viewpos` or `mark` answer when the line is empty. Up and Down stay history.
+See [console_editing.rs](../crates/jkr-viewer/src/console_editing.rs) and
+[console_selection.rs](../crates/jkr-viewer/src/console_selection.rs). The input
+line and output rows are drawn and measured through one
+[ConsoleText](../crates/jkr-viewer/src/console_text.rs) per text size, so the
+caret, highlights and mouse hits follow the drawn glyphs at any size or letter
+spacing.
 
 Tab completes the command or cvar name being typed, after a leading `/` or `\` and
 after the last `;`. A unique name completes with a trailing space; otherwise the
@@ -149,5 +176,17 @@ slash on a command after `;`, so completing that command drops it. Command
 boundaries follow the shell's quote and escape rules, and no completion happens
 inside an open quote. Arguments are not completed. See
 [shell_completion.rs](../crates/jkr-shell/src/shell_completion.rs).
+
+F3 in the open console, or the bindable `consolebrowser` command, opens a browser of
+every command and cvar with its description, and each cvar's value and default. Typing
+searches names, then descriptions; Tab cycles All, Commands, Cvars and Changed (cvars
+away from their default). Enter edits the selected cvar in place and applies it, or
+starts a console line with the selected command; Delete restores a cvar's default;
+Escape cancels an active edit first; otherwise Escape or F3 returns to the console.
+The clickable Apply, Cancel and Filter controls follow the same actions as the
+keyboard. Read-only cvars are listed but not edited. The
+browser covers the whole frame: underlying menu shapes/text, chat and the FPS
+counter are suppressed, including both font batches. See
+[console_browser.rs](../crates/jkr-viewer/src/console_browser.rs).
 
 For graphics controls and diagnostics, see [rendering.md](rendering.md).

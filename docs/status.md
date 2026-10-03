@@ -7,6 +7,29 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Console editing and command browser
+
+The console includes the command/cvar browser contributed in PR #6 and the
+caret/output-selection controls from PR #33. Browser Apply/Cancel pointer actions
+match the keyboard, the footer Filter control works, and underlying menu shapes,
+text and FPS output are suppressed while browsing. Printable opening shortcuts
+become text when the console is open. Dead-key `^` inserts a literal colour-code
+prefix; toggling the console clears pending accent composition so the next
+command letter is not changed or swallowed. Escape and non-text toggle bindings
+still close it. Gameplay and wire code are unchanged.
+
+Linux verification (2026-10-04, based on `7155455`): 22 temporary checks passed
+for caret motion, selection/copying, UTF-8 byte limits, glyph alignment and browser
+footer pointer actions at 960×540, 1920×1080 and 3840×2160. Test infrastructure
+remains outside the repository. A release X11/Vulkan desktop run exercised
+browser opening, search and edit mode. Native keyboard probes reproduced and
+corrected the pending-accent problem; the owner confirmed that fix and accepted
+the console preview. A separate-profile release run typed a dead-circumflex
+followed by `1Bishop` and saved exactly `^1Bishop`, with the console still open.
+Formatting, locked workspace build/tests and the release build passed. Clipboard
+round trips, drag behavior and platform/layout combinations are not exhaustively
+verified.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.
