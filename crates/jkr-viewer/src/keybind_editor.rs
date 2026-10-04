@@ -184,11 +184,12 @@ impl KeybindEditor {
     }
 
     /// Clear every key bound to the selected action, as retail's Backspace
-    /// does.
+    /// does. Slots are cleared last first, so a slot the console declines to
+    /// clear (a locked key) does not stop the ones after it.
     fn clear_both(&mut self, console: &mut ViewerConsole) {
         let command = ACTIONS[self.selected].command;
-        for _ in 0..console.keys_for_command(command).len() {
-            console.clear_action(command, 0);
+        for slot in (0..console.keys_for_command(command).len()).rev() {
+            console.clear_action(command, slot);
         }
         self.refresh(console);
     }
