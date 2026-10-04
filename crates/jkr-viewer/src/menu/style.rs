@@ -53,9 +53,12 @@ impl ClientMenu {
         }
     }
 
-    /// The retail artwork the classic pages can draw this frame.
+    /// The retail artwork the classic pages can draw this frame; the player
+    /// screen follows the style and gets the same pieces.
     pub(crate) fn set_menu_art(&mut self, art: ArtSet) {
         self.art = art;
+        self.player
+            .set_style(self.menu_style == MenuStyle::Classic, art);
     }
 }
 

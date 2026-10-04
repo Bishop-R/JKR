@@ -16,6 +16,9 @@ impl PlayerMenu {
         event: InputEvent,
         console: &mut ViewerConsole,
     ) -> PlayerMenuResult {
+        if self.classic_style {
+            return self.classic_pointer(event, console);
+        }
         let Some(event) = self.canvas.pointer(event) else {
             return PlayerMenuResult::None;
         };

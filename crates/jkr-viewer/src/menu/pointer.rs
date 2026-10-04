@@ -36,17 +36,10 @@ impl ClientMenu {
                 let result = self.keybinds.handle_pointer(event, console);
                 self.keybinds_result(result, console)
             }
-            ClientPhase::Player => match self.player.handle_pointer(event, console) {
-                PlayerMenuResult::None => MenuAction::None,
-                PlayerMenuResult::Back(ReturnTarget::MainMenu) => {
-                    self.state.main_menu();
-                    MenuAction::None
-                }
-                PlayerMenuResult::Back(ReturnTarget::InGame) => {
-                    self.state.entered_game();
-                    MenuAction::ReturnToGameMenu
-                }
-            },
+            ClientPhase::Player => {
+                let result = self.player.handle_pointer(event, console);
+                self.player_result(result)
+            }
             ClientPhase::CreateGame => {
                 let result = self.create_game.pointer(event, console);
                 self.create_game_result(result)

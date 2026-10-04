@@ -49,7 +49,23 @@ The classic main menu has the retail pages, entries and order:
 - Controls and Setup are option panels, as retail's `controls.menu` and
   `setup.menu` are (described below).
 - Every sub-page repeats the retail navigation row (Play, Profile, Controls,
-  Setup) and has Back and Exit. Profile opens the Player screen.
+  Setup) and has Back and Exit.
+- Profile opens the retail profile pages (`player`, `player2`, `saber`), which
+  edit the same drafts as the modern Player screen and write them at once:
+  - Profile: name, team colour and the head grid (six 64-unit cells per row),
+    Custom to character creation, APPLY on to lightsaber creation, Exit.
+  - Character creation: species, skin tint swatches, the Head, Torso and Legs
+    lists, Back and APPLY. Entering it from an ordinary character puts on the
+    first species, as retail's Custom did.
+  - Lightsaber creation: saber type, the hilt list (two for Dual Sabers), the
+    six blade colour swatches (two rows for Dual), Apply, and Apply back to the
+    main menu.
+
+  Retail drew a live 3D model and a spinning saber. With no world behind the
+  pages yet, the model's portrait and a drawn hilt and blade stand in, and the
+  part lists show variant names where retail showed each variant's icon. The
+  swatches are filled with the tint each `playerchoice.txt` entry sets, not its
+  swatch image. Escape returns to the profile page, then to the menu.
 
 Retail entries JKR has no screen for yet (Play Demo, Rules, Mods, Defaults) are
 shown dimmed, and their description line says so.
@@ -90,8 +106,12 @@ Join, Profile, Add Bot, Controls, Setup, Vote, Call Vote and Exit. Each opens a
 pop-up under it or the matching screen. About shows the server info. Join picks
 a team, or opens the class list in Siege. Vote is Yes/No. Call Vote opens the
 call-vote lists. Exit offers Main Menu, Restart Match and Quit Program, each
-with a Yes/No confirmation. Profile opens the Player screen; Controls and Setup
-open the option panels described above. Siege swaps in Objectives and V Chat as retail does. Add Bot,
+with a Yes/No confirmation. Profile opens the retail in-game profile window
+(`ingame_player`: name, team colour, head grid, Custom, Saber and the Force
+summary, then `ingame_player2` and `ingame_saber`); its Apply returns to the
+match. Its Join Red, Join Blue and Spectate buttons are left to the Join tab,
+and the Force configuration button is not there yet. Controls and Setup open
+the option panels described above. Siege swaps in Objectives and V Chat as retail does. Add Bot,
 Objectives, V Chat and Restart Match are dimmed with a note, because the client
 cannot add bots or restart a match it does not host. Left and Right move along
 the bar; Escape closes a pop-up, then the menu. The JKR-only Server browser and
@@ -142,7 +162,13 @@ cancels, as before. A failed join shows the connect screen with the reason; a
 retail-style error page (`error.menu`) is not drawn yet. The loading screen is
 in [loading.rs](../crates/jkr-viewer/src/menu/classic/loading.rs).
 
-The code is in [menu/classic.rs](../crates/jkr-viewer/src/menu/classic.rs): the
+The profile pages are in
+[player_menu/classic.rs](../crates/jkr-viewer/src/player_menu/classic.rs), with
+entries and retail geometry in
+[layout.rs](../crates/jkr-viewer/src/player_menu/classic/layout.rs), drawing in
+[view.rs](../crates/jkr-viewer/src/player_menu/classic/view.rs) and pointer
+routing in [pointer.rs](../crates/jkr-viewer/src/player_menu/classic/pointer.rs).
+The main menu code is in [menu/classic.rs](../crates/jkr-viewer/src/menu/classic.rs): the
 page tables are in [pages.rs](../crates/jkr-viewer/src/menu/classic/pages.rs),
 types and geometry in [layout.rs](../crates/jkr-viewer/src/menu/classic/layout.rs)
 and drawing in [view.rs](../crates/jkr-viewer/src/menu/classic/view.rs). The
@@ -166,11 +192,13 @@ Planned follow-ups, each a new page or screen module, following the retail
 - Classic versions of the screens the classic pages still open in the modern
   style: Join Server (`joinserver`, `serverinfo`, `findplayer`, `password`,
   `createfavorite`), Create Server (`createserver`, `advancedcreateserver`),
-  Solo Game (`quickgame`), Profile (`player`, `player2`, `saber`), and the
-  in-game `ingame_player`.
+  Solo Game (`quickgame`), and the in-game `ingame_playerforce`.
 - Retail option items JKR has no setting for (video quality presets, colour
   depth, geometric and texture detail, EAX, languages) are left out of the
   panels, and the video restart confirmation is not needed.
+- On the profile pages: a rendered 3D model and saber, part icons and tint
+  images in character creation, and portraits for every model (the shared UI
+  icon atlas holds 207, so species after the characters show none).
 - The screens with no JKR equivalent yet: Play Demo (`demo`), Rules
   (`rules*`), Mods, Defaults, Add Bot (`ingame_addbot`), Siege objectives and
   voice chat, and the error page (`error`).

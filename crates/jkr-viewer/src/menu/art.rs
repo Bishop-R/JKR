@@ -89,11 +89,41 @@ pub(crate) enum ArtPiece {
     Slider,
     /// `menu/new/sliderthumb`: the option panels' slider thumb.
     SliderThumb,
+    /// `charmenu`: the full-screen backdrop of character creation.
+    CharMenu,
+    /// `charmenu_bottom`: the frame under character creation's model.
+    CharMenuBottom,
+    /// `sabermenu_back`: the full-screen backdrop of lightsaber creation.
+    SaberBack,
+    /// `sabermenu_box`: the saber type box.
+    SaberBox,
+    /// `sabermenu_box_top`: top of the stretchable blade colour box.
+    SaberBoxTop,
+    /// `sabermenu_box_middle`: middle of the stretchable blade colour box.
+    SaberBoxMiddle,
+    /// `sabermenu_box_bottom`: bottom of the stretchable blade colour box.
+    SaberBoxBottom,
+    /// `gfx/mp/custom_mp_default`: the profile's Custom character button.
+    CustomPlayer,
+    /// `saberonly`: the in-game profile's Saber button.
+    SaberOnly,
+    /// `saber_icon_blue`: blade colour swatch.
+    SaberBlue,
+    /// `saber_icon_green`: blade colour swatch.
+    SaberGreen,
+    /// `saber_icon_orange`: blade colour swatch.
+    SaberOrange,
+    /// `saber_icon_purple`: blade colour swatch.
+    SaberPurple,
+    /// `saber_icon_yellow`: blade colour swatch.
+    SaberYellow,
+    /// `saber_icon_red`: blade colour swatch.
+    SaberRed,
 }
 
 impl ArtPiece {
     /// Every piece, in [`ArtPiece`] order.
-    pub(crate) const ALL: [Self; 23] = [
+    pub(crate) const ALL: [Self; 38] = [
         Self::Background,
         Self::SideLeft,
         Self::SideRight,
@@ -117,6 +147,21 @@ impl ArtPiece {
         Self::BlendBox2,
         Self::Slider,
         Self::SliderThumb,
+        Self::CharMenu,
+        Self::CharMenuBottom,
+        Self::SaberBack,
+        Self::SaberBox,
+        Self::SaberBoxTop,
+        Self::SaberBoxMiddle,
+        Self::SaberBoxBottom,
+        Self::CustomPlayer,
+        Self::SaberOnly,
+        Self::SaberBlue,
+        Self::SaberGreen,
+        Self::SaberOrange,
+        Self::SaberPurple,
+        Self::SaberYellow,
+        Self::SaberRed,
     ];
     pub(crate) const COUNT: usize = Self::ALL.len();
 
@@ -145,6 +190,21 @@ impl ArtPiece {
             Self::BlendBox2 => "gfx/menus/menu_buttonback2",
             Self::Slider => "menu/new/slider",
             Self::SliderThumb => "menu/new/sliderthumb",
+            Self::CharMenu => "gfx/menus/charmenu",
+            Self::CharMenuBottom => "gfx/menus/charmenu_bottom",
+            Self::SaberBack => "gfx/menus/sabermenu_back",
+            Self::SaberBox => "gfx/menus/sabermenu_box",
+            Self::SaberBoxTop => "gfx/menus/sabermenu_box_top",
+            Self::SaberBoxMiddle => "gfx/menus/sabermenu_box_middle",
+            Self::SaberBoxBottom => "gfx/menus/sabermenu_box_bottom",
+            Self::CustomPlayer => "gfx/mp/custom_mp_default",
+            Self::SaberOnly => "gfx/menus/saberonly",
+            Self::SaberBlue => "gfx/menus/saber_icon_blue",
+            Self::SaberGreen => "gfx/menus/saber_icon_green",
+            Self::SaberOrange => "gfx/menus/saber_icon_orange",
+            Self::SaberPurple => "gfx/menus/saber_icon_purple",
+            Self::SaberYellow => "gfx/menus/saber_icon_yellow",
+            Self::SaberRed => "gfx/menus/saber_icon_red",
         }
     }
 
@@ -184,17 +244,17 @@ impl ArtPiece {
 
 /// Which pieces are ready to draw.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ArtSet(u32);
+pub(crate) struct ArtSet(u64);
 
 impl ArtSet {
     /// Whether `piece` can be drawn.
     pub(crate) fn has(self, piece: ArtPiece) -> bool {
-        self.0 & (1 << piece.index()) != 0
+        self.0 & (1_u64 << piece.index()) != 0
     }
 
     /// This set with `piece` added.
     pub(crate) fn with(self, piece: ArtPiece) -> Self {
-        Self(self.0 | 1 << piece.index())
+        Self(self.0 | 1_u64 << piece.index())
     }
 }
 
@@ -314,6 +374,15 @@ mod tests {
         assert_eq!(ArtPiece::from_texture(TextureId(0)), None);
         assert_eq!(ArtPiece::from_texture(TextureId(u32::MAX)), None);
         assert_eq!(ArtPiece::from_texture(TextureId(u32::MAX - 1)), None);
+    }
+
+    #[test]
+    fn every_piece_fits_the_set() {
+        assert!(ArtPiece::COUNT <= u64::BITS as usize);
+        let all = ArtPiece::ALL
+            .iter()
+            .fold(ArtSet::default(), |set, piece| set.with(*piece));
+        assert!(ArtPiece::ALL.iter().all(|piece| all.has(*piece)));
     }
 
     #[test]

@@ -21,6 +21,10 @@ impl PlayerMenu {
         viewport: [f32; 2],
         reveal: f32,
     ) {
+        if self.classic_style {
+            self.append_classic(vertices, font, viewport, reveal);
+            return;
+        }
         let layout = FormLayout::new(viewport);
         self.canvas.begin_hero(viewport, reveal, Scrim::Column);
         self.canvas.form_header(

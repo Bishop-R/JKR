@@ -30,6 +30,9 @@ impl PlayerMenu {
         self.reconcile_saber_style();
         self.grid_follow = true;
         self.request_icons_if_ready();
+        if self.classic_style {
+            self.show_classic(super::classic::ClassicPage::Player);
+        }
     }
 
     /// Seed the drafts from the config at startup, so the stage model and
@@ -176,7 +179,7 @@ impl PlayerMenu {
 
     /// Step through the grid's tiles; a model the grid does not list (its
     /// skin belongs to another team) steps in from the grid's edge.
-    fn cycle_model(&mut self, direction: isize) {
+    pub(super) fn cycle_model(&mut self, direction: isize) {
         let total = self.tiles.len();
         if total == 0 {
             return;
@@ -222,6 +225,18 @@ impl PlayerMenu {
         }
         self.variants[axis] = wrap(self.variants[axis], direction, length);
         self.apply_species(species_index);
+    }
+
+    /// Choose variant `index` on species axis `axis` (0 heads, 1 torsos,
+    /// 2 legs, 3 skin colours) of the current species.
+    pub(super) fn set_variant(&mut self, axis: usize, index: usize) {
+        let Some(Choice::Species(species_index)) = self.choice else {
+            return;
+        };
+        if axis < self.variants.len() {
+            self.variants[axis] = index;
+            self.apply_species(species_index);
+        }
     }
 
     fn apply_species(&mut self, species_index: usize) {
@@ -318,6 +333,9 @@ impl PlayerMenu {
         event: &KeyEvent,
         console: &mut ViewerConsole,
     ) -> PlayerMenuResult {
+        if self.classic_style {
+            return self.classic_key(event, console);
+        }
         if event.state != ElementState::Pressed {
             return PlayerMenuResult::None;
         }
@@ -355,7 +373,7 @@ impl PlayerMenu {
         PlayerMenuResult::None
     }
 
-    fn edit_name(
+    pub(super) fn edit_name(
         &mut self,
         event: &KeyEvent,
         key: KeyCode,

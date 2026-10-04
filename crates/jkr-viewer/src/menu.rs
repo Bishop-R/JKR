@@ -376,6 +376,11 @@ impl ClientMenu {
     /// route with a stage is active (flying to, parked on, or flying back
     /// from the Player screen).
     pub(crate) fn stage_model(&self) -> Option<(Stage, &str)> {
+        // The classic profile pages draw the model's portrait over retail
+        // art; nothing stands on the stage behind them.
+        if self.player.is_classic() {
+            return None;
+        }
         let stage = self.backdrop.as_ref()?.stage()?;
         Some((stage, self.player.stage_model()))
     }
@@ -758,17 +763,10 @@ impl ClientMenu {
                 let result = self.keybinds.handle_key(event, console);
                 self.keybinds_result(result, console)
             }
-            ClientPhase::Player => match self.player.handle_key(event, console) {
-                PlayerMenuResult::None => MenuAction::None,
-                PlayerMenuResult::Back(ReturnTarget::MainMenu) => {
-                    self.state.main_menu();
-                    MenuAction::None
-                }
-                PlayerMenuResult::Back(ReturnTarget::InGame) => {
-                    self.state.entered_game();
-                    MenuAction::ReturnToGameMenu
-                }
-            },
+            ClientPhase::Player => {
+                let result = self.player.handle_key(event, console);
+                self.player_result(result)
+            }
             ClientPhase::CreateGame => {
                 let result = self.create_game.key(key, event.text.as_deref(), console);
                 self.create_game_result(result)
@@ -877,6 +875,26 @@ impl ClientMenu {
     pub(crate) fn attach_catalogue(&mut self, vfs: std::sync::Arc<jkr_vfs::VirtualFileSystem>) {
         self.create_game.attach_vfs(std::sync::Arc::clone(&vfs));
         self.player.attach_catalogue(vfs);
+    }
+
+    /// Leave or stay on the player screen after one of its events.
+    pub(super) fn player_result(&mut self, result: PlayerMenuResult) -> MenuAction {
+        match result {
+            PlayerMenuResult::None => MenuAction::None,
+            PlayerMenuResult::Back(ReturnTarget::MainMenu) => {
+                self.state.main_menu();
+                MenuAction::None
+            }
+            PlayerMenuResult::Back(ReturnTarget::InGame) => {
+                self.state.entered_game();
+                MenuAction::ReturnToGameMenu
+            }
+            PlayerMenuResult::ClassicPage(page) => {
+                self.state.main_menu();
+                self.classic.show(page);
+                MenuAction::None
+            }
+        }
     }
 
     pub(crate) fn open_player(&mut self, console: &ViewerConsole, target: ReturnTarget) {

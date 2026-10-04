@@ -3,6 +3,7 @@
 //! its cvars the moment it is made, so the stage model swaps instantly and
 //! there is nothing to apply or revert.
 
+mod classic;
 mod controller;
 mod force;
 mod force_view;
@@ -56,6 +57,9 @@ pub(crate) enum ReturnTarget {
 pub(crate) enum PlayerMenuResult {
     None,
     Back(ReturnTarget),
+    /// Leave for a page of the classic main menu (its navigation row and
+    /// Exit lead there).
+    ClassicPage(crate::menu::classic::layout::Page),
 }
 
 /// Which catalogue entry the `model` cvar currently names.
@@ -117,6 +121,13 @@ pub(crate) struct PlayerMenu {
     page: ProfilePage,
     saber: saber::SaberMenu,
     force: force::ForceMenu,
+    /// `ui_menuStyle classic`: the retail profile pages instead of the
+    /// hero form.
+    classic_style: bool,
+    classic: classic::ClassicState,
+    /// The character draft changed on entering a classic page and is not
+    /// written yet.
+    classic_dirty: bool,
 }
 
 impl PlayerMenu {
@@ -143,6 +154,9 @@ impl PlayerMenu {
             page: ProfilePage::Character,
             saber: saber::SaberMenu::new(),
             force: force::ForceMenu::new(),
+            classic_style: false,
+            classic: classic::ClassicState::default(),
+            classic_dirty: false,
         }
     }
 
@@ -169,8 +183,12 @@ impl PlayerMenu {
         self.return_target
     }
 
-    /// Backdrop shot behind the current tab.
+    /// Backdrop shot behind the current tab. The classic pages cover the
+    /// screen with retail art, so the backdrop camera stays where it is.
     pub(crate) fn shot(&self) -> crate::menu_backdrop::Shot {
+        if self.classic_style {
+            return crate::menu_backdrop::Shot::Main;
+        }
         match self.page {
             ProfilePage::Saber => crate::menu_backdrop::Shot::Saber,
             _ => crate::menu_backdrop::Shot::Player,
