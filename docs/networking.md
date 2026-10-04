@@ -23,6 +23,25 @@ explicitly distinguish BaseJKA, JA+, TaystJK/jaPRO and unknown modules from
 serverinfo. Profile detection and implemented adapter behavior are not a promise
 that every feature of those servers is reproduced by JKR's dedicated server.
 
+## JA+ grapple hook
+
+On JA+ servers the client predicts the grapple hook (`+button12`) with the rules
+in [pmove_grapple.rs](../crates/jkr-game-jka/src/pmove_grapple.rs); other
+servers, JKR's own included, get no hook movement. The JA+ game fires the hook,
+stores its anchor in `lastHitLoc` and flags the pulled player with `PMF_GRAPPLE`
+(pm_flags bit 15). Each move then aims 16 units short of the anchor along the
+view and replaces the velocity with a pull of 800 units/s (10 units/s per unit
+inside 100 units), EternalJK's arithmetic and the JA+ 2.4 B7 module's, followed
+by an air move whatever the ground or water below. A client-plugin user
+(#108) who lets go of the key stays on the rope: the game clears the flag and
+sets entity flag bit 16, and each move runs an air move and then swings the
+player on a rope as long as the distance from the anchor to where the move began.
+Use lets go of the hook in the game before the move, so a pull or hang with use
+held is predicted as neither. Where EternalJK and the JA+ module differ (the pose
+sets the legs only; a crouched player is pulled too; the pull always ends in an
+air move), prediction follows the module. The game-side edges, the hook firing,
+taking hold and letting go, arrive with the next snapshot and cannot be predicted.
+
 ## Parity requirements
 
 Movement includes integer-millisecond user-command quantization. Validate common

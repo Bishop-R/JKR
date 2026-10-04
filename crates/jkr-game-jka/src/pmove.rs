@@ -199,6 +199,8 @@ pub struct MovementConfig {
     /// (`g_fixSaberMoveData`, `g_fixWeaponAttackAnim`, `g_fixRunWalkAnims`, bits 0-2).
     /// A retail server publishes none and runs none.
     pub legacy_fixes: u32,
+    /// The server's grapple-hook pull: JA+ only ([`grapple`]).
+    pub grapple: Option<grapple::GrappleRules>,
 }
 
 impl Default for MovementConfig {
@@ -214,6 +216,7 @@ impl Default for MovementConfig {
             authoritative: false,
             // The reference server's cvar defaults: every fix on.
             legacy_fixes: 0b111,
+            grapple: None,
         }
     }
 }
@@ -423,6 +426,9 @@ pub struct MovementState {
     pub has_detpack_planted: bool,
     /// Protocol powerup expiry times used by `BG_HasYsalamiri`.
     pub powerup_deadlines: [i32; 16],
+    /// `lastHitLoc`: where a JA+ grapple hook holds on ([`grapple`]). The game sets it;
+    /// the movement only reads it.
+    pub last_hit_location: [f32; 3],
 }
 
 impl MovementState {
@@ -645,6 +651,9 @@ impl MovementState {
             entity_flags: player.entity_flags(),
             has_detpack_planted: player.has_detpack_planted(),
             powerup_deadlines: player.powerups.map(|value| value as i32),
+            // `lastHitLoc[0..2]` are protocol-26 fields 102, 105 and 100.
+            last_hit_location: [102, 105, 100]
+                .map(|index| f32::from_bits(player.raw_field(index).unwrap_or(0))),
         }
     }
 }
@@ -1382,6 +1391,23 @@ impl Predictor {
             self.fly_vehicle_move(seconds, bounds, &ground, collision);
         } else if self.state.movement_flags & PMF_TIME_WATERJUMP != 0 {
             self.water_jump_move(seconds, bounds, &ground, collision);
+        } else if let Some(hook) = self.hook_move(&command) {
+            // JA+'s hook (see [`grapple`]): a pull or a hang on the rope, both carried
+            // by an air move, whatever the water or ground below.
+            if hook == grapple::HookMove::Pull {
+                self.grapple_pull(&mut ground);
+            }
+            self.air_move(
+                &mut command,
+                seconds,
+                bounds,
+                &mut ground,
+                collision,
+                context,
+            );
+            if hook == grapple::HookMove::Hang {
+                self.rope_hang(previous_origin, seconds);
+            }
         } else if self.state.water_level > 1 {
             self.water_move(&command, seconds, bounds, &ground, collision);
         } else if ground.walking {
@@ -2178,6 +2204,8 @@ impl Predictor {
 
 #[path = "pmove_events.rs"]
 mod events;
+#[path = "pmove_grapple.rs"]
+pub mod grapple;
 #[path = "pmove_water.rs"]
 mod water;
 #[path = "pmove_weapon_history.rs"]
