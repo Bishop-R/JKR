@@ -1002,6 +1002,16 @@ pub fn connect_legacy_with_userinfo_extensions(
     connect_legacy_with_userinfo_extensions_observed(server, userinfo, extensions, timeout, |_| {})
 }
 
+/// Stock resends the pending handshake packet until it is answered
+/// (`CL_CheckForResend`), so a single lost or rate-limited datagram does not
+/// fail the join: busy servers drop out-of-band packets past a global budget.
+/// `getchallenge` is stateless and cheap to repeat.
+const CHALLENGE_RESEND: Duration = Duration::from_secs(1);
+/// A server ignores a repeated `connect` from the same address and port within
+/// `sv_reconnectlimit` (3 s by default), so `connect` repeats at stock's
+/// `RETRANSMIT_TIMEOUT` of 3 s.
+const CONNECT_RESEND: Duration = Duration::from_secs(3);
+
 /// Observable milestones and diagnostic replies in the connectionless handshake.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConnectPhase<'a> {
@@ -1029,16 +1039,21 @@ pub fn connect_legacy_with_userinfo_extensions_observed(
     let receive_slice = timeout.min(Duration::from_millis(250));
     socket.set_read_timeout(Some(receive_slice))?;
     let client_challenge = process_challenge();
-    socket.send_to(
-        &connectionless_packet(&format!("getchallenge {client_challenge}"))?,
-        server,
-    )?;
+    let challenge_request = connectionless_packet(&format!("getchallenge {client_challenge}"))?;
+    socket.send_to(&challenge_request, server)?;
 
     let deadline = Instant::now() + timeout;
+    let mut resend = Instant::now() + CHALLENGE_RESEND;
     let mut packet = [0_u8; MAX_UDP_PACKET_BYTES];
     let challenge = loop {
-        let Some((length, source)) = receive_until(&socket, &mut packet, deadline)? else {
-            return Err(NetworkError::TimedOut("challenge response"));
+        let Some((length, source)) = receive_until(&socket, &mut packet, resend.min(deadline))?
+        else {
+            if Instant::now() >= deadline {
+                return Err(NetworkError::TimedOut("challenge response"));
+            }
+            socket.send_to(&challenge_request, server)?;
+            resend = Instant::now() + CHALLENGE_RESEND;
+            continue;
         };
         if source != server {
             continue;
@@ -1066,11 +1081,20 @@ pub fn connect_legacy_with_userinfo_extensions_observed(
 
     let qport = socket.local_addr()?.port();
     let userinfo = legacy_userinfo_with_extensions(challenge, qport, userinfo, extensions)?;
-    socket.send_to(&connect_packet(&userinfo)?, server)?;
+    let connect_request = connect_packet(&userinfo)?;
+    socket.send_to(&connect_request, server)?;
 
+    let deadline = Instant::now() + timeout;
+    let mut resend = Instant::now() + CONNECT_RESEND;
     loop {
-        let Some((length, source)) = receive_until(&socket, &mut packet, deadline)? else {
-            return Err(NetworkError::TimedOut("connect response"));
+        let Some((length, source)) = receive_until(&socket, &mut packet, resend.min(deadline))?
+        else {
+            if Instant::now() >= deadline {
+                return Err(NetworkError::TimedOut("connect response"));
+            }
+            socket.send_to(&connect_request, server)?;
+            resend = Instant::now() + CONNECT_RESEND;
+            continue;
         };
         if source != server {
             continue;
@@ -1104,7 +1128,10 @@ pub fn connect_legacy_with_userinfo_extensions_observed(
                 client_reliable_commands: BTreeMap::new(),
             });
         }
-        observe(ConnectPhase::UnknownReply(command));
+        // A resent getchallenge can be answered after the first answer was used.
+        if command != b"challengeResponse" {
+            observe(ConnectPhase::UnknownReply(command));
+        }
     }
 }
 
@@ -1335,5 +1362,72 @@ impl From<AdaptiveHuffmanError> for NetworkError {
 impl From<MessageError> for NetworkError {
     fn from(value: MessageError) -> Self {
         Self::Message(value)
+    }
+}
+
+#[cfg(test)]
+mod handshake_resend_tests {
+    use super::*;
+    use std::thread;
+
+    /// A loopback server that ignores the first `skip_challenges` getchallenge
+    /// and `skip_connects` connect packets, as a lossy or rate-limited path would.
+    fn lossy_server(
+        skip_challenges: usize,
+        skip_connects: usize,
+    ) -> (SocketAddr, thread::JoinHandle<(usize, usize)>) {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let address = socket.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (mut challenges, mut connects) = (0, 0);
+            let mut packet = [0_u8; MAX_UDP_PACKET_BYTES];
+            while let Ok((length, client)) = socket.recv_from(&mut packet) {
+                let payload = &packet[..length];
+                if let Some(rest) =
+                    payload.strip_prefix(b"\xff\xff\xff\xffgetchallenge ".as_slice())
+                {
+                    challenges += 1;
+                    if challenges > skip_challenges {
+                        let echo = String::from_utf8_lossy(rest)
+                            .trim_end_matches('\0')
+                            .to_owned();
+                        let mut reply = OOB_PREFIX.to_vec();
+                        reply
+                            .extend_from_slice(format!("challengeResponse 1234 {echo}").as_bytes());
+                        socket.send_to(&reply, client).unwrap();
+                    }
+                } else {
+                    connects += 1;
+                    if connects > skip_connects {
+                        socket
+                            .send_to(b"\xff\xff\xff\xffconnectResponse", client)
+                            .unwrap();
+                        return (challenges, connects);
+                    }
+                }
+            }
+            (challenges, connects)
+        });
+        (address, handle)
+    }
+
+    #[test]
+    fn a_lost_getchallenge_is_resent() {
+        let (server, handle) = lossy_server(1, 0);
+        connect_legacy(server, "Padawan", Duration::from_secs(5)).unwrap();
+        assert_eq!(handle.join().unwrap(), (2, 1));
+    }
+
+    #[test]
+    fn a_lost_connect_is_resent() {
+        let (server, handle) = lossy_server(0, 1);
+        connect_legacy(server, "Padawan", Duration::from_secs(5)).unwrap();
+        let (challenges, connects) = handle.join().unwrap();
+        assert_eq!(connects, 2);
+        // Getchallenge may have been repeated once while connect waited.
+        assert!(challenges >= 1);
     }
 }

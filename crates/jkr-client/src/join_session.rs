@@ -1,6 +1,10 @@
 //! Gamestate, optional content transfer, pure proof and first-snapshot bootstrap.
 
 use super::*;
+use std::time::Instant;
+
+/// How many receive timeouts a join waits for its gamestate, re-requesting it.
+const GAMESTATE_REQUESTS: u32 = 3;
 
 impl ClientSession {
     /// Join with an optional host-owned download capability, before entering cgame.
@@ -31,7 +35,15 @@ impl ClientSession {
         connection.request_initial_gamestate()?;
         let mut client_reliable_sequence = 0;
         let mut pending_client_commands = VecDeque::new();
+        // Each receive is bounded, but a server that keeps sending messages
+        // without a gamestate would otherwise be re-asked forever while the
+        // player waits on a half-joined map. Downloads start after the gamestate
+        // and are not counted.
+        let gamestate_deadline = Instant::now() + timeout.saturating_mul(GAMESTATE_REQUESTS);
         let initial = loop {
+            if Instant::now() >= gamestate_deadline {
+                return Err(NetworkError::TimedOut("gamestate").into());
+            }
             let message = connection.receive_server_message(timeout)?;
             match decode_initial_gamestate(&message.payload) {
                 Ok(_) => {
