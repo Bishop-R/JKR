@@ -83,7 +83,8 @@ impl crate::ClientSession {
         if let Some(enabled) = team_overlay {
             extensions.push(("teamoverlay", if enabled { "1" } else { "0" }));
         }
-        let payload = self.userinfo_updates.payload(userinfo, &extensions)?;
+        let userinfo = self.compat_profile.userinfo_for(userinfo);
+        let payload = self.userinfo_updates.payload(&userinfo, &extensions)?;
         let status = self.userinfo_updates.status(&payload, now);
         if status != UserinfoUpdateStatus::Sent {
             return Ok(status);

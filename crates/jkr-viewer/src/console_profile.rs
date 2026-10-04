@@ -23,6 +23,9 @@ impl ViewerConsole {
             self.bool_cvar("cg_predictItems").unwrap_or(true),
             password,
         );
+        userinfo.plugin_disable = self
+            .integer_cvar("cp_pluginDisable")
+            .and_then(|bits| u32::try_from(bits).ok());
         self.force_profile.apply_to_userinfo(&mut userinfo);
         Ok(userinfo)
     }

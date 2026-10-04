@@ -170,6 +170,8 @@ impl PlayerProfile {
             saber2: self.saber2.clone(),
             char_color: self.character_color,
             saber_rgb: [rgb(self.color1, self.rgb1), rgb(self.color2, self.rgb2)],
+            // Set from the player's cvar and applied per server profile.
+            plugin_disable: None,
             password,
             // Stamped per server when the connection is made.
             guid: None,

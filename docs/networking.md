@@ -20,8 +20,21 @@ not authorize a wire change.
 
 Client [compatibility profiles](../crates/jkr-client/src/compat_profile.rs)
 explicitly distinguish BaseJKA, JA+, TaystJK/jaPRO and unknown modules from
-serverinfo. Profile detection and implemented adapter behavior are not a promise
-that every feature of those servers is reproduced by JKR's dedicated server.
+serverinfo, or before connecting from a `getinfo` reply's `game` directory.
+Profile detection and implemented adapter behavior are not a promise that every
+feature of those servers is reproduced by JKR's dedicated server.
+
+On JA+ and TaystJK/jaPRO servers the client identifies as a client-plugin user
+through extra userinfo keys. JA+ gets the JA+ 1.4B4 plugin's `cjp_client
+1.4B4` and `cp_clanPwd none`. Both plugin profiles also get the player's
+`cp_pluginDisable` cvar (archived; a set bit switches a plugin feature off),
+from the connect packet on and in every later `userinfo` update; stock and
+unknown servers never receive it. Its default is EternalJK's 1536, which opts
+out of the holstered-saber and ledge-grab features drawn with the plugin's
+extra animations. A JA+ server then treats the client as a plugin user: it
+serves custom RGB blades (`cp_sbRGB1`/`cp_sbRGB2`, sent whenever a blade selects
+RGB) and appends a deaths field to each `scores` row (15 fields instead of 14);
+the client reads either row width from the argument count.
 
 ## Parity requirements
 

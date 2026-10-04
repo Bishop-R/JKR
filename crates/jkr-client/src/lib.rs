@@ -108,7 +108,7 @@ pub use chat::{
     chat_display_text, chat_plain_text,
 };
 pub use client_commands::{CompatConsoleCommand, console_commands as compat_console_commands};
-pub use compat_profile::CompatProfile;
+pub use compat_profile::{CompatProfile, PLUGIN_DISABLE_DEFAULT};
 pub use crosshair_target::{CrosshairCandidate, CrosshairName, crosshair_name};
 pub use demo_playback::{DemoAdvance, DemoPlayback, DemoPlaybackError, legacy_presentation_times};
 pub use demo_recorder::{
@@ -1190,8 +1190,18 @@ impl ClientSession {
     }
 }
 
+/// Parse a `scores` command: count, two team scores, then one row per client.
+///
+/// Stock rows have 14 fields (`CG_ParseScores`, `codemp/cgame/cg_servercmds.c`).
+/// JA+ and jaPRO servers append a 15th, the deaths count, for clients that
+/// identify as a client plugin (`cjp_client`): EternalJK reads 15 there
+/// (`cg_servercmds.c:61-64`), and a JA+ 2.4B7 server sent
+/// `scores 1 0 0 1 0 999 0 0 0 0 0 0 0 0 0 1 0 0` to such a client. The row
+/// width is taken from the argument count, which is exact for either form, so
+/// rows after the first are not misread whichever identity was sent.
 fn parse_scores(arguments: &[Vec<u8>]) -> Option<([i32; 2], Vec<ScoreEntry>)> {
-    const SCORE_FIELDS: usize = 14;
+    const STOCK_FIELDS: usize = 14;
+    const WITH_DEATHS_FIELDS: usize = 15;
     let integer = |index: usize| {
         arguments
             .get(index)
@@ -1200,9 +1210,15 @@ fn parse_scores(arguments: &[Vec<u8>]) -> Option<([i32; 2], Vec<ScoreEntry>)> {
     };
     let count = integer(1).and_then(|value| usize::try_from(value).ok())?;
     let team_scores = [integer(2).unwrap_or(0), integer(3).unwrap_or(0)];
+    let row_fields = if count > 0 && arguments.len().saturating_sub(4) == count * WITH_DEATHS_FIELDS
+    {
+        WITH_DEATHS_FIELDS
+    } else {
+        STOCK_FIELDS
+    };
     let mut scores = Vec::with_capacity(count.min(32));
     for row in 0..count.min(32) {
-        let base = 4 + row * SCORE_FIELDS;
+        let base = 4 + row * row_fields;
         let Some(client_num) = integer(base).and_then(|value| u8::try_from(value).ok()) else {
             break;
         };
@@ -1405,3 +1421,38 @@ impl From<DemoRecorderError> for ClientError {
 
 /// Snapshot-indexed primary saber presentation.
 pub use thrown_sabers::{LegacyThrownSaber, LegacyThrownSabers, legacy_thrown_saber_owner};
+
+#[cfg(test)]
+mod score_tests {
+    use super::{parse_scores, tokenize_command};
+
+    fn rows(command: &str) -> Vec<(u8, i32, i32)> {
+        parse_scores(&tokenize_command(command.as_bytes()))
+            .unwrap()
+            .1
+            .iter()
+            .map(|row| (row.client_num, row.score, row.ping))
+            .collect()
+    }
+
+    #[test]
+    fn stock_rows_have_fourteen_fields() {
+        let command = "scores 2 0 0 \
+            0 5 40 1 0 0 0 0 0 0 0 0 0 0 \
+            1 3 60 2 0 0 0 0 0 0 0 0 0 0";
+        assert_eq!(rows(command), [(0, 5, 40), (1, 3, 60)]);
+    }
+
+    #[test]
+    fn plugin_rows_with_deaths_have_fifteen_fields() {
+        // As a JA+ 2.4B7 server sends them to a client-plugin user.
+        assert_eq!(
+            rows("scores 1 0 0 1 0 999 0 0 0 0 0 0 0 0 0 1 0 0"),
+            [(1, 0, 999)]
+        );
+        let command = "scores 2 0 0 \
+            0 5 40 1 0 0 0 0 0 0 0 0 0 0 7 \
+            1 3 60 2 0 0 0 0 0 0 0 0 0 0 9";
+        assert_eq!(rows(command), [(0, 5, 40), (1, 3, 60)]);
+    }
+}

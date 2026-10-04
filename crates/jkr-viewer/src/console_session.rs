@@ -52,6 +52,14 @@ impl ViewerConsole {
                 user,
                 "Secondary RGB blade tint (r | g<<8 | b<<16)",
             ),
+            // JA+/TaystJK plugin features to switch off; applied per server
+            // profile (`CompatProfile::userinfo_for`).
+            CvarDefinition::new(
+                "cp_pluginDisable",
+                i64::from(jkr_client::PLUGIN_DISABLE_DEFAULT),
+                user,
+                "JA+ plugin features this client disables (bits; see pluginDisable)",
+            ),
             CvarDefinition::new("handicap", 100_i64, user, "Starting health percentage"),
             CvarDefinition::new("sex", "male", user, "Player voice sex token"),
             CvarDefinition::new("cg_predictItems", true, user, "Predict local item pickups"),
