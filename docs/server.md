@@ -68,6 +68,37 @@ for the new world; saber entities are allocated from the new map's pool.
 The [networking page](networking.md) explains the boundary between native entity
 ownership, game behavior and the legacy endpoint.
 
+## Cheat commands
+
+Cheats follow `sv_cheats`, which only the server sets: `--cheats` turns it on at
+startup, the server console's `devmap <map>` loads a map with it on and `map`
+loads one with it off. The client's [devmap](client.md#development-maps) starts
+an owned local game with cheats on.
+
+Players type these in the client console. Without cheats the server answers
+with the stock "cheats are not enabled" message (`@@@NOCHEATS`). `give`, `t_use`
+and `noclip` also need a living player in the game (`@@@MUSTBEALIVE`), as in
+OpenJK's `ClientCommand`; `setviewpos` also works for spectators.
+
+| Command | Effect |
+| --- | --- |
+| `give all` | Every holdable item, full health, armour and Force power, every usable weapon and 999 of each ammo type |
+| `give health [N]`, `give armor [N]` (or `shield`) | Health (1 to the maximum) or armour (0 to the maximum health), full without `N` |
+| `give force [N]` | Force power, 0–100, full without `N` |
+| `give weapons`, `give weaponnum N` | Every usable weapon, or the weapon with number `N` |
+| `give ammo [N]` | `N` (0–999, 999 without `N`) of every ammo type |
+| `give excellent` (also `impressive`, `gauntletaward`, `defend`, `assist`) | One more of that award |
+| `t_use NAME` | Fire every target named `NAME` as the player (`Cmd_TargetUse_f`), as mappers test triggers and scripts |
+| `setviewpos X Y Z YAW` | Teleport to the position, facing `YAW` |
+| `noclip` | Toggle flying through the world (see [Noclip](#noclip)) |
+
+`give` follows OpenJK's `G_Give`; giving an item by its name (which the reference
+spawns on the player) is not ported and does nothing. See
+[give.rs](../crates/jkr-game-jka/src/give.rs),
+[bridge_commands.rs](../crates/jkr-dedicated/src/bridge_commands.rs),
+[bridge_cheats.rs](../crates/jkr-dedicated/src/bridge_cheats.rs) and
+[bridge_teleport.rs](../crates/jkr-dedicated/src/bridge_teleport.rs).
+
 ## Noclip
 
 With cheats enabled (`--cheats` or server-console `devmap`), a living player can
