@@ -29,27 +29,17 @@ justify spreading JKA-specific constants into unrelated engine services.
 The viewer separates its displayed world from a connection waiting for a map.
 `session_transition::resident::State` parks that transport outside `live_session`,
 so snapshot consumers cannot render new-map entities against the retained BSP.
-For a departed live world, `resident_game` owns an in-process `NativeGame` from
-`jkr-dedicated`. Its socket-free `ClientSession` uses `LocalSimulation` and the
-same game-host snapshot projection as the network server. Normal prediction,
-actor presentation, HUD and effects consume these snapshots. Reusable projection
-storage is allocated at activation. Player skeletons are precached during
-background world preparation, and a same-map reattachment reclaims the native
-game for reuse. The pre-gamestate gate path still uses the movement-only predictor.
+During a live map change the old world is only a backdrop beneath a loading
+notice: it has no local gameplay authority. Intermission remains owned by the
+remote session, including its normal camera, scores, chat and ready controls.
+The viewer does not depend on the dedicated-server crate or construct a native
+game while loading maps. Early entry through the menu gate still uses the
+movement-only predictor before the remote session attaches.
 
-The local command clock advances monotonically without network drift correction.
-The parked remote transport sends neutral commands on a separate timer, and
-continues receiving lifecycle events and communication. At match-end intermission,
-local gameplay starts before the frozen snapshot reaches presentation. Scores and
-chat retain the remote endpoint; only stock ready-to-exit attack/use buttons use
-the remote snapshot clock until its map change, after which commands are neutral.
-Only that transport owns its socket; local movement, aim and simulation state
-never cross into it. A retired gamestate/snapshot is
-captured once at transition, while the resident world retains the latest playable
-player state for intermission recovery. Reattachment invalidates presentation
-configstrings so native resource indices cannot leak into remote presentation.
-Wire codecs remain unchanged. Remote hidden game state is unavailable; see the
-[continuation limits](client.md#joining-and-changing-maps).
+The waiting transport sends neutral commands on a separate timer and continues
+receiving lifecycle events and messages. A matching prepared map can be reused
+on a same-map restart; attachment resets presentation and anchors prediction to
+the remote snapshot. Wire codecs remain unchanged.
 
 CPU preparation and GPU installation own immutable destination inputs. Superseding
 transitions discard their channels; GPU construction checks cancellation between

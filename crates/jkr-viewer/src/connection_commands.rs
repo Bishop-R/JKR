@@ -64,6 +64,7 @@ impl GpuState {
             console::ConnectionAction::Connect(address) => self.begin_address_join(address),
             console::ConnectionAction::Disconnect => self.disconnect_to_menu(),
             console::ConnectionAction::Reconnect => self.reconnect_last(),
+            console::ConnectionAction::DevMap(map) => self.start_development_map(map),
         }
     }
 }

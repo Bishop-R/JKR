@@ -168,8 +168,9 @@ impl GpuState {
         self.gameplay_input.release_keys();
     }
 
-    pub(crate) fn sync_cursor_policy(&mut self) {
-        let overlay = self.game_menu
+    /// Keyboard catchers also advertise BUTTON_TALK, as CL_CmdButtons does.
+    pub(crate) fn key_catcher_active(&self) -> bool {
+        self.game_menu
             || self.chat.is_typing()
             || self
                 .console
@@ -178,7 +179,11 @@ impl GpuState {
             || self
                 .client_menu
                 .as_ref()
-                .is_some_and(|menu| menu.is_visible());
+                .is_some_and(|menu| menu.is_visible())
+    }
+
+    pub(crate) fn sync_cursor_policy(&mut self) {
+        let overlay = self.key_catcher_active();
         let desired = self.cursor_policy.desired(
             self.live_session.is_some() || self.resident.exploring(),
             overlay,

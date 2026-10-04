@@ -516,7 +516,7 @@ pub(crate) fn gate_open(gpu: &GpuState, now: Instant) -> f32 {
 /// Fly or park the free camera on the current screen's shot while a
 /// standalone menu is up.
 pub(crate) fn drive(gpu: &mut GpuState, now: Instant) {
-    if !standalone_menu_visible(gpu) {
+    if !standalone_menu_visible(gpu) || gpu.resident.map_change_pending {
         return;
     }
     let millis = now.duration_since(gpu.ui_epoch).as_millis() as u64;

@@ -2,6 +2,9 @@
 //! so thin luminous texels survive. Animated UV patterns retain their spatial mean.
 use super::*;
 use glam::{Mat3, Vec2, Vec3, Vec4};
+#[path = "emission_reduction.rs"]
+mod reduction;
+use reduction::Reduction;
 
 struct Level {
     size: [usize; 2],
@@ -167,6 +170,7 @@ impl Layer {
         let mut pixels = vec![Vec4::ZERO; size[0] * size[1]];
         let mut mean = Vec4::ZERO;
         for image in images {
+            let reduction = Reduction::new(size, [image.width() as usize, image.height() as usize]);
             for (x, y, p) in image.enumerate_pixels() {
                 let color = Vec4::new(
                     linear[p[0] as usize],
@@ -174,10 +178,8 @@ impl Layer {
                     linear[p[2] as usize],
                     p[3] as f32 / 255.,
                 );
-                reduce_pixel(
+                reduction.add(
                     &mut pixels,
-                    size,
-                    [image.width() as usize, image.height() as usize],
                     [x as usize, y as usize],
                     color / images.len() as f32,
                 );
@@ -215,15 +217,10 @@ impl Layer {
             let last = levels.last().unwrap();
             let size = last.size.map(|n| (n / 2).max(1));
             let mut pixels = vec![Vec4::ZERO; size[0] * size[1]];
+            let reduction = Reduction::new(size, last.size);
             for y in 0..last.size[1] {
                 for x in 0..last.size[0] {
-                    reduce_pixel(
-                        &mut pixels,
-                        size,
-                        last.size,
-                        [x, y],
-                        last.pixels[x + y * last.size[0]],
-                    );
+                    reduction.add(&mut pixels, [x, y], last.pixels[x + y * last.size[0]]);
                 }
             }
             levels.push(Level { size, pixels });
@@ -262,28 +259,5 @@ impl Layer {
             get(base.x, base.y + 1).lerp(get(base.x + 1, base.y + 1), f.x),
             f.y,
         )
-    }
-}
-
-// Exact box overlap keeps odd-sized images and their last row/column in every LOD.
-fn reduce_pixel(
-    output: &mut [Vec4],
-    size: [usize; 2],
-    source: [usize; 2],
-    at: [usize; 2],
-    color: Vec4,
-) {
-    let scale = Vec2::new(
-        size[0] as f32 / source[0] as f32,
-        size[1] as f32 / source[1] as f32,
-    );
-    let lo = Vec2::new(at[0] as f32, at[1] as f32) * scale;
-    let hi = Vec2::new((at[0] + 1) as f32, (at[1] + 1) as f32) * scale;
-    for y in lo.y.floor() as usize..(hi.y.ceil() as usize).min(size[1]) {
-        for x in lo.x.floor() as usize..(hi.x.ceil() as usize).min(size[0]) {
-            let weight = (hi.x.min(x as f32 + 1.) - lo.x.max(x as f32))
-                * (hi.y.min(y as f32 + 1.) - lo.y.max(y as f32));
-            output[x + y * size[0]] += color * weight;
-        }
     }
 }

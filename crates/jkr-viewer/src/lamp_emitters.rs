@@ -6,6 +6,8 @@ use std::collections::HashMap;
 #[path = "lamp_patch.rs"]
 mod patch;
 use patch::Patch;
+#[path = "lamp_patch_candidates.rs"]
+mod candidates;
 #[path = "lamp_quadrature.rs"]
 mod quadrature;
 
@@ -48,11 +50,12 @@ pub(crate) fn collect(vertices: &[Corner], indices: &[u32], emitters: &[Emitter<
         .sum();
     // Large low-triangle faces can generate more quadrature patches than a dense
     // mesh. Include their estimated subdivision work when choosing load workers.
-    let parallel = triangles >= 10_000 || geometry_work / f64::from(EDGE * EDGE) >= 10_000.;
+    let parallel = triangles >= 64 || geometry_work / f64::from(EDGE * EDGE) >= 64.;
     let default = if parallel {
         std::thread::available_parallelism()
             .map_or(1, usize::from)
-            .min(8)
+            .saturating_sub(1)
+            .clamp(1, 4)
     } else {
         1
     };
@@ -132,6 +135,7 @@ fn cook_emitter(
     let mut patches: Vec<Patch> = Vec::new();
     let mut cells: HashMap<IVec3, Vec<usize>> = HashMap::new();
     let mut pending = Vec::new();
+    let mut candidates = candidates::Candidates::default();
     for range in &emitter.ranges {
         for t in indices[range.start as usize..range.end as usize].chunks_exact(3) {
             let corners = [t[0], t[1], t[2]].map(|i| vertices[i as usize]);
@@ -177,7 +181,8 @@ fn cook_emitter(
                     continue;
                 };
                 let cell = (sample.position / MERGE).floor().as_ivec3();
-                let found = find_patch(&patches, &cells, cell, &sample, emitter, lod);
+                let nearby = candidates.get(&cells, cell, patches.len());
+                let found = find_patch(&patches, nearby, &sample, emitter, lod);
                 let id = found.unwrap_or_else(|| {
                     let id = patches.len();
                     cells.entry(cell).or_default().push(id);
@@ -218,8 +223,7 @@ fn cook_emitter(
 
 fn find_patch(
     patches: &[Patch],
-    cells: &HashMap<IVec3, Vec<usize>>,
-    cell: IVec3,
+    candidates: &[usize],
     sample: &quadrature::Sample,
     emitter: &Emitter<'_>,
     lod: u32,
@@ -229,43 +233,30 @@ fn find_patch(
     let uv = sample.uv;
     let luminance = sample.luminance;
     let weight = sample.weight;
-    let mut found = None;
-    for z in -1..=1 {
-        for y in -1..=1 {
-            for x in -1..=1 {
-                if let Some(ids) = cells.get(&(cell + IVec3::new(x, y, z))) {
-                    for &id in ids {
-                        let patch = &patches[id];
-                        let offset = point - patch.anchor;
-                        if found.is_some_and(|old| id >= old)
-                            || offset.length_squared() >= MERGE * MERGE
-                            || normal.dot(patch.normal) <= 0.999
-                            || offset.dot(normal).abs() >= 0.5
-                            || patch.texcoord(point).distance_squared(uv) > 1e-6
-                        {
-                            continue;
-                        }
-                        // A rectangle must not bridge dark housing, separate strips or a ring's hole.
-                        let floor = luminance.min(patch.luminance) * 0.25;
-                        let start = patch.mean_uv();
-                        if [
-                            start.lerp(uv, 0.25),
-                            start.lerp(uv, 0.5),
-                            start.lerp(uv, 0.75),
-                            patch.merged_uv(uv, weight),
-                        ]
-                        .into_iter()
-                        .all(|p| {
-                            luma(
-                                Vec3::from_array(emitter.radiance) * emitter.texture.sample(p, lod),
-                            ) >= floor
-                        }) {
-                            found = Some(id);
-                        }
-                    }
-                }
-            }
+    for &id in candidates {
+        let patch = &patches[id];
+        let offset = point - patch.anchor;
+        if offset.length_squared() >= MERGE * MERGE
+            || normal.dot(patch.normal) <= 0.999
+            || offset.dot(normal).abs() >= 0.5
+            || patch.texcoord(point).distance_squared(uv) > 1e-6
+        {
+            continue;
+        }
+        // Preserve the original texture-gap tests and their floating-point order.
+        let floor = luminance.min(patch.luminance) * 0.25;
+        let start = patch.mean_uv();
+        if [
+            start.lerp(uv, 0.25),
+            start.lerp(uv, 0.5),
+            start.lerp(uv, 0.75),
+            patch.merged_uv(uv, weight),
+        ]
+        .into_iter()
+        .all(|p| luma(Vec3::from_array(emitter.radiance) * emitter.texture.sample(p, lod)) >= floor)
+        {
+            return Some(id);
         }
     }
-    found
+    None
 }
