@@ -17,6 +17,8 @@ pub(crate) mod model_scale;
 #[path = "monster_hold.rs"]
 pub(crate) mod monster_hold;
 
+#[path = "player_sprites.rs"]
+mod player_sprites;
 #[path = "speed_trail.rs"]
 pub(crate) mod speed_trail;
 
@@ -270,6 +272,18 @@ fn submit_actor(
             state.filter(|_| !local),
             transform,
             presentation_time,
+        );
+    }
+    if let Some(snapshot) = snapshot {
+        player_sprites::submit(
+            sinks,
+            entity.kind,
+            transform.translation,
+            snapshot,
+            state,
+            local,
+            draw_actor,
+            visual_now,
         );
     }
     if let (Some(mesh), Some(snapshot)) = (mesh, snapshot) {

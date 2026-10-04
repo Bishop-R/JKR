@@ -181,6 +181,7 @@ impl Draft {
                 0
             },
             allow_lan: self.allow_lan,
+            cheats: false,
         }
     }
 

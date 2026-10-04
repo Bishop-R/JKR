@@ -74,17 +74,14 @@ struct LightOutput {
 // Pre-pass colour: the surface normal the occlusion pass needs, alongside its depth.
 // The pre-pass texel: the surface normal turned toward the viewer, packed.
 fn packed_normal(input: LightOutput) -> vec4<f32> {
-    var normal = normalize(input.normal);
-    if dot(normal, camera.camera_position - input.world) < 0.0 { normal = -normal; }
+    let normal = surface_normal(input.world, normalize(input.normal), camera.camera_position);
     return vec4(normal*0.5 + 0.5, 1.0);
 }
 @fragment fn normal_fragment(input: LightOutput) -> @location(0) vec4<f32> {
     return packed_normal(input);
 }
 @fragment fn light_fragment(input: LightOutput) -> @location(0) vec4<f32> {
-    // The pass draws unculled: a coplanar back face that passes the depth test must light
-    // the pixel as the front face the scene pass shows there.
-    var normal = normalize(input.normal);
-    if dot(normal, camera.camera_position - input.world) < 0.0 { normal = -normal; }
+    // Two-sided surfaces must use the same geometric side as the pre-pass.
+    let normal = surface_normal(input.world, normalize(input.normal), camera.camera_position);
     return realtime_light(input.world, normal, camera.camera_position, camera.view_forward);
 }

@@ -145,14 +145,10 @@ impl NativeGame {
         // It stays connected and stays in its slot; it re-enters when it acknowledges
         // the gamestate the endpoint is about to owe it.
         for client in 0..self.players.places() {
-            if let Some(peer) = self.peer_mut(client) {
-                peer.state.persistent[PERS_SCORE] = 0;
-                peer.state.stats[jkr_game_jka::match_end::STAT_CLIENTS_READY] = 0;
-                peer.ready_to_exit = false;
-                peer.intermission_buttons = 0;
-                peer.begun = false;
-                peer.switch_class_time = 0;
-            }
+            // G_InitGame clears transient client state before ClientConnect.
+            // In particular, entity-pool handles from the old map must not
+            // survive and alias items or sabers in the new pool.
+            self.clear_client(client);
         }
         self.told.push(Told::MapChanged { server_time });
     }

@@ -42,6 +42,8 @@ mod gpu;
 mod model_grid;
 #[path = "world_ssao.rs"]
 pub(crate) mod ssao;
+#[path = "world_texture_prepare.rs"]
+mod texture_prepare;
 
 use fog_draws::FogDraw;
 pub(crate) use fog_draws::FrameDraw;
@@ -84,6 +86,7 @@ macro_rules! stage_shader {
     ($sun:expr, $flares:expr) => {
         concat!(
             include_str!("vertex_transform.wgsl"),
+            include_str!("surface_orientation.wgsl"),
             include_str!("gpu_skinning.wgsl"),
             include_str!("geometry_stage.wgsl"),
             include_str!("stage_runtime.wgsl"),
@@ -340,6 +343,7 @@ fn finish_runtime(
     pending: Vec<PendingMaterial>,
     resolved: usize,
 ) -> Result<(Runtime, usize), Box<dyn Error>> {
+    texture_prepare::upload(device, queue, &mut forge, &pending)?;
     let dynamic_light_buffer = forge.point_lights.clone();
     let source_count = pending
         .iter()
