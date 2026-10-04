@@ -169,6 +169,13 @@ remain unclickable rather than guessing a destination from displayed text.
 Legacy servers provide no authenticated account identity; unobserved same-name
 slot reuse cannot be distinguished. No transport or protocol encoding changed.
 
+The leader/opponent portrait and its name/score occupy the top-right corner,
+with a 32-unit top margin and the existing 40-unit right margin at 1080p (scaled
+with the HUD). Optional snapshot diagnostics, inventory and the automatically
+positioned team overlay flow below that block. Explicit team-overlay coordinates
+remain authoritative. Visibility and server-selected leader/opponent rules are
+unchanged.
+
 ## Configuration and content
 
 The Linux configuration is `$XDG_CONFIG_HOME/jkr/config.cfg`, falling back to
