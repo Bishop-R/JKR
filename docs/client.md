@@ -66,12 +66,16 @@ select the row and press Enter, then type a replacement. Enter applies it;
 Escape cancels. Left/Right, Home/End, Backspace and Delete edit the draft.
 Clicking another control discards an unfinished draft. Hovering does not move
 an edit to another setting.
+Text settings such as the master server follow the same rule, and Enter
+writes the setting whose edit was opened.
 
 Manual values respect the slider bounds but do not snap to its drag increment:
 for example, the FPS cap accepts 142 and FOV accepts 97.5. Decimal points and
 commas are accepted; integer controls require whole numbers. Invalid or empty
 input stays open with a red underline and does not change the setting. Dragging
 and arrow adjustment outside editing retain their existing behavior.
+Values they write are rounded to the step's decimals, so a 0.05-step slider
+stores 0.35 rather than 0.35000000000000003.
 
 ## Development maps
 

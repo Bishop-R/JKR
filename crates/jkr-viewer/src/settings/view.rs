@@ -27,13 +27,12 @@ impl SettingsMenu {
         );
         self.ui.form_tabs(&layout, &TABS, self.tab);
         for (row, setting) in settings(self.tab).iter().enumerate() {
-            let value = self
-                .editing
-                .as_deref()
-                .filter(|_| row == self.selected)
+            let draft = self.editing.as_ref().filter(|draft| draft.row == row);
+            let value = draft
+                .map(|draft| draft.text.as_str())
                 .or_else(|| self.values.get(row).map(String::as_str))
                 .unwrap_or("?");
-            let editing = self.editing.is_some() && row == self.selected;
+            let editing = draft.is_some();
             row_view(
                 &mut self.ui,
                 &layout,
