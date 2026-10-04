@@ -20,23 +20,13 @@ impl Selection {
 
     fn from_system_info(raw: &[u8]) -> Result<Self, Box<dyn Error>> {
         let info = InfoString::parse(std::str::from_utf8(raw)?)?;
-        let names: Vec<_> = info
-            .get("sv_referencedPakNames")
-            .unwrap_or("")
-            .split_whitespace()
-            .collect();
-        let sums: Vec<_> = info
-            .get("sv_referencedPaks")
-            .unwrap_or("")
-            .split_whitespace()
-            .collect();
-        if sums.len() != names.len() || sums.len() > 1024 {
-            return Err("session content: invalid referenced pak names/checksums".into());
-        }
-        let checksums = sums
-            .into_iter()
-            .map(str::parse)
-            .collect::<Result<Vec<i32>, _>>()?;
+        let checksums = jkr_client::referenced_paks::parse(
+            info.get("sv_referencedPaks").unwrap_or(""),
+            info.get("sv_referencedPakNames").unwrap_or(""),
+        )?
+        .into_iter()
+        .map(|reference| reference.checksum)
+        .collect::<Vec<_>>();
         let map_checksum = info
             .get("sv_mapChecksum")
             .map(|value| {
@@ -126,11 +116,13 @@ impl Selection {
                     canonical.display()
                 ));
             } else {
-                return Err(format!(
-                    "session content: required pak checksum {checksum} is unavailable; \
-                     refusing an unverified substitute"
-                )
-                .into());
+                // References describe content the server touched, not a required
+                // client install manifest. Server-only/cosmetic paks may be absent.
+                // Do not mount a same-name substitute; load_bsp still checks the
+                // actual map bytes, and pure-server admission remains separate.
+                crate::log::progress(format_args!(
+                    "session content: referenced pak checksum {checksum} unavailable; using available content"
+                ));
             }
         }
         Ok(())
