@@ -611,7 +611,12 @@ over 1080, clamped to 2/3..4/3, times `cg_hudScale`. The crosshair name keeps
 stock's size in that frame: `CG_DrawCrosshairNames` draws `ergoec` (point size 20)
 at scale 1.0 in the 640x480 screen, so its line is 45 px at 1080p and 60 px at
 1440p, times the layout's `type_scale`. The classic layout uses 0.9 because
-`arialnb` has taller capitals per line than `ergoec`; Inter uses 1.0.
+`arialnb` has taller capitals per line than `ergoec`; Inter uses 1.0. Its
+position is stock's too: the line top sits at y = 170 of the 480-line screen,
+above the crosshair, so both layouts place it 157.5 px above the centre in the
+1080-line frame. That matches stock wherever the HUD factor equals the height
+over 1080 (720 to 1440 lines at `cg_hudScale 1`); outside it, the name keeps
+the HUD's clamped frame, like the other HUD text.
 
 ## Billboard icons
 

@@ -445,3 +445,30 @@ impl HudOverlay {
         &self.draw_list
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{CLASSIC_LAYOUT, DEFAULT_LAYOUT};
+    use jkr_ui::{Anchor, Dimension, HudLayoutDocument};
+
+    /// Both layouts put the crosshair name's line top where stock's is:
+    /// `CG_DrawCrosshairNames` draws it at y = 170 in the 480-line virtual
+    /// screen, 157.5 px above the centre in the HUD's 1080-line frame.
+    #[test]
+    fn crosshair_name_line_top_matches_stock() {
+        for layout in [DEFAULT_LAYOUT, CLASSIC_LAYOUT] {
+            let document = HudLayoutDocument::from_json(layout).unwrap();
+            let widget = document
+                .widgets
+                .iter()
+                .find(|widget| widget.id == "crosshair_name")
+                .unwrap();
+            assert_eq!(widget.anchor, Anchor::Center);
+            let Dimension::Px(height) = widget.size.height else {
+                panic!("crosshair name height is not in px");
+            };
+            let top = 540.0 - height * 0.5 + widget.offset.y;
+            assert!((top - 170.0 * 1_080.0 / 480.0).abs() < 1e-3, "{top}");
+        }
+    }
+}
