@@ -23,7 +23,7 @@ pub(crate) fn adjust(state: &mut MovementState, cmd: &UserCommand, config: Movem
     }
     let active = state.force_powers_active;
     if active & GRIP != 0 {
-        state.speed *= 0.4;
+        state.speed *= config.ja_plus.grip_speed_scale();
     }
     // :8389-8400. Speed takes precedence over rage and recovery.
     if active & SPEED != 0 {

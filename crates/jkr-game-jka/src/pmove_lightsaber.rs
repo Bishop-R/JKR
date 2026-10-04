@@ -100,6 +100,8 @@ pub(crate) struct Lightsaber<'a> {
     pub seed: i32,
     /// `BG_FixSaberMoveData`'s fix in force (`LEGACYFIX_SABERMOVEDATA`).
     pub fixed_moves: bool,
+    /// The JA+ server rules in force ([`crate::pmove_japlus`]).
+    pub ja_plus: crate::pmove_japlus::JaPlusRules,
 }
 
 impl Lightsaber<'_> {

@@ -256,6 +256,7 @@ pub mod pmove;
 pub mod pmove_anim;
 pub mod pmove_dir;
 pub mod pmove_input_freeze;
+pub mod pmove_japlus;
 pub mod pmove_locomotion;
 pub mod pmove_posture;
 pub mod pmove_roll;
@@ -307,6 +308,7 @@ pub mod worldspawn;
 pub use intermission::{IntermissionView, PM_INTERMISSION, suppresses_movement};
 pub use jkr_protocol::UserCommand;
 pub use pmove_anim::{AnimationLengthTable, AnimationLengths, AnimationTiming};
+pub use pmove_japlus::JaPlusRules;
 pub use pmove_roll::{PMF_ROLLING, RollRules};
 pub use trajectory::{
     legacy_evaluate_trajectory, legacy_evaluate_trajectory_angles, legacy_evaluate_trajectory_delta,

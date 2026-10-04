@@ -264,6 +264,50 @@ confirmation remains with the owner. Formatting, locked workspace build/tests
 and the optimized client build passed.
 
 
+## JA+ movement rules prediction
+
+Local change based on `3a70c22` (2026-10-04): on a JA+ server, prediction follows
+JA+'s movement and saber rules ([networking](networking.md#ja-movement-rules)):
+the flip kick off players, the head-slide setting, the improved yellow DFA,
+wall runs from the Force jump's flips, grip speed, melee with the holdable
+button, free taunts and the staff's standing front kick. JA+ is closed source;
+EternalJK's JA+ plugin reimplementation is the reference, and the server decides
+where they differ (yellow DFA launch 60, not EternalJK's 50; no flip-kick branch
+blocking wall runs; wall runs from flips, which EternalJK lacks). Other servers,
+JKR's own included, keep the stock rules.
+
+Evidence (Windows 11): the windowless replay harness outside the repository (as
+for `g_debugMelee`), extended with an idle second client, `setviewpos`
+placement on a devmap server and other players' boxes in the replayed
+collision, against a local JA+ 2.4 Build 7 server on `mp/ffa3` with
+`g_debugMelee 0` and the default `jp_cinfo` 196819. Clean intervals at
+8/7/4/3 ms, with the JA+ rules and with them off (the previous prediction):
+
+| Scenario | With JA+ rules | Rules off |
+| --- | --- | --- |
+| Yellow DFA, looking around in the flip | 501-502 of 502-503 (7/4/3 ms) | 412-413 |
+| Staff alternate attack standing and moving | all 536-538 | 533-535 |
+| Melee attacks with the holdable button | all 286-288 | 238-241 |
+| Bow, flourish, gloat, meditate while moving and turning | 802-806 of 806-810 | 611-613 |
+| Grip while walking | 238-240 of 239-240 | 179-187 |
+| Walking off a player's head (103-104 snapshots on it) | 209/208 at 8/7 ms, 204 of 210 at 4/3 ms | 197-203 |
+| Wall flip off a player beside | all 170-171 | 169-171 |
+| Jump at a player, jump again close to it | 159-162 of 161-162 | 158-162 |
+| Wall run-ups: plain jump, running Force jump, Force jump flips | all but one interval in 12 runs | 514-719, misses at every run-up from a flip |
+
+A second server with flip kick off, the head slide on and the yellow DFA off
+(`jp_cinfo` 196834) matched with the rules on in all of these: no flips off
+players, frictionless heads, stock DFA, and wall runs from flips still allowed.
+
+Remaining misses are the frames where the server applies a style change or a
+taunt from a `generic_cmd` (server-only), slope stance animations the harness
+cannot pose (no model feet), and a few one-unit velocity differences in contact
+with the other player's box. One wall-run interval at 7 ms (a rebound where
+prediction ended a run up the wall) is unexplained. Not predicted: the options
+EternalJK never reads, the Jedi Outcast red DFA, a changed `jp_gripSpeedScale`
+and holds for JA+'s extra animations. Not run in the client, and not checked
+against a public JA+ server or another JA+ version.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.

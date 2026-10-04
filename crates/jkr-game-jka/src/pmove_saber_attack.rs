@@ -470,11 +470,13 @@ fn forward_attack(saber: &mut Lightsaber, no_specials: bool) -> u16 {
             && saber.enough_force(SABER_ALT_ATTACK_POWER_FB)
     };
     if airborne_special(saber, SS_MEDIUM) {
-        // `PM_SaberFlipOverAttackMove`.
+        // `PM_SaberFlipOverAttackMove`; a JA+ server's improved yellow DFA leaps 60
+        // forward rather than 150 (`bg_saber.c:1697-1703`).
+        let speed = saber.ja_plus.flip_over_forward_speed();
         let next = sabers
             .special(|saber| saber.jump_forward_move, LS_A_T2B)
             .unwrap_or_else(|| {
-                leap(saber, 150.0, 400.0);
+                leap(saber, speed, 400.0);
                 LS_A_FLIP_SLASH
             });
         if next != LS_A_T2B && next != LS_NONE {
@@ -608,6 +610,10 @@ pub(crate) fn kick_for_conditions(saber: &mut Lightsaber) -> Option<u16> {
         };
         saber.command.forward_move = 0;
         Some(kick)
+    } else if saber.ja_plus.standing_front_kick() {
+        // A JA+ server kicks forward for a staff's alternate attack standing still
+        // (`bg_saber.c:2857-2866`).
+        Some(LS_KICK_F)
     } else {
         None
     }
