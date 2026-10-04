@@ -44,7 +44,7 @@ impl Portrait {
         vfs: &jkr_vfs::VirtualFileSystem,
         shaders: &jkr_shader::ShaderCatalog,
         renderer: &crate::ui_renderer::ShapeRenderer,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
     ) {
         self.set_model(model(game, client), |path| {
             let Some(pixels) = super::icons::assets::decode(vfs, shaders, path) else {

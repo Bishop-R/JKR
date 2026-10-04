@@ -1,4 +1,5 @@
 //! Compact recording controls sharing the console's presentation director.
+mod numeric;
 mod runtime;
 
 mod view;
@@ -40,6 +41,7 @@ pub(crate) struct Panel {
     pub(crate) sun_mode: crate::console::director::SunMode,
     pub(crate) hud: bool,
     pub(crate) selected: u16,
+    numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
 }
 
 impl Default for Panel {
@@ -54,6 +56,7 @@ impl Default for Panel {
             sun_mode: Default::default(),
             hud: true,
             selected: CAMERA,
+            numeric: None,
         }
     }
 }
@@ -84,6 +87,20 @@ impl Panel {
     pub(crate) fn pointer(&mut self, canvas: &mut MenuCanvas, event: InputEvent) -> Option<Action> {
         let event = canvas.pointer(event)?;
         let token = event.token?;
+        if event.kind == UiEventKind::Press
+            && crate::menu_widgets::numeric::value_row(token).is_none()
+        {
+            self.numeric = None;
+        }
+        if event.kind == UiEventKind::Activate {
+            if let Some(row) = crate::menu_widgets::numeric::value_row(token) {
+                self.begin_numeric(row);
+                return None;
+            }
+            self.numeric = None;
+        } else if self.numeric.is_some() {
+            return None;
+        }
         if matches!(event.kind, UiEventKind::Hover | UiEventKind::HoverEnter) {
             self.selected = token;
         }
@@ -103,7 +120,8 @@ impl Panel {
     }
 
     pub(crate) fn adjust(&mut self, direction: f32) -> Option<Action> {
-        let row = self.selected as usize;
+        let row = crate::menu_widgets::numeric::value_row(self.selected)
+            .unwrap_or(self.selected as usize);
         if row >= 8 {
             return None;
         }
@@ -123,6 +141,13 @@ impl Panel {
     }
 
     pub(crate) fn activate(&mut self, token: u16) -> Option<Action> {
+        if let Some(row) = crate::menu_widgets::numeric::value_row(token)
+            .or_else(|| (token < 8).then_some(token as usize))
+        {
+            self.begin_numeric(row);
+            return None;
+        }
+        self.numeric = None;
         match token {
             CAMERA | SUN => {
                 self.sun_tab = token == SUN;

@@ -6,9 +6,9 @@ use jkr_shell::{CvarDefinition, CvarError, CvarFlags, CvarRegistry};
 pub(crate) struct Settings {
     /// Optional map-relative presentation clock.
     pub(crate) day: super::day::Settings,
-    /// Opt-in; no map or pass is allocated when false.
+    /// No map or pass is allocated when disabled.
     pub(crate) enabled: bool,
-    /// Include opaque world casters with a view-volume fit, independently opt-in.
+    /// Include opaque world casters with a view-volume fit.
     pub(crate) world: bool,
     /// Axial depth of the sharp view cascade in world units; the map-wide far cascade
     /// covers everything beyond it in the world-caster mode.
@@ -31,19 +31,19 @@ impl Settings {
         let day = super::day::Settings::sample(console);
         let volumetrics = console
             .and_then(|c| c.integer_cvar("jkr_volumetrics"))
-            .unwrap_or(0)
+            .unwrap_or(3)
             .clamp(0, 3) as u32;
         let world = day.enabled
             || volumetrics > 0
             || console
                 .and_then(|c| c.integer_cvar("jkr_worldSunShadows"))
-                .unwrap_or(0)
+                .unwrap_or(1)
                 != 0;
         Self {
             enabled: world
                 || console
                     .and_then(|c| c.integer_cvar("jkr_sunShadows"))
-                    .unwrap_or(0)
+                    .unwrap_or(1)
                     != 0,
             world,
             volumetrics,
@@ -74,12 +74,12 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
     for (name, value, description) in [
         (
             "jkr_sunShadows",
-            0,
+            1,
             "Opaque actor sun shadows on diffuse world; restart required",
         ),
         (
             "jkr_worldSunShadows",
-            0,
+            1,
             "World and actor sun shadows; restart required",
         ),
         (
@@ -104,7 +104,7 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
         ),
         (
             "jkr_volumetrics",
-            0,
+            3,
             "Froxel sun media 0..3; implies world shadows; restart required",
         ),
     ] {

@@ -55,7 +55,7 @@ impl Gpu {
     pub(crate) fn prepare_visibility(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         geometry: &crate::world_materials::lamp_geometry::Runtime,
     ) {
         let Some((resolution, columns, size)) =

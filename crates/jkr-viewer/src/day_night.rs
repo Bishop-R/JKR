@@ -42,9 +42,9 @@ impl Settings {
         Self {
             enabled: console
                 .and_then(|c| c.integer_cvar("jkr_dayNight"))
-                .unwrap_or(0)
+                .unwrap_or(1)
                 != 0,
-            hour: number("jkr_dayHour", 7.5).rem_euclid(24.),
+            hour: number("jkr_dayHour", 11.).rem_euclid(24.),
             minutes: number("jkr_dayMinutes", 0.).clamp(0., 1440.),
         }
     }
@@ -146,7 +146,7 @@ pub(crate) fn realtime_tier(console: Option<&crate::console::ViewerConsole>) -> 
         .ok()
         .and_then(|tier| tier.parse().ok())
         .or_else(|| console.and_then(|console| console.integer_cvar("jkr_realtime")))
-        .unwrap_or(2)
+        .unwrap_or(0)
 }
 
 /// Enabling allocates at startup; hour and cycle rate update installed day resources live.
@@ -156,13 +156,13 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
     }
     cvars.register(CvarDefinition::new(
         "jkr_dayNight",
-        0_i64,
+        1_i64,
         CvarFlags::ARCHIVE,
         "Map-relative sun and sky atmosphere; implies world shadows; restart required",
     ))?;
     cvars.register(CvarDefinition::new(
         "jkr_realtime",
-        2_i64,
+        0_i64,
         CvarFlags::ARCHIVE,
         "How much of the lighting is computed live: 2 everything; 1 the same with the world's \
         shadow casters kept between frames; 0 also baked indirect light (where the map brings \
@@ -171,7 +171,7 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
     for (name, value, help) in [
         (
             "jkr_dayHour",
-            7.5,
+            11.,
             "Solar hour 0..24; live when day/night is installed",
         ),
         (
@@ -196,6 +196,16 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
             "Subtle fill in dark areas, 0 off..0.2; fades in existing light; live",
         ),
         (
+            "jkr_indirectBoost",
+            1.,
+            "Indirect sky and bounce brightness 0..4, 1 original; direct lights unchanged; live",
+        ),
+        (
+            "jkr_ambientFillOcclusion",
+            1.,
+            "Corner shading on readability fill: 1 original, 0 unoccluded; live",
+        ),
+        (
             "jkr_dayDebug",
             0.,
             "Real-time lighting diagnostics, bits: 1 no occlusion, 2 no contact shadows, \
@@ -205,7 +215,7 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
         ),
         (
             "jkr_shadowGapClose",
-            4.,
+            0.,
             "Sun shadow maps close slits narrower than this many units (0 off); live",
         ),
         (

@@ -53,6 +53,20 @@ pub(crate) struct HiltCatalog {
 }
 
 impl HiltCatalog {
+    /// Animation-event overrides from the same catalog as the visible hilt.
+    pub(crate) fn animation_sound(&self, name: &str, path: &str, variant: usize) -> Option<&str> {
+        let definition = self.definitions.get(name)?;
+        if path.starts_with("sound/weapons/saber/saberspin") {
+            definition.sound_spin.as_deref()
+        } else if path.starts_with("sound/weapons/saber/saberhup")
+            && definition.sound_swing[0].is_some()
+        {
+            definition.sound_swing[variant % 3].as_deref()
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn get(&self, name: &str) -> Hilt {
         self.hilts.get(name).copied().unwrap_or(self.fallback)
     }
@@ -146,6 +160,8 @@ pub(crate) fn load_hilts<'a>(
 fn default_definition() -> crate::saber_defs::Definition {
     crate::saber_defs::Definition {
         name: "single_1".to_owned(),
+        sound_spin: None,
+        sound_swing: [None, None, None],
         model: DEFAULT_HILT_MODEL.to_owned(),
         num_blades: 1,
         blade_lengths: [DEFAULT_BLADE_LENGTH; 8],

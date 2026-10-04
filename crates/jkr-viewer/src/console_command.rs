@@ -57,6 +57,7 @@ impl ViewerConsole {
         let pending_quit = &mut self.pending_quit;
         let exit_command = &self.qcommon.exit_command;
         let pending_input = &mut self.pending_input;
+        let pending_chat = &mut self.pending_chat;
         let client_commands = &mut self.client_commands;
         let director = &mut self.director;
         let userinfo_names: Vec<_> = self
@@ -158,6 +159,16 @@ impl ViewerConsole {
                         ForwardAction::Reliable(payload) => {
                             let payload =
                                 console_client::color_chat(&payload, chat_mask, chat_random);
+                            if ["say", "say_team", "tell"]
+                                .iter()
+                                .any(|name| tokens[0].eq_ignore_ascii_case(name))
+                            {
+                                if pending_chat.len() >= 64 {
+                                    return Some(Err("Chat command queue is full".into()));
+                                }
+                                pending_chat.push_back(payload);
+                                return Some(Ok(Vec::new()));
+                            }
                             let Some(active) = session.as_deref_mut() else {
                                 return Some(Err(format!("Unknown command \"{}\"", tokens[0])));
                             };

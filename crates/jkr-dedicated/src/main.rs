@@ -81,7 +81,7 @@ const USAGE: &str = "jkr-dedicated [--bind ADDRESS:PORT] [--hostname NAME] [--ma
                   `siege`. A siege server puts players on the
                   map's own `info_player_siegeteam` points, which is the only way to
                   stand where a stock map keeps its breakables and objectives
-  --cheats        sv_cheats: the cheat commands (`give`) work
+  --cheats        sv_cheats: the cheat commands (`give`, `noclip`) work
   --allow-vote    g_allowVote: 0 turns voting off, otherwise a bit per vote in the
                   reference's table (-1, the default, is all of them); votes this
                   server cannot carry out yet are never offered

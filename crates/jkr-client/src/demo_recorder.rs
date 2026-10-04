@@ -254,6 +254,8 @@ fn civil_from_days(days_since_epoch: i64) -> (i64, u64, u64) {
 /// Failure while starting, streaming, or stopping a demo recording.
 #[derive(Debug)]
 pub enum DemoRecorderError {
+    /// A local continuation has no protocol stream to record.
+    LocalContinuation,
     /// No active level is available to synthesize a gamestate.
     NotActive,
     /// A recording is already open.
@@ -271,6 +273,7 @@ pub enum DemoRecorderError {
 impl fmt::Display for DemoRecorderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::LocalContinuation => formatter.write_str("Local continuation has no demo stream; start recording after rejoining the server."),
             Self::NotActive => formatter.write_str("You must be in a level to record."),
             Self::AlreadyRecording => formatter.write_str("Already recording."),
             Self::InvalidName => formatter.write_str("Record: invalid demo name"),
