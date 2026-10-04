@@ -73,6 +73,25 @@ commas are accepted; integer controls require whole numbers. Invalid or empty
 input stays open with a red underline and does not change the setting. Dragging
 and arrow adjustment outside editing retain their existing behavior.
 
+## Development maps
+
+Run `devmap mp/ffa3` in the client console to start and join an owned local
+FFA server with cheats enabled, no bots and no match limits. Other installed
+maps work too, including `devmap t2_rancor`; `maps/` and `.bsp` are optional.
+The command appears in console completion/help. It uses the same `jkr-dedicated`
+binary lookup as Create game (`JKR_DEDICATED` overrides the adjacent binary).
+
+This starts a fresh game on loopback, without master-server advertising. Once
+launched, it replaces the current connection; it never asks a remote server to
+change maps or allow cheats. Missing map names are reported before leaving the
+current game. Disconnecting, cancelling the join, or exiting stops the owned
+server. Ordinary Create game launches still leave cheats disabled.
+
+The native server implements `noclip`, `give`, `setviewpos`, and `t_use` for
+development. Run `noclip` again to return to ordinary movement; spawning again
+clears it. Normal servers still require their own cheat permission. `god` remains
+unimplemented on the native server.
+
 ## Joining and changing maps
 
 The menu's FFA3 gate opens onto the prepared destination world. Map preparation
