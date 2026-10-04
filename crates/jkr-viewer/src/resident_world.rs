@@ -132,8 +132,7 @@ impl GpuState {
         self.resident.walk = Some(walk::Walk::new(self));
         self.local_prediction.stop(36.0);
         self.gameplay_input.view_authority = Default::default();
-        self.third_person_camera_position = None;
-        self.third_person_camera_target = None;
+        self.third_person_camera.reset();
         self.gameplay_input.clear();
         crate::log::progress(format_args!("resident world: local movement ready"));
     }
