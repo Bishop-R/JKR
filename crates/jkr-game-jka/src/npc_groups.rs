@@ -124,6 +124,8 @@ impl AiGroup {
 /// last move's navigation (`frameNavInfo`), and whether the class AI runs.
 #[derive(Clone, Debug)]
 pub struct NpcLevel {
+    /// Opt-in native sand-creature AI; false preserves stock multiplayer dispatch.
+    pub native_sand_creatures: bool,
     /// `level.groups`.
     pub groups: Vec<AiGroup>,
     /// `level.combatPoints`.
@@ -172,6 +174,7 @@ pub struct NpcLevel {
 impl Default for NpcLevel {
     fn default() -> Self {
         Self {
+            native_sand_creatures: false,
             groups: vec![AiGroup::default(); MAX_FRAME_GROUPS],
             combat_points: Vec::new(),
             group_speech: [0; 4],

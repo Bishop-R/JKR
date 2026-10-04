@@ -93,7 +93,7 @@ it does not establish zero correction at boost boundaries or full vehicle parity
 Workspace format/build/tests and the owner release build passed. Automated checks
 used isolated zero-volume settings and an ALSA null sink from startup.
 
-## Vehicle assets and boarding
+## Vehicle assets, boarding and native sand-creature AI
 
 Local work on `dc36792`, verified on Linux on 2026-10-05:
 
@@ -117,10 +117,21 @@ Local work on `dc36792`, verified on Linux on 2026-10-05:
   in the newer local installation. Mounting the existing pack restored their
   own models. Its malformed glider animation remains a content limitation;
   other actors retain the existing error isolation.
+- Native sand-creature AI is enabled only outside stock-rules mode, as described
+  in [server.md](server.md#vehicle-boarding-and-sand-creatures). An isolated native
+  capture confirmed hidden pursuit, `BOTH_WALK2` breach, both attack animations,
+  a normal player death and a successful visible respawn. A second server with
+  stock rules enabled retained visible generic NPC behavior throughout all 154
+  post-spawn snapshots, with no native ambush. This is a separate
+  server extension inspired by SP, not a change to multiplayer class IDs or a
+  claim of full single-player AI parity.
 
-Automated checks used headless Gamescope/Vulkan, isolated zero-volume settings and
-an ALSA null sink. Formatting, locked workspace build/tests and optimized
-client/server builds passed. Wire encode/decode paths are unchanged.
+Automated native checks used headless Gamescope/Vulkan, isolated settings, all
+volumes zero and an ALSA null sink. No public server, owner profile or running
+owner game was used for these checks. Formatting, locked workspace build/tests
+and optimized client/server builds passed. The workspace has no bundled gameplay
+tests; the external checks above provide the focused evidence. Wire encode/decode
+paths are unchanged.
 
 ## Actor animation error isolation
 

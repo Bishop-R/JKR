@@ -204,6 +204,7 @@ pub mod npc_saber_bounce;
 pub mod npc_saber_lock;
 mod npc_saber_targets;
 pub mod npc_saber_throw;
+pub mod npc_sand_creature;
 pub mod npc_seeker;
 pub mod npc_sentry;
 pub mod npc_skeleton;

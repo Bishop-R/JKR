@@ -94,6 +94,8 @@ pub struct RenderBolts {
 /// victim a rancor holds), its instance's bolts and `renderInfo`'s indices into them.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Creature {
+    /// Native sand-creature hunting and breach state, independent of MP class IDs.
+    pub sand: crate::npc_sand_creature::SandCreature,
     /// `ent->activator`.
     pub activator: Option<u16>,
     /// The instance's bolts.

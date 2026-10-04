@@ -114,9 +114,28 @@ vertical input alone does not accelerate without forward/sideways input.
 See [bridge_cheats.rs](../crates/jkr-dedicated/src/bridge_cheats.rs) and
 [noclip.rs](../crates/jkr-game-jka/src/noclip.rs).
 
-## Vehicle boarding
+## Vehicle boarding and sand creatures
 
 Landing on an empty animal or speeder requests boarding using the multiplayer
 rider, vehicle-type and team checks. Empty vehicles marked `SUSPENDED` also allow
 boarding while standing on them, including fighters and walkers. These are
 server decisions; a client connected to another server uses that server's rules.
+
+With `jkr_stockRules 0` (the default), `npc spawn sand_creature` and
+`npc spawn sand_creature_fast` use native burrowing AI. Set the rule before
+loading the map; the NPC roster keeps that selection for the map's lifetime.
+`jkr_stockRules 1` preserves multiplayer's existing generic NPC behavior.
+Move clear of the spawn location so the creature can finish spawning.
+
+This extension takes its movement sensing, hunting timeout, breach/attack
+animations and sand effects from the single-player sand creature. It hunts moving,
+grounded players and NPCs, passes beneath bodies while still colliding with map
+solids, breaches, and ambushes close targets. Standing still or leaving the ground
+breaks its movement tracking. A successful catch uses ordinary multiplayer damage
+and respawn handling, rather than the single-player swallowed-player state.
+
+It is not a campaign-AI parity claim: scripted alerts/turf constraints, thermal
+bait, victim attachment/swallowing, and single-player camera effects are not
+implemented. Pursuit uses local steering and ordinary NPC movement; complex
+obstacles still need broader map playtesting. No new protocol fields or SP entity
+flags are sent, and no new assets are required for the retail sand creature.
