@@ -144,7 +144,11 @@ becomes the active world.
 
 Server console output (`print`) goes exclusively to the console, including match
 statistics, command replies and server announcements. It never enters chat history.
-Global, team and private chat retain their conversation overlay. Center-print
+Each line of a print becomes its own console row, without the empty row a
+server's closing newline would leave. Global, team and private chat retain their
+conversation overlay, and are also kept in the console scrollback but not among
+its notify lines, as stock cgame echoes chat with the `*` print prefix that
+`CL_ConsolePrint` keeps out of the notify area. Center-print
 gameplay notices keep their separate HUD presentation. The scoreboard continues
 to use structured server scores rather than parsing printed statistics tables.
 

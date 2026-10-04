@@ -206,6 +206,11 @@ impl ViewerConsole {
         self.shell.push_log(text);
     }
 
+    /// Add text to the scrollback without showing it among the notify lines.
+    pub(crate) fn push_log_quiet(&mut self, text: impl Into<String>) {
+        self.shell.push_log_quiet(text);
+    }
+
     /// Queue a bound script through the same frame-buffered path as cfg text.
     pub(crate) fn queue_bound_script(&mut self, key: &str, pressed: bool) {
         let time = self.input_millis();

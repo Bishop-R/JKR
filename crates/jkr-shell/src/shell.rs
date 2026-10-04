@@ -59,6 +59,10 @@ pub struct ConsoleLine {
     pub kind: ConsoleLineKind,
     /// Console-formatted text.
     pub text: String,
+    /// Whether the line may show among the transient notify lines while the
+    /// console is closed. Stock `CL_ConsolePrint` (`cl_console.cpp`) clears this
+    /// for text starting with `*` or `[skipnotify]`, which cgame uses for chat.
+    pub notify: bool,
 }
 
 /// Complete portable shell state used by a client frontend.
@@ -157,6 +161,12 @@ impl Shell {
     /// Append application-originated text to bounded scrollback.
     pub fn push_log(&mut self, text: impl Into<String>) {
         self.push_line(ConsoleLineKind::Log, text.into());
+    }
+
+    /// Append application-originated text to scrollback only, never to the
+    /// notify lines: the stock `*` print prefix cgame uses to echo chat.
+    pub fn push_log_quiet(&mut self, text: impl Into<String>) {
+        self.push_line_with(ConsoleLineKind::Log, text.into(), false);
     }
 
     /// Replace completion/help metadata for commands forwarded to an external
@@ -321,6 +331,10 @@ impl Shell {
     }
 
     fn push_line(&mut self, kind: ConsoleLineKind, text: String) {
+        self.push_line_with(kind, text, true);
+    }
+
+    fn push_line_with(&mut self, kind: ConsoleLineKind, text: String, notify: bool) {
         // OpenJK cl_console.cpp:610-612: suppress console printing at its sink.
         if self
             .cvars
@@ -359,6 +373,7 @@ impl Shell {
             .write(mode, if timestamps { &stamped_text } else { &text });
         self.lines.push_back(ConsoleLine {
             kind,
+            notify,
             text,
             written_millis,
             stamped_text,
@@ -423,4 +438,21 @@ fn ascii_starts_with_ignore_case(value: &str, prefix: &str) -> bool {
             .bytes()
             .zip(prefix.bytes())
             .all(|(left, right)| left.eq_ignore_ascii_case(&right))
+}
+
+#[cfg(test)]
+mod notify_tests {
+    use super::*;
+
+    #[test]
+    fn quiet_log_lines_skip_notify_but_stay_in_scrollback() {
+        let mut shell = Shell::new(CvarRegistry::new(), BindTable::new());
+        shell.push_log("print");
+        shell.push_log_quiet("chat");
+        let lines: Vec<_> = shell
+            .lines()
+            .map(|line| (line.text.as_str(), line.notify))
+            .collect();
+        assert_eq!(lines, [("print", true), ("chat", false)]);
+    }
 }
