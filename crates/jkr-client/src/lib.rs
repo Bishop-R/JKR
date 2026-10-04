@@ -3,6 +3,8 @@
 mod actor_color;
 mod ambient_sets;
 mod ambient_world;
+/// Model-authored multiplayer animation sound events.
+pub mod animation_events;
 mod animation_selection;
 mod asset_catalog;
 mod base_server_commands;

@@ -346,12 +346,21 @@ remain open.
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
   marking individual capabilities complete.
-- The client does not play animation-event sounds from a model's
-  `animevents.cfg` (`AEV_SOUND`/`AEV_SOUNDCHAN`, played by codemp
-  `CG_PlayerAnimEventDo`). Stock melee punches and saber kicks get their swing
-  sounds only from there, so they are silent in JKR. The stun baton, unlike
-  melee, has a fire sound in the weapon table of
-  [sound_events.rs](../crates/jkr-client/src/sound_events.rs).
+- Model animation sounds now follow `animevents.cfg` frames. Local release checks
+  against OpenJK `3e465e7c`'s extracted `CG_PlayerAnimEvents` predicate matched
+  238,328 frame-crossing cases. Walk/run and blue-style gesture cues were stable
+  at 8/7/4/3 ms steps; a six-second gesture produced its ten authored spin cues
+  at every cap, and held frames did not replay them. Include overrides, material
+  selection and missing voice-family fallbacks passed external checks. A
+  32-actor cursor-only microbenchmark averaged 0.44 microseconds per iteration
+  with zero measured heap allocations; this excludes bone queries, collision
+  traces, mixing and rendering.
+  An isolated loopback TaystJK `5802c99` run produced stone/metal running steps
+  and blue-taunt spin cues through a real decoder and null-output mixer, with
+  zero decode failures or missing handles. Authored custom saber sound fields
+  also passed an external parsing check. Formatting, locked workspace build/tests
+  and the optimized Linux client build passed. Native owner listening, broader
+  custom-model coverage and animation effect/footprint rendering remain open.
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map

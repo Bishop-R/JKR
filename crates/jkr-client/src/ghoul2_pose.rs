@@ -62,6 +62,7 @@ pub struct LegacyGhoul2Animator {
     /// The override installed for `applied_upper`, kept so the torso frame
     /// can be queried without touching the evaluated pose.
     upper_command: Option<BoneAnimationCommand>,
+    lower_command: Option<BoneAnimationCommand>,
 }
 
 impl LegacyGhoul2Animator {
@@ -102,6 +103,7 @@ impl LegacyGhoul2Animator {
             applied_lower: None,
             applied_upper: None,
             upper_command: None,
+            lower_command: None,
         })
     }
 
@@ -207,6 +209,7 @@ impl LegacyGhoul2Animator {
             self.pose
                 .set_bone_animation(animation, self.legs_root, command)?;
             self.applied_lower = Some(state.lower);
+            self.lower_command = Some(command);
         }
         if let Some(torso_root) = self.torso_root
             && (self.applied_upper.is_none() || time_millis >= state.upper.started_at_millis)
@@ -261,6 +264,18 @@ impl LegacyGhoul2Animator {
         let command = self.upper_command?;
         let sample = BoneOverridePose::sample_command(animation, command, time_millis).ok()?;
         Some(sample.current_frame as f32 + sample.fraction)
+    }
+
+    /// Installed lower/upper frames for sound triggers, without changing pose timing.
+    pub fn event_frames(&self, animation: &Gla, time_millis: i64) -> [Option<(usize, i32)>; 2] {
+        [self.lower_command, self.upper_command].map(|command| {
+            let command = command?;
+            let sample = BoneOverridePose::sample_command(animation, command, time_millis).ok()?;
+            Some((
+                command.clip,
+                (sample.current_frame as f32 + sample.fraction).floor() as i32,
+            ))
+        })
     }
 
     /// Addresses of fixed override/evaluation storage for allocation gates.
