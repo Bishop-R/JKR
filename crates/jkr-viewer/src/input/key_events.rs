@@ -88,9 +88,9 @@ impl GpuState {
         if event.repeat {
             return;
         }
-        let key_name = crate::input::keys::name(crate::input::keys::Source::Key(key)).unwrap_or("");
         if let Some(console) = &mut self.console {
-            console.queue_bound_script(&key_name, event.state == ElementState::Pressed);
+            let name = crate::input::keys::key_name(&event);
+            console.queue_bound_key(key, name, event.state == ElementState::Pressed);
         }
     }
 }

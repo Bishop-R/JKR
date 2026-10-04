@@ -63,10 +63,12 @@ impl ViewerConsole {
         if key == KeyCode::Escape {
             return false;
         }
-        let key_name = crate::input::keys::name(crate::input::keys::Source::Key(key)).unwrap_or("");
+        let Some(key_name) = crate::input::keys::key_name(event) else {
+            return false;
+        };
         self.shell
             .binds
-            .commands_for_event(&key_name, true)
+            .commands_for_event(key_name.as_str(), true)
             .is_ok_and(|commands| {
                 commands
                     .iter()
@@ -87,12 +89,13 @@ impl ViewerConsole {
                 self.set_open(true);
                 return true;
             }
-            let key_name =
-                crate::input::keys::name(crate::input::keys::Source::Key(key)).unwrap_or("");
+            let Some(key_name) = crate::input::keys::key_name(event) else {
+                return false;
+            };
             let commands = match self
                 .shell
                 .binds
-                .commands_for_event(&key_name, event.state == ElementState::Pressed)
+                .commands_for_event(key_name.as_str(), event.state == ElementState::Pressed)
             {
                 Ok(commands) => commands,
                 Err(error) => {

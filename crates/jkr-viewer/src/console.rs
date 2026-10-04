@@ -83,6 +83,8 @@ pub(crate) struct ViewerConsole {
     open: bool,
     /// Shift held, for the Shift+Escape console toggle.
     shift: bool,
+    /// Bind names that held keys were pressed under.
+    held_keys: crate::input::keys::HeldKeys,
     input: String,
     history: Vec<String>,
     history_index: Option<usize>,
@@ -204,6 +206,27 @@ impl ViewerConsole {
     /// Add an application diagnostic to the visible bounded scrollback.
     pub(crate) fn push_log(&mut self, text: impl Into<String>) {
         self.shell.push_log(text);
+    }
+
+    /// Queue the script bound to a key event. A release runs under the name
+    /// its press had, so `+button` binds release even if the layout changed.
+    pub(crate) fn queue_bound_key(
+        &mut self,
+        code: KeyCode,
+        name: Option<crate::input::keys::KeyName>,
+        pressed: bool,
+    ) {
+        let name = if pressed {
+            if let Some(name) = name {
+                self.held_keys.press(code, name);
+            }
+            name
+        } else {
+            self.held_keys.release(code).or(name)
+        };
+        if let Some(name) = name {
+            self.queue_bound_script(name.as_str(), pressed);
+        }
     }
 
     /// Queue a bound script through the same frame-buffered path as cfg text.

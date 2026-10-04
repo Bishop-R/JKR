@@ -88,10 +88,14 @@ impl KeybindEditor {
                 self.capture = false;
                 return EditorResult::None;
             }
-            let Some(key) = crate::input::keys::name(crate::input::keys::Source::Key(key)) else {
+            let Some(key) = crate::input::keys::key_name(event) else {
                 return EditorResult::None;
             };
-            console.rebind_action(ACTIONS[self.selected].command, self.binding_slot, key);
+            console.rebind_action(
+                ACTIONS[self.selected].command,
+                self.binding_slot,
+                key.as_str(),
+            );
             self.capture = false;
             self.refresh(console);
             return EditorResult::None;

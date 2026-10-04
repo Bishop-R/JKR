@@ -86,7 +86,7 @@ impl BindTable {
 
 fn normalize_key(key: &str) -> Result<String, BindError> {
     crate::key_names::canonical_key(key)
-        .map(str::to_ascii_lowercase)
+        .map(str::to_lowercase)
         .ok_or_else(|| BindError::InvalidKey(key.to_owned()))
 }
 
@@ -112,3 +112,33 @@ impl Display for BindError {
 }
 
 impl std::error::Error for BindError {}
+
+#[cfg(test)]
+mod tests {
+    use super::BindTable;
+
+    #[test]
+    fn layout_characters_bind_and_resolve() {
+        let mut binds = BindTable::new();
+        binds.bind("é", "+attack").unwrap();
+        binds.bind("^", "+use").unwrap();
+        binds.bind("<", "+speed").unwrap();
+        binds.bind("Ù", "+back").unwrap();
+        assert_eq!(binds.get("é"), Some("+attack"));
+        assert_eq!(binds.get("É"), Some("+attack"));
+        assert_eq!(binds.get("^"), Some("+use"));
+        assert_eq!(binds.get("<"), Some("+speed"));
+        assert_eq!(binds.get("ù"), Some("+back"));
+    }
+
+    #[test]
+    fn saved_names_keep_their_meaning() {
+        let mut binds = BindTable::new();
+        binds.bind("W", "+forward").unwrap();
+        binds.bind("SEMICOLON", "+left").unwrap();
+        assert_eq!(binds.get("w"), Some("+forward"));
+        assert_eq!(binds.get(";"), Some("+left"));
+        assert!(binds.bind("éé", "+attack").is_err());
+        assert!(binds.bind("\u{7f}", "+attack").is_err());
+    }
+}
