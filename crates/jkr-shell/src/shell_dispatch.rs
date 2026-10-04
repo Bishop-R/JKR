@@ -58,7 +58,9 @@ impl Shell {
             "bindlist" => Ok(self
                 .binds
                 .iter()
-                .map(|(key, command)| format!("{key:<16} {command}"))
+                .map(|(key, command)| {
+                    format!("{:<16} {command}", crate::key_names::display_key(key))
+                })
                 .collect()),
             "cvarlist" => Ok(self
                 .cvars
