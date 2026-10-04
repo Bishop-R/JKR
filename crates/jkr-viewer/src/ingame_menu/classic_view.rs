@@ -3,15 +3,20 @@
 //! into the window. The match stays visible everywhere else, as in retail.
 //!
 //! With the player's retail artwork loaded the bar is `menu_top_mp`, the
-//! pop-ups `menu_box_ingame` and the focus glow `menu_buttonback`; without
-//! it, JKR draws the same layout with flat shapes.
+//! pop-ups `menu_box_ingame` and the focus glow `menu_buttonback` (both
+//! flickering as retail's shaders do); without it, JKR draws the same
+//! layout with flat shapes. The focused item pulses, and labels are in
+//! retail's capitals, except player and map names in vote lists and the
+//! values of the about pop-up.
 
 use super::classic::{self, BAR_HEIGHT, BAR_TOKEN, INFO_LINE, Tab};
 use super::view::Rows;
 use super::{Page, VOTE_SCROLL_TOKEN, View};
 use crate::menu::art::{ArtPiece, ArtSet};
 use crate::menu::classic::layout::Placement;
-use crate::menu::classic::view::{DISABLED, FOCUS, GOLD, TITLE, art, glow, gold, ink};
+use crate::menu::classic::view::{
+    Caps, DISABLED, FOCUS, GOLD, TITLE, art, focus_pulse, glow, gold, ink,
+};
 use crate::menu_widgets::MenuCanvas;
 use jkr_ui::{DrawCommand, FontWeight, Gradient, Rect, TextAlign};
 
@@ -86,13 +91,15 @@ fn bar(
         if active && enabled {
             glow(canvas, target, s, art_set);
         }
-        let color = match (enabled, active) {
-            (false, _) => DISABLED,
-            (true, true) => FOCUS,
-            (true, false) => GOLD,
+        // The focused button pulses; the open page's stays steady white.
+        let color = match (enabled, focused || hovered, active) {
+            (false, _, _) => DISABLED,
+            (true, true, _) => focus_pulse(),
+            (true, false, true) => FOCUS,
+            (true, false, false) => GOLD,
         };
-        canvas.text_aligned(
-            tab.label(view.siege),
+        canvas.text_fmt_aligned(
+            format_args!("{}", Caps(tab.label(view.siege))),
             Rect::new(target.x, target.y + 9.0 * s, target.width, 15.0 * s),
             12.0 * s,
             color,
@@ -150,8 +157,8 @@ fn popup(
     }
     let mut top = y + 4.0;
     if let Some(heading) = classic::heading(view.page) {
-        canvas.text_aligned(
-            heading,
+        canvas.text_fmt_aligned(
+            format_args!("{}", Caps(heading)),
             place.rect([x, top + 8.0, width, 16.0]),
             13.0 * s,
             TITLE,
@@ -188,7 +195,7 @@ fn popup(
         }
         let color = match (enabled, active) {
             (false, _) => DISABLED,
-            (true, true) => FOCUS,
+            (true, true) => focus_pulse(),
             (true, false) => GOLD,
         };
         let size = if compact { 11.0 } else { 13.5 };
@@ -197,20 +204,34 @@ fn popup(
         } else {
             (0.0, TextAlign::Center)
         };
-        canvas.text_aligned(
-            label,
-            Rect::new(
-                target.x + inset,
-                target.y + (target.height - size * 1.2 * s) * 0.5,
-                target.width - inset * 2.0,
-                size * 1.2 * s,
-            ),
-            size * s,
-            color,
-            FontWeight::Semibold,
-            0.3 * s,
-            align,
+        let rect = Rect::new(
+            target.x + inset,
+            target.y + (target.height - size * 1.2 * s) * 0.5,
+            target.width - inset * 2.0,
+            size * 1.2 * s,
         );
+        // Vote lists hold player and map names, shown as written.
+        if list {
+            canvas.text_aligned(
+                label,
+                rect,
+                size * s,
+                color,
+                FontWeight::Semibold,
+                0.3 * s,
+                align,
+            );
+        } else {
+            canvas.text_fmt_aligned(
+                format_args!("{}", Caps(label)),
+                rect,
+                size * s,
+                color,
+                FontWeight::Semibold,
+                0.3 * s,
+                align,
+            );
+        }
         canvas.hit_region(token, target);
     }
     if let Some((first, total)) = rows.scroll {
@@ -243,8 +264,8 @@ fn popup(
 fn info_line(canvas: &mut MenuCanvas, place: &Placement, line: &str, [x, y, width]: [f32; 3]) {
     let s = place.scale;
     let (label, value) = line.split_once("  /  ").unwrap_or((line, ""));
-    canvas.text_aligned(
-        label,
+    canvas.text_fmt_aligned(
+        format_args!("{}", Caps(label)),
         place.rect([x + 10.0, y + 2.0, 140.0, 15.0]),
         12.0 * s,
         GOLD,

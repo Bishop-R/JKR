@@ -202,18 +202,41 @@ pub(super) fn push_quad(
     viewport: [f32; 2],
     capacity: usize,
 ) {
+    push_quad_corners(
+        vertices,
+        rect,
+        [uv0, [uv1[0], uv0[1]], uv1, [uv0[0], uv1[1]]],
+        color,
+        opacity,
+        viewport,
+        capacity,
+    );
+}
+
+/// Push a textured quad with texture coordinates `uv` at its top-left,
+/// top-right, bottom-right and bottom-left corners.
+pub(super) fn push_quad_corners(
+    vertices: &mut Vec<ShapeVertex>,
+    rect: Rect,
+    uv: [[f32; 2]; 4],
+    color: Color,
+    opacity: f32,
+    viewport: [f32; 2],
+    capacity: usize,
+) {
     if rect.width <= 0.0 || rect.height <= 0.0 || vertices.len() + 6 > capacity {
         return;
     }
     let position = |x: f32, y: f32| [x / viewport[0] * 2.0 - 1.0, 1.0 - y / viewport[1] * 2.0];
     let tint = [color.r, color.g, color.b, color.a * opacity];
+    let [top_left, top_right, bottom_right, bottom_left] = uv;
     let points = [
-        ([rect.x, rect.y], [uv0[0], uv0[1]]),
-        ([rect.right(), rect.y], [uv1[0], uv0[1]]),
-        ([rect.right(), rect.bottom()], [uv1[0], uv1[1]]),
-        ([rect.x, rect.y], [uv0[0], uv0[1]]),
-        ([rect.right(), rect.bottom()], [uv1[0], uv1[1]]),
-        ([rect.x, rect.bottom()], [uv0[0], uv1[1]]),
+        ([rect.x, rect.y], top_left),
+        ([rect.right(), rect.y], top_right),
+        ([rect.right(), rect.bottom()], bottom_right),
+        ([rect.x, rect.y], top_left),
+        ([rect.right(), rect.bottom()], bottom_right),
+        ([rect.x, rect.bottom()], bottom_left),
     ];
     vertices.extend(points.map(|(pixel, uv)| ShapeVertex {
         position: position(pixel[0], pixel[1]),

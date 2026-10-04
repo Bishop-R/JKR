@@ -8,12 +8,18 @@
 //! columns, the main page's ring and windows or the sub-pages' frames, the
 //! logo and the button glow, opaque: no world is drawn behind the classic
 //! pages, so the art's transparent centre (where retail played its logo
-//! video) and the pillarbox of a wide window stay dark. Without the art, the
+//! video), and the pillarbox of a wide window stay dark. Without the art, the
 //! same layout is drawn with JKR's own vector shapes and text.
+//!
+//! The artwork moves as retail's shaders move it ([`motion`]): the logo
+//! video plays in the ring, the ring turns, the side glyphs climb over their
+//! backdrop, a reflection drifts through the logo, the glows flicker (the
+//! renderer recomposes those), and the focused entry's text pulses. Labels
+//! and buttons are in retail's capitals ([`Caps`]).
 
 use super::ClassicMain;
 use super::layout::{CANVAS, HINT_Y, LOGO, Page, Placement, Slot};
-use crate::menu::art::{ArtPiece, ArtSet};
+use crate::menu::art::{ArtPiece, ArtSet, motion};
 use crate::menu_widgets::MenuCanvas;
 use jkr_ui::{Color, DrawCommand, FontWeight, Gradient, Rect, TextAlign};
 
@@ -30,8 +36,10 @@ pub(crate) const HINT: Color = Color::new(1.0, 0.682, 0.0, 0.8);
 const INK: [f32; 3] = [0.004, 0.008, 0.020];
 const WHITE: Color = Color::new(1.0, 1.0, 1.0, 1.0);
 
-/// Retail `main.menu` artwork in draw order, with its canvas rectangles.
-const MAIN_ART: [(ArtPiece, [f32; 4]); 7] = [
+/// Retail `main.menu` artwork in draw order, with its canvas rectangles:
+/// `background_video` first, under everything.
+const MAIN_ART: [(ArtPiece, [f32; 4]); 8] = [
+    (ArtPiece::Video, [200.0, 144.0, 256.0, 256.0]),
     (ArtPiece::SideLeft, [0.0, 0.0, 160.0, 480.0]),
     (ArtPiece::SideRight, [480.0, 0.0, 160.0, 480.0]),
     (ArtPiece::Background, [0.0, 0.0, 640.0, 480.0]),
@@ -67,6 +75,79 @@ pub(crate) fn art(canvas: &mut MenuCanvas, piece: ArtPiece, rect: Rect) {
         texture: piece.texture(),
         color: WHITE,
     });
+}
+
+/// Draw `piece` over `rect` with texture coordinates `uv` at its corners
+/// (top-left, top-right, bottom-right, bottom-left), tinted `color`.
+fn art_uv(canvas: &mut MenuCanvas, piece: ArtPiece, rect: Rect, uv: [[f32; 2]; 4], color: Color) {
+    let _ = canvas.draw_list_mut().push(DrawCommand::TexturedQuadUv {
+        rect,
+        texture: piece.texture(),
+        color,
+        uv,
+    });
+}
+
+/// Draw one backdrop piece as retail's shader animates it: the side glyph
+/// columns climb over `menu_side_text_b`, the ring turns, the rest stand
+/// still.
+fn moving_art(canvas: &mut MenuCanvas, art_set: ArtSet, piece: ArtPiece, rect: Rect) {
+    let now = motion::seconds();
+    match piece {
+        ArtPiece::SideLeft | ArtPiece::SideRight => {
+            if art_set.has(ArtPiece::SideBase) {
+                art(canvas, ArtPiece::SideBase, rect);
+            }
+            art_uv(
+                canvas,
+                piece,
+                rect,
+                motion::scroll(motion::SIDE_SCROLL, now),
+                WHITE,
+            );
+        }
+        ArtPiece::Ring => art_uv(
+            canvas,
+            piece,
+            rect,
+            motion::rotation(motion::RING_DEGREES_PER_SECOND, now),
+            WHITE,
+        ),
+        _ => art(canvas, piece, rect),
+    }
+}
+
+/// The focus colour as retail paints the focused item: pulsing
+/// ([`motion::pulse`]).
+pub(crate) fn focus_pulse() -> Color {
+    motion::pulse(FOCUS, motion::seconds())
+}
+
+/// Text shown in capitals, as retail's menus set their labels: ASCII and
+/// Latin-1 letters are raised one to one (colour codes are untouched), so
+/// it formats into the canvas without allocating.
+pub(crate) struct Caps<'a>(pub(crate) &'a str);
+
+impl std::fmt::Display for Caps<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use std::fmt::Write as _;
+        for character in self.0.chars() {
+            formatter.write_char(capital(character))?;
+        }
+        Ok(())
+    }
+}
+
+/// `character` in capitals where Latin-1 has a one-to-one capital; `ß` and
+/// `ÿ`, whose capitals lie outside it, stay as they are.
+fn capital(character: char) -> char {
+    match character {
+        'a'..='z' => character.to_ascii_uppercase(),
+        '\u{e0}'..='\u{fe}' if character != '\u{f7}' => {
+            char::from_u32(character as u32 - 0x20).unwrap_or(character)
+        }
+        _ => character,
+    }
 }
 
 /// Build the classic main menu into `canvas` at `reveal` opacity, drawing
@@ -158,9 +239,24 @@ pub(crate) fn page_backdrop(
     logo(canvas, place, art_set);
 }
 
-/// One entry's label: gold, white while focused, grey when JKR cannot open
-/// it yet.
+/// One entry's label: gold, white and pulsing while focused, grey when JKR
+/// cannot open it yet.
 pub(crate) fn entry_label(canvas: &mut MenuCanvas, place: &Placement, slot: &Slot, active: bool) {
+    let color = match (slot.enabled(), active) {
+        (false, _) => DISABLED,
+        (true, true) => focus_pulse(),
+        (true, false) => GOLD,
+    };
+    entry_label_colored(canvas, place, slot, color);
+}
+
+/// One entry's label in `color`, such as the open group's steady white.
+pub(crate) fn entry_label_colored(
+    canvas: &mut MenuCanvas,
+    place: &Placement,
+    slot: &Slot,
+    color: Color,
+) {
     let s = place.scale;
     let size = slot.size.text();
     let [x, _, width, _] = slot.target();
@@ -171,13 +267,8 @@ pub(crate) fn entry_label(canvas: &mut MenuCanvas, place: &Placement, slot: &Slo
         TextAlign::End => place.rect([x, top, width - 10.0, line]),
         _ => place.centered(slot.center, width + 40.0, line),
     };
-    let color = match (slot.enabled(), active) {
-        (false, _) => DISABLED,
-        (true, true) => FOCUS,
-        (true, false) => GOLD,
-    };
-    canvas.text_aligned(
-        slot.label,
+    canvas.text_fmt_aligned(
+        format_args!("{}", Caps(slot.label)),
         rect,
         size * s,
         color,
@@ -247,7 +338,7 @@ fn backdrop_art(
     };
     for (piece, rect) in pieces {
         if art_set.has(*piece) {
-            art(canvas, *piece, place.rect(*rect));
+            moving_art(canvas, art_set, *piece, place.rect(*rect));
         }
     }
 }
@@ -268,7 +359,7 @@ pub(crate) fn opaque_backdrop(canvas: &mut MenuCanvas, viewport: [f32; 2], art_s
         (ArtPiece::Background, [0.0, 0.0, 640.0, 480.0]),
     ] {
         if art_set.has(piece) {
-            art(canvas, piece, place.rect(rect));
+            moving_art(canvas, art_set, piece, place.rect(rect));
         }
     }
     canvas.finish(0);
@@ -324,10 +415,24 @@ fn backdrop(canvas: &mut MenuCanvas, viewport: [f32; 2], place: &Placement) {
     }
 }
 
-/// The retail logo, or the game title where it sits.
+/// The retail logo, or the game title where it sits. Retail's logo shader
+/// draws the picture opaque, a quarter of the drifting `env_logo` over it,
+/// then the picture again, so the reflection moves through its
+/// translucent letters.
 fn logo(canvas: &mut MenuCanvas, place: &Placement, art_set: ArtSet) {
     if art_set.has(ArtPiece::Logo) {
-        art(canvas, ArtPiece::Logo, place.rect(LOGO));
+        let rect = place.rect(LOGO);
+        if art_set.has(ArtPiece::LogoBase) && art_set.has(ArtPiece::EnvLogo) {
+            art(canvas, ArtPiece::LogoBase, rect);
+            art_uv(
+                canvas,
+                ArtPiece::EnvLogo,
+                rect,
+                motion::scroll(motion::LOGO_REFLECTION_SCROLL, motion::seconds()),
+                Color::new(1.0, 1.0, 1.0, motion::LOGO_REFLECTION_ALPHA),
+            );
+        }
+        art(canvas, ArtPiece::Logo, rect);
         return;
     }
     let s = place.scale;
@@ -394,4 +499,38 @@ pub(crate) fn soft_band(canvas: &mut MenuCanvas, rect: Rect, peak: f32) {
             vertical: false,
         },
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capitals_raise_letters_one_to_one() {
+        assert_eq!(Caps("Display mode").to_string(), "DISPLAY MODE");
+        assert_eq!(Caps("^1red ^7é ß ÷ 3").to_string(), "^1RED ^7É ß ÷ 3");
+        assert_eq!(Caps("already UPPER").to_string(), "ALREADY UPPER");
+    }
+
+    #[test]
+    fn the_focused_label_pulses_and_others_hold() {
+        let slot = &Page::Main.slots()[0];
+        let mut canvas = MenuCanvas::new();
+        let place = Placement::new([1280.0, 960.0]);
+        canvas.begin_transparent([1280.0, 960.0]);
+        entry_label(&mut canvas, &place, slot, true);
+        entry_label(&mut canvas, &place, slot, false);
+        let colors: Vec<Color> = canvas
+            .draw_list()
+            .commands()
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { color, .. } => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(colors.len(), 2);
+        assert!(colors[0].r >= 0.8 && colors[0].r <= 1.0);
+        assert_eq!(colors[1], GOLD);
+    }
 }

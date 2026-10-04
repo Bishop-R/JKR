@@ -37,6 +37,30 @@ impl SettingsMenu {
         } else if self.numeric.is_some() {
             return SettingsResult::None;
         }
+        if let Some(classic) = self
+            .classic
+            .as_mut()
+            .filter(|classic| classic.max_first() > 0)
+        {
+            // A classic panel with more rows than fit scrolls them.
+            match event.kind {
+                UiEventKind::Wheel => {
+                    let direction = event.delta.map_or(0, |delta| -delta.y.signum() as i32);
+                    classic.scroll_by(direction * super::classic_view::CLASSIC_WHEEL_ROWS);
+                    return SettingsResult::None;
+                }
+                UiEventKind::Drag if token == super::classic_view::CLASSIC_SCROLLBAR_TOKEN => {
+                    let track = self
+                        .ui
+                        .rect_for(super::classic_view::CLASSIC_SCROLLBAR_TOKEN);
+                    if let (Some(point), Some(track)) = (event.position, track) {
+                        classic.scroll_to_ratio((point.y - track.y) / track.height);
+                    }
+                    return SettingsResult::None;
+                }
+                _ => {}
+            }
+        }
         if event.kind == UiEventKind::Wheel {
             let direction = event.delta.map_or(0, |delta| -delta.y.signum() as i32);
             let span = self.row_span();

@@ -4,6 +4,7 @@ pub(crate) mod address_view;
 pub(crate) mod art;
 mod controller;
 mod pointer;
+pub(crate) mod roq;
 
 mod browser_details;
 pub(crate) mod browser_filters;

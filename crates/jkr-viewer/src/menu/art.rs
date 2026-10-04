@@ -12,6 +12,16 @@
 //! ([`decoded`]). The renderer gives every piece its own texture and bind
 //! group (`ui_renderer/art.rs`) rather than a slot in the shared UI icon
 //! atlas, which has no room for full-screen art.
+//!
+//! Retail animates some pieces in their shaders (`shaders/ui.shader`); the
+//! classic views and the renderer reproduce that motion ([`motion`]): the
+//! ring turns, the side glyphs and the logo's reflection scroll (their
+//! textures wrap, [`ArtPiece::wraps`]), the glows flicker with
+//! `gfx/hud/static_menu` and the main page plays `video/ja01`
+//! ([`super::roq`]). The flickering pieces keep their raw image for that
+//! ([`Decoded::flicker_base`]).
+
+pub(crate) mod motion;
 
 use image::RgbaImage;
 use jkr_ui::TextureId;
@@ -24,6 +34,15 @@ use std::sync::{Arc, OnceLock};
 const TEXTURE_BASE: u32 = 0x4000_0000;
 /// Longest side kept for a piece; larger HD replacements are scaled down.
 const MAX_SIDE: u32 = 4_096;
+/// Longest side of a flickering piece's raw image, recomposed on the CPU
+/// every frame it is drawn.
+const MAX_FLICKER_SIDE: u32 = 512;
+/// The noise retail's glow shaders multiply the screen by.
+const STATIC_PATH: &str = "gfx/hud/static_menu";
+/// The main page's logo video (`gfx/menus/videologo`'s `videoMap`).
+const VIDEO_PATH: &str = "video/ja01";
+/// Largest video file read; retail's is 6 MiB, HD replacements about 14.
+const MAX_VIDEO_BYTES: usize = 64 << 20;
 
 /// How the retail shader blends a piece over the screen.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,11 +138,22 @@ pub(crate) enum ArtPiece {
     SaberYellow,
     /// `saber_icon_red`: blade colour swatch.
     SaberRed,
+    /// `menu_side_text_b`: the side columns' backdrop, under the scrolling
+    /// glyphs of [`Self::SideLeft`] and [`Self::SideRight`].
+    SideBase,
+    /// `jediacademy` drawn opaque: the logo shader's first stage, which the
+    /// reflection ([`Self::EnvLogo`]) and the logo itself go over.
+    LogoBase,
+    /// `env_logo`: the reflection scrolling through the logo's letters.
+    EnvLogo,
+    /// `video/ja01`: the spinning logo the main page plays in its ring
+    /// (`background_video`), decoded frame by frame by the renderer.
+    Video,
 }
 
 impl ArtPiece {
     /// Every piece, in [`ArtPiece`] order.
-    pub(crate) const ALL: [Self; 38] = [
+    pub(crate) const ALL: [Self; 42] = [
         Self::Background,
         Self::SideLeft,
         Self::SideRight,
@@ -162,6 +192,10 @@ impl ArtPiece {
         Self::SaberPurple,
         Self::SaberYellow,
         Self::SaberRed,
+        Self::SideBase,
+        Self::LogoBase,
+        Self::EnvLogo,
+        Self::Video,
     ];
     pub(crate) const COUNT: usize = Self::ALL.len();
 
@@ -205,7 +239,23 @@ impl ArtPiece {
             Self::SaberPurple => "gfx/menus/saber_icon_purple",
             Self::SaberYellow => "gfx/menus/saber_icon_yellow",
             Self::SaberRed => "gfx/menus/saber_icon_red",
+            Self::SideBase => "gfx/menus/menu_side_text_b",
+            Self::LogoBase => "gfx/menus/jediacademy",
+            Self::EnvLogo => "gfx/menus/env_logo",
+            Self::Video => VIDEO_PATH,
         }
+    }
+
+    /// Whether the piece's texture repeats: retail scrolls its texture
+    /// coordinates (`tcMod scroll`), so the image wraps around.
+    pub(crate) fn wraps(self) -> bool {
+        matches!(self, Self::SideLeft | Self::SideRight | Self::EnvLogo)
+    }
+
+    /// Whether the renderer rewrites the piece's texture as it animates:
+    /// the flickering glows and the video.
+    pub(crate) fn dynamic(self) -> bool {
+        self == Self::Video || motion::flicker(self).is_some()
     }
 
     /// Blend of the piece's retail shader (`shaders/ui.shader`).
@@ -261,12 +311,32 @@ impl ArtSet {
 /// The decoded pieces, indexed by [`ArtPiece::index`].
 pub(crate) struct Decoded {
     images: [Option<RgbaImage>; ArtPiece::COUNT],
+    /// Raw (additive) images of the flickering pieces, by piece index.
+    flicker_bases: [Option<RgbaImage>; ArtPiece::COUNT],
+    /// `gfx/hud/static_menu`, the flicker noise.
+    noise: Option<RgbaImage>,
+    /// The `video/ja01.roq` file.
+    video: Option<Vec<u8>>,
 }
 
 impl Decoded {
     /// The RGBA image of `piece`, ready to upload, if game data has it.
     pub(crate) fn image(&self, piece: ArtPiece) -> Option<&RgbaImage> {
         self.images[piece.index()].as_ref()
+    }
+
+    /// The raw image and the noise a flickering piece is recomposed from,
+    /// when game data has both.
+    pub(crate) fn flicker_base(&self, piece: ArtPiece) -> Option<(&RgbaImage, &RgbaImage)> {
+        Some((
+            self.flicker_bases[piece.index()].as_ref()?,
+            self.noise.as_ref()?,
+        ))
+    }
+
+    /// The main page's RoQ video file, if game data has it.
+    pub(crate) fn video(&self) -> Option<&[u8]> {
+        self.video.as_deref()
     }
 }
 
@@ -304,41 +374,82 @@ pub(crate) fn decoded() -> Option<&'static Decoded> {
 }
 
 fn decode_all(vfs: &VirtualFileSystem) -> Decoded {
+    let raw = ArtPiece::ALL.map(|piece| {
+        if piece == ArtPiece::Video {
+            return None;
+        }
+        read_image(vfs, piece.path())
+    });
+    let flicker_bases = std::array::from_fn(|index| {
+        motion::flicker(ArtPiece::ALL[index])?;
+        raw[index]
+            .as_ref()
+            .map(|image| limit(image.clone(), MAX_FLICKER_SIDE))
+    });
+    let mut index = 0;
+    let images = raw.map(|image| {
+        let piece = ArtPiece::ALL[index];
+        index += 1;
+        image.map(|image| prepare(piece, image))
+    });
     Decoded {
-        images: ArtPiece::ALL.map(|piece| decode(vfs, piece)),
+        images,
+        flicker_bases,
+        noise: read_image(vfs, STATIC_PATH),
+        video: read_video(vfs),
     }
 }
 
-/// Read and decode one piece, trying the extensions retail resolves an
-/// extensionless image name with.
-fn decode(vfs: &VirtualFileSystem, piece: ArtPiece) -> Option<RgbaImage> {
-    let mut image = ["tga", "jpg", "png"].iter().find_map(|extension| {
-        let path = format!("{}.{extension}", piece.path());
+/// Read and decode the image at `path`, trying the extensions retail
+/// resolves an extensionless image name with.
+fn read_image(vfs: &VirtualFileSystem, path: &str) -> Option<RgbaImage> {
+    let image = ["tga", "jpg", "png"].iter().find_map(|extension| {
+        let path = format!("{path}.{extension}");
         let asset = vfs.read(&path).ok()??;
         crate::decode_image(&asset.bytes, &path)
             .ok()
             .map(image::DynamicImage::into_rgba8)
     })?;
     let (width, height) = image.dimensions();
-    if width == 0 || height == 0 {
-        return None;
+    (width != 0 && height != 0).then(|| limit(image, MAX_SIDE))
+}
+
+/// `image`, scaled down to at most `side` on its longest side.
+fn limit(image: RgbaImage, side: u32) -> RgbaImage {
+    let (width, height) = image.dimensions();
+    if width.max(height) <= side {
+        return image;
     }
-    if width.max(height) > MAX_SIDE {
-        let scale = MAX_SIDE as f32 / width.max(height) as f32;
-        image = image::imageops::resize(
-            &image,
-            ((width as f32 * scale) as u32).max(1),
-            ((height as f32 * scale) as u32).max(1),
-            image::imageops::FilterType::Triangle,
-        );
-    }
+    let scale = side as f32 / width.max(height) as f32;
+    image::imageops::resize(
+        &image,
+        ((width as f32 * scale) as u32).max(1),
+        ((height as f32 * scale) as u32).max(1),
+        image::imageops::FilterType::Triangle,
+    )
+}
+
+/// Turn a piece's raw image into the one uploaded for it.
+fn prepare(piece: ArtPiece, mut image: RgbaImage) -> RgbaImage {
     if piece == ArtPiece::LoadCapLeft {
         image::imageops::flip_horizontal_in_place(&mut image);
+    }
+    if piece == ArtPiece::LogoBase {
+        for pixel in image.pixels_mut() {
+            pixel.0[3] = 255;
+        }
     }
     if piece.blend() == Blend::Additive {
         additive_to_alpha(&mut image);
     }
-    Some(image)
+    image
+}
+
+/// Read the main page's video, if game data has a reasonably sized one.
+fn read_video(vfs: &VirtualFileSystem) -> Option<Vec<u8>> {
+    let path = format!("{VIDEO_PATH}.roq");
+    let asset = vfs.read(&path).ok()??;
+    (asset.bytes.len() <= MAX_VIDEO_BYTES).then_some(asset.bytes)
 }
 
 /// Re-express an additively blended image for alpha blending: the
@@ -347,18 +458,20 @@ fn decode(vfs: &VirtualFileSystem, piece: ArtPiece) -> Option<RgbaImage> {
 /// slightly darkens what lies under bright texels.
 fn additive_to_alpha(image: &mut RgbaImage) {
     for pixel in image.pixels_mut() {
-        let [r, g, b, a] = pixel.0;
-        let peak = r.max(g).max(b);
-        if peak == 0 {
-            pixel.0 = [0, 0, 0, 0];
-            continue;
-        }
-        let scale = |channel: u8| {
-            ((u16::from(channel) * 255 + u16::from(peak) / 2) / u16::from(peak)) as u8
-        };
-        let alpha = (u16::from(peak) * u16::from(a) / 255) as u8;
-        pixel.0 = [scale(r), scale(g), scale(b), alpha];
+        pixel.0 = additive_texel(pixel.0);
     }
+}
+
+/// One texel of [`additive_to_alpha`].
+pub(crate) fn additive_texel([r, g, b, a]: [u8; 4]) -> [u8; 4] {
+    let peak = r.max(g).max(b);
+    if peak == 0 {
+        return [0, 0, 0, 0];
+    }
+    let scale =
+        |channel: u8| ((u16::from(channel) * 255 + u16::from(peak) / 2) / u16::from(peak)) as u8;
+    let alpha = (u16::from(peak) * u16::from(a) / 255) as u8;
+    [scale(r), scale(g), scale(b), alpha]
 }
 
 #[cfg(test)]

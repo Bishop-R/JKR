@@ -99,6 +99,15 @@ pub enum DrawCommand {
         texture: TextureId,
         color: Color,
     },
+    /// Textured rectangle with explicit texture coordinates at its corners
+    /// (top-left, top-right, bottom-right, bottom-left), for rotated or
+    /// scrolling images.
+    TexturedQuadUv {
+        rect: Rect,
+        texture: TextureId,
+        color: Color,
+        uv: [[f32; 2]; 4],
+    },
     /// Begin clipping descendants.
     PushClip(Rect),
     /// End the most recent clip.

@@ -8,7 +8,7 @@
 //! options behave the same in both menu styles.
 
 use super::layout::{CANVAS, Entry, HINT_Y, Page, Placement, Size, Slot};
-use super::view::{self, DISABLED, FOCUS, GOLD, HINT};
+use super::view::{self, Caps, DISABLED, FOCUS, GOLD, HINT};
 use crate::menu::art::{ArtPiece, ArtSet};
 use crate::menu_widgets::MenuCanvas;
 use jkr_ui::{Color, DrawCommand, FontWeight, Rect, TextAlign};
@@ -29,8 +29,11 @@ pub(crate) fn chrome_slot(token: u16) -> Option<usize> {
 
 /// Retail option item colour (`forecolor 0.65 0.65 1`).
 pub(crate) const OPTION: Color = Color::new(0.65, 0.65, 1.0, 1.0);
-/// Retail focused item colour (`focusColor 1 1 1 1`).
-pub(crate) const FOCUS_TEXT: Color = FOCUS;
+/// The focused item's colour as retail paints it (`focusColor 1 1 1 1`),
+/// pulsing ([`view::focus_pulse`]).
+pub(crate) fn focus_text() -> Color {
+    view::focus_pulse()
+}
 /// Retail colour of a key being rebound (`Item_Bind_Paint`'s red pulse).
 pub(crate) const BINDING: Color = Color::new(1.0, 0.25, 0.25, 1.0);
 /// Retail panel box (`setup_background`: `backcolor 0 0 .6 .5`, border
@@ -207,11 +210,17 @@ impl PanelFrame {
             if hovered && slot.enabled() {
                 self.glow(canvas, &place, slot, target);
             }
-            // The open group's entry stays white, as retail recolours it.
-            let active = hovered || slot.entry == self.active;
+            // The open group's entry stays white, as retail recolours it;
+            // the hovered one has the focus and pulses.
+            let color = match (slot.enabled(), hovered, slot.entry == self.active) {
+                (false, _, _) => DISABLED,
+                (true, true, _) => view::focus_pulse(),
+                (true, false, true) => FOCUS,
+                (true, false, false) => GOLD,
+            };
             match self.frame {
-                Frame::Main => view::entry_label(canvas, &place, slot, active),
-                Frame::InGame => self.in_game_label(canvas, &place, index, slot, active),
+                Frame::Main => view::entry_label_colored(canvas, &place, slot, color),
+                Frame::InGame => self.in_game_label(canvas, &place, index, slot, color),
             }
             canvas.hit_region(token, target);
         }
@@ -281,7 +290,7 @@ impl PanelFrame {
         place: &Placement,
         index: usize,
         slot: &Slot,
-        active: bool,
+        color: Color,
     ) {
         let Some(row) = self.list_row(index) else {
             return;
@@ -289,13 +298,8 @@ impl PanelFrame {
         let [x, y, width, height] = IN_GAME_LIST;
         let size = Size::List.text();
         let top = y + row as f32 * height + (height - size * 1.2) * 0.5;
-        let color = match (slot.enabled(), active) {
-            (false, _) => DISABLED,
-            (true, true) => FOCUS,
-            (true, false) => GOLD,
-        };
-        canvas.text_aligned(
-            slot.label,
+        canvas.text_fmt_aligned(
+            format_args!("{}", Caps(slot.label)),
             place.rect([x, top, width, size * 1.2]),
             size * place.scale,
             color,
@@ -410,11 +414,12 @@ impl PanelPlace {
         self.place.rect([from, top, (to - from).max(0.0), line])
     }
 
-    /// An item's label, set against the label column's right edge.
+    /// An item's label in capitals, set against the label column's right
+    /// edge.
     pub(crate) fn label(&self, canvas: &mut MenuCanvas, slot: usize, text: &str, color: Color) {
         let geometry = self.geometry();
-        canvas.text_aligned(
-            text,
+        canvas.text_fmt_aligned(
+            format_args!("{}", Caps(text)),
             self.text_rect(slot, geometry.row_x, geometry.label_end),
             geometry.text * self.place.scale,
             color,
@@ -435,8 +440,21 @@ impl PanelPlace {
         x + width - 4.0
     }
 
-    /// An item's value, from the value column to the panel's edge.
+    /// An item's value in capitals, from the value column to the panel's
+    /// edge.
     pub(crate) fn value(&self, canvas: &mut MenuCanvas, slot: usize, text: &str, color: Color) {
+        self.value_fmt(canvas, slot, format_args!("{}", Caps(text)), color);
+    }
+
+    /// An item's value as written, such as typed text (an address or a
+    /// name), which capitals would misrepresent.
+    pub(crate) fn value_plain(
+        &self,
+        canvas: &mut MenuCanvas,
+        slot: usize,
+        text: &str,
+        color: Color,
+    ) {
         self.value_from(canvas, slot, self.value_x(), text, color);
     }
 

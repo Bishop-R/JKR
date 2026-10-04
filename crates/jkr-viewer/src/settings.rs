@@ -27,11 +27,45 @@ pub(crate) enum SettingsResult {
     ClassicCycle(i32),
 }
 
-/// The rows a classic option panel shows: a span of the tab, and where its
-/// slider bars sit across a row.
+/// The rows a classic option panel shows: a span of the tab, where its
+/// slider bars sit across a row, and which part of the span is scrolled
+/// into the panel when it has more rows than fit.
 struct ClassicRows {
     rows: std::ops::Range<usize>,
     slider_span: (f32, f32),
+    /// First shown row, counted from the span's start.
+    first: usize,
+    /// Rows the panel showed last frame.
+    visible: usize,
+}
+
+impl ClassicRows {
+    /// Furthest the span scrolls.
+    fn max_first(&self) -> usize {
+        self.rows.len().saturating_sub(self.visible)
+    }
+
+    /// Scroll by `rows` (negative = up) without moving the selection.
+    fn scroll_by(&mut self, rows: i32) {
+        self.first = (self.first as i32 + rows).clamp(0, self.max_first() as i32) as usize;
+    }
+
+    /// Scroll so the panel shows `ratio` (0 = top, 1 = bottom) of the span.
+    fn scroll_to_ratio(&mut self, ratio: f32) {
+        self.first = (ratio.clamp(0.0, 1.0) * self.max_first() as f32).round() as usize;
+    }
+
+    /// Scroll just enough to show row `selected`.
+    fn reveal(&mut self, selected: usize) {
+        let Some(offset) = selected.checked_sub(self.rows.start) else {
+            return;
+        };
+        let visible = self.visible.max(1);
+        self.first = self
+            .first
+            .min(offset)
+            .max((offset + 1).saturating_sub(visible));
+    }
 }
 
 pub(crate) struct SettingsMenu {
@@ -96,6 +130,14 @@ impl SettingsMenu {
             None => 0..settings(self.tab).len() + usize::from(self.tab == KEYBINDS_TAB),
         }
     }
+    /// Keep the selected row inside a scrolled classic panel.
+    fn reveal_selected(&mut self) {
+        let selected = self.selected;
+        if let Some(classic) = &mut self.classic {
+            classic.reveal(selected);
+        }
+    }
+
     pub(crate) fn visual_selection(&self) -> (usize, bool) {
         (self.selected, false)
     }
@@ -175,6 +217,7 @@ impl SettingsMenu {
                 } else {
                     (self.selected - 1).min(span.end - 1)
                 };
+                self.reveal_selected();
             }
             KeyCode::ArrowDown | KeyCode::KeyS => {
                 self.selected = if self.selected + 1 >= span.end || self.selected < span.start {
@@ -182,6 +225,7 @@ impl SettingsMenu {
                 } else {
                     self.selected + 1
                 };
+                self.reveal_selected();
             }
             KeyCode::ArrowLeft | KeyCode::KeyA => self.adjust(console, -1),
             KeyCode::ArrowRight | KeyCode::KeyD => self.adjust(console, 1),

@@ -184,6 +184,8 @@ impl ShapeRenderer {
             start: 0,
             source: Source::Atlas,
         });
+        self.art.begin_frame();
+        let now = crate::menu::art::motion::seconds();
         let mut opacity = [1.0_f32; 8];
         let mut opacity_depth = 0_usize;
         let mut clips = [Rect::new(0.0, 0.0, viewport[0], viewport[1]); 8];
@@ -281,16 +283,9 @@ impl ShapeRenderer {
                     texture,
                     color,
                 } => {
-                    let source = match crate::menu::art::ArtPiece::from_texture(texture) {
-                        Some(piece) if self.art.ready().has(piece) => Source::Art(piece),
-                        // Art that is not loaded draws nothing; its screen
-                        // falls back to vector shapes.
-                        Some(_) => continue,
-                        None => Source::Atlas,
-                    };
-                    if !art::switch(&mut self.runs, self.vertices.len(), source) {
+                    let Some(source) = self.texture_source(queue, texture, now) else {
                         continue;
-                    }
+                    };
                     let uv = match source {
                         Source::Art(_) => ([0.0, 0.0], [1.0, 1.0]),
                         Source::Atlas => icons::uv_range(texture),
@@ -298,6 +293,40 @@ impl ShapeRenderer {
                     icons::push_quad(
                         &mut self.vertices,
                         clipped(rect, clips[clip_depth]),
+                        uv,
+                        color,
+                        opacity[opacity_depth],
+                        viewport,
+                        MAX_SHAPE_VERTICES,
+                    );
+                }
+                DrawCommand::TexturedQuadUv {
+                    rect,
+                    texture,
+                    color,
+                    uv,
+                } => {
+                    let Some(source) = self.texture_source(queue, texture, now) else {
+                        continue;
+                    };
+                    // Explicit coordinates are mapped into an atlas cell;
+                    // the quad is not clipped, as clipping would need its
+                    // coordinates cut to match.
+                    let uv = match source {
+                        Source::Art(_) => uv,
+                        Source::Atlas => {
+                            let (low, high) = icons::uv_range(texture);
+                            uv.map(|[s, t]| {
+                                [
+                                    low[0] + s * (high[0] - low[0]),
+                                    low[1] + t * (high[1] - low[1]),
+                                ]
+                            })
+                        }
+                    };
+                    icons::push_quad_corners(
+                        &mut self.vertices,
+                        rect,
                         uv,
                         color,
                         opacity[opacity_depth],
@@ -313,6 +342,27 @@ impl ShapeRenderer {
         if !self.vertices.is_empty() {
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
         }
+    }
+
+    /// The source a textured quad naming `texture` samples, with its run
+    /// begun and an animated art piece stepped to `now`; `None` when it
+    /// draws nothing (art that is not loaded, whose screen falls back to
+    /// vector shapes, or a full run list).
+    fn texture_source(
+        &mut self,
+        queue: &crate::frame_queue::FrameQueue,
+        texture: jkr_ui::TextureId,
+        now: f64,
+    ) -> Option<Source> {
+        let source = match crate::menu::art::ArtPiece::from_texture(texture) {
+            Some(piece) if self.art.ready().has(piece) => {
+                self.art.animate(queue, piece, now);
+                Source::Art(piece)
+            }
+            Some(_) => return None,
+            None => Source::Atlas,
+        };
+        art::switch(&mut self.runs, self.vertices.len(), source).then_some(source)
     }
 
     /// Draw every retained shape in one pipeline/buffer submission.
