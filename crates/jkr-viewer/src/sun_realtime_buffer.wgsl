@@ -58,8 +58,8 @@ fn model_sun_color(input: VertexOutput, original: vec3<f32>) -> vec3<f32> {
     if input.light_ambient.a == 0.0 || input.entity_control.x > 0.5 { return original; }
     // The light pass lit the side the viewer sees (its normal turned toward the camera):
     // a two-sided face seen from its back matches that texel, not the authored normal.
-    var normal = normalize(input.world_normal);
-    if dot(normal, camera.camera_position - input.world_position) < 0.0 { normal = -normal; }
+    let normal = surface_normal(input.world_position, normalize(input.world_normal),
+        camera.camera_position);
     let sun = buffered_light(input.position, normal);
     let gloss = select(stage.emission.w, 0.0, (u32(shadow.realtime.w) & 512u) != 0u);
     let highlight = shadow.realtime.x*(sun_specular(input.world_position, normal, sun.a, gloss)
@@ -75,7 +75,8 @@ fn model_sun_color(input: VertexOutput, original: vec3<f32>) -> vec3<f32> {
 // the authored texture stages, not this diffuse illumination multiplier.
 fn realtime_lightmap(input: VertexOutput, texel: vec4<f32>) -> vec4<f32> {
     if !realtime_active() { return texel; }
-    let normal = normalize(input.world_normal);
+    let normal = surface_normal(input.world_position, normalize(input.world_normal),
+        camera.camera_position);
     let light = buffered_light(input.position, normal);
     // `jkr_dayDebug` bit 512: no sun highlight or sky rim.
     let gloss = select(stage.emission.w, 0.0, (u32(shadow.realtime.w) & 512u) != 0u);

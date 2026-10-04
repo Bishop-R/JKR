@@ -9,6 +9,7 @@ use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 mod catalog;
+mod numeric;
 mod pointer;
 mod scroll;
 mod view;
@@ -28,6 +29,7 @@ pub(crate) struct SettingsMenu {
     scroll: scroll::RowScroll,
     values: Vec<String>,
     editing: Option<String>,
+    numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
     ui: MenuCanvas,
 }
 
@@ -39,6 +41,7 @@ impl SettingsMenu {
             scroll: scroll::RowScroll::new(),
             values: Vec::with_capacity(12),
             editing: None,
+            numeric: None,
             ui: MenuCanvas::new(),
         }
     }
@@ -57,6 +60,7 @@ impl SettingsMenu {
         self.tab = tab.min(TABS.len() - 1);
         self.selected = 0;
         self.editing = None;
+        self.numeric = None;
         self.refresh(console);
     }
     pub(crate) fn visual_selection(&self) -> (usize, bool) {
@@ -77,6 +81,9 @@ impl SettingsMenu {
         let PhysicalKey::Code(key) = event.physical_key else {
             return SettingsResult::None;
         };
+        if self.edit_numeric(key, event.text.as_deref(), console) {
+            return SettingsResult::None;
+        }
         if let Some(buffer) = &mut self.editing {
             match key {
                 KeyCode::Escape => self.editing = None,
@@ -133,7 +140,7 @@ impl SettingsMenu {
                 if let Some(setting) = settings(self.tab).get(self.selected) {
                     if matches!(setting.kind, ValueKind::Text) {
                         self.editing = Some(value_text(console, setting.cvar));
-                    } else {
+                    } else if !self.begin_numeric(console, self.selected) {
                         self.adjust(console, 1);
                     }
                 }

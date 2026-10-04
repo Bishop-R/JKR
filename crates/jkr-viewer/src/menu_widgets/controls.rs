@@ -1,6 +1,5 @@
 //! Box-free value controls for hero-style forms: a hairline slider rail, a
-//! pill toggle and a text-edit underline. None of them own pointer targets;
-//! the enclosing row does.
+//! pill toggle and a text-edit underline. Slider values own an edit target.
 
 use super::MenuCanvas;
 use super::form::SLIDER_VALUE_COLUMN;
@@ -43,9 +42,12 @@ impl MenuCanvas {
 
     /// A numeric row's control: the rail across the value zone with the
     /// value text in a 72-unit column at its right.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn form_slider(
         &mut self,
         zone: Rect,
+        row: usize,
+        editing: Option<&super::numeric::NumericEdit>,
         value: &str,
         ratio: f32,
         color: Color,
@@ -60,7 +62,16 @@ impl MenuCanvas {
         );
         self.slider_rail(rail, ratio, color, scale);
         let text = Rect::new(rail.right(), zone.y, column, zone.height);
-        self.form_value(value, text, color, scale);
+        self.hit_region(super::numeric::VALUE_BASE + row as u16, text);
+        if let Some(edit) = editing.filter(|edit| edit.row == row) {
+            edit.draw(
+                self,
+                Rect::new(text.x, text.y + 16.0 * scale, text.width, 22.0 * scale),
+                scale,
+            );
+        } else {
+            self.form_value(value, text, color, scale);
+        }
     }
 
     /// A row of plain colour chips filling the value zone in equal cells,
