@@ -1,6 +1,9 @@
 //! Floating message typography and deterministic motion on the shared canvas.
 
 mod composer;
+mod draft;
+mod name;
+mod player_menu;
 
 use super::*;
 use crate::text::{TextFace, visible_text_width_face};
@@ -47,7 +50,7 @@ impl ChatOverlay {
             g.font = 18.0 * g.scale;
             g.row = 27.0 * g.scale;
         }
-        if (draw_feed || self.is_typing()) && self.options.lifetime != 0 {
+        if self.is_typing() || (draw_feed && self.options.lifetime != 0) {
             self.build_feed(font, &g, ms);
         }
         if let Some((text, received)) = &self.center {
@@ -92,10 +95,13 @@ impl ChatOverlay {
         }
         if self.is_typing() {
             self.build_composer(font, &g, ms);
-            self.build_player_menu(&g, viewport, font);
+            self.build_player_menu(&g, viewport);
         }
-        self.ui
-            .finish(self.player_menu.map_or(u16::MAX, |menu| menu.selected));
+        self.ui.finish(
+            self.player_menu
+                .and_then(|menu| menu.selected)
+                .unwrap_or(u16::MAX),
+        );
     }
 
     fn build_feed(&mut self, font: &UiFont, g: &Geometry, ms: u64) {
@@ -149,18 +155,38 @@ impl ChatOverlay {
                     16.0 * g.scale / font.height,
                     TextFace::Semibold,
                 );
-                let rect = Rect::new(x, y, width + 12.0 * g.scale, 24.0 * g.scale);
                 let actionable = line
                     .sender
                     .filter(|target| self.roster.name(*target).is_some());
+                let friend = actionable
+                    .and_then(|target| self.roster.name(target))
+                    .is_some_and(|name| self.friends.contains(name));
+                let name_x = x + if friend { 14.0 * g.scale } else { 0.0 };
+                let text_rect = Rect::new(name_x, y, width + 1.0, 24.0 * g.scale);
+                let rect = name::ink_bounds(font, name, [name_x, y], 16.0 * g.scale);
+                if friend {
+                    name::star(
+                        &mut self.ui,
+                        Rect::new(
+                            x,
+                            rect.y + (rect.height - 12.0 * g.scale) * 0.5,
+                            12.0 * g.scale,
+                            12.0 * g.scale,
+                        ),
+                        Color::new(0.95, 0.78, 0.35, alpha),
+                    );
+                }
                 if active && let Some(target) = actionable {
                     self.visible_targets[token] = Some(target);
                     self.ui.hit_region(token as u16, rect);
                 }
                 let hover = active && self.ui.token_hovered(token as u16);
+                if hover {
+                    self.ui.accent_bar(rect, Color::new(0.70, 0.88, 0.98, 0.16));
+                }
                 self.ui.text(
                     name,
-                    rect,
+                    text_rect,
                     16.0 * g.scale,
                     if hover {
                         Color::new(1.0, 1.0, 1.0, alpha)
@@ -170,14 +196,8 @@ impl ChatOverlay {
                     FontWeight::Semibold,
                     0.0,
                 );
-                if hover {
-                    self.ui.accent_bar(
-                        Rect::new(x, y + 22.0 * g.scale, width, g.scale),
-                        tint(line.channel, alpha),
-                    );
-                }
                 let label = if line.muted {
-                    "MUTED"
+                    "IGNORED"
                 } else {
                     match line.channel {
                         Channel::Team => "TEAM",
@@ -190,7 +210,7 @@ impl ChatOverlay {
                     Rect::new(
                         rect.right() + 6.0 * g.scale,
                         y + 4.0 * g.scale,
-                        90.0 * g.scale,
+                        160.0 * g.scale,
                         18.0 * g.scale,
                     ),
                     10.0 * g.scale,

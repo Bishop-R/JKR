@@ -124,6 +124,51 @@ already queued for that frame. Synthetic key events on refocus cannot re-press a
 held modifier such as Alt. This allows a saber throw already sent to the server
 to finish normally after Alt+Tab.
 
+### Chat player actions
+
+Open the chat composer with your chat binding (`messagemode`), then click a
+sender's name. The cursor is free while composing. The player menu offers:
+
+- **whisper:** keeps the current draft and addresses the selected player using
+  the stock `tell` command. Nothing is sent until Enter.
+- **ignore:** hides that player's existing and incoming
+  messages locally for the current map. Opening chat shows a hidden-message row
+  whose name can be clicked to undo the ignore. It does not change server policy
+  or suppress footsteps, saber effects, or other gameplay sounds.
+- **friend:** saves a local name bookmark and adds a
+  small five-point star to the left of that player's name. Bookmarks survive restarts in
+  `chat-friends.txt`, beside `config.cfg`. Names ignore colour codes but otherwise
+  match exactly; these are name bookmarks, not authenticated accounts.
+- **copy:** copies the complete name, including its colour escapes.
+
+The dropdown opens without a highlighted action. Hover follows the pointer;
+keyboard navigation highlights only its current row until the pointer moves.
+Arrow keys/Tab navigate the player menu; Enter selects and Escape dismisses it
+without discarding the draft. The compact square-edged dropdown sits to the left
+of chat, aligned with the clicked name and kept above the composer. It has only
+four labels, no title or description, and never moves the conversation. If the
+left margin is too narrow, it uses the right edge inside the chat lane to avoid
+the scoreboard. Highlighted `ignore`/`friend` rows indicate active toggles; clicking
+again undoes them. Name hover fits the visible username glyph bounds, excluding the star. Dropdown
+row highlights use exactly the same rectangle as their clickable button. There is no
+standing player-options hint or success notice. Opening the composer exposes history even when
+passive chat is hidden with `cg_chatbox 0`.
+
+The draft shares the console's UTF-8 caret and selection rules: arrows/Home/End,
+Ctrl+arrows and Ctrl+Backspace/Delete, Shift-selection, Ctrl+A/C/X/V,
+Ctrl+Insert to copy and Shift+Insert to paste. Click places the caret, drag selects,
+and double-click selects a token. Selected text is highlighted; typing/pasting
+replaces it. Clipboard text keeps colour escapes, strips controls and obeys the
+existing chat byte limit. Pasting never sends a message. The `^` dead key inserts
+a literal colour prefix without affecting the next character.
+
+Actions use server-provided sender slots and current roster generations. Old
+messages cannot address a replacement after an observed departure/name change;
+an invalid whisper recipient leaves the draft open. Unattributed server messages
+remain unclickable rather than guessing a destination from displayed text.
+Legacy servers provide no authenticated account identity; unobserved same-name
+slot reuse cannot be distinguished. No transport or protocol encoding changed.
+
 ## Configuration and content
 
 The Linux configuration is `$XDG_CONFIG_HOME/jkr/config.cfg`, falling back to
