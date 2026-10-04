@@ -1,7 +1,7 @@
 # Status and priorities
 
-Reviewed 2026-10-03 against source baseline `8f692ac` and the owner-approved
-rendering and transition changes described below.
+Reviewed 2026-10-04 against GitHub baseline `b394022` and the owner-approved
+client, server, rendering and loading changes described below.
 
 JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
@@ -29,6 +29,200 @@ followed by `1Bishop` and saved exactly `^1Bishop`, with the console still open.
 Formatting, locked workspace build/tests and the release build passed. Clipboard
 round trips, drag behavior and platform/layout combinations are not exhaustively
 verified.
+
+## Accepted client improvements
+
+The owner approved publishing the current playtest improvements on 2026-10-04.
+These changes retain the accepted rendering defaults. Each topic is verified
+and published separately; platform/content coverage limits below still apply.
+
+## Current transition policy
+
+Local gameplay continuation during match-end intermission and server map changes
+is suspended at the owner's request. Intermission uses the real server's camera,
+scores, chat and ready controls; map changes show a loading notice with gameplay
+paused. The native continuation adapter and the viewer's dedicated-server
+dependency have been removed. Background loading, shared GPU context, archive
+inventory optimization, gate-world adoption and matching same-map reuse remain.
+Earlier continuation results below describe the historical implementation, not
+current enabled behavior. Fast joining and map loading are the current priority;
+no universal loading-time target has been verified.
+
+Verification of this policy (local change based on `7155455`): formatting,
+locked workspace build/tests and the optimized Linux client build passed. An
+external release/Vulkan run against isolated loopback TaystJK exercised a natural
+FFA3 timelimit exit into FFA1 and a same-map restart. It observed 1,666 normal
+intermission frames and 2,023 loading frames, asserted that no local simulation
+started, checked that attempted movement/mouse input could not move the loading
+camera, and verified return to the remote session and disconnect to the menu.
+Captures confirmed the scoreboard, loading notice and absence of the local body
+at the intermission camera. The visibility rule follows codemp `CG_Player`;
+scripted NPC and vehicle intermission scenes were not separately exercised.
+
+On RX 9060 XT at 960×540, this final run took about 7.9 seconds from connection
+request to playable FFA3 (excluding initial menu construction) and 9.3 seconds
+for FFA1 map preparation/adoption, of which 0.52 seconds was CPU map preparation.
+These are individual observations, not a controlled speedup or cold-cache result.
+Native-window owner playtesting and Windows runtime checks remain pending.
+
+### Loading optimization verification
+
+Local loading changes based on `7155455` plus the suspended-continuation policy
+reduce emission-mask preparation, lamp patch searches and serial mip generation.
+An interleaved optimized/baseline/optimized Linux release run on RX 9060 XT,
+Vulkan, 960×540 and an isolated loopback TaystJK server measured:
+
+| Operation | Baseline | Optimized runs |
+| --- | --- | --- |
+| Connection request to playable FFA3, including gate animation | 6.82 s | 4.75 / 4.76 s |
+| Natural FFA3 → FFA1 map preparation/adoption | 7.88 s | 3.82 / 3.64 s |
+
+Initial menu construction is excluded. These are warm-machine observations from
+one host, not cold-cache guarantees or internet-server latency measurements. All
+three runs checked ordinary intermission, paused loading, same-map restart,
+remote-session adoption and disconnect to the menu.
+
+External reference checks matched all generated lamp-source float bits and
+ordering on FFA3 (978 sources), FFA1 (3,562) and `t2_rancor` (4,333). Mip pixels
+matched the original algorithm in 12 dimension/layer cases; changed content,
+concurrent reuse and byte/entry eviction checks passed. Emission reduction
+matched every float bit in 54 rectangular, power-of-two and NPOT cases.
+Before/after 1280×720 Vulkan captures retained the scene appearance; animated
+materials and temporal rendering mean whole screenshots are not bit-identical.
+The isolated checks live outside the source tree and do not add a regression
+suite. Gameplay rules, command quantization and protocol encoding are unchanged.
+Formatting, locked workspace build/tests and the optimized Linux client build
+passed. The owner accepted the faster loading in native playtesting.
+
+## Server content references
+
+Local fix based on `7155455` (2026-10-03): downloading and world content selection
+now accept the common prefix of unequal pak-name/checksum lists, matching OpenJK
+codemp `FS_PureServerSetReferencedPaks`. Previously both rejected such lists and
+prevented joining some servers. External checks compared 441 list-length cases
+with the actual OpenJK `1a6a643` C function (whitespace tokenization stubs), and
+exercised both production consumers for equal, unequal and absent lists,
+installed/duplicate content, malformed checksums, retail-pack exclusions,
+unsafe download paths and the reference-count limit. Formatting, locked workspace
+build/tests and the optimized Linux client build passed. No wire codec changed.
+The owner's EFF retry exposed a second assumption: references were treated as
+mandatory archives even with server downloads disabled. The follow-up now skips
+UDP transfers when disabled by either side, skips unrequestable/unsafe/retail
+download names, and permits absent optional references during mounting. External
+checks using the full production storage/selection modules loaded installed FFA1
+with missing and malformed references; covered server on/off/absent flags,
+client downloads off, non-UTF-8 hostname bytes and a valid community request;
+and retained missing-map and wrong-map-checksum rejection. The matching BSP
+checksum passed. Workspace checks and the optimized build passed again.
+EFF's read-only status advertised stock FFA1 and downloads disabled. Its complete
+join with this follow-up remains unverified; no public server was joined for
+these checks.
+
+## Chat player menu preview
+
+Local preview `chat5` (2026-10-04) adds a compact square-edged dropdown left of
+chat with only `whisper`, `ignore`, `friend`, and `copy`. It follows the clicked
+name, stays above typing controls, and leaves chat positions unchanged. At a
+narrow left margin it falls back inside the right edge of the chat lane, clear
+of the scoreboard. Active ignore/friend toggles are highlighted. There are no
+headers, descriptions, standing hints, or success notices; failures still show.
+Friends have a small five-point star before the name. Name hover fits the glyph
+bounds; each dropdown highlight matches its button rectangle without the wider
+menu-row sweep. The dropdown starts without a selected action and switches
+cleanly between mouse hover and keyboard focus, so whisper is not permanently
+highlighted. See [chat player actions](client.md#chat-player-actions).
+
+Whispers preserve drafts and send only on Enter. Ignores hide messages for the
+current map without muting gameplay sounds; friends are saved as local name
+bookmarks. Copy preserves name colour codes. Draft editing shares the console's
+caret and glyph metrics, including clipboard shortcuts, word motion/deletion,
+Shift/mouse selection, double-click token selection and literal dead-key `^`.
+
+Earlier focused checks covered identity reuse, persistence failures, selection,
+Unicode, draft limits and pointer actions. An offline X11 probe with an isolated
+clipboard adapter verified a `^1Alice^7` clipboard round trip and word selection/
+cut. Those checks predate the compact layout; no windows or game instances are
+launched to verify this layout revision, per owner preference. Visual playtesting
+remains with the owner. Formatting, locked workspace build/tests and the release
+build passed.
+
+## Leader HUD placement preview
+
+Local preview `leader1` moves the portrait and leader/opponent name/score from the
+old minimum 230-unit vertical offset to a 32-unit top margin. The existing right
+margin and sizes remain. Optional inventory/snapshot readouts and the default
+team-overlay placement follow below the visible block; explicit team coordinates
+are preserved. Server selection, scores, visibility and asset resolution are unchanged.
+No windows or game instances are launched for this layout-only revision; visual
+playtesting remains with the owner. Formatting, locked workspace build/tests
+and the optimized build passed.
+
+## Manual slider entry preview
+
+Local preview `sliders1` (2026-10-04, based on `7155455`) adds direct numeric
+entry to every Settings slider, both sabers' RGB sliders, and all Shot sliders.
+Click the value or press Enter on its row; Enter applies, Escape cancels.
+Bounds are enforced without drag-step quantization. Drafts stay attached to
+their original row, and invalid values leave the previous setting intact.
+
+Eleven temporary offline checks passed on Linux, covering actual pointer routing,
+all numeric settings/cvar types, all six saber channels, Shot preview actions,
+sub-step values, cancellation, bounds, malformed/non-finite input, caret editing,
+and value targets at 1280×720, 1920×1080 and 3440×1440. The temporary checks are
+not bundled with the source. No windows, game instances or servers were opened;
+visual playtesting remains with the owner. Formatting, locked workspace build/tests
+and the optimized build passed.
+
+## Client devmap preview
+
+Local `devmap1` preview (2026-10-04, based on `7155455`) exposes `devmap <map>`
+in the client console and completion catalogue. It launches a fresh, owned,
+loopback-only FFA server with `--cheats`, no bots and no match limits, then uses
+the existing automatic join path. Invalid names/missing mounted maps are rejected
+before session replacement. Create game keeps cheats disabled. See
+[development maps](client.md#development-maps) for current server-command limits.
+
+Four temporary offline/headless checks passed: map-name parsing and usage,
+console action handoff, private launch arguments/cheat opt-in, and loading
+`mp/ffa3`, joining over loopback and observing `give health 77` in a snapshot.
+The reference for devmap cheat policy was OpenJK multiplayer `SV_Map_f`.
+No gameplay or protocol codec changes were made. The test child stopped cleanly;
+no windows were opened and the owner's running game was untouched. Visual
+transition playtesting remains open. Formatting, locked workspace build/tests and
+the optimized build passed.
+
+## Noclip and talk balloons preview
+
+Local `playfeatures1` preview (2026-10-04, based on `7155455`) integrates
+PR #31 (`60533c8`) and PR #30 (`379aaa2`) into the current client/server sources,
+retaining the later upright billboard correction and current UI changes.
+Native `noclip` requires cheats and a living player; spawning clears it.
+Talk/connection icons use stock priority, placement and visibility rules. See
+[development maps](client.md#development-maps), [talk balloons](client.md#talk-balloons)
+and [server noclip](server.md#noclip).
+
+On Linux, eleven temporary contributed checks passed for movement, talk flags,
+sprite selection and billboard orientation. An external harness compared 640
+noclip states against unmodified OpenJK multiplayer movement at 8/7/4/3 ms:
+origin, velocity and talk flags matched exactly, including vertical-only input.
+Headless loopback checks passed for flying, toggling, respawn reset, normal-server
+cheat rejection, and a second client receiving the talk flag and selecting the
+balloon. No chat messages were sent. Test servers stopped cleanly; the owner's
+running game was untouched. Temporary checks are not bundled in the repository.
+Visual owner acceptance and populated-match performance remain unverified.
+Formatting, locked workspace build/tests and both optimized binaries passed.
+
+
+Owner follow-up `bubbleopacity1` fixes status/item icons fading like smoke near
+geometry when soft particles are enabled. The new icon instance kind bypasses
+only that depth fade; authored texture alpha, depth testing and bounded draw
+regions remain intact. An offscreen Vulkan check on the RX 9060 XT compared the
+production vertex/fragment shaders at 1/8/32-unit depth gaps with texture alpha
+0/0.4/1. All nine icon outputs matched the plain shader byte-for-byte; ordinary
+particles still faded at close gaps. No windows were opened. Native visual
+confirmation remains with the owner. Formatting, locked workspace build/tests
+and the optimized client build passed.
+
 
 ## Implemented scope
 
@@ -283,12 +477,21 @@ remain open.
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
   marking individual capabilities complete.
-- The client does not play animation-event sounds from a model's
-  `animevents.cfg` (`AEV_SOUND`/`AEV_SOUNDCHAN`, played by codemp
-  `CG_PlayerAnimEventDo`). Stock melee punches and saber kicks get their swing
-  sounds only from there, so they are silent in JKR. The stun baton, unlike
-  melee, has a fire sound in the weapon table of
-  [sound_events.rs](../crates/jkr-client/src/sound_events.rs).
+- Model animation sounds now follow `animevents.cfg` frames. Local release checks
+  against OpenJK `3e465e7c`'s extracted `CG_PlayerAnimEvents` predicate matched
+  238,328 frame-crossing cases. Walk/run and blue-style gesture cues were stable
+  at 8/7/4/3 ms steps; a six-second gesture produced its ten authored spin cues
+  at every cap, and held frames did not replay them. Include overrides, material
+  selection and missing voice-family fallbacks passed external checks. A
+  32-actor cursor-only microbenchmark averaged 0.44 microseconds per iteration
+  with zero measured heap allocations; this excludes bone queries, collision
+  traces, mixing and rendering.
+  An isolated loopback TaystJK `5802c99` run produced stone/metal running steps
+  and blue-taunt spin cues through a real decoder and null-output mixer, with
+  zero decode failures or missing handles. Authored custom saber sound fields
+  also passed an external parsing check. Formatting, locked workspace build/tests
+  and the optimized Linux client build passed. Native owner listening, broader
+  custom-model coverage and animation effect/footprint rendering remain open.
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map
