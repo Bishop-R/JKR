@@ -149,19 +149,37 @@ pub(crate) fn load_actor_meshes(
         let saber_names = client_num
             .map(|client_num| client_saber_names(game_state, client_num))
             .unwrap_or_else(|| [Some("single_1".to_owned()), None]);
+        // A failed build leaves the scene as it was, so the Kyle fallback does
+        // not sit behind half-appended geometry and materials.
         let build = |scene: &mut FlattenedScene, actor: PlayerPreview, appearance: &Appearance| {
+            let lengths = (
+                scene.vertices.len(),
+                scene.indices.len(),
+                scene.materials.len(),
+                scene.draws.len(),
+            );
             let mut pair = Vec::with_capacity(2);
             for (assigned_entity, corpse_pool, preview) in
                 [(Some(entity_id), false, actor.clone()), (None, true, actor)]
             {
-                pair.push(build_actor_mesh(
+                let built = build_actor_mesh(
                     scene,
                     preview,
                     assigned_entity,
                     corpse_pool,
                     appearance.clone(),
                     saber_names.clone(),
-                )?);
+                );
+                match built {
+                    Ok(mesh) => pair.push(mesh),
+                    Err(error) => {
+                        scene.vertices.truncate(lengths.0);
+                        scene.indices.truncate(lengths.1);
+                        scene.materials.truncate(lengths.2);
+                        scene.draws.truncate(lengths.3);
+                        return Err(error);
+                    }
+                }
             }
             Ok::<_, Box<dyn Error>>(pair)
         };
