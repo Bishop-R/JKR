@@ -94,6 +94,30 @@ suite. Gameplay rules, command quantization and protocol encoding are unchanged.
 Formatting, locked workspace build/tests and the optimized Linux client build
 passed. The owner accepted the faster loading in native playtesting.
 
+## Server content references
+
+Local fix based on `7155455` (2026-10-03): downloading and world content selection
+now accept the common prefix of unequal pak-name/checksum lists, matching OpenJK
+codemp `FS_PureServerSetReferencedPaks`. Previously both rejected such lists and
+prevented joining some servers. External checks compared 441 list-length cases
+with the actual OpenJK `1a6a643` C function (whitespace tokenization stubs), and
+exercised both production consumers for equal, unequal and absent lists,
+installed/duplicate content, malformed checksums, retail-pack exclusions,
+unsafe download paths and the reference-count limit. Formatting, locked workspace
+build/tests and the optimized Linux client build passed. No wire codec changed.
+The owner's EFF retry exposed a second assumption: references were treated as
+mandatory archives even with server downloads disabled. The follow-up now skips
+UDP transfers when disabled by either side, skips unrequestable/unsafe/retail
+download names, and permits absent optional references during mounting. External
+checks using the full production storage/selection modules loaded installed FFA1
+with missing and malformed references; covered server on/off/absent flags,
+client downloads off, non-UTF-8 hostname bytes and a valid community request;
+and retained missing-map and wrong-map-checksum rejection. The matching BSP
+checksum passed. Workspace checks and the optimized build passed again.
+EFF's read-only status advertised stock FFA1 and downloads disabled. Its complete
+join with this follow-up remains unverified; no public server was joined for
+these checks.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.

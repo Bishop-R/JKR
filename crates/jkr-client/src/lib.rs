@@ -60,6 +60,7 @@ mod prediction_error;
 pub use jkr_game_jka::prediction_items;
 mod presentation;
 mod pure_checksums;
+pub mod referenced_paks;
 pub mod string_table;
 pub use permanent_entities::{legacy_permanent_visible, legacy_scene_entities};
 mod presentation_equipment;

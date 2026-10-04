@@ -142,6 +142,23 @@ On Linux the default is `$XDG_DATA_HOME/jkr/downloads/base`, falling back to
 root (the implementation appends `base`). See
 [download_store.rs](../crates/jkr-viewer/src/download_store.rs).
 
+Server reference lists use OpenJK's positional common-prefix rule: extra pak
+names or checksums without a counterpart are ignored, including when one list
+is empty. Download comparison and session cache selection share
+[the compatibility parser](../crates/jkr-client/src/referenced_paks.rs), so a
+connection cannot pass one check only to fail the other on list length.
+Paired checksums, download paths and file contents remain validated; advertised
+BSP checksums are still enforced. This does not change pure-server proofs.
+
+References are not a mandatory client install manifest. When the server sets
+`sv_allowDownload 0`, or the client sets `cl_allowDownload 0`, UDP transfers are
+skipped and joining proceeds with available content. Missing directory names,
+unsafe download names and retail packs never produce a download request.
+Unavailable referenced archives do not abort world mounting; only locally
+available checksum matches are selected from the cache. The actual map must
+still exist and match its advertised BSP checksum. HTTP downloading remains
+unsupported, and this policy does not disable pure-server admission checks.
+
 ## Useful console commands
 
 Printable console shortcuts open the console but type normally once it is open;
