@@ -173,6 +173,24 @@ not bundled with the source. No windows, game instances or servers were opened;
 visual playtesting remains with the owner. Formatting, locked workspace build/tests
 and the optimized build passed.
 
+## Client devmap preview
+
+Local `devmap1` preview (2026-10-04, based on `7155455`) exposes `devmap <map>`
+in the client console and completion catalogue. It launches a fresh, owned,
+loopback-only FFA server with `--cheats`, no bots and no match limits, then uses
+the existing automatic join path. Invalid names/missing mounted maps are rejected
+before session replacement. Create game keeps cheats disabled. See
+[development maps](client.md#development-maps) for current server-command limits.
+
+Four temporary offline/headless checks passed: map-name parsing and usage,
+console action handoff, private launch arguments/cheat opt-in, and loading
+`mp/ffa3`, joining over loopback and observing `give health 77` in a snapshot.
+The reference for devmap cheat policy was OpenJK multiplayer `SV_Map_f`.
+No gameplay or protocol codec changes were made. The test child stopped cleanly;
+no windows were opened and the owner's running game was untouched. Visual
+transition playtesting remains open. Formatting, locked workspace build/tests and
+the optimized build passed.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.

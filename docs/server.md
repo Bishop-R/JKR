@@ -43,6 +43,7 @@ The authoritative option parser and usage text are in
 | `--home DIRECTORY` | Writable server config home |
 | `--set NAME VALUE` | Set a console variable |
 | `--quit-on-eof` | Stop when a supervising parent's stdin pipe closes |
+| `--cheats` | Enable the native server's development commands |
 
 These are implemented option surfaces, not a guarantee of complete parity for
 every game type or map. See [status.md](status.md).
@@ -66,3 +67,18 @@ for the new world; saber entities are allocated from the new map's pool.
 
 The [networking page](networking.md) explains the boundary between native entity
 ownership, game behavior and the legacy endpoint.
+
+## Noclip
+
+With cheats enabled (`--cheats` or server-console `devmap`), a living player can
+run `noclip` in the client console to toggle flying through the world. The client
+also offers [devmap](client.md#development-maps) for starting an owned local game.
+The server refuses noclip during intermission, for spectators/dead players, or
+with cheats disabled. Spawning again clears it.
+
+Noclip uses the existing OpenJK-compatible movement and snapshot prediction.
+It skips item/trigger contacts, drowning and ordinary damage, retaining the
+reference's earlier DEMP2 shock handling. OpenJK's command scaling quirk remains:
+vertical input alone does not accelerate without forward/sideways input.
+See [bridge_cheats.rs](../crates/jkr-dedicated/src/bridge_cheats.rs) and
+[noclip.rs](../crates/jkr-game-jka/src/noclip.rs).
