@@ -24,6 +24,46 @@ rules itself rather than hosting the original game DLLs.
 These are maintenance constraints. Existing compatibility dependencies do not
 justify spreading JKA-specific constants into unrelated engine services.
 
+## Resident client worlds
+
+The viewer separates its displayed world from a connection waiting for a map.
+`session_transition::resident::State` parks that transport outside `live_session`,
+so snapshot consumers cannot render new-map entities against the retained BSP.
+For a departed live world, `resident_game` owns an in-process `NativeGame` from
+`jkr-dedicated`. Its socket-free `ClientSession` uses `LocalSimulation` and the
+same game-host snapshot projection as the network server. Normal prediction,
+actor presentation, HUD and effects consume these snapshots. Reusable projection
+storage is allocated at activation. Player skeletons are precached during
+background world preparation, and a same-map reattachment reclaims the native
+game for reuse. The pre-gamestate gate path still uses the movement-only predictor.
+
+The local command clock advances monotonically without network drift correction.
+The parked remote transport sends neutral commands on a separate timer, and
+continues receiving lifecycle events and communication. At match-end intermission,
+local gameplay starts before the frozen snapshot reaches presentation. Scores and
+chat retain the remote endpoint; only stock ready-to-exit attack/use buttons use
+the remote snapshot clock until its map change, after which commands are neutral.
+Only that transport owns its socket; local movement, aim and simulation state
+never cross into it. A retired gamestate/snapshot is
+captured once at transition, while the resident world retains the latest playable
+player state for intermission recovery. Reattachment invalidates presentation
+configstrings so native resource indices cannot leak into remote presentation.
+Wire codecs remain unchanged. Remote hidden game state is unavailable; see the
+[continuation limits](client.md#joining-and-changing-maps).
+
+CPU preparation and GPU installation own immutable destination inputs. Superseding
+transitions discard their channels; GPU construction checks cancellation between
+build stages. Only a completed world is adopted. A prepared gamestate's content
+selection must match before attaching a session without rebuilding, and a restart
+must receive a fresh snapshot before attachment. The FFA3 gate hands over its
+actual prepared world rather than constructing a duplicate at entry. The parked
+menu world remains separately owned for cancellation/disconnection.
+
+PK3 checksum inventory uses the validated ZIP central directory, retaining archive
+entry order, CRCs and zero-length filtering. It does not visit/decompress every
+payload during connection; normal asset reads remain responsible for payload and
+local-header validation. See [pk3_fingerprint.rs](../crates/jkr-vfs/src/pk3_fingerprint.rs).
+
 ## Source map
 
 All 20 workspace crates are listed in [Cargo.toml](../Cargo.toml).

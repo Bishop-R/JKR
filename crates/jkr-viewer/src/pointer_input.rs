@@ -142,8 +142,10 @@ impl GpuState {
 
     pub(crate) fn pointer_focus(&mut self, focused: bool) {
         self.cursor_policy.set_focus(focused);
+        self.gameplay_input.focus(focused);
         if !focused {
-            self.gameplay_input.clear();
+            self.pending_generic_command = 0;
+            self.network_command_due = std::time::Instant::now();
         }
         self.sync_cursor_policy();
     }
@@ -185,9 +187,10 @@ impl GpuState {
 
     pub(crate) fn sync_cursor_policy(&mut self) {
         let overlay = self.key_catcher_active();
-        let desired = self
-            .cursor_policy
-            .desired(self.live_session.is_some(), overlay);
+        let desired = self.cursor_policy.desired(
+            self.live_session.is_some() || self.resident.exploring(),
+            overlay,
+        );
         self.apply_cursor_mode(desired);
     }
 

@@ -105,7 +105,7 @@ impl Runtime {
     /// Publish one lighting-mode word in the already allocated scene block.
     pub(crate) fn update_scene_lighting_mode(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         lights: &PointLightList,
         model_pixels: bool,
         mode: u32,

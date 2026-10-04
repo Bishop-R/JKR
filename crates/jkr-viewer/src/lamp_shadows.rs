@@ -294,7 +294,7 @@ impl Runtime {
     /// Camera of `slot`'s `face`. Static lamps only change when a slot is reassigned.
     pub(super) fn face_camera(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         lamps: &crate::lamp_lights::LampSet,
         slot: usize,
         lamp: usize,
@@ -323,7 +323,7 @@ impl Runtime {
 
     /// Upload the slot table with the faces that hold a caster this frame (`count.yz`, one
     /// bit per layer): receivers skip the filtered depth compares of every empty face.
-    pub(super) fn publish(&self, queue: &wgpu::Queue) {
+    pub(super) fn publish(&self, queue: &crate::frame_queue::FrameQueue) {
         let mut table = self.pending.borrow_mut();
         let occupied = !self.clear.get();
         table.count[1] = occupied as u32;
