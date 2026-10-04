@@ -60,6 +60,31 @@ pub(crate) struct Collider {
 }
 
 impl Collider {
+    /// Retain the last presented brush transform while its server changes maps.
+    pub(crate) fn frozen(mover: &jkr_client::LegacyMoverPresentation) -> Self {
+        let stationary = |base| Trajectory {
+            base,
+            delta: [0.0; 3],
+            kind: 0,
+            start: 0,
+            duration: 0,
+        };
+        Self {
+            entity: mover.entity_number,
+            model: mover.model_index,
+            bounds: None,
+            origin: mover.origin,
+            axes: rotation_axes(mover.angles),
+            rotated: mover.angles != [0.0; 3],
+            mover: true,
+            position: stationary(mover.origin),
+            angular: stationary(mover.angles),
+            teleport: false,
+            actor: false,
+            original_kind: ET_MOVER,
+        }
+    }
+
     /// Decode a snapshot solid for prediction or the shared targeting trace.
     pub(crate) fn from_entity(
         state: &EntityState,

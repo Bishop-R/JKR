@@ -149,6 +149,43 @@ impl GameAudio {
         ));
     }
 
+    /// Play a preloaded model animation cue with cgame channel/spatial semantics.
+    pub(crate) fn play_animation(
+        &mut self,
+        path: &str,
+        channel: u8,
+        footstep: bool,
+        origin: [f32; 3],
+        entity: u64,
+        local: bool,
+    ) {
+        if footstep && !self.footsteps {
+            return;
+        }
+        let Some(handle) = self.find_handle(path) else {
+            return;
+        };
+        let relative = local || channel == 12;
+        self.output.send(AudioCommand::Play(
+            handle,
+            PlayRequest {
+                origin: (!relative).then_some(origin),
+                source: SourceId(entity.saturating_sub(1) as u32),
+                channel: ChannelId(u32::from(if channel == 4 || channel == 12 {
+                    3
+                } else {
+                    channel
+                })),
+                volume: 1.0,
+                attenuation: if relative {
+                    jkr_audio::Attenuation::None
+                } else {
+                    jkr_client::legacy_sound_attenuation(u32::from(channel))
+                },
+            },
+        ));
+    }
+
     /// Play a listener-relative sound (interface cues) at full stereo.
     pub(crate) fn play_local(
         &mut self,

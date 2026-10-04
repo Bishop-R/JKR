@@ -236,6 +236,28 @@ impl HudOverlay {
         );
     }
 
+    /// Optional right-side readouts follow the leader block; explicit team
+    /// overlay coordinates remain the player's choice.
+    pub(super) fn upper_right_stack(&self) -> [f32; 3] {
+        let bottom = self.enemy_info.bottom();
+        let snapshot = if bottom > 0.0 { bottom + 16.0 } else { 50.0 };
+        let after_snapshot = snapshot + if self.family.snapshot { 28.0 } else { 0.0 };
+        let inventory = 100.0_f32.max(after_snapshot);
+        let items = if self.family.upper && self.family.inventory {
+            (self.inventory_bits & 0x0ffe).count_ones()
+        } else {
+            0
+        };
+        let team = if bottom == 0.0 {
+            0.0
+        } else if items > 0 {
+            inventory + items as f32 * 26.0 + 12.0
+        } else {
+            after_snapshot
+        };
+        [snapshot, inventory, team]
+    }
+
     /// Append independent score and diagnostic text without a backplate.
     pub(super) fn emit_family(&mut self, viewport: [f32; 2]) {
         self.targeting
@@ -243,6 +265,7 @@ impl HudOverlay {
         self.enemy_info
             .emit(&mut self.draw_list, viewport, self.theme);
         let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let [snapshot_top, inventory_top, _] = self.upper_right_stack();
         if self.family.upper && self.family.inventory {
             let mut row = 0;
             for tag in 1..12 {
@@ -252,7 +275,7 @@ impl HudOverlay {
                 let _ = self.draw_list.push(DrawCommand::Text {
                     rect: Rect::new(
                         viewport[0] - 330.0 * s,
-                        (100.0 + row as f32 * 26.0) * s,
+                        (inventory_top + row as f32 * 26.0) * s,
                         290.0 * s,
                         25.0 * s,
                     ),
@@ -277,7 +300,7 @@ impl HudOverlay {
             (
                 self.family.upper && self.family.snapshot,
                 316,
-                50.0 * s,
+                snapshot_top * s,
                 [0.0; 2],
             ),
         ] {

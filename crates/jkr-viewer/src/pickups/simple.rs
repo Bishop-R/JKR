@@ -94,6 +94,8 @@ pub(crate) fn prepare(items: &mut Vec<Presented>, console: Option<&crate::consol
 }
 
 /// Replace last frame's icons and append this frame's bounded model/sprite instances.
+/// Clearing drops every frame billboard, including the player sprites that actor
+/// submission appends after this (`player_sprites.rs`).
 pub(crate) fn append_frame(gpu: &mut crate::GpuState, now: Instant) {
     gpu.particles
         .retain(|p| !matches!(p.shape, PrimitiveShape::FrameBillboard));

@@ -24,6 +24,36 @@ rules itself rather than hosting the original game DLLs.
 These are maintenance constraints. Existing compatibility dependencies do not
 justify spreading JKA-specific constants into unrelated engine services.
 
+## Resident client worlds
+
+The viewer separates its displayed world from a connection waiting for a map.
+`session_transition::resident::State` parks that transport outside `live_session`,
+so snapshot consumers cannot render new-map entities against the retained BSP.
+During a live map change the old world is only a backdrop beneath a loading
+notice: it has no local gameplay authority. Intermission remains owned by the
+remote session, including its normal camera, scores, chat and ready controls.
+The viewer does not depend on the dedicated-server crate or construct a native
+game while loading maps. Early entry through the menu gate still uses the
+movement-only predictor before the remote session attaches.
+
+The waiting transport sends neutral commands on a separate timer and continues
+receiving lifecycle events and messages. A matching prepared map can be reused
+on a same-map restart; attachment resets presentation and anchors prediction to
+the remote snapshot. Wire codecs remain unchanged.
+
+CPU preparation and GPU installation own immutable destination inputs. Superseding
+transitions discard their channels; GPU construction checks cancellation between
+build stages. Only a completed world is adopted. A prepared gamestate's content
+selection must match before attaching a session without rebuilding, and a restart
+must receive a fresh snapshot before attachment. The FFA3 gate hands over its
+actual prepared world rather than constructing a duplicate at entry. The parked
+menu world remains separately owned for cancellation/disconnection.
+
+PK3 checksum inventory uses the validated ZIP central directory, retaining archive
+entry order, CRCs and zero-length filtering. It does not visit/decompress every
+payload during connection; normal asset reads remain responsible for payload and
+local-header validation. See [pk3_fingerprint.rs](../crates/jkr-vfs/src/pk3_fingerprint.rs).
+
 ## Source map
 
 All 20 workspace crates are listed in [Cargo.toml](../Cargo.toml).
