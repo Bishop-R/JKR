@@ -22,6 +22,28 @@ const TAYSTJK_USERINFO: [(&str, &str); 6] = [
     ("cp_cosmetics", "0"),
 ];
 
+/// JA+ client-plugin USERINFO keys, by which a JA+ server recognises a plugin
+/// user and serves it plugin features such as custom RGB blades.
+///
+/// - `cjp_client` is the JA+ 1.4B4 plugin's own value: its `cgamex86.dll`
+///   registers `cjp_client` `"1.4B4"` with `CVAR_USERINFO | CVAR_ROM`, and the
+///   JA+ server's `jampgamex86.dll` names `1.4B4` as the latest plugin it
+///   knows, so it does not ask for an update.
+/// - `cp_pluginDisable` follows EternalJK (`codemp/cgame/cg_xcvar.h:166`)
+///   rather than the plugin's default 0: bits 9 (holstered saber) and 10
+///   (ledge grab) opt out of JA+ features drawn with the plugin's extra
+///   animations and attachments, which this client, like EternalJK, lacks.
+/// - `cp_clanPwd` `"none"` is the default of both the plugin and EternalJK.
+///
+/// `cp_sbRGB1`/`cp_sbRGB2` are added by the userinfo codec whenever a blade
+/// selects RGB, for every profile. The plugin's other USERINFO cvars
+/// (`cp_login`, `cp_holster`) are left out, as EternalJK leaves them out.
+const JAPLUS_USERINFO: [(&str, &str); 3] = [
+    ("cjp_client", "1.4B4"),
+    ("cp_pluginDisable", "1536"),
+    ("cp_clanPwd", "none"),
+];
+
 /// Server/game compatibility policy selected for one client session.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CompatProfile {
@@ -38,13 +60,15 @@ pub enum CompatProfile {
 impl CompatProfile {
     /// Adapter-owned fields appended to the stock connection userinfo.
     ///
-    /// BaseJKA, JA+, and unknown modules receive only stock keys. TaystJK is
-    /// the public jaPRO-derived profile whose source declares these
-    /// USERINFO cvars (`codemp/cgame/cg_xcvar.h:195-207`).
+    /// BaseJKA and unknown modules receive only stock keys. JA+ receives the
+    /// client-plugin identity ([`JAPLUS_USERINFO`]). TaystJK is the public
+    /// jaPRO-derived profile whose source declares these USERINFO cvars
+    /// (`codemp/cgame/cg_xcvar.h:195-207`).
     pub fn userinfo_extensions(&self) -> &'static [(&'static str, &'static str)] {
         match self {
             Self::TaystJk => &TAYSTJK_USERINFO,
-            Self::BaseJka | Self::JaPlus { .. } | Self::Unknown(_) => &[],
+            Self::JaPlus { .. } => &JAPLUS_USERINFO,
+            Self::BaseJka | Self::Unknown(_) => &[],
         }
     }
 
@@ -64,10 +88,17 @@ impl CompatProfile {
             )
     }
 
-    /// Detect a profile from an already parsed serverinfo string.
+    /// Detect a profile from an already parsed serverinfo string, or from a
+    /// connectionless `getinfo` reply, which carries no `gamename` and names
+    /// the mod directory `game` instead of `fs_game` (OpenJK
+    /// `codemp/server/sv_main.cpp` `SVC_Info`).
     pub fn from_server_info(info: &InfoString) -> Self {
         let gamename = info.get("gamename").unwrap_or_default().trim();
-        let fs_game = info.get("fs_game").unwrap_or_default().trim();
+        let fs_game = info
+            .get("fs_game")
+            .or_else(|| info.get("game"))
+            .unwrap_or_default()
+            .trim();
         let version = info.get("version").unwrap_or_default().trim();
         if contains_identifier(gamename, "taystjk")
             || contains_identifier(fs_game, "taystjk")
@@ -132,4 +163,89 @@ fn is_base_identifier(value: &str) -> bool {
         || value.eq_ignore_ascii_case("base")
         || value.eq_ignore_ascii_case("basejka")
         || value.eq_ignore_ascii_case("jamp")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(text: &str) -> InfoString {
+        InfoString::parse(text).unwrap()
+    }
+
+    #[test]
+    fn getinfo_game_directory_selects_the_mod_profile() {
+        // A getinfo reply has `game` but neither `gamename` nor `fs_game`.
+        let ja_plus = info(r"\hostname\JoF\mapname\mp/ffa3\game\japlus");
+        assert!(matches!(
+            CompatProfile::from_server_info(&ja_plus),
+            CompatProfile::JaPlus { version: Some(version) } if version == "japlus"
+        ));
+        let japro = info(r"\hostname\x\game\japro");
+        assert_eq!(
+            CompatProfile::from_server_info(&japro),
+            CompatProfile::TaystJk
+        );
+        let base = info(r"\hostname\x\mapname\mp/ffa3");
+        assert_eq!(
+            CompatProfile::from_server_info(&base),
+            CompatProfile::BaseJka
+        );
+        let other = info(r"\hostname\x\game\MBII");
+        assert_eq!(
+            CompatProfile::from_server_info(&other),
+            CompatProfile::Unknown("MBII".to_owned())
+        );
+    }
+
+    #[test]
+    fn serverinfo_fs_game_takes_precedence_over_game() {
+        let both = info(r"\fs_game\japlus\game\base");
+        assert!(matches!(
+            CompatProfile::from_server_info(&both),
+            CompatProfile::JaPlus { .. }
+        ));
+    }
+
+    #[test]
+    fn ja_plus_identifies_as_the_client_plugin() {
+        let keys = CompatProfile::JaPlus { version: None }.userinfo_extensions();
+        assert_eq!(
+            keys,
+            &[
+                ("cjp_client", "1.4B4"),
+                ("cp_pluginDisable", "1536"),
+                ("cp_clanPwd", "none"),
+            ]
+        );
+        // 1536 opts out of exactly holstered sabers (bit 9) and ledge grab (bit 10).
+        assert_eq!(1536, (1 << 9) | (1 << 10));
+        assert!(CompatProfile::BaseJka.userinfo_extensions().is_empty());
+        assert!(
+            CompatProfile::Unknown("MBII".to_owned())
+                .userinfo_extensions()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn ja_plus_userinfo_carries_plugin_keys_and_rgb_blades() {
+        let mut user = jkr_network::LegacyUserInfo::with_name("Sol");
+        user.color1 = 6;
+        user.saber_rgb = [Some(0x00_80_ff), None];
+        let payload = jkr_network::legacy_userinfo_payload_with_extensions(
+            &user,
+            CompatProfile::JaPlus { version: None }.userinfo_extensions(),
+        )
+        .unwrap();
+        let parsed = info(&payload);
+        assert_eq!(parsed.get("cjp_client"), Some("1.4B4"));
+        assert_eq!(parsed.get("cp_pluginDisable"), Some("1536"));
+        assert_eq!(parsed.get("cp_clanPwd"), Some("none"));
+        assert_eq!(parsed.get("color1"), Some("6"));
+        assert_eq!(parsed.get("cp_sbRGB1"), Some("33023"));
+        assert_eq!(parsed.get("cp_sbRGB2"), None);
+        // Far inside the 1024-byte MAX_INFO_STRING with stock values.
+        assert!(payload.len() < 512, "{} bytes", payload.len());
+    }
 }
