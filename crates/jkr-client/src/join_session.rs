@@ -5,6 +5,8 @@ use std::time::Instant;
 
 /// How many receive timeouts a join waits for its gamestate, re-requesting it.
 const GAMESTATE_REQUESTS: u32 = 3;
+/// A silent wait this long re-sends the gamestate request.
+const GAMESTATE_RESEND: Duration = Duration::from_secs(1);
 
 impl ClientSession {
     /// Join with an optional host-owned download capability, before entering cgame.
@@ -44,7 +46,18 @@ impl ClientSession {
             if Instant::now() >= gamestate_deadline {
                 return Err(NetworkError::TimedOut("gamestate").into());
             }
-            let message = connection.receive_server_message(timeout)?;
+            // Ask again whenever nothing arrives for a moment, as a stock client
+            // keeps sending while it waits; a lost request or gamestate is then
+            // recovered instead of ending the join.
+            let wait =
+                GAMESTATE_RESEND.min(gamestate_deadline.saturating_duration_since(Instant::now()));
+            let message = match connection.receive_server_message(wait) {
+                Err(NetworkError::TimedOut(_)) => {
+                    connection.request_initial_gamestate()?;
+                    continue;
+                }
+                result => result?,
+            };
             match decode_initial_gamestate(&message.payload) {
                 Ok(_) => {
                     let message = if let Some(storage) = &mut download_storage {

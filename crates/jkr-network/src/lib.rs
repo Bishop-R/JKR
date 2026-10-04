@@ -301,10 +301,17 @@ impl LegacyConnection {
 
     /// Sends the empty first client message that causes a connected JKA server
     /// to transmit its current gamestate.
+    /// Ask for the gamestate, acknowledging the newest server message received.
+    ///
+    /// A stock server resends a gamestate only when the client acknowledges a
+    /// message newer than it (`SV_ExecuteClientMessage`: `messageAcknowledge >
+    /// gamestateMessageNum`), as a stock client does in every packet. Always
+    /// acknowledging 0 left a lost gamestate (a dropped fragment of a large one)
+    /// unrecoverable while the server kept sending its other messages.
     pub fn request_initial_gamestate(&mut self) -> Result<(), NetworkError> {
         let mut writer = MessageWriter::new(16_384);
         writer.write_i32(0)?; // unknown server id until the gamestate arrives
-        writer.write_i32(0)?; // no server packet acknowledged yet
+        writer.write_i32(self.incoming_sequence)?;
         writer.write_i32(0)?; // no reliable server command acknowledged yet
         writer.write_u8(5)?; // clc_EOF
         let mut payload = writer.finish()?;
