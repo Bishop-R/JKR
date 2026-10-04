@@ -6,10 +6,10 @@
 //! With the player's retail artwork loaded ([`crate::menu::art`]) the pages
 //! are built from it in the retail item order: backdrop, side glyph
 //! columns, the main page's ring and windows or the sub-pages' frames, the
-//! logo and the button glow. The dimmed live map shows where the art is
-//! transparent (retail played its logo video there) and in the pillarbox of
-//! a wide window. Without the art, the same layout is drawn with JKR's own
-//! vector shapes and text.
+//! logo and the button glow, opaque: no world is drawn behind the classic
+//! pages, so the art's transparent centre (where retail played its logo
+//! video) and the pillarbox of a wide window stay dark. Without the art, the
+//! same layout is drawn with JKR's own vector shapes and text.
 
 use super::ClassicMain;
 use super::layout::{CANVAS, HINT_Y, LOGO, Page, Placement, Slot};
@@ -213,9 +213,11 @@ fn backdrop_art(
     let page_rect = place.rect([0.0, 0.0, CANVAS[0], CANVAS[1]]);
     {
         let draw = canvas.draw_list_mut();
+        // Opaque, as retail's: the world is not drawn behind the classic
+        // pages (retail played its logo video in the centre gap instead).
         let _ = draw.push(DrawCommand::SolidRect {
             rect: Rect::new(0.0, 0.0, width, height),
-            color: ink(0.58),
+            color: ink(1.0),
         });
         for side in [
             Rect::new(0.0, 0.0, page_rect.x, height),
@@ -223,7 +225,7 @@ fn backdrop_art(
         ] {
             let _ = draw.push(DrawCommand::SolidRect {
                 rect: side,
-                color: ink(0.82),
+                color: ink(1.0),
             });
         }
     }
@@ -237,6 +239,28 @@ fn backdrop_art(
             art(canvas, *piece, place.rect(*rect));
         }
     }
+}
+
+/// The retail background alone, opaque, under a modern screen a classic
+/// page opened while the world is not drawn: the sub-pages' backdrop and
+/// glyph columns, without their frames.
+pub(crate) fn opaque_backdrop(canvas: &mut MenuCanvas, viewport: [f32; 2], art_set: ArtSet) {
+    let place = Placement::new(viewport);
+    canvas.begin_transparent(viewport);
+    let _ = canvas.draw_list_mut().push(DrawCommand::SolidRect {
+        rect: Rect::new(0.0, 0.0, viewport[0], viewport[1]),
+        color: ink(1.0),
+    });
+    for (piece, rect) in [
+        (ArtPiece::SideLeft, [0.0, 0.0, 160.0, 480.0]),
+        (ArtPiece::SideRight, [480.0, 0.0, 160.0, 480.0]),
+        (ArtPiece::Background, [0.0, 0.0, 640.0, 480.0]),
+    ] {
+        if art_set.has(piece) {
+            art(canvas, piece, place.rect(rect));
+        }
+    }
+    canvas.finish(0);
 }
 
 /// Dim the live map so the page reads as one surface (retail drew an

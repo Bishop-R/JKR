@@ -266,12 +266,23 @@ impl GpuState {
                 "session transition: loading {map_path} on worker"
             ));
             // The old world is a backdrop beneath the loading notice.
+            let game = self
+                .resident
+                .session
+                .as_ref()
+                .or(self.live_session.as_ref())
+                .map(|session| session.game_state().clone());
             if let Some(menu) = &mut self.client_menu {
                 menu.state_loading(
                     map_path
                         .trim_start_matches("maps/")
                         .trim_end_matches(".bsp"),
                 );
+                if let Some(game) = &game {
+                    let local = menu.hosting_local();
+                    menu.loading_mut()
+                        .set_game(game, local, &self.localization.strings);
+                }
             }
             let game = self
                 .resident
@@ -450,7 +461,15 @@ impl GpuState {
                 .or(loaded.live_session.take());
         } else {
             loaded.pending_map_reload = loaded.resident.session.is_some();
-            loaded.start_exploring();
+            // The classic style keeps its loading screen over this world
+            // instead of letting the player walk it while the game loads.
+            let classic = loaded
+                .client_menu
+                .as_ref()
+                .is_some_and(crate::menu::ClientMenu::is_classic);
+            if !classic {
+                loaded.start_exploring();
+            }
         }
         if let Some(session) = &mut loaded.live_session {
             session.take_retired_world();

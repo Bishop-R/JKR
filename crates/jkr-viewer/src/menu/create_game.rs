@@ -332,6 +332,19 @@ impl CreateGameMenu {
         self.levelshots.service(upload);
     }
 
+    /// Ask for `map`'s levelshot for another screen (the classic loading
+    /// screen) through the same cache, which owns the atlas' one preview
+    /// slot, and hand a freshly decoded one to `upload`.
+    pub(crate) fn service_levelshot_for(&mut self, map: &str, upload: impl FnMut(&[u8])) {
+        self.levelshots.want(map);
+        self.levelshots.service(upload);
+    }
+
+    /// What the preview slot shows for `map`.
+    pub(crate) fn levelshot_preview(&self, map: &str) -> super::levelshot::Preview {
+        self.levelshots.preview(map)
+    }
+
     /// Whether a server this screen started is running.
     pub(crate) fn hosting(&self) -> bool {
         self.server.is_some()

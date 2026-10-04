@@ -477,6 +477,19 @@ pub(crate) fn standalone_menu_visible(gpu: &GpuState) -> bool {
         .is_some_and(|menu| menu_holds_view(menu, sessions, gpu.is_menu_world))
 }
 
+/// Whether the classic menu style covers this frame with an opaque screen,
+/// so the world is not drawn: its main pages and the screens they open
+/// outside a match, and the connect and loading screens (joins and server
+/// map changes alike). Over a live match, the in-game menu and the screens
+/// it opens leave the world visible, as retail's do.
+pub(crate) fn classic_hides_world(gpu: &GpuState) -> bool {
+    gpu.client_menu.as_ref().is_some_and(|menu| {
+        menu.is_classic()
+            && menu.is_visible()
+            && (standalone_menu_visible(gpu) || menu.is_loading_screen())
+    })
+}
+
 /// No HUD belongs over the menu backdrop, nor under the loading card of a
 /// map restart or map change on a server world.
 pub(crate) fn hides_hud(gpu: &GpuState) -> bool {

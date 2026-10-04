@@ -195,7 +195,12 @@ impl ApplicationHandler for ViewerApplication {
                         if reloaded.pointer_captured {
                             reloaded.capture_pointer();
                         }
-                        if let Some(menu) = &mut reloaded.client_menu {
+                        // A classic join keeps its loading screen until the
+                        // map is live; the modern one walks the world meanwhile.
+                        let live = reloaded.live_map_installed;
+                        if let Some(menu) = &mut reloaded.client_menu
+                            && (live || !menu.is_classic())
+                        {
                             menu.joined();
                         }
                         reloaded.configure_audio(&mut self.game_audio);

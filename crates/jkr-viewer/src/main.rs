@@ -323,6 +323,9 @@ struct GpuState {
     scope_mask: Option<scope::Mask>,
     ground_hud: ground_hud::GroundHud,
     applied_fullscreen: bool,
+    /// The world is not drawn this frame: the classic menu style covers the
+    /// screen with retail's opaque menu or loading screen.
+    world_hidden: bool,
     applied_resolution: [u32; 2],
     frame_pacer: frame_pacing::FramePacer,
     /// Optional per-pass GPU timing printed with the frame-budget report.
@@ -1071,6 +1074,7 @@ impl GpuState {
             scope_mask,
             ground_hud,
             applied_fullscreen: false,
+            world_hidden: false,
             applied_resolution: [size.width, size.height],
             frame_pacer: frame_pacing::FramePacer::new(),
             gpu_phases,
@@ -1205,6 +1209,11 @@ impl GpuState {
         menu_backdrop::drive(self, visual_now);
         // The backdrop keeps the view while a joined map loads behind it.
         let backdrop_view = menu_backdrop::standalone_menu_visible(self);
+        self.world_hidden = menu_backdrop::classic_hides_world(self);
+        let world_hidden = self.world_hidden;
+        if let Some(menu) = &mut self.client_menu {
+            menu.set_world_hidden(world_hidden);
+        }
         self.update_menu_stage(visual_now);
         let local_view = self
             .demo_session
@@ -1475,6 +1484,10 @@ impl GpuState {
             chat_visible.then(|| self.chat.draw_list()),
             scoreboard_visible.then(|| self.scoreboard.draw_list()),
             (self.game_menu && !console_covers_frame).then(|| self.in_game_menu.draw_list()),
+            self.client_menu
+                .as_ref()
+                .filter(|_| !console_covers_frame)
+                .and_then(|menu| menu.backdrop_draw_list()),
             self.client_menu
                 .as_ref()
                 .filter(|_| !console_covers_frame)
@@ -1864,19 +1877,25 @@ impl GpuState {
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "uploads");
         }
-        self.draw_scene_views(&mut encoder, &particle_ranges);
+        if !self.world_hidden {
+            self.draw_scene_views(&mut encoder, &particle_ranges);
+        }
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "views");
         }
         timing.mark(Phase::EncodeWorld);
-        self.encode_world_scene(
-            &mut encoder,
-            &target_view,
-            portal,
-            source_cluster,
-            &particle_ranges,
-            has_entity_instances,
-        );
+        if self.world_hidden {
+            self.encode_cleared_scene(&mut encoder, &target_view);
+        } else {
+            self.encode_world_scene(
+                &mut encoder,
+                &target_view,
+                portal,
+                source_cluster,
+                &particle_ranges,
+                has_entity_instances,
+            );
+        }
         let (frame, output_view, mut encoder) = match target.finish(self, encoder, timing) {
             Ok(output) => output,
             Err(status) => return status,

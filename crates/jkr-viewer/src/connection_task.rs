@@ -11,6 +11,8 @@ pub(crate) enum JoinPoll {
     Progress(String),
     Map(String),
     Prepared(Box<GameState>),
+    /// The handshake reached a phase (for the classic loading screen).
+    Phase(TimelinePhase),
     Joined(JoinedSession),
     Failed(String),
 }
@@ -31,6 +33,7 @@ pub(crate) struct JoinTask {
     progress: Receiver<String>,
     map: Receiver<String>,
     prepared: Receiver<GameState>,
+    phase: Receiver<TimelinePhase>,
     cancelled: Arc<AtomicBool>,
 }
 
@@ -47,6 +50,7 @@ impl JoinTask {
         let (map_tx, map) = mpsc::channel();
         let (prepared_tx, prepared) = mpsc::sync_channel(1);
         let (progress_tx, progress) = mpsc::sync_channel(1);
+        let (phase_tx, phase) = mpsc::channel();
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancelled);
         thread::spawn(move || {
@@ -65,6 +69,7 @@ impl JoinTask {
                     Some(Box::new(storage)),
                     guid,
                     prepared_tx,
+                    phase_tx,
                     |name| {
                         let _ = map_tx.send(name);
                     },
@@ -83,6 +88,7 @@ impl JoinTask {
             progress,
             map,
             prepared,
+            phase,
             cancelled,
         }
     }
@@ -94,6 +100,9 @@ impl JoinTask {
         }
         if let Ok(game) = self.prepared.try_recv() {
             return JoinPoll::Prepared(Box::new(game));
+        }
+        if let Ok(phase) = self.phase.try_recv() {
+            return JoinPoll::Phase(phase);
         }
         if let Ok(text) = self.progress.try_recv() {
             return JoinPoll::Progress(text);

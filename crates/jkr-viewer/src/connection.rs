@@ -56,6 +56,7 @@ impl crate::GpuState {
             menu.release_local_server_unless(&address);
             menu.set_last_address(&address);
             menu.state_connecting(address.clone());
+            menu.begin_join(&address);
         }
         if let Some(console) = &mut self.console {
             console.set_cvar("cl_reconnectArgs", &address);
@@ -213,10 +214,23 @@ impl crate::GpuState {
         match result {
             JoinPoll::Pending => {}
             JoinPoll::Prepared(game) => {
+                if let Some(menu) = &mut self.client_menu {
+                    let local = menu.hosting_local();
+                    menu.loading_mut()
+                        .set_game(&game, local, &self.localization.strings);
+                }
                 self.prepare_gate_game(&game);
             }
             JoinPoll::Map(map) => {
+                if let Some(menu) = &mut self.client_menu {
+                    menu.loading_mut().set_map(&map);
+                }
                 self.world_load_map = format!("maps/{map}.bsp");
+            }
+            JoinPoll::Phase(phase) => {
+                if let Some(menu) = &mut self.client_menu {
+                    menu.loading_mut().set_phase(phase);
+                }
             }
             JoinPoll::Progress(text) => {
                 let text = self.console.as_mut().map_or_else(
@@ -277,6 +291,7 @@ fn join_with_storage(
     storage: Option<Box<dyn jkr_client::download::DownloadStorage>>,
     guid: Option<crate::client_guid::Policy>,
     prepared: mpsc::SyncSender<GameState>,
+    phases: mpsc::Sender<TimelinePhase>,
     map_known: impl FnOnce(String),
 ) -> Result<JoinedSession, Box<dyn Error>> {
     let server = resolve_server(address)?;
@@ -289,7 +304,7 @@ fn join_with_storage(
         })
         .unwrap_or(CompatProfile::BaseJka);
     join_socket(
-        server, profile, game_data, userinfo, storage, guid, prepared,
+        server, profile, game_data, userinfo, storage, guid, prepared, phases,
     )
 }
 
@@ -330,6 +345,7 @@ fn join_socket(
     storage: Option<Box<dyn jkr_client::download::DownloadStorage>>,
     guid: Option<crate::client_guid::Policy>,
     prepared: mpsc::SyncSender<GameState>,
+    phases: mpsc::Sender<TimelinePhase>,
 ) -> Result<JoinedSession, Box<dyn Error>> {
     let assets = Pk3Fingerprint::open(game_data.join("base/assets3.pk3"))?;
     log::progress(format_args!("connecting to {server}"));
@@ -359,6 +375,7 @@ fn join_socket(
                 }
             };
             timeline.mark(phase);
+            let _ = phases.send(phase);
         },
         storage,
     )?;

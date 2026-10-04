@@ -224,6 +224,16 @@ impl GpuState {
         {
             return Ok(None);
         }
+        // The classic loading screen stays up until the world can be played:
+        // a world built from the joined session's own gamestate, with the
+        // session in hand, rather than a preview to explore.
+        let classic = self
+            .client_menu
+            .as_ref()
+            .is_some_and(crate::menu::ClientMenu::is_classic);
+        if classic && (self.resident.session.is_none() || !self.portal.for_session()) {
+            return Ok(None);
+        }
         let pose = crate::menu_backdrop::gate_doorway(self, Instant::now()).map(|doorway| {
             self.portal.entry_camera(
                 portal::Camera {

@@ -81,6 +81,39 @@ band, bar) are converted to alpha at decode time. Animated retail stages (ring
 rotation, scrolling glyphs, logo glint, the logo video) are drawn still. A
 missing image falls back to JKR's own shapes. Retail assets are never bundled.
 
+Outside a match the classic style draws no world. The main pages are opaque
+over the retail background (the centre gap where retail played its logo video
+stays dark), and the modern screens they open (Settings, key bindings, Player,
+server browser, Create game) get the retail backdrop beneath them. The frame
+then clears instead of rendering the map, its secondary views and flares; the
+boot map is still loaded, because the menu world is what joins build on, and
+switching back to `modern` shows it again. Not loading it at all in the classic
+style is a possible follow-up. Over a live match the in-game menu and the
+screens it opens leave the game visible, as retail's do.
+
+Joins and server map changes show retail's loading screens instead of the
+modern gate. Until the gamestate arrives it is the connect screen
+(`ui/jamp/connect.menu`, `UI_DrawConnectScreen`): `menu/art/unknownmap_mp`,
+"Connecting to <address>" (or "Starting up..." when the client hosts the game)
+and "Awaiting connection...", "Awaiting challenge..." or "Awaiting
+gamestate...", following the join worker's phases. Then it is cgame's
+information screen (`CG_DrawInformation`, `CG_LoadBar`): the map's
+`levelshots/<map>` over the window (cropped top and bottom on a wide one, the
+unknown-map art without a levelshot), "Loading... <what>" or "Awaiting
+snapshot...", and the server's lines in retail order: host name, Pure Server,
+message of the day, game name, the map's long name, cheats, game type, limits,
+force rules and the game type's rules, worded from the player's `MP_INGAME`
+strings. The LED bar along the bottom (`gfx/hud/mp_levelload`, `load_tick`,
+`load_tick_cap`) has retail's nine ticks; JKR lights them from its own load
+(gamestate, map parse, world build, world ready, session) rather than cgame's
+registration steps. Colour codes in the host name are dropped. The gate stays
+shut, the destination world is adopted only once it is built from the
+session's own gamestate with the session in hand, and the player never walks a
+preview world: the screen stays until the map is live. Escape or a click
+cancels, as before. A failed join shows the connect screen with the reason; a
+retail-style error page (`error.menu`) is not drawn yet. The loading screen is
+in [loading.rs](../crates/jkr-viewer/src/menu/classic/loading.rs).
+
 The code is in [menu/classic.rs](../crates/jkr-viewer/src/menu/classic.rs): the
 page tables are in [pages.rs](../crates/jkr-viewer/src/menu/classic/pages.rs),
 types and geometry in [layout.rs](../crates/jkr-viewer/src/menu/classic/layout.rs)
@@ -105,7 +138,7 @@ Planned follow-ups, each a new page or screen module, following the retail
   `ingame_controls` and `ingame_setup`.
 - The screens with no JKR equivalent yet: Play Demo (`demo`), Rules
   (`rules*`), Mods, Defaults, Add Bot (`ingame_addbot`), Siege objectives and
-  voice chat, and the connect and error screens (`connect`, `error`).
+  voice chat, and the error page (`error`).
 - The retail fonts (`ui_gameFont`, a separate change) and the animated art
   stages.
 

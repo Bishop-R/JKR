@@ -8,6 +8,7 @@ impl JoinTask {
         let (sender, receiver) = mpsc::channel();
         let (_, map) = mpsc::channel();
         let (_, prepared) = mpsc::channel();
+        let (_, phase) = mpsc::channel();
         let (progress_tx, progress) = mpsc::sync_channel(1);
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancelled);
@@ -31,6 +32,7 @@ impl JoinTask {
             progress,
             map,
             prepared,
+            phase,
             cancelled,
         }
     }

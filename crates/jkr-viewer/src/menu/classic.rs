@@ -12,6 +12,7 @@
 //! `docs/client.md`.
 
 pub(crate) mod layout;
+pub(crate) mod loading;
 mod pages;
 pub(crate) mod view;
 

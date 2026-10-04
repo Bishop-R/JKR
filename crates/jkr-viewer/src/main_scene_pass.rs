@@ -258,6 +258,24 @@ impl GpuState {
 }
 
 /// Begin or resume main-scene attachment writes without changing their formats.
+impl GpuState {
+    /// The main view with no world: only the clears, for frames the classic
+    /// menu covers with an opaque screen.
+    pub(crate) fn encode_cleared_scene(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target_view: &wgpu::TextureView,
+    ) {
+        let _pass = scene_pass(
+            encoder,
+            target_view,
+            &self.depth.view,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+            wgpu::LoadOp::Clear(1.0),
+        );
+    }
+}
+
 pub(crate) fn scene_pass<'a>(
     encoder: &'a mut wgpu::CommandEncoder,
     color: &wgpu::TextureView,

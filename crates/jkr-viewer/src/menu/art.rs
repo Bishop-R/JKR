@@ -69,11 +69,24 @@ pub(crate) enum ArtPiece {
     TopBar,
     /// `menu_box_dark` (shader `menu_box_ingame`): the in-game pop-up box.
     PopupBox,
+    /// `menu/art/unknownmap_mp`: the connect screen's background
+    /// (`ui/jamp/connect.menu`), also the loading screen's when a map has no
+    /// levelshot.
+    UnknownMap,
+    /// `gfx/hud/mp_levelload`: the loading bar's surround (`CG_LoadBar`).
+    LoadFrame,
+    /// `gfx/hud/load_tick` (image `load_tick2`): the loading bar's fill.
+    LoadTick,
+    /// `gfx/hud/load_tick_cap`: the cap at the fill's right end.
+    LoadCap,
+    /// The same cap mirrored, for the fill's left end, which retail draws
+    /// with a negative width.
+    LoadCapLeft,
 }
 
 impl ArtPiece {
     /// Every piece, in [`ArtPiece`] order.
-    pub(crate) const ALL: [Self; 15] = [
+    pub(crate) const ALL: [Self; 20] = [
         Self::Background,
         Self::SideLeft,
         Self::SideRight,
@@ -89,6 +102,11 @@ impl ArtPiece {
         Self::BlendBox,
         Self::TopBar,
         Self::PopupBox,
+        Self::UnknownMap,
+        Self::LoadFrame,
+        Self::LoadTick,
+        Self::LoadCap,
+        Self::LoadCapLeft,
     ];
     pub(crate) const COUNT: usize = Self::ALL.len();
 
@@ -110,13 +128,23 @@ impl ArtPiece {
             Self::BlendBox => "gfx/menus/menu_blendbox",
             Self::TopBar => "gfx/menus/menu_top_mp",
             Self::PopupBox => "gfx/menus/menu_box_dark",
+            Self::UnknownMap => "menu/art/unknownmap_mp",
+            Self::LoadFrame => "gfx/hud/mp_levelload",
+            Self::LoadTick => "gfx/hud/load_tick2",
+            Self::LoadCap | Self::LoadCapLeft => "gfx/hud/load_tick_cap",
         }
     }
 
     /// Blend of the piece's retail shader (`shaders/ui.shader`).
     fn blend(self) -> Blend {
         match self {
-            Self::ButtonBack | Self::BlendBox | Self::TopBar => Blend::Additive,
+            Self::ButtonBack
+            | Self::BlendBox
+            | Self::TopBar
+            | Self::LoadFrame
+            | Self::LoadTick
+            | Self::LoadCap
+            | Self::LoadCapLeft => Blend::Additive,
             _ => Blend::Alpha,
         }
     }
@@ -227,6 +255,9 @@ fn decode(vfs: &VirtualFileSystem, piece: ArtPiece) -> Option<RgbaImage> {
             ((height as f32 * scale) as u32).max(1),
             image::imageops::FilterType::Triangle,
         );
+    }
+    if piece == ArtPiece::LoadCapLeft {
+        image::imageops::flip_horizontal_in_place(&mut image);
     }
     if piece.blend() == Blend::Additive {
         additive_to_alpha(&mut image);

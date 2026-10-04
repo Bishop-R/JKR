@@ -19,6 +19,7 @@ impl GpuState {
             || self.client_menu.as_ref().is_some_and(|m| m.is_visible());
         let hyperspace = self.local_prediction.hyperspace_shade();
         let flares = hyperspace.is_none()
+            && !self.world_hidden
             && self.world_materials.has_flares()
             && self.geometry.environment.data.control[3] != 0.;
         if !hud && !flares && self.post_aa.is_none() && self.render_scale.is_none() {

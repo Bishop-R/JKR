@@ -305,6 +305,26 @@ impl Destination {
     pub(crate) fn ready(&self) -> bool {
         self.world.is_some()
     }
+
+    /// How far the destination is: parsing, building or built.
+    pub(crate) fn stage(&self) -> Option<crate::menu::classic::loading::WorldStage> {
+        use crate::menu::classic::loading::WorldStage;
+        if self.world.is_some() {
+            Some(WorldStage::Ready)
+        } else if self.install.is_some() {
+            Some(WorldStage::Building)
+        } else if self.load.is_some() {
+            Some(WorldStage::Parsing)
+        } else {
+            None
+        }
+    }
+
+    /// Whether the destination is built from the joined session's own
+    /// gamestate (not the browser's guess at the map).
+    pub(crate) fn for_session(&self) -> bool {
+        self.session_feed.is_some()
+    }
 }
 
 impl Destination {

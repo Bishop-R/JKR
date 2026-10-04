@@ -15,8 +15,27 @@ impl ClientMenu {
         viewport: [f32; 2],
         scale: f32,
     ) {
+        if self.backdrop_draw_list_wanted() {
+            classic::view::opaque_backdrop(&mut self.classic_backdrop, viewport, self.art);
+        }
         match self.state.phase() {
             ClientPhase::MainMenu => self.append_main(vertices, font, viewport),
+            ClientPhase::Connecting(_) | ClientPhase::ConnectionError
+                if self.menu_style == MenuStyle::Classic =>
+            {
+                let failed = matches!(self.state.phase(), ClientPhase::ConnectionError);
+                let error = failed.then(|| self.state.status().to_owned());
+                let preview = self.create_game.levelshot_preview(self.loading.map());
+                classic::loading::build(
+                    &mut self.ui,
+                    viewport,
+                    &self.loading,
+                    self.art,
+                    preview,
+                    error.as_deref(),
+                );
+                self.ui.append_text(vertices, font, viewport);
+            }
             ClientPhase::Browser => {
                 let reveal = self.screen_reveal();
                 self.append_browser(vertices, font, viewport, reveal);
