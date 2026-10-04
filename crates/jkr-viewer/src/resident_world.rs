@@ -1,13 +1,11 @@
-//! A playable, locally owned world while a legacy connection prepares its next map.
+//! Background connection and map preparation, separate from the displayed world.
 //!
 //! The waiting transport is deliberately absent from `GpuState::live_session`:
 //! snapshot consumers cannot accidentally draw new-map entities in the old BSP.
 //! Only adoption of a verified, completely built destination publishes it again.
 
-#[path = "resident_game.rs"]
-mod game;
-#[path = "resident_intermission.rs"]
-mod intermission;
+#[path = "resident_messages.rs"]
+mod messages;
 #[path = "resident_scenery.rs"]
 mod scenery;
 #[path = "resident_walk.rs"]
@@ -23,11 +21,7 @@ pub(crate) struct State {
     pub(crate) bound: bool,
     pub(crate) map: String,
     walk: Option<walk::Walk>,
-    prepared_game: Option<game::Prepared>,
-    local_game: bool,
-    intermission: bool,
     remote_command_due: Instant,
-    last_playing: Option<jkr_protocol::PlayerState>,
     attached: bool,
     reuse_pending: bool,
     pub(crate) map_change_pending: bool,
@@ -39,7 +33,6 @@ impl State {
     pub(crate) fn new(
         game: Option<&jkr_protocol::GameState>,
         snapshot: Option<&jkr_protocol::Snapshot>,
-        vfs: &jkr_vfs::VirtualFileSystem,
     ) -> Self {
         let scenery = game.map(|game| {
             (
@@ -59,7 +52,7 @@ impl State {
                 }),
             )
         });
-        let mut state = Self {
+        Self {
             session: None,
             bound: game.is_some(),
             map: game
@@ -69,43 +62,12 @@ impl State {
                 .and_then(|info| info.get("mapname").map(|name| format!("maps/{name}.bsp")))
                 .unwrap_or_default(),
             walk: None,
-            prepared_game: None,
-            local_game: false,
-            intermission: false,
             remote_command_due: Instant::now(),
-            last_playing: snapshot
-                .filter(|s| s.player.movement_type() != jkr_client::PM_INTERMISSION)
-                .map(|s| s.player.clone()),
             attached: false,
             reuse_pending: false,
             map_change_pending: false,
             after_sequence: None,
             scenery,
-        };
-        state.prepare_game(vfs);
-        state
-    }
-
-    pub(crate) fn remember_player(&mut self, player: &jkr_protocol::PlayerState) {
-        if player.movement_type() != jkr_client::PM_INTERMISSION {
-            self.last_playing
-                .get_or_insert_with(jkr_protocol::PlayerState::zero)
-                .copy_from(player);
-        }
-    }
-
-    pub(crate) fn prepare_game(&mut self, vfs: &jkr_vfs::VirtualFileSystem) {
-        if !self.bound {
-            return;
-        }
-        let Some((source, _)) = &self.scenery else {
-            return;
-        };
-        match game::Prepared::new(vfs, &self.map, source) {
-            Ok(game) => self.prepared_game = Some(game),
-            Err(error) => crate::log::progress(format_args!(
-                "local continuation preparation failed: {error}"
-            )),
         }
     }
 
@@ -125,7 +87,7 @@ impl State {
     }
 
     pub(crate) fn exploring(&self) -> bool {
-        self.walk.is_some() || self.local_game
+        self.walk.is_some()
     }
 
     pub(crate) fn disconnect(&mut self) {
@@ -133,8 +95,6 @@ impl State {
             let _ = session.disconnect();
         }
         self.walk = None;
-        self.local_game = false;
-        self.intermission = false;
         self.after_sequence = None;
         self.attached = false;
         self.reuse_pending = false;
@@ -143,7 +103,7 @@ impl State {
 }
 
 impl GpuState {
-    /// Keep scenery and local movement, but retire the old server's actors and effects.
+    /// Park the remote transport while the destination loads; gameplay is suspended.
     pub(crate) fn retain_world_for_connection(&mut self) {
         self.resident.session = self.live_session.take();
         self.resident.map_change_pending |= self.live_map_installed;
@@ -152,19 +112,18 @@ impl GpuState {
         if !self.is_menu_world {
             self.particles.clear();
             self.effect_aux = crate::effect_aux::Runtime::default();
-            self.start_exploring();
+            self.resident.walk = None;
+            self.gameplay_input.clear();
+            self.local_prediction.stop(36.0);
             self.game_menu = false;
             if let Some(menu) = &mut self.client_menu {
-                menu.joined();
+                menu.state_loading("next map");
             }
         }
     }
 
     pub(crate) fn start_exploring(&mut self) {
         if self.resident.exploring() {
-            return;
-        }
-        if self.start_local_game_continuation() {
             return;
         }
         self.live_world = jkr_runtime::World::new(self.live_world.id());
@@ -210,7 +169,7 @@ impl GpuState {
             !timed_out && failure.is_none() && !session.needs_download()
         });
         self.resident.after_sequence = after_sequence;
-        // Chat and scores belong to the real connection even while gameplay is local.
+        // Keep server messages flowing while its map is being prepared.
         self.consume_resident_messages();
         if let Some(error) = failure {
             self.session_disconnected(error);
@@ -218,7 +177,6 @@ impl GpuState {
         }
         if changed {
             self.resident.map_change_pending = true;
-            self.resident.intermission = false;
             self.pending_map_reload = true;
             self.resident.reuse_pending = true;
             self.world_load_task = None;
@@ -239,7 +197,7 @@ impl GpuState {
         if now < self.resident.remote_command_due {
             return;
         }
-        let command = self.resident_wait_command();
+        let command = jkr_protocol::UserCommand::default();
         if let Err(error) = self
             .resident
             .session
@@ -297,6 +255,9 @@ impl GpuState {
 
     /// Preserve the standalone inspection camera; playable retained worlds use Pmove.
     pub(crate) fn advance_resident_movement(&mut self, delta_seconds: f32) {
+        if self.resident.map_change_pending {
+            return;
+        }
         if let Some(walk) = &mut self.resident.walk {
             self.camera_position = walk.advance(
                 &mut self.gameplay_input,
@@ -404,23 +365,19 @@ impl GpuState {
         self.gameplay_input.clear();
         self.gameplay_input.view_authority = Default::default();
         self.resident.walk = None;
-        self.resident.local_game = false;
-        self.resident.intermission = false;
         self.resident.after_sequence = None;
         self.pending_generic_command = 0;
         self.selected_weapon = None;
         self.legacy_world_adapter = Some(crate::LegacyWorldAdapter::new(self.live_world.id()));
-        if let Some(local) = &mut self.live_session
-            && local.is_local()
-        {
-            self.resident.prepared_game = game::recover(local);
-        }
         self.live_session = self.resident.session.take();
         if let Some(remote) = &mut self.live_session {
             remote.take_retired_world();
             remote.invalidate_presentation_config();
         }
         self.live_map_installed = true;
+        if let Some(menu) = &mut self.client_menu {
+            menu.joined();
+        }
         self.reset_live_presentation();
         self.server_clock.reset_connection(Instant::now());
         self.server_clock.activate();

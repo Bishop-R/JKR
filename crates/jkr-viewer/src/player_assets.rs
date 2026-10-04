@@ -9,7 +9,13 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub(crate) struct GlaCache {
     animations: HashMap<String, Arc<Gla>>,
+    audio: HashMap<(String, String), AnimationAudio>,
 }
+
+type AnimationAudio = (
+    Arc<jkr_client::animation_events::Events>,
+    Arc<crate::audio::SoundPrefetch>,
+);
 
 impl GlaCache {
     fn get(
@@ -45,6 +51,8 @@ pub(super) struct PlayerPreview {
     pub(super) skin: Skin,
     pub(super) config: Arc<AnimationConfig>,
     pub(super) sequence: AnimationSequence,
+    pub(crate) events: Arc<jkr_client::animation_events::Events>,
+    pub(crate) event_sounds: Option<Arc<crate::audio::SoundPrefetch>>,
     pub(super) origin: [f32; 3],
     pub(super) yaw: f32,
     /// Set when the appearance named a vehicle (`$<vehicle>`).
@@ -147,6 +155,28 @@ pub(super) fn load_player_appearance_with(
         .rsplit_once('/')
         .map_or("", |(directory, _)| directory);
     let config = AnimationConfig::parse(&read(&format!("{animation_directory}/animation.cfg"))?)?;
+    // A world loader shares the immutable sound table and encoded assets across
+    // appearances using the same event file/skeleton, just like the GLA itself.
+    let event_directory = if vfs.contains(&format!("{directory}/animevents.cfg"))? {
+        directory
+    } else {
+        animation_directory
+    };
+    let audio_key = (event_directory.to_owned(), animation_directory.to_owned());
+    let (events, event_sounds) = cache
+        .audio
+        .entry(audio_key)
+        .or_insert_with(|| {
+            let events = Arc::new(jkr_client::animation_events::Events::load(
+                vfs,
+                directory,
+                animation_directory,
+                &config,
+            ));
+            let sounds = Arc::new(crate::audio::SoundPrefetch::paths(vfs, events.paths()));
+            (events, sounds)
+        })
+        .clone();
     let sequence = config
         .get("BOTH_STAND1IDLE1")
         .or_else(|| config.get("BOTH_STAND1"))
@@ -179,6 +209,8 @@ pub(super) fn load_player_appearance_with(
         animation,
         skin,
         config: Arc::new(config),
+        events,
+        event_sounds: Some(event_sounds),
         sequence,
         origin,
         yaw: camera_yaw + std::f32::consts::PI,
