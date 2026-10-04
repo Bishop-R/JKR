@@ -7,6 +7,7 @@
 use glam::{IVec3, Vec3};
 #[path = "lamp_emitters.rs"]
 mod emitters;
+pub(crate) use emitters::collect as collect_patches;
 #[path = "lamp_grid.rs"]
 mod grid;
 #[path = "lamp_grid_refine.rs"]
@@ -53,6 +54,8 @@ pub(crate) const POWER_SCALE: f32 = 1.5;
 
 /// One emissive material's contribution: its radiance (display units) and its triangles.
 pub(crate) struct Emitter<'a> {
+    /// A compact fixture shares one influence range across its luminous pieces.
+    pub(crate) shared_reach: bool,
     pub(crate) omnidirectional: bool,
     pub(crate) texture: &'a crate::world_materials::emission::Texture,
     pub(crate) radiance: [f32; 3],
@@ -60,24 +63,16 @@ pub(crate) struct Emitter<'a> {
 }
 
 impl LampSet {
-    /// Add map-owned steady effect sources and rebuild their shared lookup once.
-    pub(crate) fn append(self, extra: Vec<Lamp>) -> Self {
-        if extra.is_empty() {
-            return self;
-        }
-        let mut lamps = self.lamps;
-        lamps.extend(extra);
-        grid::build(lamps)
-    }
-
-    /// Build lamps from every emitter's triangles over the map's vertices (position and
-    /// authored normal, which says which side of the face is the room) and indices.
+    /// Extract all map-owned sources, then build their shared lookup exactly once.
     pub(crate) fn extract(
         vertices: &[([f32; 3], [f32; 3], [f32; 2])],
         indices: &[u32],
         emitters: &[Emitter],
+        extra: Vec<Lamp>,
     ) -> Self {
-        grid::build(emitters::collect(vertices, indices, emitters))
+        let mut lamps = emitters::collect(vertices, indices, emitters);
+        lamps.extend(extra);
+        grid::build(lamps)
     }
 }
 

@@ -161,6 +161,10 @@ impl ViewerConsole {
             ("quit", "Quit the client"),
             ("exit", "Quit the client (alias of quit)"),
             ("connect", "Connect to host[:port]"),
+            (
+                "devmap",
+                "devmap <map>: play a local map with cheats enabled",
+            ),
             ("disconnect", "Leave the current server"),
             ("reconnect", "Reconnect to the last server"),
             ("record", "Begin recording a protocol-26 demo"),
@@ -245,12 +249,12 @@ impl ViewerConsole {
             shift: false,
             held_keys: Default::default(),
             input: String::with_capacity(INPUT_LIMIT),
-            prompt: "] _".to_owned(),
             history: Vec::new(),
             history_index: None,
             scroll_offset: 0,
             server_status,
             presentation: ConsolePresentation::new(),
+            browser: super::browser::Browser::new(),
             userinfo_dirty,
             show_timedelta,
             time_nudge,
@@ -272,6 +276,7 @@ impl ViewerConsole {
             copied: String::new(),
             pending_quit: false,
             pending_input: Vec::with_capacity(64),
+            pending_chat: std::collections::VecDeque::with_capacity(16),
 
             client_commands,
             script_vfs: None,
@@ -281,6 +286,9 @@ impl ViewerConsole {
             window_options,
             chat_log: chat_log::ChatLog::default(),
             qcommon,
+            control: false,
+            edit: super::line_edit::LineEdit::default(),
+            selection: super::selection::Selection::new(),
         })
     }
 

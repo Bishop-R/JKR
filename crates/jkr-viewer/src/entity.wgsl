@@ -60,7 +60,7 @@ fn vertex_main(
     output.effect_local_uv = vec2(0.0);
     output.effect_uv_rect = vec4(0.0);
     output.effect_uv_transform = vec4(1.0, 1.0, 0.0, 0.0);
-    if kind == 3u || kind == 4u || kind == 5u || kind == 6u {
+    if kind == 3u || kind == 4u || kind == 5u || kind == 6u || kind == 7u {
         if vertex_index >= 6u {
             output.clip_position = vec4(2.0, 2.0, 2.0, 1.0);
             output.color = vec4(0.0);
@@ -114,7 +114,8 @@ fn vertex_main(
         output.effect_local_uv = output.texture_coordinates;
         output.effect_uv_rect = effect_uv_rect;
         output.effect_uv_transform = effect_uv_transform;
-        output.particle = 1.0;
+        // World icons retain depth testing but skip the soft-particle intersection fade.
+        output.particle = select(1.0, 2.0, kind == 7u);
         return output;
     }
 

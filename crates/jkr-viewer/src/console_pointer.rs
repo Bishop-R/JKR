@@ -1,11 +1,18 @@
-//! Pointer-only console scrolling; command behavior remains keyboard driven.
+//! Pointer-only console scrolling; command behavior remains keyboard driven. The
+//! command and cvar browser takes every pointer event while it is open.
 
 use super::ViewerConsole;
 use jkr_ui::InputEvent;
 
 impl ViewerConsole {
     pub(crate) fn handle_pointer(&mut self, event: InputEvent) {
+        if self.browser.is_open() {
+            let action = self.browser.handle_pointer(event);
+            self.browser_action(action);
+            return;
+        }
         let Some(delta) = self.presentation.pointer(event) else {
+            self.selection.pointer(event, self.shift);
             return;
         };
         let line_count = self
