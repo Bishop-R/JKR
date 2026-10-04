@@ -58,6 +58,21 @@ possible. Animation selection, movement, saber timing and network events are
 unchanged. Animation-driven effect/footprint marks and gameplay event actions
 remain outside this audio adapter.
 
+## Slider values
+
+Every slider in Settings, the saber RGB controls (including the second saber),
+and the Shot panel supports direct numeric entry. Click its displayed value or
+select the row and press Enter, then type a replacement. Enter applies it;
+Escape cancels. Left/Right, Home/End, Backspace and Delete edit the draft.
+Clicking another control discards an unfinished draft. Hovering does not move
+an edit to another setting.
+
+Manual values respect the slider bounds but do not snap to its drag increment:
+for example, the FPS cap accepts 142 and FOV accepts 97.5. Decimal points and
+commas are accepted; integer controls require whole numbers. Invalid or empty
+input stays open with a red underline and does not change the setting. Dragging
+and arrow adjustment outside editing retain their existing behavior.
+
 ## Joining and changing maps
 
 The menu's FFA3 gate opens onto the prepared destination world. Map preparation

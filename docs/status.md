@@ -157,6 +157,22 @@ No windows or game instances are launched for this layout-only revision; visual
 playtesting remains with the owner. Formatting, locked workspace build/tests
 and the optimized build passed.
 
+## Manual slider entry preview
+
+Local preview `sliders1` (2026-10-04, based on `7155455`) adds direct numeric
+entry to every Settings slider, both sabers' RGB sliders, and all Shot sliders.
+Click the value or press Enter on its row; Enter applies, Escape cancels.
+Bounds are enforced without drag-step quantization. Drafts stay attached to
+their original row, and invalid values leave the previous setting intact.
+
+Eleven temporary offline checks passed on Linux, covering actual pointer routing,
+all numeric settings/cvar types, all six saber channels, Shot preview actions,
+sub-step values, cancellation, bounds, malformed/non-finite input, caret editing,
+and value targets at 1280×720, 1920×1080 and 3440×1440. The temporary checks are
+not bundled with the source. No windows, game instances or servers were opened;
+visual playtesting remains with the owner. Formatting, locked workspace build/tests
+and the optimized build passed.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.
