@@ -39,9 +39,22 @@ def dependency_notices(source, target, archive):
         prefix = f'JKR-licenses/{package["name"]}-{package["version"]}'
         for path in sorted(set(files)):
             add_file(archive, path, f"{prefix}/{path.relative_to(root).as_posix()}")
+        selected_license = None
+        if not files:
+            # Some crates declare Apache-2.0 but omit its text from their crate.
+            # Select that offered license and include the canonical text plus
+            # the original package manifest (authors and license declaration).
+            if package["license"] not in ("Apache-2.0", "MIT OR Apache-2.0"):
+                raise RuntimeError(f"No supplied license text for {prefix}: {package['license']}")
+            add_file(archive, Path(__file__).parent / "licenses/Apache-2.0.txt",
+                     f"{prefix}/LICENSE-APACHE-2.0.txt")
+            add_file(archive, Path(package["manifest_path"]), f"{prefix}/Cargo.toml")
+            selected_license = "Apache-2.0"
         notices.append({"name": package["name"], "version": package["version"],
                         "license": package["license"], "authors": package["authors"],
-                        "repository": package["repository"], "license_files": len(set(files))})
+                        "repository": package["repository"],
+                        "selected_license": selected_license,
+                        "license_files": len(set(files)) or 1})
     archive.writestr("JKR-licenses/dependencies.json", json.dumps(notices, indent=2) + "\n")
 
 
@@ -151,7 +164,7 @@ def main():
     if args.smoke_check:
         smoke_check(package, args.platform, source)
     source_zip = output / f"JKR-{revision[:7]}-source.zip"
-    subprocess.run(["git", "archive", "--format=zip", f"--prefix=JKR-{revision[:7]}/",
+    subprocess.run(["git", "-c", "core.autocrlf=false", "archive", "--format=zip", f"--prefix=JKR-{revision[:7]}/",
                     f"--output={source_zip}", revision], cwd=source, check=True)
     checksums = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
                         for p in (package, source_zip))

@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/packages.yml
       - scripts/package_client.py
+      - scripts/licenses/**
 
 permissions:
   contents: read
@@ -42,6 +43,8 @@ jobs:
       - uses: actions/checkout@v7
         with:
           path: packaging
+      - name: Preserve source and embedded shader line endings
+        run: git config --global core.autocrlf false
       - uses: actions/checkout@v7
         with:
           # PR builds package the base revision, never unmerged gameplay changes.

@@ -26,6 +26,8 @@ retention period, not automatically published GitHub Releases.
 The Linux build uses Ubuntu 22.04, requiring glibc 2.35 or newer, ALSA and the
 window-system/graphics-driver libraries. The Windows build targets MSVC with a
 static C runtime, for Windows 10/11 x64. Drivers remain a system requirement.
+Source checkout and source archives preserve the repository's line endings on
+both platforms, including embedded WGSL used by exact-text shader patches.
 
 After building, [package_client.py](../scripts/package_client.py) extracts each
 ZIP into an isolated directory with spaces, starts the dedicated server on an
