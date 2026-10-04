@@ -4,7 +4,7 @@ use crate::menu_widgets::numeric::{EditResult, NumericEdit};
 
 impl SettingsMenu {
     pub(super) fn begin_numeric(&mut self, console: &ViewerConsole, row: usize) -> bool {
-        let Some(setting) = settings(self.tab).get(row) else {
+        let Some(setting) = self.rows().get(row) else {
             return false;
         };
         let (min, max, integer) = match setting.kind {
@@ -37,7 +37,7 @@ impl SettingsMenu {
             EditResult::Pending => {}
             EditResult::Cancel => self.numeric = None,
             EditResult::Commit(value) => {
-                let setting = &settings(self.tab)[edit.row];
+                let setting = &settings(self.section, self.tab)[edit.row];
                 let value = if matches!(setting.kind, ValueKind::Integer { .. }) {
                     (value as i64).to_string()
                 } else {

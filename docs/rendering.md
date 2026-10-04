@@ -83,6 +83,10 @@ See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 enable the day/night system. HDR here describes the scene buffer and display
 mapping, not a claim of HDR monitor output.
 
+These and the other `jkr_*` rendering cvars can also be changed in the client's
+renderer settings page (Settings > VIDEO > Renderer; see
+[client.md](client.md#renderer-settings)), with the same ranges and restart rules.
+
 ## Volumetric silhouette coverage
 
 The volumetric injection pass averages lighting over visible air samples within

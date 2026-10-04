@@ -229,6 +229,12 @@ impl ViewerConsole {
         self.shell.cvars.get(name).map(|cvar| &cvar.value)
     }
 
+    /// Every registered cvar name, for checks against the registry.
+    #[cfg(test)]
+    pub(crate) fn cvar_names(&self) -> impl Iterator<Item = &str> {
+        self.shell.cvars.iter().map(|cvar| cvar.name.as_str())
+    }
+
     pub(crate) fn bool_cvar(&self, name: &str) -> Option<bool> {
         match self.cvar(name) {
             Some(CvarValue::Bool(value)) => Some(*value),
