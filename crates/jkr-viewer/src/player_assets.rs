@@ -117,6 +117,7 @@ pub(super) fn load_player_appearance_with(
     let mesh = Glm::parse(&read(&format!("{directory}/model.glm"))?)?;
     let animation_path = format!("{}.gla", mesh.animation_name);
     let animation = cache.get(&animation_path, || read(&animation_path))?;
+    skeleton_matches(&mesh, &animation, directory, &animation_path)?;
     // CG_G2AnimEntModelLoad accepts skin handle 0. Machines such as the retail
     // sentry have no default .skin and use the GLM's embedded surface materials.
     // Named/multipart skins still follow the existing error/fallback policy.
@@ -216,4 +217,78 @@ pub(super) fn load_player_appearance_with(
         yaw: camera_yaw + std::f32::consts::PI,
         vehicle: vehicle_kind,
     })
+}
+
+/// A mesh skinned against a skeleton with a different bone count cannot be
+/// posed. rd-vanilla refuses such a model when it loads (`R_LoadMDXM`), and the
+/// client then uses its fallback; refusing it here keeps one bad custom model on
+/// a server from failing the whole map load at its first skinning instead.
+fn skeleton_matches(
+    mesh: &Glm,
+    animation: &Gla,
+    directory: &str,
+    animation_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    if mesh.bone_count == animation.bones.len() {
+        return Ok(());
+    }
+    Err(format!(
+        "{directory}/model.glm has {} bones but its skeleton {animation_path} has {}",
+        mesh.bone_count,
+        animation.bones.len()
+    )
+    .into())
+}
+
+#[cfg(test)]
+mod skeleton_tests {
+    use super::skeleton_matches;
+    use jkr_model::{Gla, GlaBone, Glm};
+
+    fn bones(count: usize) -> Vec<GlaBone> {
+        (0..count)
+            .map(|index| GlaBone {
+                name: format!("bone{index}"),
+                flags: 0,
+                parent: index.checked_sub(1),
+                base_pose: [[0.0; 4]; 3],
+                inverse_base_pose: [[0.0; 4]; 3],
+                children: Vec::new(),
+            })
+            .collect()
+    }
+
+    fn pair(mesh_bones: usize, skeleton_bones: usize) -> (Glm, Gla) {
+        let mesh = Glm {
+            name: "model".into(),
+            animation_name: "models/players/_humanoid/_humanoid".into(),
+            bone_count: mesh_bones,
+            hierarchy: Vec::new(),
+            lods: Vec::new(),
+        };
+        let skeleton = Gla {
+            name: "_humanoid".into(),
+            scale: 1.0,
+            bones: bones(skeleton_bones),
+            frames: Vec::new(),
+            compressed_bones: Vec::new(),
+        };
+        (mesh, skeleton)
+    }
+
+    #[test]
+    fn a_mesh_matching_its_skeleton_loads() {
+        let (mesh, skeleton) = pair(53, 53);
+        assert!(skeleton_matches(&mesh, &skeleton, "models/players/kyle", "a.gla").is_ok());
+    }
+
+    #[test]
+    fn a_bone_count_mismatch_is_a_load_error() {
+        let (mesh, skeleton) = pair(72, 53);
+        let error = skeleton_matches(&mesh, &skeleton, "models/players/custom", "a.gla")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("72 bones"), "{error}");
+        assert!(error.contains("has 53"), "{error}");
+    }
 }

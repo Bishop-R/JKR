@@ -867,6 +867,19 @@ fn decompress_quaternion_bone(compressed: &[u8; GLA_COMPRESSED_BONE_BYTES]) -> [
     matrix
 }
 
+/// Bone count of the original `_humanoid` skeleton (see [`Glm::remap_old_humanoid`]).
+const OLD_HUMANOID_BONES: usize = 72;
+/// Bone count of the shipped `_humanoid` skeleton.
+const NEW_HUMANOID_BONES: usize = 53;
+/// rd-vanilla `OldToNewRemapTable` (`codemp/rd-vanilla/tr_ghoul2.cpp`): the
+/// 53-bone index for each bone of the original 72-bone `_humanoid` skeleton.
+#[rustfmt::skip]
+const OLD_TO_NEW_HUMANOID: [usize; OLD_HUMANOID_BONES] = [
+    0, 1, 2, 3, 4, 5, 6, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    22, 23, 24, 25, 26, 27, 28, 29, 29, 34, 35, 35, 30, 31, 31, 32, 33, 33, 32, 33, 33, 34, 35, 35,
+    36, 37, 38, 39, 40, 41, 42, 42, 43, 44, 44, 43, 44, 44, 45, 46, 46, 45, 46, 46, 47, 48, 48, 52,
+];
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Glm {
     pub name: String,
@@ -1029,13 +1042,33 @@ impl Glm {
             lod_offset = lod_end;
         }
 
-        Ok(Self {
+        let mut mesh = Self {
             name: reader.name(8, 64, "GLM name")?,
             animation_name: reader.name(72, 64, "GLM animation name")?,
             bone_count,
             hierarchy,
             lods,
-        })
+        };
+        mesh.remap_old_humanoid();
+        Ok(mesh)
+    }
+
+    /// Meshes built for the original 72-bone `_humanoid` skeleton still ship in
+    /// many player packs. rd-vanilla's `R_LoadMDXM` recognises them by exactly that
+    /// bone count and skeleton name and moves every surface bone reference onto
+    /// the 53-bone skeleton through `OldToNewRemapTable` (`tr_ghoul2.cpp`); a
+    /// reference outside the old range becomes bone 0. The mesh then skins
+    /// against the current `_humanoid.gla` like any other.
+    fn remap_old_humanoid(&mut self) {
+        if self.bone_count != OLD_HUMANOID_BONES || !self.animation_name.contains("_humanoid") {
+            return;
+        }
+        for surface in self.lods.iter_mut().flat_map(|lod| lod.surfaces.iter_mut()) {
+            for bone in &mut surface.bone_references {
+                *bone = OLD_TO_NEW_HUMANOID.get(*bone).copied().unwrap_or(0);
+            }
+        }
+        self.bone_count = NEW_HUMANOID_BONES;
     }
 
     pub fn skin(
@@ -1852,3 +1885,54 @@ impl fmt::Display for ModelError {
 }
 
 impl Error for ModelError {}
+
+#[cfg(test)]
+mod old_humanoid_tests {
+    use super::{Glm, GlmLod, GlmSurface};
+
+    fn mesh(bone_count: usize, animation_name: &str, references: Vec<usize>) -> Glm {
+        Glm {
+            name: "model".into(),
+            animation_name: animation_name.into(),
+            bone_count,
+            hierarchy: Vec::new(),
+            lods: vec![GlmLod {
+                surfaces: vec![GlmSurface {
+                    hierarchy_index: 0,
+                    vertices: Vec::new(),
+                    triangles: Vec::new(),
+                    bone_references: references,
+                }],
+            }],
+        }
+    }
+
+    #[test]
+    fn a_72_bone_humanoid_mesh_moves_onto_the_53_bone_skeleton() {
+        let mut glm = mesh(
+            72,
+            "models/players/_humanoid/_humanoid",
+            vec![0, 7, 13, 33, 70, 71],
+        );
+        glm.remap_old_humanoid();
+        assert_eq!(glm.bone_count, 53);
+        // ltarsal -> ltalus, lower_lumbar, l_d1_j3 -> 48, face_always_ -> 52.
+        assert_eq!(
+            glm.lods[0].surfaces[0].bone_references,
+            [0, 6, 11, 34, 48, 52]
+        );
+    }
+
+    #[test]
+    fn other_meshes_keep_their_references() {
+        for (bones, skeleton) in [
+            (53, "models/players/_humanoid/_humanoid"),
+            (72, "models/players/rancor/rancor"),
+        ] {
+            let mut glm = mesh(bones, skeleton, vec![0, 7, 13]);
+            glm.remap_old_humanoid();
+            assert_eq!(glm.bone_count, bones);
+            assert_eq!(glm.lods[0].surfaces[0].bone_references, [0, 7, 13]);
+        }
+    }
+}
