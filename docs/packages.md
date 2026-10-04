@@ -7,9 +7,13 @@ the installed game's `GameData` directory, beside `base/`, and launch the client
 Keep the dedicated server beside it for Create game and local devmap. Updating
 the executables does not replace `jkr/` user files.
 
-Each ZIP contains installation instructions, the project license, dependency
-license files and a build manifest with the exact revision, target, compiler and
-binary hashes. It contains no retail assets, personal configuration, generated
+Each installation ZIP contains exactly four files: `jkr-viewer`, `jkr-dedicated`
+(both with `.exe` on Windows), `README.txt` and `LICENSES.txt`. The last file
+consolidates the complete project, font and dependency notices with their source
+labels and attribution inventory; no original notice text is discarded.
+The build manifest is a separate `JKR-<revision>-<platform>-build.json` artifact
+with the exact revision, target, compiler and binary hashes. The installation ZIP
+contains no retail assets, personal configuration, generated
 test files, source tree or debug symbols. Each artifact also provides SHA-256
 checksums and a matching source snapshot ZIP; the source snapshot is for
 contributors and is not needed in GameData.

@@ -42,6 +42,23 @@ No retail data, personal settings or debug symbols are packaged. These checks do
 not cover Windows graphical gameplay. See [packages.md](packages.md) for layout,
 runtime requirements and the repeatable build procedure.
 
+### Simplified release archives
+
+The `dc36792` Windows/Linux playtest archives were repacked on 2026-10-04
+with exactly four files: the two executables, `README.txt` and `LICENSES.txt`.
+Binary bytes and executable permissions are preserved. All 317 Linux and 306
+Windows original license/attribution sections are retained in the consolidated
+text. Build manifests are separate release assets, covered by the updated
+checksums; the source archive is unchanged. GitHub asset digests match the local
+archives and manifests.
+
+The extracted Linux archive passed synthetic adjacent-asset discovery, portable
+configuration and isolated loopback dedicated-server startup/shutdown. Archive
+CRCs, four-file contents, binary hashes and notice preservation passed for both
+platforms. The updated dependency collector also matched all 315 entries emitted
+by the previous Linux collector. Windows execution was not repeated for this
+packaging-only update; its executables are identical to the previous release.
+
 ## Drop-in client installation
 
 Local change based on `da8adc9` (2026-10-04): the client discovers game data
