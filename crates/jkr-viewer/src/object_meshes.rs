@@ -40,6 +40,7 @@ pub(super) fn load<'a>(
     world: &World,
     game_state: Option<&GameState>,
     effect_names: impl Iterator<Item = &'a str>,
+    vehicle_models: impl Iterator<Item = &'a str>,
     flattened: &mut FlattenedScene,
 ) -> Vec<StaticModelMesh> {
     let mut appearances = world
@@ -59,6 +60,7 @@ pub(super) fn load<'a>(
             .filter_map(weapon_view::held_model)
             .chain(projectiles::model_paths())
             .map(str::to_owned)
+            .chain(vehicle_models.map(str::to_owned))
             .chain(effect_assets::required_models(vfs, effect_names))
             .map(|model| Appearance {
                 model,

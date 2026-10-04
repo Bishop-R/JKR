@@ -14,6 +14,21 @@ const CLASS_VEHICLE: u8 = 53;
 /// The bolt a vehicle's pilot is attached to.
 const DRIVER_BOLT: &str = "*driver";
 
+/// The locally piloted vehicle at the same predicted command as its pilot.
+/// Remote vehicles and demo playback retain their interpolated world transforms.
+#[derive(Clone, Copy)]
+pub(crate) struct Predicted {
+    pub(crate) number: u16,
+    pub(crate) origin: [f32; 3],
+    pub(crate) angles: [f32; 3],
+}
+
+impl Predicted {
+    fn for_entity(self, id: EntityId) -> Option<Self> {
+        (id.get() == u64::from(self.number) + 1).then_some(self)
+    }
+}
+
 /// The driver bolt's origin in the space of a vehicle posed as `matrices`; `None` for
 /// anything that is not a vehicle.
 pub(crate) fn driver_seat(
@@ -53,15 +68,22 @@ pub(crate) fn seat(
     number: u16,
     scale: f32,
     time: i64,
+    predicted: Option<Predicted>,
 ) -> Option<Seat> {
     let id = EntityId::new(u64::from(number) + 1);
     let entity = world.entity(id)?;
     let mesh = meshes.iter().find(|mesh| mesh.entity_id == Some(id))?;
-    let yaw_degrees = entity.sample_pose(time)?.view_angles_degrees[1];
+    let (origin, yaw_degrees) = match predicted.and_then(|p| p.for_entity(id)) {
+        Some(p) => (p.origin, p.angles[1]),
+        None => (
+            entity.sample(time).translation,
+            entity.sample_pose(time)?.view_angles_degrees[1],
+        ),
+    };
     let upright = jkr_client::legacy_angles_to_quaternion([0.0, yaw_degrees, 0.0]);
     let offset = Vec3::from_array(mesh.driver_seat?) * scale;
     Some(Seat {
-        translation: (Vec3::from_array(entity.sample(time).translation)
+        translation: (Vec3::from_array(origin)
             + weapon_view::actor_world_rotation(upright) * offset)
             .to_array(),
         yaw_degrees,
@@ -83,14 +105,21 @@ pub(crate) fn place(
     state: Option<&jkr_protocol::EntityState>,
     local: bool,
     time: i64,
+    predicted: Option<Predicted>,
 ) {
-    if let Some(kind) = mesh.and_then(|index| meshes[index].preview.vehicle)
-        && let Some(pose) = entity.sample_pose(time)
-    {
-        transform.rotation = root_rotation(kind, pose.view_angles_degrees);
+    if let Some(kind) = mesh.and_then(|index| meshes[index].preview.vehicle) {
+        if let Some(p) = predicted.and_then(|p| p.for_entity(entity.id)) {
+            // CG_AddPacketEntities + CG_CalcEntityLerpPositions bypass snapshot
+            // interpolation for the vehicle this client predicts and pilots.
+            transform.translation = p.origin;
+            transform.rotation = root_rotation(kind, p.angles);
+        } else if let Some(pose) = entity.sample_pose(time) {
+            transform.rotation = root_rotation(kind, pose.view_angles_degrees);
+        }
     }
     let Some(snapshot) = snapshot else { return };
     let riding = match state {
+        _ if local && predicted.is_some() => predicted.unwrap().number,
         Some(state) if state.npc_class() != CLASS_VEHICLE => state.vehicle_entity_num(),
         None if local => snapshot.player.vehicle_entity_num(),
         _ => 0,
@@ -106,7 +135,7 @@ pub(crate) fn place(
         .and_then(|state| state.raw_field(123))
         .filter(|&percent| percent != 0)
         .map_or(1.0, |percent| percent as i32 as f32 / 100.0);
-    if let Some(seat) = seat(world, meshes, riding, scale, time) {
+    if let Some(seat) = seat(world, meshes, riding, scale, time, predicted) {
         // The forced-angle root keeps the rider's own roll (`bg_pmove.c:12901-12910`).
         let roll = mesh.map_or(0.0, |index| {
             meshes[index].angle_controller.root_roll_degrees()

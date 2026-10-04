@@ -104,18 +104,47 @@ impl MovementCollision for BspMovementCollision<'_> {
     }
 }
 
-pub(super) fn trace_end(
+/// CG_Trace camera hull, including presented inline doors/platforms. BODY is
+/// deliberately absent: the local rider and vehicle cannot occlude their own view.
+pub(crate) fn camera_trace(
     bsp: &Bsp,
     scratch: &mut jkr_bsp::TraceScratch,
+    snapshot: Option<&jkr_protocol::Snapshot>,
+    time: i32,
     start: Vec3,
     end: Vec3,
-    bounds: Aabb,
-    mask: u32,
 ) -> Vec3 {
-    Vec3::from_array(
-        bsp.trace_box_with(scratch, start.to_array(), end.to_array(), bounds, mask)
-            .end_position,
-    )
+    // MASK_SOLID | CONTENTS_PLAYERCLIP (codemp/game/bg_public.h, surfaceflags.h).
+    const MASK: u32 = 0x1001 | 0x10;
+    let bounds = Aabb::new([-4.0; 3], [4.0; 3]).expect("valid camera hull");
+    let mut best = bsp.trace_box_with(scratch, start.to_array(), end.to_array(), bounds, MASK);
+    if let Some(snapshot) = snapshot {
+        for entity in &snapshot.entities {
+            if entity.solid() != 0x00ff_ffff || entity.number() == snapshot.player.client_num() {
+                continue;
+            }
+            let Some(collider) = Collider::from_entity(entity, time, time, false) else {
+                continue;
+            };
+            let hit = inline::trace(
+                bsp,
+                &collider,
+                start.to_array(),
+                end.to_array(),
+                bounds,
+                MASK,
+            );
+            if hit.all_solid || hit.fraction < best.fraction {
+                best.fraction = hit.fraction;
+                best.end_position = hit.end_position;
+                best.all_solid = hit.all_solid;
+            }
+            if best.all_solid {
+                break;
+            }
+        }
+    }
+    Vec3::from_array(best.end_position)
 }
 
 /// A server pusher can leave groundEntityNum stale until the next Pmove.

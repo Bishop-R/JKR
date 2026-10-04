@@ -49,6 +49,7 @@ mod permanent_entities;
 mod player_angle_rules;
 mod player_angles;
 mod player_identity;
+mod vehicle_missile_effects;
 pub use client_info::{LegacyClientInfo, legacy_body_frame};
 mod player_profile;
 mod player_sprites;

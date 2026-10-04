@@ -73,6 +73,7 @@ pub struct LegacyMissileEffectMetrics {
 enum EffectRef {
     Static(&'static str),
     ConfigString(usize),
+    Vehicle(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -179,6 +180,7 @@ pub fn legacy_missile_mode(weapon: u8, alternate: bool) -> LegacyMissileMode {
 /// Map-lifetime effect cache and fixed-capacity per-frame request pool.
 pub struct LegacyMissileEffects {
     config_effects: [Option<Box<str>>; MAX_FX],
+    vehicles: Option<crate::vehicle_missile_effects::VehicleMissiles>,
     requests: Vec<PendingRequest>,
 }
 
@@ -187,6 +189,7 @@ impl LegacyMissileEffects {
     pub fn empty() -> Self {
         Self {
             config_effects: std::array::from_fn(|_| None),
+            vehicles: None,
             requests: Vec::with_capacity(MAX_LEGACY_ENTITIES),
         }
     }
@@ -205,6 +208,38 @@ impl LegacyMissileEffects {
             }),
             ..Self::empty()
         }
+    }
+
+    /// Authored presentation at the vehicle weapon index carried by a missile.
+    pub fn vehicle_weapon(
+        &self,
+        index: usize,
+    ) -> Option<&jkr_game_jka::vehicle_presentation::WeaponPresentation> {
+        self.vehicles.as_ref()?.weapon(index)
+    }
+
+    /// Rigid vehicle projectile assets to preload outside the frame loop.
+    pub fn vehicle_model_paths(&self) -> impl Iterator<Item = &str> {
+        self.vehicles
+            .iter()
+            .flat_map(|vehicles| vehicles.weapons())
+            .filter_map(|weapon| weapon.model.as_deref())
+    }
+
+    /// Load vehicle weapon presentation in the same model registration order as cgame.
+    pub fn load_vehicles(&mut self, game: &GameState, vfs: &jkr_vfs::VirtualFileSystem) {
+        self.vehicles = Some(crate::vehicle_missile_effects::VehicleMissiles::load(
+            vfs, game,
+        ));
+    }
+
+    /// Register a changed vehicle model and return its effects for loading-time precache.
+    pub fn refresh_vehicle(&mut self, index: usize, game: &GameState) -> Vec<String> {
+        let Some(vehicles) = self.vehicles.as_mut() else {
+            return Vec::new();
+        };
+        vehicles.refresh(index, game);
+        vehicles.effect_names().map(str::to_owned).collect()
     }
 
     /// Replace one `CS_EFFECTS` slot while retaining entity latches and deadlines.
@@ -257,12 +292,31 @@ impl LegacyMissileEffects {
             let override_index = usize::from(entity.other_entity_num2());
             if override_index != 0 && weapon != WP_SABER {
                 if entity.e_flags() & EF_JETPACK_ACTIVE != 0 {
-                    // Vehicle weapon effects/models live in the vehicle adapter
-                    // planned for M6. Stock CG_Missile does not fall through to
-                    // the ordinary weapon table in this branch.
+                    let presentation = self
+                        .vehicles
+                        .as_ref()
+                        .and_then(|vehicles| vehicles.weapon(override_index));
+                    if presentation.is_some_and(|weapon| weapon.shot_effect.is_some()) {
+                        self.requests.push(PendingRequest {
+                            entity_number: entity.number(),
+                            effect: EffectRef::Vehicle(override_index),
+                            extra_effect: None,
+                            extra_repetitions: 0,
+                            origin,
+                            direction,
+                            light: None,
+                        });
+                        metrics.trail_eligible_missiles += 1;
+                        metrics.play_requests += 1;
+                        metrics.custom_effect_requests += 1;
+                        continue;
+                    }
+                    if presentation.is_some_and(|weapon| weapon.model.is_some()) {
+                        metrics.no_trail_missiles += 1;
+                        continue;
+                    }
                     metrics.unsupported_vehicle_overrides += 1;
-                    metrics.suppressed_early_returns += 1;
-                    continue;
+                    // With no vehicle override stock tries the CS_EFFECTS slot below.
                 }
                 if override_index >= MAX_FX || self.config_effects[override_index].is_none() {
                     metrics.missing_custom_effects += 1;
@@ -317,6 +371,12 @@ impl LegacyMissileEffects {
         self.requests.iter().map(|request| {
             let effect_name = match request.effect {
                 EffectRef::Static(name) => name,
+                EffectRef::Vehicle(index) => self
+                    .vehicles
+                    .as_ref()
+                    .and_then(|v| v.weapon(index))
+                    .and_then(|w| w.shot_effect.as_deref())
+                    .expect("pending vehicle effects are registered"),
                 EffectRef::ConfigString(index) => self.config_effects[index]
                     .as_deref()
                     .expect("pending custom effects are registered"),
@@ -338,6 +398,11 @@ impl LegacyMissileEffects {
         self.config_effects
             .iter()
             .filter_map(Option::as_deref)
+            .chain(
+                self.vehicles
+                    .iter()
+                    .flat_map(|vehicles| vehicles.effect_names()),
+            )
             .chain(
                 (0..=18)
                     .flat_map(|weapon| [false, true].map(move |alternate| (weapon, alternate)))

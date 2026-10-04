@@ -191,6 +191,18 @@ impl Movers {
         self.colliders.clear();
         self.triggers.clear();
         self.by_entity.fill(None);
+        let local = snapshot.player.client_num();
+        let piloting = snapshot
+            .vehicle_player
+            .as_ref()
+            .map(|p| p.client_num())
+            .filter(|&number| {
+                number == snapshot.player.vehicle_entity_num()
+                    && snapshot
+                        .entities
+                        .iter()
+                        .any(|state| state.number() == number && state.owner() == local)
+            });
         for state in snapshot
             .entities
             .iter()
@@ -209,11 +221,18 @@ impl Movers {
             if self.by_entity[usize::from(state.number())].is_some() {
                 continue;
             }
-            let local = snapshot.player.client_num();
+            // Vehicle Pmove traces with its own clientNum as skipNumber. The
+            // pilot and its vehicle share this collision list; neither may hit
+            // that vehicle's stale snapshot body while locally piloting it.
             // CG_ClipMoveToEntities skipNumber and server ownership exclusion.
             // genericenemyindex is read-only protocol netfield 18.
             let owner = state.integer_field(18).unwrap_or(0).wrapping_sub(1024);
-            if state.number() == local || (state.number() > 32 && owner == i32::from(local)) {
+            if state.number() == local
+                || Some(state.number()) == piloting
+                || (state.number() > 32
+                    && (owner == i32::from(local)
+                        || piloting.is_some_and(|v| owner == i32::from(v))))
+            {
                 continue;
             }
             if let Some(collider) =

@@ -11,14 +11,15 @@
 //! The pilot sits on the vehicle model's `*driver` tag (`AttachRidersGeneric`): the client
 //! poses the model as the server does ([`jkr_game_jka::vehicle_skeleton`]) — the root on
 //! the vehicle's legs animation, installed when a snapshot shows it change, read at the
-//! snapshot's time — so the predicted pilot sits where the server puts it.
+//! snapshot's time for replay. Presentation resamples that bolt at cgame time,
+//! as `AttachRidersGeneric` does, so the camera does not hold a network-rate pose.
 //!
-//! Not yet: the ridden vehicle's model is drawn where its snapshots put it, not at the
-//! predicted state (`cg_ents.c:3461-3467`).
+//! Presentation reads this same predicted vehicle root for its model and rider seat
+//! (`cg_ents.c`, `CG_AddPacketEntities` and `CG_CalcEntityLerpPositions`).
 
 use std::sync::Arc;
 
-use jkr_client::pmove::{MovementCollision, MovementConfig, Predictor};
+use jkr_client::pmove::{MovementCollision, MovementConfig, MovementState, Predictor};
 use jkr_game_jka::vehicle::Vehicle;
 use jkr_game_jka::vehicle_parms::{VehicleCapacity, VehicleFiles, VehicleRegistry, VehicleTable};
 use jkr_game_jka::vehicle_predict::RidePrediction;
@@ -55,6 +56,30 @@ pub(crate) struct Rides {
 }
 
 impl Rides {
+    /// Read the animated seat at cgame time for presentation only. Snapshot-time
+    /// offsets remain in command replay; gait bob must not become prediction error.
+    pub(super) fn present_pilot(&mut self, pilot: &mut MovementState, time: i32) {
+        let Some(ride) = self.preview.as_ref().or(self.committed.as_ref()) else {
+            return;
+        };
+        if pilot.vehicle_entity_num != ride.number() {
+            return;
+        }
+        let Some((number, models, skeleton)) = self.skeleton.as_mut() else {
+            return;
+        };
+        if *number != ride.number() {
+            return;
+        }
+        if let Ok(Some(offset)) = skeleton.offset(models, models.bolt("*driver"), time) {
+            pilot.origin = jkr_game_jka::vehicle_riders::driver_origin(
+                ride.state().origin,
+                ride.state().view_angles[1],
+                offset,
+            );
+        }
+    }
+
     /// The client's vehicle definitions, read from `vfs` (`BG_VehicleLoadParms`).
     pub(crate) fn new(vfs: &VirtualFileSystem) -> Self {
         let files = VehicleFiles::from_listing(
@@ -275,6 +300,20 @@ impl Rides {
             None => self.preview = Some(committed.clone()),
         }
         self.preview.as_mut()
+    }
+}
+
+/// CG_PredictPlayerState measures the vehicle while piloting, the player on
+/// foot, and neither for a passenger. An animated driver bolt is not a miss.
+pub(super) fn error_state<'a>(
+    pilot: &'a MovementState,
+    ride: Option<&'a RidePrediction>,
+) -> Option<&'a MovementState> {
+    if pilot.vehicle_entity_num == 0 {
+        Some(pilot)
+    } else {
+        ride.filter(|ride| ride.number() == pilot.vehicle_entity_num)
+            .map(RidePrediction::state)
     }
 }
 

@@ -146,6 +146,22 @@ impl GpuState {
                 }
                 Consumer::Model(slot) => {
                     let appearance = legacy_model_appearance(game, slot);
+                    for name in self.missile_effects.refresh_vehicle(index, game) {
+                        self.preload_config_effect(&name, audio);
+                    }
+                    let models: Vec<_> = self
+                        .missile_effects
+                        .vehicle_model_paths()
+                        .map(str::to_owned)
+                        .collect();
+                    for model in models {
+                        if let Err(error) = self.load_config_model(&Appearance {
+                            model,
+                            variant: String::new(),
+                        }) {
+                            log::progress(format_args!("vehicle projectile model: {error}"));
+                        }
+                    }
                     if let Some(appearance) = appearance {
                         if let Err(error) = self.load_config_model(&appearance) {
                             log::progress(format_args!("cs {index}: model load failed: {error}"));

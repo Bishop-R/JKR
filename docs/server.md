@@ -113,3 +113,10 @@ reference's earlier DEMP2 shock handling. OpenJK's command scaling quirk remains
 vertical input alone does not accelerate without forward/sideways input.
 See [bridge_cheats.rs](../crates/jkr-dedicated/src/bridge_cheats.rs) and
 [noclip.rs](../crates/jkr-game-jka/src/noclip.rs).
+
+## Vehicle boarding
+
+Landing on an empty animal or speeder requests boarding using the multiplayer
+rider, vehicle-type and team checks. Empty vehicles marked `SUSPENDED` also allow
+boarding while standing on them, including fighters and walkers. These are
+server decisions; a client connected to another server uses that server's rules.

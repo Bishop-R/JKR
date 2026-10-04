@@ -215,6 +215,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Third-person camera height above the player",
         ),
         CvarDefinition::new(
+            "cg_thirdPersonHorzOffset",
+            0.0,
+            archive,
+            "Third-person camera sideways offset",
+        ),
+        CvarDefinition::new(
             "cg_thirdPersonAngle",
             0.0,
             archive,

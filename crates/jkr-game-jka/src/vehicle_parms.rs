@@ -89,6 +89,14 @@ fn join<'a>(
 }
 
 impl VehicleFiles {
+    /// Read the client-only assets without changing server registration order.
+    pub fn weapon_presentation(
+        &self,
+        name: &[u8],
+    ) -> crate::vehicle_presentation::WeaponPresentation {
+        crate::vehicle_presentation::parse(&self.weapons, name)
+    }
+
     /// `BG_VehicleLoadParms` and `BG_VehWeaponLoadParms` (`bg_vehicleLoad.c:1239-1383`):
     /// every `ext_data/vehicles/*.veh` and `ext_data/vehicles/weapons/*.vwp` the game's
     /// listings hold, in their order — as the server's game and a client's cgame both load
@@ -533,7 +541,7 @@ const DEFERRED_WEAPON_KEYS: [&str; 2 + NAMED_MUZZLES] = [
 
 /// The search of `VEH_LoadVehicle` and `VEH_LoadVehWeapon`: past the block named `name`'s
 /// name and its `{`. A name not found, or not followed by `{`, is not loaded.
-fn find_block(parser: &mut TextParser<'_>, name: &[u8]) -> bool {
+pub(crate) fn find_block(parser: &mut TextParser<'_>, name: &[u8]) -> bool {
     loop {
         let token = parser.parse_ext(true);
         if token.is_empty() {

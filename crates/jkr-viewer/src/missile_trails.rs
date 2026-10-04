@@ -9,6 +9,19 @@ use jkr_protocol::Snapshot;
 use jkr_vfs::VirtualFileSystem;
 use std::time::Instant;
 
+/// Cache weapon definitions while preparing the world, never while firing a shot.
+pub(crate) fn load(
+    game: Option<&jkr_protocol::GameState>,
+    vfs: &VirtualFileSystem,
+) -> LegacyMissileEffects {
+    let Some(game) = game else {
+        return LegacyMissileEffects::empty();
+    };
+    let mut effects = LegacyMissileEffects::from_game_state(game);
+    effects.load_vehicles(game, vfs);
+    effects
+}
+
 /// Evaluate and play one logical projectile-think request per eligible
 /// ET_MISSILE for the rendered frame. EFX graph storage, particles, and point
 /// lights are all preallocated by their owning runtimes.

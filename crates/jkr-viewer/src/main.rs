@@ -328,8 +328,7 @@ struct GpuState {
     frame_pacer: frame_pacing::FramePacer,
     /// Optional per-pass GPU timing printed with the frame-budget report.
     gpu_phases: Option<gpu_phases::Profiler>,
-    third_person_camera_position: Option<Vec3>,
-    third_person_camera_target: Option<Vec3>,
+    third_person_camera: camera::State,
     far_plane: f32,
     gameplay_input: input::GameplayInput,
     pointer_captured: bool,
@@ -497,10 +496,7 @@ impl GpuState {
             config_string_refresh::ConfigStringRefresh::new(active_game_state);
         let map_effects = active_game_state
             .map_or_else(LegacyMapEffects::empty, LegacyMapEffects::from_game_state);
-        let missile_effects = active_game_state.map_or_else(
-            LegacyMissileEffects::empty,
-            LegacyMissileEffects::from_game_state,
-        );
+        let missile_effects = missile_trails::load(active_game_state, &vfs);
         let size = PhysicalSize::new(target_size[0].max(1), target_size[1].max(1));
         let localization = Localization::load(&vfs);
         menu::attach_world(&mut client_menu, Arc::clone(&vfs), &bsp, console.as_ref());
@@ -562,6 +558,7 @@ impl GpuState {
             map_effects
                 .effect_names()
                 .chain(missile_effects.effect_names()),
+            missile_effects.vehicle_model_paths(),
             &mut flattened,
         );
         let saber_hilts = if session_active {
@@ -1075,8 +1072,7 @@ impl GpuState {
             applied_resolution: [size.width, size.height],
             frame_pacer: frame_pacing::FramePacer::new(),
             gpu_phases,
-            third_person_camera_position: None,
-            third_person_camera_target: None,
+            third_person_camera: camera::State::default(),
             far_plane,
             gameplay_input: input::GameplayInput::default(),
             pointer_captured: false,
@@ -1239,8 +1235,7 @@ impl GpuState {
             .flatten();
         let mut view_up = Vec3::Z;
         let (branch, (view_position, view_target)) = if let Some(view) = intermission_view {
-            self.third_person_camera_position = None;
-            self.third_person_camera_target = None;
+            self.third_person_camera = camera::State::default();
             let pitch = -view.angles[0].to_radians();
             let yaw = view.angles[1].to_radians();
             let direction = Vec3::new(
@@ -1260,14 +1255,12 @@ impl GpuState {
                 camera::damped_third_person(self, delta_seconds, presentation_time),
             )
         } else if let Some(camera) = first_person {
-            self.third_person_camera_position = None;
-            self.third_person_camera_target = None;
+            self.third_person_camera = camera::State::default();
             let (position, target, up) = camera.look();
             view_up = up;
             ("first-person", (position, target))
         } else {
-            self.third_person_camera_position = None;
-            self.third_person_camera_target = None;
+            self.third_person_camera = camera::State::default();
             let free = (self.camera_position, self.camera_position + forward * 256.0);
             (if backdrop_view { "backdrop" } else { "free" }, free)
         };
@@ -1690,28 +1683,12 @@ impl GpuState {
             .demo_session
             .as_ref()
             .map_or(&self.live_world, demo_playback::Session::world);
-        for missile in &self.projectiles {
-            match missile.visual {
-                projectiles::Visual::Model(model) => {
-                    if let Some(mesh) = self
-                        .object_meshes
-                        .iter()
-                        .position(|mesh| mesh.appearance.model.eq_ignore_ascii_case(model))
-                    {
-                        object_groups[mesh].push(ActorInstance::new(
-                            missile.origin,
-                            missile.rotation,
-                            [1.0; 3],
-                        ));
-                    }
-                }
-                // Effect-only missiles are emitted by the complete repeating
-                // EFX graph in missile_trails; do not double-draw the older
-                // representative shot sprite from step 11.
-                projectiles::Visual::Effect(_) => {}
-                projectiles::Visual::None => {}
-            }
-        }
+        projectiles::append_models(
+            &self.projectiles,
+            &self.missile_effects,
+            &self.object_meshes,
+            object_groups,
+        );
         saber_clash_flare::append(
             &self.saber_clash_flare,
             presentation_time as i32,
