@@ -14,10 +14,9 @@ const CONC_ALT_DAMAGE: i32 = 25;
 const ALT_TRACES: usize = 3;
 const SHOT_RANGE: f32 = 8_192.0;
 const MOD_CONC_ALT: u32 = 30;
-/// `MASK_SHOT`, `SURF_NOIMPACT`, `ENTITYNUM_WORLD`, `MAX_CLIENTS`.
+/// `MASK_SHOT`, `SURF_NOIMPACT`, `MAX_CLIENTS`.
 const MASK_SHOT: u32 = 0x1 | 0x100 | 0x200 | 0x1000;
 const SURF_NOIMPACT: u32 = 0x10;
-const ENTITY_WORLD: u16 = 1_022;
 const MAX_CLIENTS: u16 = 32;
 /// `EV_CONC_ALT_IMPACT` and the fields its entity carries: `owner`, `angles`,
 /// `origin2`, `angles2`.
@@ -115,7 +114,7 @@ pub fn fire_alt(
         if !render_impact {
             break;
         }
-        let struck = (trace.entity_number < ENTITY_WORLD && trace.entity_number < MAX_CLIENTS)
+        let struck = (trace.entity_number < MAX_CLIENTS)
             .then(|| targets.player(trace.entity_number))
             .flatten();
         let Some(player) = struck else { break };

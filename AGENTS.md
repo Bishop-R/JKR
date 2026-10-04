@@ -26,8 +26,10 @@ multiplayer. Read [docs/status.md](docs/status.md),
 ## Verification and scope
 
 - Follow [development.md](docs/development.md). Before handing off a change, run
-  `cargo fmt --all --check`, `cargo build --locked --workspace` and
-  `cargo test --locked --workspace`. Explain any check that could not run.
+  `cargo fmt --all --check`, `cargo build --locked --workspace`,
+  `cargo test --locked --workspace` and
+  `cargo clippy --locked --workspace --all-targets`. Explain any check that could
+  not run.
 - Passing Cargo tests currently does not establish gameplay parity: the repository
   has no bundled regression suite. Use focused external evidence for affected behavior.
   Do not add fixtures, test infrastructure or large reports without task authorization.

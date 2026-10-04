@@ -17,10 +17,13 @@ From the repository root:
 cargo fmt --all --check
 cargo build --locked --workspace
 cargo test --locked --workspace
+cargo clippy --locked --workspace --all-targets
 cargo build --locked --release -p jkr-viewer -p jkr-dedicated
 ```
 
-The first formatting command requires the rustfmt component. Use `-j2` to limit
+The first formatting command requires the rustfmt component and the clippy
+command the clippy component. Clippy fails only on the lints the workspace
+manifest denies; its warnings do not fail the check. Use `-j2` to limit
 build parallelism on constrained machines. `CARGO_TARGET_DIR` can put build
 artifacts outside the checkout; do not commit binaries or generated output.
 
@@ -39,9 +42,10 @@ or claim those checks ran. Record a verification gap if the reference is unavail
 
 [The CI workflow](../.github/workflows/ci.yml) runs on every pull request and
 every push to `main`. It checks formatting on Linux, then runs the workspace
-build and `cargo test` on Linux and Windows with the latest stable Rust. It
-does not run the optimized build, check the declared minimum Rust version or
-perform any of the evidence checks below, so a passing run does not replace them.
+build, `cargo test` and clippy on Linux and Windows with the latest stable
+Rust. It does not run the optimized build, check the declared minimum Rust
+version or perform any of the evidence checks below, so a passing run does not
+replace them.
 Because the repository is private, pull requests from forks are checked only
 while its Actions settings allow workflows from fork pull requests.
 
