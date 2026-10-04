@@ -5,7 +5,8 @@
 //! a passed team vote makes its leader (`bridge_team_votes`); `npc spawn` of a vehicle's
 //! name spawns the vehicle, friendly names find their NPC, MD3 NPCs spawn with a Ghoul2
 //! stand-in, and the entity budget, NPC files and vehicle table are not capped
-//! (`bridge_npc_names`).
+//! (`bridge_npc_names`); native sand-creature AI runs outside stock mode
+//! (`bridge_npcs`, `jkr_game_jka::npc_sand_creature`).
 
 use super::NativeGame;
 

@@ -550,6 +550,18 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 passengers,
                 impact_bodies,
             )
+        } else if self.level.native_sand_creatures
+            && crate::npc_sand_creature::is_sand_creature(npc)
+            && npc.contents == 0
+        {
+            host.move_npc_buried(
+                &mut npc.movement,
+                npc.mind.command,
+                &context,
+                npc.number,
+                bodies,
+            );
+            Vec::new()
         } else if in_lock {
             lock_outcome = crate::npc_saber_lock::locked_move(actors, me, *host, &context, bodies);
             Vec::new()

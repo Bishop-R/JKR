@@ -77,6 +77,13 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             npc.mind.move_dir = [0.0; 3];
         }
         if npc.health <= 0 {
+            if self.level.native_sand_creatures && crate::npc_sand_creature::is_sand_creature(npc) {
+                let flags = npc.player.raw_field(17).unwrap_or(0) & !crate::npc_senses::EF_NODRAW;
+                npc.player.set_raw_field(17, flags);
+                npc.player.set_raw_field(75, 0);
+                npc.state.set_raw_field(19, flags);
+                npc.mind.creature.sand = Default::default();
+            }
             let thought = self.dead_think(me);
             let npc = &mut self.actors[me];
             npc.player.set_origin(npc.current_origin);

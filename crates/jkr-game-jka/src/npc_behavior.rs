@@ -314,6 +314,14 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     /// Runs `behavior` for the NPC at `me`: the default set's own, or the stub of a later
     /// step's, which the host is told of. `command` is the think's (`NPCS.ucmd`).
     pub fn run(&mut self, me: usize, behavior: Behavior, command: &mut jkr_protocol::UserCommand) {
+        if self.level.native_sand_creatures
+            && crate::npc_sand_creature::is_sand_creature(&self.actors[me])
+            && !matches!(behavior, Behavior::Wait | Behavior::Cinematic)
+        {
+            self.actors[me].mind.unported = None;
+            self.bs_sand_creature(me, command);
+            return;
+        }
         self.actors[me].mind.unported = match behavior {
             Behavior::Stub(name) => Some(name),
             _ => None,

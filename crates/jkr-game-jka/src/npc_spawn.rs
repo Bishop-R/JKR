@@ -336,6 +336,22 @@ pub trait NpcHost: SaberParseHost {
         pass: u16,
         bodies: &[crate::entity_clip::BoxObstacle],
     );
+    /// Native burrowing movement: preserve world collision but pass through bodies.
+    fn move_npc_buried(
+        &mut self,
+        movement: &mut crate::pmove::Predictor,
+        command: jkr_protocol::UserCommand,
+        context: &crate::pmove::MoveContext,
+        pass: u16,
+        bodies: &[crate::entity_clip::BoxObstacle],
+    ) {
+        self.move_npc(movement, command, context, pass, bodies);
+    }
+    /// Read-only grounded state for native vibration sensing.
+    fn client_ground(&self, _number: u16) -> Option<u16> {
+        None
+    }
+
     /// [`Self::move_npc`] for an NPC in a saber lock, pushing against `partner`
     /// (`PM_SaberLocked`, [`crate::pmove::Predictor::predict_command_locked`]) with its
     /// weight `hits`, the game's generator drawn: what the lock did. A host that never

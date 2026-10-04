@@ -102,6 +102,7 @@ impl NativeGame {
             map.sabers.clone(),
         );
         let capacity = self.vehicle_capacity();
+        let native_sand_creatures = !self.stock_rules();
         let allow = self.integer_cvar(b"g_allowNPC", 1) != 0;
         let (gametype, level_time) = (self.gametype, self.last_frame_time);
         let mut items = Vec::new();
@@ -112,6 +113,7 @@ impl NativeGame {
         self.gather_obstacles(usize::MAX);
         let mut host = self.npc_host(Some(&map), Some(&mut items));
         let mut roster = NpcRoster::default();
+        roster.level.native_sand_creatures = native_sand_creatures;
         // `BG_VehicleLoadParms` at `G_InitGame`: the level's vehicle table, empty.
         roster.vehicle_table = Some(jkr_game_jka::vehicle_parms::VehicleTable::new(
             map.vehicle_files.clone(),

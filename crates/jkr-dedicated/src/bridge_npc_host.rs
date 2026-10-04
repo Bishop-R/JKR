@@ -686,6 +686,26 @@ impl NpcHost for ServerHost<'_> {
         .predict(self.map, movement, command, &context.with_foot_bolts(&feet));
     }
 
+    fn move_npc_buried(
+        &mut self,
+        movement: &mut Predictor,
+        command: UserCommand,
+        context: &MoveContext,
+        pass: u16,
+        bodies: &[BoxObstacle],
+    ) {
+        let collision = BuriedCollision {
+            everyone: Everyone {
+                solids: self.solids,
+                bodies,
+                pass,
+                riders: &[],
+            },
+            map: self.map,
+        };
+        movement.predict_command_in(command, &collision, context);
+    }
+
     fn move_vehicle(
         &mut self,
         movement: &mut Predictor,
@@ -851,6 +871,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn entity_state(&self, number: u16) -> Option<&jkr_protocol::EntityState> {
         self.pool.state(self.pool.legacy_id(number)?)
+    }
+
+    fn client_ground(&self, number: u16) -> Option<u16> {
+        self.peer(number).map(|peer| peer.state.ground_entity_num())
     }
 
     fn client_legs(&self, number: u16) -> Option<u16> {
@@ -1366,3 +1390,30 @@ pub(super) mod dismember;
 pub(super) mod force;
 #[path = "bridge_npc_sabers.rs"]
 mod sabers;
+
+/// Sand moves through bodies, never through map solids or monster-clip brushes.
+struct BuriedCollision<'a> {
+    everyone: Everyone<'a>,
+    map: Option<&'a LoadedMap>,
+}
+impl jkr_game_jka::pmove::MovementCollision for BuriedCollision<'_> {
+    fn point_contents(&self, point: [f32; 3]) -> u32 {
+        self.map.map_or(0, |map| {
+            WorldCollision {
+                bsp: &map.bsp,
+                scratch: &map.scratch,
+            }
+            .point_contents(point)
+        })
+    }
+    fn trace(
+        &self,
+        start: [f32; 3],
+        mins: [f32; 3],
+        maxs: [f32; 3],
+        end: [f32; 3],
+        _mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        self.everyone.trace(self.map, start, mins, maxs, end, 0x21)
+    }
+}
