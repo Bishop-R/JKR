@@ -1,10 +1,13 @@
 //! Pointer routing for the player form: hover selects, the wheel moves the
 //! selection, tabs switch pages, a click on a cycler steps it toward the
-//! half of the value zone that was hit, a click or drag on a slider sets it
-//! from the pointer, a click on a palette picks the chip under it, and the
-//! footer's ESC cap goes back.
+//! half of the value zone that was hit, a click on the Force side picker
+//! picks the card under it, a click or drag on a slider sets it from the
+//! pointer, a click on a palette picks the chip under it, and the footer's
+//! ESC cap goes back.
 
+use super::force_view::side_direction;
 use super::grid::{GRID_SCROLL_TOKEN, MODEL_ROW, TILE_BASE};
+use super::rows::FORCE_SIDE_ROW;
 use super::saber::PALETTE;
 use super::*;
 use crate::menu_widgets::{BACK_TOKEN, TAB_BASE, cycler_direction, palette_index};
@@ -100,11 +103,18 @@ impl PlayerMenu {
                 return PlayerMenuResult::None;
             }
         }
+        let side_picker = self.page == ProfilePage::Force && row == FORCE_SIDE_ROW;
         let direction = event
             .position
             .zip(self.canvas.rect_for(token))
             .filter(|_| self.selected_is_cycler())
-            .map(|(position, rect)| cycler_direction(rect, position.x));
+            .map(|(position, rect)| {
+                if side_picker {
+                    side_direction(rect, position.x)
+                } else {
+                    cycler_direction(rect, position.x)
+                }
+            });
         match direction {
             Some(direction) => self.adjust(console, direction),
             None => self.activate(console),

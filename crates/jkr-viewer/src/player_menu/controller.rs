@@ -1,6 +1,10 @@
-//! Catalogue lifecycle, immediate cvar application and keyboard handling.
+//! Catalogue lifecycle, immediate cvar application (the Force page's
+//! explicit Apply aside) and keyboard handling.
 
-use super::rows::{CharacterRow, FORCE_POWER_ROW, FORCE_RESET_ROW, FORCE_SIDE_ROW};
+use super::rows::{
+    CharacterRow, FORCE_APPLY_ROW, FORCE_DISCARD_ROW, FORCE_POWER_ROW, FORCE_RESET_ROW,
+    FORCE_SIDE_ROW,
+};
 use super::*;
 use jkr_client::{ForceSide, LegacyCatalogStatus, LegacySpecies};
 use jkr_vfs::VirtualFileSystem;
@@ -56,6 +60,7 @@ impl PlayerMenu {
         self.reconcile_saber_style();
         self.request_icons_if_ready();
         self.icons.poll();
+        self.force_icons.poll();
     }
 
     pub(super) fn reconcile_saber_style(&mut self) {
@@ -268,27 +273,30 @@ impl PlayerMenu {
                 self.saber.adjust(row, direction, catalog);
                 self.saber.apply(console);
             }
-            ProfilePage::Force => {
-                match self.selected {
-                    FORCE_SIDE_ROW => {
-                        let side = match self.force.allocation().side {
-                            ForceSide::Light => ForceSide::Dark,
-                            ForceSide::Dark => ForceSide::Light,
-                        };
-                        self.force.set_side(side);
-                    }
-                    FORCE_RESET_ROW => return,
-                    row => {
-                        self.force.step(row - FORCE_POWER_ROW, direction > 0);
-                    }
+            // The Force page edits a draft; only its Apply action writes.
+            ProfilePage::Force => match self.selected {
+                // Light is the left card, Dark the right one.
+                FORCE_SIDE_ROW => self.force.set_side(if direction < 0 {
+                    ForceSide::Light
+                } else {
+                    ForceSide::Dark
+                }),
+                // Left and right walk the action buttons, which sit in a line.
+                FORCE_RESET_ROW..=FORCE_APPLY_ROW => {
+                    self.selected = self
+                        .selected
+                        .saturating_add_signed(direction)
+                        .clamp(FORCE_RESET_ROW, FORCE_APPLY_ROW);
                 }
-                self.force.apply(console);
-            }
+                row => {
+                    self.force.step(row - FORCE_POWER_ROW, direction > 0);
+                }
+            },
         }
     }
 
-    /// Enter/click on the selected row: edit the name, reset the Force
-    /// profile, or step a cycler forward.
+    /// Enter/click on the selected row: edit the name, flip the Force side,
+    /// run a Force action, or step a cycler forward.
     pub(super) fn activate(&mut self, console: &mut ViewerConsole) {
         if self.begin_numeric(self.selected) {
             return;
@@ -298,10 +306,16 @@ impl PlayerMenu {
                 self.name_before_edit.clone_from(&self.draft.name);
                 self.name_editing = true;
             }
-            (ProfilePage::Force, FORCE_RESET_ROW) => {
-                self.force.reset();
-                self.force.apply(console);
+            (ProfilePage::Force, FORCE_SIDE_ROW) => {
+                let direction = match self.force.allocation().side {
+                    ForceSide::Light => 1,
+                    ForceSide::Dark => -1,
+                };
+                self.adjust(console, direction);
             }
+            (ProfilePage::Force, FORCE_RESET_ROW) => self.force.reset(),
+            (ProfilePage::Force, FORCE_DISCARD_ROW) => self.force.discard(),
+            (ProfilePage::Force, FORCE_APPLY_ROW) => self.force.apply(console),
             _ => self.adjust(console, 1),
         }
     }

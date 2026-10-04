@@ -12,6 +12,9 @@ use jkr_ui::{Color, FontWeight, Rect};
 
 /// Footer caps; only the back cap, which doubles as the pointer's way out.
 const KEY_HINTS: [(&str, &str); 1] = [("ESC", "Back")];
+/// The same while the Force page holds an unapplied draft, which leaving drops.
+const KEY_HINTS_FORCE_PENDING: [(&str, &str); 1] =
+    [("ESC", "Back, dropping unapplied Force changes")];
 
 impl PlayerMenu {
     pub(crate) fn append(
@@ -23,11 +26,17 @@ impl PlayerMenu {
     ) {
         let layout = FormLayout::new(viewport);
         self.canvas.begin_hero(viewport, reveal, Scrim::Column);
+        let pending = self.force.is_dirty();
+        let subtitle = match (self.page, pending) {
+            (ProfilePage::Force, false) => "Pick a side and spend your points, then Apply.",
+            (ProfilePage::Force, true) => "Not applied yet: Apply sends these powers.",
+            _ => "Changes apply immediately.",
+        };
         self.canvas.form_header(
             &layout,
             "JKR   /   PLAYER",
             PAGE_TABS[self.page.index()],
-            "Changes apply immediately.",
+            subtitle,
         );
         self.canvas
             .form_tabs(&layout, &PAGE_TABS, self.page.index());
@@ -37,7 +46,12 @@ impl PlayerMenu {
             ProfilePage::Force => self.append_force_rows(&layout),
         };
         self.append_status(&layout, rows_bottom);
-        self.canvas.form_footer(&layout, &KEY_HINTS);
+        let hints = if pending {
+            &KEY_HINTS_FORCE_PENDING
+        } else {
+            &KEY_HINTS
+        };
+        self.canvas.form_footer(&layout, hints);
         self.canvas.end_hero();
         self.canvas.finish(self.selected as u16);
         self.canvas.append_text(vertices, font, viewport);
