@@ -137,6 +137,10 @@ pub struct LegacyUserInfo {
     /// sent only when set; the game adapter sets one for a saber whose
     /// colour index selects RGB.
     pub saber_rgb: [Option<u32>; 2],
+    /// JA+/TaystJK client-plugin `cp_pluginDisable` bits (a set bit switches a
+    /// plugin feature off for this client), sent only when set; the client's
+    /// compatibility profile sets it for plugin servers and clears it elsewhere.
+    pub plugin_disable: Option<u32>,
     /// Optional stock `CVAR_USERINFO` server password (`cl_main.cpp:2850`).
     pub password: Option<String>,
     /// Stock `ja_guid`: the client's identity for this server
@@ -164,6 +168,7 @@ impl LegacyUserInfo {
             saber2: "none".to_owned(),
             char_color: [255; 3],
             saber_rgb: [None; 2],
+            plugin_disable: None,
             password: None,
             guid: None,
         }
@@ -726,6 +731,9 @@ pub fn legacy_userinfo_payload_with_extensions(
             result.push_str(&format!("\\{key}\\{packed}"));
         }
     }
+    if let Some(bits) = user.plugin_disable {
+        result.push_str(&format!("\\cp_pluginDisable\\{bits}"));
+    }
     for (key, value) in extensions {
         result.push('\\');
         result.push_str(key);
@@ -766,6 +774,7 @@ fn stock_userinfo_key(key: &str) -> bool {
         "char_color_blue",
         "cp_sbRGB1",
         "cp_sbRGB2",
+        "cp_pluginDisable",
         "protocol",
         "qport",
         "challenge",

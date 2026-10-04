@@ -6,15 +6,16 @@
 //! JKR makes the same boundary explicit so BaseJKA and mod behavior cannot
 //! silently bleed into each other.
 
+use jkr_network::LegacyUserInfo;
 use jkr_protocol::{GameState, InfoString};
 use std::fmt;
 
 /// TaystJK/jaPRO USERINFO cvars and defaults declared by
 /// `codemp/cgame/cg_xcvar.h:195-207` at TaystJK commit 5802c999, minus
 /// `cp_sbRGB1`/`cp_sbRGB2`, which the profile adapter emits itself when a
-/// blade colour selects RGB (see `PlayerProfile::legacy_userinfo`).
-const TAYSTJK_USERINFO: [(&str, &str); 6] = [
-    ("cp_pluginDisable", "1536"),
+/// blade colour selects RGB (see `PlayerProfile::legacy_userinfo`), and
+/// `cp_pluginDisable`, the player's own setting ([`CompatProfile::userinfo_for`]).
+const TAYSTJK_USERINFO: [(&str, &str); 5] = [
     ("cg_displayCameraPosition", "1 80 16"),
     ("cg_displayNetSettings", "125 0 125"),
     ("cjp_client", "1.4JAPRO"),
@@ -29,20 +30,22 @@ const TAYSTJK_USERINFO: [(&str, &str); 6] = [
 ///   registers `cjp_client` `"1.4B4"` with `CVAR_USERINFO | CVAR_ROM`, and the
 ///   JA+ server's `jampgamex86.dll` names `1.4B4` as the latest plugin it
 ///   knows, so it does not ask for an update.
-/// - `cp_pluginDisable` follows EternalJK (`codemp/cgame/cg_xcvar.h:166`)
-///   rather than the plugin's default 0: bits 9 (holstered saber) and 10
-///   (ledge grab) opt out of JA+ features drawn with the plugin's extra
-///   animations and attachments, which this client, like EternalJK, lacks.
 /// - `cp_clanPwd` `"none"` is the default of both the plugin and EternalJK.
+///
+/// `cp_pluginDisable` is the player's setting and is added per profile by
+/// [`CompatProfile::userinfo_for`], defaulting to [`PLUGIN_DISABLE_DEFAULT`].
 ///
 /// `cp_sbRGB1`/`cp_sbRGB2` are added by the userinfo codec whenever a blade
 /// selects RGB, for every profile. The plugin's other USERINFO cvars
 /// (`cp_login`, `cp_holster`) are left out, as EternalJK leaves them out.
-const JAPLUS_USERINFO: [(&str, &str); 3] = [
-    ("cjp_client", "1.4B4"),
-    ("cp_pluginDisable", "1536"),
-    ("cp_clanPwd", "none"),
-];
+const JAPLUS_USERINFO: [(&str, &str); 2] = [("cjp_client", "1.4B4"), ("cp_clanPwd", "none")];
+
+/// `cp_pluginDisable` sent to plugin servers when the player has not set one:
+/// EternalJK's value (`codemp/cgame/cg_xcvar.h:166`) rather than the JA+
+/// plugin's 0. Bits 9 (holstered saber) and 10 (ledge grab) opt out of JA+
+/// features drawn with the plugin's extra animations and attachments, which
+/// this client, like EternalJK, lacks (`cg_consolecmds.c:1160-1185`).
+pub const PLUGIN_DISABLE_DEFAULT: u32 = 1_536;
 
 /// Server/game compatibility policy selected for one client session.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,6 +73,21 @@ impl CompatProfile {
             Self::JaPlus { .. } => &JAPLUS_USERINFO,
             Self::BaseJka | Self::Unknown(_) => &[],
         }
+    }
+
+    /// The player's userinfo as this profile sends it: plugin servers (JA+,
+    /// TaystJK/jaPRO) get the player's `cp_pluginDisable`, or
+    /// [`PLUGIN_DISABLE_DEFAULT`] when it is unset, and other servers none.
+    /// Used for the connect userinfo and every later `userinfo` update alike.
+    pub fn userinfo_for(&self, userinfo: &LegacyUserInfo) -> LegacyUserInfo {
+        let mut userinfo = userinfo.clone();
+        userinfo.plugin_disable = match self {
+            Self::JaPlus { .. } | Self::TaystJk => {
+                Some(userinfo.plugin_disable.unwrap_or(PLUGIN_DISABLE_DEFAULT))
+            }
+            Self::BaseJka | Self::Unknown(_) => None,
+        };
+        userinfo
     }
 
     /// Detect a profile from `CS_SERVERINFO` (`gamename`, `fs_game`, `version`).
@@ -210,16 +228,9 @@ mod tests {
     #[test]
     fn ja_plus_identifies_as_the_client_plugin() {
         let keys = CompatProfile::JaPlus { version: None }.userinfo_extensions();
-        assert_eq!(
-            keys,
-            &[
-                ("cjp_client", "1.4B4"),
-                ("cp_pluginDisable", "1536"),
-                ("cp_clanPwd", "none"),
-            ]
-        );
+        assert_eq!(keys, &[("cjp_client", "1.4B4"), ("cp_clanPwd", "none")]);
         // 1536 opts out of exactly holstered sabers (bit 9) and ledge grab (bit 10).
-        assert_eq!(1536, (1 << 9) | (1 << 10));
+        assert_eq!(PLUGIN_DISABLE_DEFAULT, (1 << 9) | (1 << 10));
         assert!(CompatProfile::BaseJka.userinfo_extensions().is_empty());
         assert!(
             CompatProfile::Unknown("MBII".to_owned())
@@ -233,9 +244,10 @@ mod tests {
         let mut user = jkr_network::LegacyUserInfo::with_name("Sol");
         user.color1 = 6;
         user.saber_rgb = [Some(0x00_80_ff), None];
+        let profile = CompatProfile::JaPlus { version: None };
         let payload = jkr_network::legacy_userinfo_payload_with_extensions(
-            &user,
-            CompatProfile::JaPlus { version: None }.userinfo_extensions(),
+            &profile.userinfo_for(&user),
+            profile.userinfo_extensions(),
         )
         .unwrap();
         let parsed = info(&payload);
@@ -247,5 +259,44 @@ mod tests {
         assert_eq!(parsed.get("cp_sbRGB2"), None);
         // Far inside the 1024-byte MAX_INFO_STRING with stock values.
         assert!(payload.len() < 512, "{} bytes", payload.len());
+    }
+
+    #[test]
+    fn plugin_disable_follows_the_player_on_plugin_servers_only() {
+        let payload = |profile: &CompatProfile, user: &jkr_network::LegacyUserInfo| {
+            let payload = jkr_network::legacy_userinfo_payload_with_extensions(
+                &profile.userinfo_for(user),
+                profile.userinfo_extensions(),
+            )
+            .unwrap();
+            info(&payload).get("cp_pluginDisable").map(str::to_owned)
+        };
+        let mut user = jkr_network::LegacyUserInfo::with_name("Sol");
+        let ja_plus = CompatProfile::JaPlus { version: None };
+        // Unset: the default, on both plugin profiles.
+        assert_eq!(payload(&ja_plus, &user).as_deref(), Some("1536"));
+        assert_eq!(
+            payload(&CompatProfile::TaystJk, &user).as_deref(),
+            Some("1536")
+        );
+        // The player's value replaces it, exactly once in the payload.
+        user.plugin_disable = Some(512);
+        assert_eq!(payload(&ja_plus, &user).as_deref(), Some("512"));
+        assert_eq!(
+            payload(&CompatProfile::TaystJk, &user).as_deref(),
+            Some("512")
+        );
+        let full = jkr_network::legacy_userinfo_payload_with_extensions(
+            &ja_plus.userinfo_for(&user),
+            ja_plus.userinfo_extensions(),
+        )
+        .unwrap();
+        assert_eq!(full.matches("cp_pluginDisable").count(), 1);
+        // Stock and unknown servers never receive it.
+        assert_eq!(payload(&CompatProfile::BaseJka, &user), None);
+        assert_eq!(
+            payload(&CompatProfile::Unknown("MBII".to_owned()), &user),
+            None
+        );
     }
 }

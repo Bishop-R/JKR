@@ -13,6 +13,7 @@ impl ClientSession {
         mut observe: impl FnMut(JoinPhase<'_>),
         mut download_storage: Option<Box<dyn download::DownloadStorage>>,
     ) -> Result<Self, ClientError> {
+        let userinfo = &profile.userinfo_for(userinfo);
         let initial_userinfo =
             legacy_userinfo_payload_with_extensions(userinfo, profile.userinfo_extensions())?;
         let mut connection = connect_legacy_with_userinfo_extensions_observed(
