@@ -2,8 +2,10 @@
 
 use super::Channel;
 use crate::console::line_edit::{LineEdit, Motion};
+use crate::input::dead_key::{DeadKey, TypingField, keep_caret};
 use jkr_client::{CHAT_INPUT_BYTES, ChatTarget};
-use winit::keyboard::KeyCode;
+use std::ops::Range;
+use winit::keyboard::{Key, KeyCode};
 
 pub(super) struct Editor {
     pub(super) text: String,
@@ -11,6 +13,8 @@ pub(super) struct Editor {
     pub(super) channel: Channel,
     pub(super) recipient: Option<ChatTarget>,
     pub(super) layout: super::editing::DraftLayout,
+    /// Dead key shown at the caret until its composition arrives.
+    pub(super) dead: DeadKey,
 }
 
 impl Editor {
@@ -21,7 +25,15 @@ impl Editor {
             channel,
             recipient: None,
             layout: super::editing::DraftLayout::default(),
+            dead: DeadKey::default(),
         }
+    }
+
+    /// Type a pressed character key, showing a dead key until it composes.
+    pub(super) fn type_key(&mut self, logical: &Key, text: Option<&str>) {
+        let mut dead = self.dead;
+        dead.type_key(self, logical, text);
+        self.dead = dead;
     }
 
     pub(super) fn insert(&mut self, value: &str) {
@@ -49,5 +61,25 @@ impl Editor {
             _ => return false,
         }
         true
+    }
+}
+
+impl TypingField for Editor {
+    fn line(&self) -> &str {
+        &self.text
+    }
+
+    fn caret(&self) -> usize {
+        self.edit.cursor(&self.text)
+    }
+
+    fn insert(&mut self, text: &str) {
+        Editor::insert(self, text);
+    }
+
+    fn remove(&mut self, range: Range<usize>) {
+        let caret = keep_caret(self.edit.cursor(&self.text), &range);
+        self.text.replace_range(range, "");
+        self.edit.place(&self.text, caret, false);
     }
 }

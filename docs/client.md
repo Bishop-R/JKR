@@ -207,8 +207,8 @@ Ctrl+arrows and Ctrl+Backspace/Delete, Shift-selection, Ctrl+A/C/X/V,
 Ctrl+Insert to copy and Shift+Insert to paste. Click places the caret, drag selects,
 and double-click selects a token. Selected text is highlighted; typing/pasting
 replaces it. Clipboard text keeps colour escapes, strips controls and obeys the
-existing chat byte limit. Pasting never sends a message. The `^` dead key inserts
-a literal colour prefix without affecting the next character.
+existing chat byte limit. Pasting never sends a message. Dead keys type as in
+the console (see below): `^` then a digit is a colour code, `^` then `e` is `ê`.
 
 Actions use server-provided sender slots and current roster generations. Old
 messages cannot address a replacement after an observed departure/name change;
@@ -262,11 +262,18 @@ unsupported, and this policy does not disable pure-server admission checks.
 ## Useful console commands
 
 Printable console shortcuts open the console but type normally once it is open;
-Escape and non-text toggle bindings can still close it. `^` is a literal colour
-prefix in the console and its browser, including on layouts that report it as a
-dead key, so `set name "^1Bishop"` does not close the console or lose the digit.
-Console transitions and literal dead-key `^` input clear the window's pending
-accent composition. Other dead keys retain normal accent composition.
+Escape and non-text toggle bindings can still close it. On layouts with dead keys
+(`^` on French AZERTY and German QWERTZ, `'` on US International), the console
+line and the chat draft show a dead key at the caret at once and replace it with
+what the platform composes on the next key, so typing reads as on a layout without
+dead keys: `^` then `1` gives the colour code `^1`, `^` then `e` gives `ê`, and `^`
+then Space gives `^`. Backspace removes only the shown `^`; Enter sends it. A dead
+`^` that xkb composes into a superscript digit (`¹`) becomes `^1` again, since a
+caret before a digit is a colour code. See
+[dead_key.rs](../crates/jkr-viewer/src/input/dead_key.rs). The browser's search
+field takes a dead `^` as a literal colour prefix. Opening or closing the console
+clears the window's pending accent composition, so a dead toggle key such as `^`
+on a German layout does not combine with the next letter.
 
 `connect host:port`, `disconnect` and `reconnect` control the session.
 `record`, `stoprecord`, `demo` and `playdemo` control demos.

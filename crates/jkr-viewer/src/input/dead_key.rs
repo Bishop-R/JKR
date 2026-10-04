@@ -100,6 +100,16 @@ impl DeadKey {
     }
 }
 
+/// Where a caret at `caret` lands once `range` is removed from its line: fields use
+/// it to implement [`TypingField::remove`].
+pub(crate) fn keep_caret(caret: usize, range: &Range<usize>) -> usize {
+    if caret >= range.end {
+        caret - range.len()
+    } else {
+        caret.min(range.start)
+    }
+}
+
 /// `^` and the digit for a superscript digit composed from a dead `^`.
 fn colour_code<'a>(dead: Option<char>, text: &str, buffer: &'a mut [u8; 8]) -> Option<&'a str> {
     let mut characters = text.chars();
@@ -185,6 +195,14 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn removing_a_range_keeps_the_caret_on_the_same_text() {
+        assert_eq!(keep_caret(5, &(1..3)), 3);
+        assert_eq!(keep_caret(2, &(1..3)), 1);
+        assert_eq!(keep_caret(0, &(1..3)), 0);
+        assert_eq!(keep_caret(3, &(1..3)), 1);
     }
 
     #[test]
