@@ -16,7 +16,7 @@ impl SettingsMenu {
         self.selected = row;
         self.numeric = Some(NumericEdit::new(
             row,
-            value_text(console, setting.cvar),
+            value_text(console, setting),
             min,
             max,
             integer,

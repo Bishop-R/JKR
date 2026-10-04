@@ -162,6 +162,7 @@ impl SettingsMenu {
         };
         let next = match (setting.kind, console.cvar(setting.cvar)) {
             (ValueKind::Bool, Some(CvarValue::Bool(value))) => (!value).to_string(),
+            (ValueKind::Bool, Some(value)) => if switch_on(value) { "0" } else { "1" }.to_owned(),
             (ValueKind::Integer { min, max, step }, Some(CvarValue::Integer(value))) => (*value
                 + i64::from(direction) * step)
                 .clamp(min, max)
@@ -172,7 +173,9 @@ impl SettingsMenu {
                     None => return,
                 }
             }
-            (ValueKind::Choice(values), Some(CvarValue::Text(value))) => {
+            (ValueKind::Choice(values), Some(value)) => {
+                // Choices name text or integer cvars (`cg_saberTrail` is an integer).
+                let value = value.as_text();
                 let index = values
                     .iter()
                     .position(|candidate| *candidate == value)
@@ -198,7 +201,7 @@ impl SettingsMenu {
         self.selected = row;
         self.editing = Some(TextDraft {
             row,
-            text: value_text(console, setting.cvar),
+            text: value_text(console, setting),
         });
     }
 
@@ -241,7 +244,7 @@ impl SettingsMenu {
         self.values.extend(
             settings(self.tab)
                 .iter()
-                .map(|setting| value_text(console, setting.cvar)),
+                .map(|setting| value_text(console, setting)),
         );
     }
 }
@@ -258,18 +261,28 @@ fn settings(tab: usize) -> &'static [Setting] {
         _ => &[],
     }
 }
-fn value_text(console: &ViewerConsole, name: &str) -> String {
-    console.cvar(name).map_or_else(
+/// Whether a switch row's cvar is on: true, or any nonzero number.
+fn switch_on(value: &CvarValue) -> bool {
+    match value {
+        CvarValue::Bool(value) => *value,
+        CvarValue::Integer(value) => *value != 0,
+        CvarValue::Float(value) => *value != 0.0,
+        CvarValue::Text(value) => value.trim().parse::<f64>().is_ok_and(|value| value != 0.0),
+    }
+}
+
+fn value_text(console: &ViewerConsole, setting: &Setting) -> String {
+    console.cvar(setting.cvar).map_or_else(
         || "?".to_owned(),
-        |value| match value {
-            CvarValue::Bool(v) => {
-                if *v {
+        |value| match (setting.kind, value) {
+            (ValueKind::Bool, value) | (_, value @ CvarValue::Bool(_)) => {
+                if switch_on(value) {
                     "ON".to_owned()
                 } else {
                     "OFF".to_owned()
                 }
             }
-            _ => value.as_text(),
+            (_, value) => value.as_text(),
         },
     )
 }
