@@ -33,6 +33,31 @@ Set `JKR_DEDICATED` to its executable path if installed elsewhere. The child
 lifetime is managed by the client and defaults to local access; see
 [local_server.rs](../crates/jkr-viewer/src/local_server.rs).
 
+## Animation sounds and voice variants
+
+Footsteps and authored swing/spin sounds follow the evaluated lower/upper Ghoul2
+frames and the model's `animevents.cfg`, including the shared skeleton table and
+`include` directives. The client reads supported sound assets during appearance
+loading and queues decoding on the audio worker; ordinary frame playback performs
+no file reads. A world build shares the skeleton and event assets across matching
+appearances. Active actors release their prefetched encoded bytes after registration.
+
+Ground-contact events trace beneath the animated foot and select the authored
+walk/run sound bank for the surface material. `cg_footsteps 0` mutes them. Frame
+latches prevent repeated playback while an animation frame is held; absent actors,
+teleports, backwards seeks and paused map changes reset the cursor. First-person
+local actors use the same evaluated timing. This restores the blue-stance taunt's
+spin sounds and authored melee/kick swing cues. Custom saber `spinSound` and
+`swingSound1`–`3` override the standard animation samples.
+
+Taunt, flourish and gloat voice choices advance per accepted event, with fallbacks
+based on samples that actually resolved. The expanded taunt bank is used in FFA
+as in TaystJK, rather than restricting ordinary FFA taunts to `taunt.wav`. Selection
+is replay-stable but is not the legacy global random stream; repeats remain
+possible. Animation selection, movement, saber timing and network events are
+unchanged. Animation-driven effect/footprint marks and gameplay event actions
+remain outside this audio adapter.
+
 ## Joining and changing maps
 
 The menu's FFA3 gate opens onto the prepared destination world. Map preparation

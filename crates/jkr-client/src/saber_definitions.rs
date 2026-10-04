@@ -28,6 +28,10 @@ pub struct LegacySaberDefinition {
     pub radius: f32,
     /// Hum asset selected by `soundLoop`.
     pub sound_loop: String,
+    /// Optional model animation spin-sound override.
+    pub sound_spin: Option<String>,
+    /// Three authored animation swing variants (`swingSound1` through `3`).
+    pub sound_swing: [Option<String>; 3],
     /// Number of active blade records (one through the codemp maximum of eight).
     pub num_blades: u8,
     /// Per-blade maximum lengths after the global and numbered overrides.
@@ -152,6 +156,8 @@ fn parse(source: &str) -> Vec<LegacySaberDefinition> {
         let mut model = "models/weapons2/saber/saber_w.glm".to_owned();
         let mut blade_lengths = [32.0_f32; 8];
         let mut blade_radii = [3.0_f32; 8];
+        let mut sound_spin = None;
+        let mut sound_swing = [None, None, None];
         let mut sound_loop = "sound/weapons/saber/saberhum3.wav".to_owned();
         let mut num_blades = 1_u8;
         let mut blade_style2_start = 0_u8;
@@ -200,6 +206,10 @@ fn parse(source: &str) -> Vec<LegacySaberDefinition> {
                 "nowallmarks" => no_wall_marks |= value.parse::<i32>().unwrap_or(0) != 0,
                 "nodlight" => no_dlight |= value.parse::<i32>().unwrap_or(0) != 0,
                 "soundloop" => sound_loop.clone_from(value),
+                "spinsound" => sound_spin = Some(value.to_ascii_lowercase()),
+                "swingsound1" => sound_swing[0] = Some(value.to_ascii_lowercase()),
+                "swingsound2" => sound_swing[1] = Some(value.to_ascii_lowercase()),
+                "swingsound3" => sound_swing[2] = Some(value.to_ascii_lowercase()),
                 "notinmp" => not_in_mp = value.parse::<i32>().unwrap_or(0) != 0,
                 // `Saber_ParseNoRolls`, codemp/game/bg_saberLoad.c:1245-1252.
                 "norolls" => no_rolls = value.parse::<i32>().unwrap_or(0) != 0,
@@ -238,6 +248,8 @@ fn parse(source: &str) -> Vec<LegacySaberDefinition> {
             length: blade_lengths[0],
             radius: blade_radii[0],
             sound_loop,
+            sound_spin,
+            sound_swing,
             num_blades,
             blade_lengths,
             blade_radii,

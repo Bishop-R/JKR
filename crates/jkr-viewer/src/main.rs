@@ -1505,7 +1505,7 @@ impl GpuState {
             self.assign_corpse_meshes();
         }
         {
-            if let Err(error) = self.update_actor_animations(presentation_time) {
+            if let Err(error) = self.update_actor_animations(presentation_time, game_audio) {
                 eprintln!("remote actor animation stopped: {error}");
             }
         }
