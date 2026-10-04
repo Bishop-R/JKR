@@ -7,10 +7,12 @@
 //!
 //! Implemented: the main menu with its Play (multiplayer) and quit pages,
 //! the Setup and Controls option panels ([`panel`]) on the main menu and as
-//! the in-game pop-ups, and the in-game menu ([`crate::ingame_menu`]). The
-//! other screens these pages open (server browser, Create game, Player) are
-//! still the modern ones; the follow-up plan is kept in `docs/client.md`.
+//! the in-game pop-ups, the server browser ([`browser`]) and the in-game
+//! menu ([`crate::ingame_menu`]). The other screens these pages open
+//! (Create game, Player) are still the modern ones; the follow-up plan is
+//! kept in `docs/client.md`.
 
+pub(crate) mod browser;
 pub(crate) mod layout;
 pub(crate) mod loading;
 mod pages;

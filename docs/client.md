@@ -67,6 +67,38 @@ The classic main menu has the retail pages, entries and order:
   swatches are filled with the tint each `playerchoice.txt` entry sets, not its
   swatch image. Escape returns to the profile page, then to the menu.
 
+Join Server opens retail's join-server screen (`ui/jamp/joinserver.menu`) on
+the same browser as the modern style, so the list, favourites, filters and
+sorting carry over between styles. Labels and buttons are in capitals:
+
+- GET NEW LIST and REFRESH LIST both fetch the master list again, as retail's
+  `RefreshServers` behind both did.
+- The selectors box: SOURCE (INTERNET or FAVORITES; Tab also switches),
+  FILTER (retail's mod filter row is JKR's text filter over names and maps;
+  `/` or a click starts typing, Escape ends), TYPE (game-type filter), and the
+  VIEW EMPTY, VIEW FULL and VIEW LOCKED toggles (the archived
+  `ui_browserShow*` cvars; VIEW LOCKED stands where retail's data rate was).
+- The list: SERVER NAME, MAP NAME, PLYRS, TYPE and PING columns over retail's
+  row bands and column frames, ten 26-unit rows, the sorted column filled and
+  its header white with a ^ or v for the direction. Clicking a header sorts by
+  it, again reverses it. TYPE adds JA+, JAPRO or MOD where JKR detects the
+  server's mod, and `*P` for a locked server; favourites carry a gold `*`.
+  The wheel and the scrollbar along the right edge scroll the list.
+- The secondary row: CONNECT IP (where retail had NEW FAVORITE; JKR's direct
+  connect), ADD FAVORITE or DEL. FAVORITE for the selected server, and SERVER
+  INFO, a pop-up of the server's published settings and players (Escape or a
+  click closes it). PASSWORD and FIND PLAYER are dimmed: JKR asks for the
+  password when a locked server is joined, in a retail-style prompt, and has
+  no player search yet.
+- BACK returns to the Play page, EXIT to the quit page (not shown when the
+  browser was opened from the game menu), JOIN joins the selected server (a
+  double-click on a row too).
+
+The status line under the list shows the fetch progress where retail showed
+the refresh time, and the description line shows the hovered item's
+description. The screen is in
+[menu/classic/browser.rs](../crates/jkr-viewer/src/menu/classic/browser.rs).
+
 Retail entries JKR has no screen for yet (Play Demo, Rules, Mods, Defaults) are
 shown dimmed, and their description line says so.
 
@@ -132,7 +164,8 @@ missing image falls back to JKR's own shapes. Retail assets are never bundled.
 Outside a match the classic style draws no world. The main pages are opaque
 over the retail background (the centre gap where retail played its logo video
 stays dark), and the modern screens they open (Settings, key bindings, Player,
-server browser, Create game) get the retail backdrop beneath them. The frame
+Create game) get the retail backdrop beneath them; the classic server browser
+draws its own. The frame
 then clears instead of rendering the map, its secondary views and flares; the
 boot map is still loaded, because the menu world is what joins build on, and
 switching back to `modern` shows it again. Not loading it at all in the classic
@@ -190,8 +223,8 @@ Planned follow-ups, each a new page or screen module, following the retail
 `ui/jamp` menus:
 
 - Classic versions of the screens the classic pages still open in the modern
-  style: Join Server (`joinserver`, `serverinfo`, `findplayer`, `password`,
-  `createfavorite`), Create Server (`createserver`, `advancedcreateserver`),
+  style: Join Server's `findplayer` and `createfavorite` pop-ups, Create
+  Server (`createserver`, `advancedcreateserver`),
   Solo Game (`quickgame`), and the in-game `ingame_playerforce`.
 - Retail option items JKR has no setting for (video quality presets, colour
   depth, geometric and texture detail, EAX, languages) are left out of the

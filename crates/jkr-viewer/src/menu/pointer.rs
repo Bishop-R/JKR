@@ -111,6 +111,10 @@ impl ClientMenu {
         // Hovering only highlights (the row frame reads the hover state);
         // the selection and the scroll window stay where the user put them.
         if kind == UiEventKind::Wheel {
+            if self.classic_info {
+                // The SERVER INFO pop-up covers the list.
+                return MenuAction::None;
+            }
             let direction = delta.map_or(0, |delta| -delta.y.signum() as i32);
             self.browser.scroll_by(direction * WHEEL_ROWS);
             return MenuAction::None;
@@ -149,9 +153,22 @@ impl ClientMenu {
             self.browser_focus = ROW_TOKEN + self.browser.selected() as u16;
             return MenuAction::None;
         }
+        use super::classic::browser::{
+            EXIT_TOKEN, INFO_CLOSE_TOKEN, INFO_TOKEN, REFRESH_LIST_TOKEN,
+        };
         match token {
             ADDRESS_TOKEN => self.open_address_entry(),
-            REFRESH_TOKEN => self.refresh(),
+            REFRESH_TOKEN | REFRESH_LIST_TOKEN => self.refresh(),
+            INFO_TOKEN => self.classic_info = true,
+            INFO_CLOSE_TOKEN => self.classic_info = false,
+            EXIT_TOKEN => {
+                // Retail's EXIT closes the screen onto the quit page.
+                let action = self.close_browser();
+                if self.browser_return == ReturnTarget::MainMenu {
+                    self.classic.show(super::classic::layout::Page::Quit);
+                }
+                return action;
+            }
             FAVOURITE_TOKEN => self.browser.toggle_selected_favorite(),
             BACK_TOKEN => return self.close_browser(),
             JOIN_TOKEN => return self.join_selected(),

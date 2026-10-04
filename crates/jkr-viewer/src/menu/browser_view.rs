@@ -45,6 +45,10 @@ impl ClientMenu {
         viewport: [f32; 2],
         reveal: f32,
     ) {
+        if self.is_classic() {
+            self.append_classic_browser(vertices, font, viewport, reveal);
+            return;
+        }
         let layout = FormLayout::new(viewport);
         let s = layout.scale;
         let tab = tab_of(self.browser.favorites_only());
@@ -96,6 +100,49 @@ impl ClientMenu {
             );
         }
         self.ui.end_hero();
+        self.ui.finish(self.browser_focus);
+        self.ui.append_text(vertices, font, viewport);
+    }
+
+    /// Retail's join-server screen ([`super::classic::browser`]) over the
+    /// same browser model and pointer tokens.
+    fn append_classic_browser(
+        &mut self,
+        vertices: &mut Vec<TextVertex>,
+        font: &UiFont,
+        viewport: [f32; 2],
+        reveal: f32,
+    ) {
+        use super::classic::browser::{Prompt, Screen, build};
+        let status = if self.browser.is_refreshing() && self.browser.entries().is_empty() {
+            "Querying the master server..."
+        } else if self.browser.is_refreshing() {
+            "Servers are answering..."
+        } else {
+            self.state.status()
+        };
+        let prompt = if self.address_editing {
+            Prompt::Address {
+                input: &self.address_input,
+                error: &self.address_error,
+            }
+        } else if self.password_target.is_some() {
+            Prompt::Password {
+                length: self.password.chars().count(),
+            }
+        } else {
+            Prompt::None
+        };
+        let screen = Screen {
+            status,
+            art: self.art,
+            reveal,
+            filter_editing: self.filter_editing,
+            info_open: self.classic_info,
+            from_game: self.browser_return == crate::player_menu::ReturnTarget::InGame,
+            prompt,
+        };
+        build(&mut self.ui, viewport, &mut self.browser, &screen);
         self.ui.finish(self.browser_focus);
         self.ui.append_text(vertices, font, viewport);
     }

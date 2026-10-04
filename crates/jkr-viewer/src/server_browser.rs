@@ -163,6 +163,10 @@ impl ServerBrowser {
     pub(crate) fn filter_display(&self) -> &str {
         &self.filter_display
     }
+    /// The typed filter text alone.
+    pub(crate) fn filter_text(&self) -> &str {
+        &self.filter
+    }
     /// Presentation-only sort indicator for the retained table header.
     pub(crate) fn sort_state(&self) -> (SortColumn, bool) {
         (self.sort, self.descending)
