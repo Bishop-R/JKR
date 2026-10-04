@@ -89,6 +89,19 @@ impl NativeGame {
             let flags = peer.state.raw_field(EFLAGS).unwrap_or(0);
             peer.state.set_raw_field(EFLAGS, flags & !EF_INVULNERABLE);
         }
+        // `client->noclip` heads the chain (`g_active.c`): `PM_NOCLIP` while it is on,
+        // the type the rest of the chain picks once it is off. A spectator has none.
+        if peer.playing()
+            && let Some(kind) = jkr_game_jka::noclip::movement_type(
+                peer.noclip,
+                peer.state.movement_type(),
+                peer.state.stats[0] as i32,
+                peer.state.raw_field(EFLAGS).unwrap_or(0) & EF_DISINTEGRATION != 0,
+            )
+        {
+            peer.state.set_movement_type(kind);
+            peer.movement = peer.movement.reseeded(&peer.state);
+        }
         // A gripped player floats (`PM_FLOAT`) and goes back to `PM_NORMAL` when let go.
         if let Some(kind) = jkr_game_jka::force_dark::gripped_movement_type(
             peer.state.movement_type(),
@@ -298,19 +311,26 @@ impl NativeGame {
         for tag in uses.into_iter().flatten() {
             self.use_item_of_move(client, tag, level_time);
         }
-        self.touch_items(client, level_time);
-        self.touch_jedi_master(client, level_time);
-        self.touch_holocrons(client, level_time);
-        self.touch_triggers(client, level_time);
-        self.touch_sabers(client);
-        self.touch_movers(client, level_time);
-        self.touch_siege_items(client, level_time);
-        self.touch_multiples(client, level_time);
-        self.touch_doors(client, level_time);
+        // `G_TouchTriggers`, which a player in noclip skips (`g_active.c`); the client's
+        // own trigger prediction skips `PM_NOCLIP` the same way (`cg_predict.c`).
+        let touches = !self.peer(client).is_some_and(|peer| peer.noclip);
+        if touches {
+            self.touch_items(client, level_time);
+            self.touch_jedi_master(client, level_time);
+            self.touch_holocrons(client, level_time);
+            self.touch_triggers(client, level_time);
+            self.touch_sabers(client);
+            self.touch_movers(client, level_time);
+            self.touch_siege_items(client, level_time);
+            self.touch_multiples(client, level_time);
+            self.touch_doors(client, level_time);
+        }
         self.touch_plats(client, level_time);
         self.touch_shields(client, shield_impacts.entities(), level_time);
         self.try_use(client, level_time);
-        self.touch_space(client, level_time);
+        if touches {
+            self.touch_space(client, level_time);
+        }
         self.update_client_broadcasts(client);
         for delta in landings.into_iter().flatten() {
             self.fell(client, delta, level_time);
@@ -411,7 +431,8 @@ impl NativeGame {
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
-        if !peer.playing() || peer.state.movement_type() == PM_DEAD {
+        // `CMD_ALIVE` reads the health: a corpse in noclip is in `PM_NOCLIP`, not `PM_DEAD`.
+        if !peer.playing() || peer.health <= 0 || peer.state.movement_type() == PM_DEAD {
             return;
         }
         let Some(peer) = self.peer_mut(client) else {

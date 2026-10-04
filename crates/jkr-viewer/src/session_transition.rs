@@ -265,7 +265,14 @@ impl GpuState {
             crate::log::progress(format_args!(
                 "session transition: loading {map_path} on worker"
             ));
-            // The retained world owns the screen throughout this load.
+            // The old world is a backdrop beneath the loading notice.
+            if let Some(menu) = &mut self.client_menu {
+                menu.state_loading(
+                    map_path
+                        .trim_start_matches("maps/")
+                        .trim_end_matches(".bsp"),
+                );
+            }
             let game = self
                 .resident
                 .session

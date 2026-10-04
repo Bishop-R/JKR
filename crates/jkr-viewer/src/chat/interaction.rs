@@ -1,5 +1,6 @@
 //! Keyboard and pointer actions for the floating conversation layer.
 
+use super::player_actions::{ACTIONS, MENU_BACK};
 use super::*;
 use jkr_client::{ChatDestination, chat_command};
 use jkr_ui::{InputEvent, PointerButton, UiEventKind};
@@ -9,8 +10,6 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 pub(super) const GLOBAL: u16 = 100;
 pub(super) const TEAM: u16 = 101;
 pub(super) const LATEST: u16 = 102;
-pub(super) const WHISPER: u16 = 110;
-pub(super) const MUTE: u16 = 111;
 
 impl ChatOverlay {
     pub(crate) fn handle_key(&mut self, event: &KeyEvent) -> ChatInputResult {
@@ -20,6 +19,16 @@ impl ChatOverlay {
         let PhysicalKey::Code(key) = event.physical_key else {
             return ChatInputResult::None;
         };
+        if event.logical_key == winit::keyboard::Key::Dead(Some('^')) {
+            if let Some(input) = &mut self.input {
+                input.insert("^");
+            }
+            self.player_menu = None;
+            return ChatInputResult::None;
+        }
+        if self.edit_shortcut(event) {
+            return ChatInputResult::None;
+        }
         self.edit_key(key, event.text.as_deref())
     }
 
@@ -34,16 +43,24 @@ impl ChatOverlay {
                     return ChatInputResult::None;
                 }
                 KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::Tab => {
-                    menu.selected = if menu.selected == WHISPER {
-                        MUTE
-                    } else {
-                        WHISPER
+                    let previous = key == KeyCode::ArrowUp
+                        || (key == KeyCode::Tab && self.modifiers.shift_key());
+                    let index = menu
+                        .selected
+                        .and_then(|selected| ACTIONS.iter().position(|token| *token == selected));
+                    let next = match index {
+                        Some(index) if previous => (index + ACTIONS.len() - 1) % ACTIONS.len(),
+                        Some(index) => (index + 1) % ACTIONS.len(),
+                        None if previous => ACTIONS.len() - 1,
+                        None => 0,
                     };
+                    menu.selected = Some(ACTIONS[next]);
                     return ChatInputResult::None;
                 }
                 KeyCode::Enter | KeyCode::NumpadEnter => {
-                    let token = menu.selected;
-                    self.activate(token);
+                    if let Some(token) = menu.selected {
+                        self.activate(token);
+                    }
                     return ChatInputResult::None;
                 }
                 _ => self.player_menu = None,
@@ -68,10 +85,15 @@ impl ChatOverlay {
             }
             _ => {
                 let input = self.input.as_mut().expect("active input");
-                if !input.key(key)
-                    && let Some(text) = text
+                if !input.key(
+                    key,
+                    self.modifiers.control_key(),
+                    self.modifiers.shift_key(),
+                ) && let Some(text) = text
                 {
-                    input.insert(text);
+                    if !self.modifiers.control_key() || self.modifiers.alt_key() {
+                        input.insert(text);
+                    }
                 }
             }
         }
@@ -105,6 +127,16 @@ impl ChatOverlay {
         if !self.is_typing() {
             return;
         }
+        if matches!(
+            event,
+            InputEvent::PointerMove(_) | InputEvent::PointerLeave | InputEvent::PointerPress { .. }
+        ) && let Some(menu) = &mut self.player_menu
+        {
+            menu.selected = None;
+        }
+        if self.edit_pointer(event) {
+            return;
+        }
         if let InputEvent::PointerPress {
             position,
             button: PointerButton::Primary,
@@ -113,23 +145,17 @@ impl ChatOverlay {
             // Match the canvas's reverse paint order: popovers cover the
             // composer, which covers the feed. Otherwise release activates a
             // different widget than the one recorded here and is discarded.
-            self.pressed_action = [MUTE, WHISPER, LATEST, TEAM, GLOBAL]
+            self.pressed_action = ACTIONS
                 .into_iter()
+                .rev()
+                .chain([MENU_BACK, LATEST, TEAM, GLOBAL])
                 .chain(0..MAX_VISIBLE as u16)
                 .find(|token| {
                     self.ui
                         .rect_for(*token)
                         .is_some_and(|rect| rect.contains(position))
                 })
-                .map(|token| {
-                    (
-                        token,
-                        self.visible_targets
-                            .get(usize::from(token))
-                            .copied()
-                            .flatten(),
-                    )
-                });
+                .map(|token| (token, self.action_target(token)));
         }
         if let InputEvent::PointerWheel { delta, .. } = event {
             self.player_menu = None;
@@ -143,11 +169,7 @@ impl ChatOverlay {
             && result.kind == UiEventKind::Activate
             && let Some(token) = result.token
         {
-            let target = self
-                .visible_targets
-                .get(usize::from(token))
-                .copied()
-                .flatten();
+            let target = self.action_target(token);
             // A new message can rebuild the name widgets between press and
             // release. Never reinterpret the old press as a different sender.
             if self.pressed_action.take() != Some((token, target)) {
@@ -157,11 +179,10 @@ impl ChatOverlay {
                 if let Some(target) = self.visible_targets[usize::from(token)]
                     .filter(|target| self.roster.name(*target).is_some())
                 {
-                    let rect = self.ui.rect_for(token).unwrap_or_default();
                     self.player_menu = Some(PlayerMenu {
                         target,
-                        origin: [rect.x, rect.bottom() + 8.0],
-                        selected: WHISPER,
+                        anchor_y: self.ui.rect_for(token).map_or(0.0, |rect| rect.y),
+                        selected: None,
                     });
                 }
             } else {
@@ -173,13 +194,23 @@ impl ChatOverlay {
             button: PointerButton::Primary,
         } = event
             && self.player_menu.is_some()
-            && ![WHISPER, MUTE].iter().any(|token| {
-                self.ui
-                    .rect_for(*token)
-                    .is_some_and(|r| r.contains(position))
-            })
+            && !self
+                .ui
+                .rect_for(MENU_BACK)
+                .is_some_and(|r| r.contains(position))
         {
             self.player_menu = None;
+        }
+    }
+
+    fn action_target(&self, token: u16) -> Option<ChatTarget> {
+        if ACTIONS.contains(&token) || token == MENU_BACK {
+            self.player_menu.map(|menu| menu.target)
+        } else {
+            self.visible_targets
+                .get(usize::from(token))
+                .copied()
+                .flatten()
         }
     }
 
@@ -215,44 +246,7 @@ impl ChatOverlay {
                 self.unread = 0;
                 self.player_menu = None;
             }
-            WHISPER | MUTE => {
-                let Some(menu) = self.player_menu.take() else {
-                    return;
-                };
-                if self.roster.name(menu.target).is_none() {
-                    self.notice = "Player is no longer available.";
-                    return;
-                }
-                if token == WHISPER {
-                    if let Some(input) = &mut self.input {
-                        input.channel = Channel::Whisper;
-                        input.recipient = Some(menu.target);
-                        self.notice = "";
-                    }
-                } else {
-                    let muted = if let Some(index) =
-                        self.muted.iter().position(|target| *target == menu.target)
-                    {
-                        self.muted.remove(index);
-                        false
-                    } else if self.muted.len() < HISTORY_LIMIT {
-                        self.muted.push(menu.target);
-                        true
-                    } else {
-                        return;
-                    };
-                    for line in &mut self.lines {
-                        if line.sender == Some(menu.target) {
-                            line.muted = muted;
-                        }
-                    }
-                    self.notice = if muted {
-                        "Muted here. Click their name again to unmute."
-                    } else {
-                        "Player unmuted."
-                    };
-                }
-            }
+            token if ACTIONS.contains(&token) => self.player_action(token),
             _ => {}
         }
     }
@@ -269,6 +263,12 @@ impl crate::GpuState {
             .or(self.live_session.as_ref())
         {
             self.chat.update_roster(session.game_state());
+        }
+        if event.state == ElementState::Pressed
+            && event.logical_key == winit::keyboard::Key::Dead(Some('^'))
+            && let Some(window) = &self.window
+        {
+            window.reset_dead_keys();
         }
         if let ChatInputResult::Submit(command) = self.chat.handle_key(event) {
             let command = self.console.as_ref().map_or_else(

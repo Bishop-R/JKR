@@ -10,7 +10,7 @@ use std::ops::Range;
 
 /// A caret movement, also used as the extent of a deletion.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Motion {
+pub(crate) enum Motion {
     /// One character left.
     Left,
     /// One character right.
@@ -27,7 +27,7 @@ pub(super) enum Motion {
 
 /// Caret byte offset and selection anchor of the console input line.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) struct LineEdit {
+pub(crate) struct LineEdit {
     cursor: usize,
     /// The other end of the selection; the selection is empty when it equals the caret.
     anchor: Option<usize>,
@@ -35,43 +35,43 @@ pub(super) struct LineEdit {
 
 impl LineEdit {
     /// Caret byte offset in `text`.
-    pub(super) fn cursor(&self, text: &str) -> usize {
+    pub(crate) fn cursor(&self, text: &str) -> usize {
         clamp(text, self.cursor)
     }
 
     /// Selected byte range in `text`, if it is not empty.
-    pub(super) fn selection(&self, text: &str) -> Option<Range<usize>> {
+    pub(crate) fn selection(&self, text: &str) -> Option<Range<usize>> {
         let cursor = self.cursor(text);
         let anchor = clamp(text, self.anchor?);
         (anchor != cursor).then(|| anchor.min(cursor)..anchor.max(cursor))
     }
 
     /// The line was replaced: the caret goes to its end and nothing is selected.
-    pub(super) fn to_end(&mut self, text: &str) {
+    pub(crate) fn to_end(&mut self, text: &str) {
         self.cursor = text.len();
         self.anchor = None;
     }
 
     /// Drop the selection, keeping the caret.
-    pub(super) fn deselect(&mut self) {
+    pub(crate) fn deselect(&mut self) {
         self.anchor = None;
     }
 
     /// Select the whole line, caret at its end.
-    pub(super) fn select_all(&mut self, text: &str) {
+    pub(crate) fn select_all(&mut self, text: &str) {
         self.anchor = Some(0);
         self.cursor = text.len();
     }
 
     /// Select `range` (from a double click), caret at its end.
-    pub(super) fn select(&mut self, text: &str, range: Range<usize>) {
+    pub(crate) fn select(&mut self, text: &str, range: Range<usize>) {
         self.anchor = Some(clamp(text, range.start));
         self.cursor = clamp(text, range.end);
     }
 
     /// Put the caret at byte `target` (from the pointer); `extend` keeps or starts a
     /// selection from the current caret instead of dropping it.
-    pub(super) fn place(&mut self, text: &str, target: usize, extend: bool) {
+    pub(crate) fn place(&mut self, text: &str, target: usize, extend: bool) {
         let cursor = self.cursor(text);
         if extend {
             self.anchor.get_or_insert(cursor);
@@ -83,7 +83,7 @@ impl LineEdit {
 
     /// Move the caret. With `extend` (Shift held) the selection grows or starts;
     /// without it, a left or right step over a selection lands on that side of it.
-    pub(super) fn motion(&mut self, text: &str, motion: Motion, extend: bool) {
+    pub(crate) fn motion(&mut self, text: &str, motion: Motion, extend: bool) {
         let cursor = self.cursor(text);
         if !extend && let Some(range) = self.selection(text) {
             self.anchor = None;
@@ -109,7 +109,7 @@ impl LineEdit {
 
     /// Delete the selection, or else the text between the caret and `motion`'s
     /// target (Backspace is `Left`, Delete is `Right`, Ctrl adds the word forms).
-    pub(super) fn delete(&mut self, text: &mut String, motion: Motion) {
+    pub(crate) fn delete(&mut self, text: &mut String, motion: Motion) {
         let range = self.selection(text).unwrap_or_else(|| {
             let cursor = self.cursor(text);
             let other = target(text, cursor, motion);
@@ -122,7 +122,7 @@ impl LineEdit {
 
     /// Replace the selection with `value`, or insert it at the caret, dropping control
     /// characters and whatever would take the line past `limit` bytes.
-    pub(super) fn insert(&mut self, text: &mut String, value: &str, limit: usize) {
+    pub(crate) fn insert(&mut self, text: &mut String, value: &str, limit: usize) {
         if let Some(range) = self.selection(text) {
             text.replace_range(range.clone(), "");
             self.cursor = range.start;
@@ -200,7 +200,7 @@ fn target(text: &str, cursor: usize, motion: Motion) -> usize {
 
 /// The whitespace-separated token around byte `at` in `text`, for a double click:
 /// a whole address such as `127.0.0.1:29070` rather than one number of it.
-pub(super) fn token_at(text: &str, at: usize) -> Range<usize> {
+pub(crate) fn token_at(text: &str, at: usize) -> Range<usize> {
     let at = clamp(text, at);
     let start = text[..at]
         .char_indices()
