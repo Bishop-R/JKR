@@ -1,5 +1,8 @@
 //! Retained drop-down console presentation; command behavior remains in `console.rs`.
 
+use super::console_text::ConsoleText;
+use super::edit_view::{EditFrame, OutputRows};
+use super::selection::Mark;
 use crate::menu_widgets::MenuCanvas;
 use crate::text::{TextVertex, UiFont};
 use jkr_shell::{ConsoleLine, ConsoleLineKind};
@@ -38,7 +41,7 @@ impl ConsolePresentation {
         lines: impl DoubleEndedIterator<Item = &'a ConsoleLine>,
         configured_lines: usize,
         scroll_offset: usize,
-        prompt: &str,
+        edit: EditFrame<'_>,
         completion: &str,
         vertices: &mut Vec<TextVertex>,
         font: &UiFont,
@@ -46,7 +49,9 @@ impl ConsolePresentation {
     ) {
         // Other overlays share this bounded batch. Give the console's fixed
         // controls priority even when chat or diagnostics filled the text budget.
-        let reserve = (prompt
+        let reserve = (edit
+            .prompt
+            .input
             .len()
             .saturating_add(completion.len())
             .saturating_add(160))
@@ -68,8 +73,9 @@ impl ConsolePresentation {
             }),
             configured_lines,
             scroll_offset,
-            prompt,
+            edit,
             completion,
+            font,
             viewport,
             self.options,
             &self.header,
@@ -87,7 +93,7 @@ impl ConsolePresentation {
         lines: impl DoubleEndedIterator<Item = &'a ConsoleLine>,
         configured: usize,
         scroll: usize,
-        prompt: &str,
+        edit: EditFrame<'_>,
         completion: &str,
         vertices: &mut Vec<TextVertex>,
         font: &UiFont,
@@ -116,7 +122,7 @@ impl ConsolePresentation {
         }
         if self.fraction > 0.08 {
             self.append(
-                lines, configured, scroll, prompt, completion, vertices, font, viewport,
+                lines, configured, scroll, edit, completion, vertices, font, viewport,
             );
         } else {
             self.ui.begin_transparent(viewport);
@@ -160,8 +166,9 @@ fn build_options<'a>(
     lines: impl DoubleEndedIterator<Item = (ConsoleLineKind, &'a str)>,
     configured_lines: usize,
     scroll_offset: usize,
-    prompt: &str,
+    edit: EditFrame<'_>,
     completion: &str,
+    font: &UiFont,
     viewport: [f32; 2],
     options: super::console_options::Options,
     header: &str,
@@ -187,7 +194,7 @@ fn build_options<'a>(
             if scroll_offset > 0 {
                 "Scrollback  /  Scroll down for latest"
             } else {
-                "Tab complete   /   Up, Down history"
+                "Tab complete   /   Up, Down history   /   F3 browse"
             },
             Rect::new(
                 margin + 120.0 * scale,
@@ -208,15 +215,28 @@ fn build_options<'a>(
     let bottom = input_y - 10.0 * scale;
     let available = ((bottom - top) / line_height).max(0.0) as usize;
     let maximum = configured_lines.max(1).min(available);
+    let EditFrame {
+        prompt,
+        selection,
+        lines_end,
+    } = edit;
+    // Text selection: the scrollback above the separator, the input line below it.
+    selection.begin_frame(
+        Rect::new(0.0, top, viewport[0], (input_y - top).max(0.0)),
+        Rect::new(0.0, input_y, viewport[0], (height - input_y).max(0.0)),
+    );
+    // The input line and scrollback rows are drawn, measured and hit-tested with
+    // these, so carets, highlights and pointer hits follow any size or spacing.
+    let input_text = ConsoleText::new(font, 15.0 * scale, 0.0);
+    let row_text = ConsoleText::new(font, 14.0 * scale, 0.0);
     // Submit the fixed input before history so a full glyph budget cannot hide it.
     ui.separator(Rect::new(margin, input_y, width, 1.0));
-    ui.text(
-        prompt,
+    super::edit_view::prompt(
+        ui,
+        input_text,
         Rect::new(margin, input_y + 8.0 * scale, width, 24.0 * scale),
-        15.0 * scale,
-        theme.foreground,
-        FontWeight::Regular,
-        0.0,
+        &prompt,
+        selection,
     );
     ui.text(
         if completion.is_empty() {
@@ -232,9 +252,17 @@ fn build_options<'a>(
     );
 
     ui.scroll_region(0, Rect::new(margin, top, width, (bottom - top).max(0.0)));
-    for (index, (kind, text)) in lines
-        .flat_map(|(kind, text)| text.split('\n').map(move |row| (kind, row)))
+    let mut rows = OutputRows::new(ui, row_text, selection, line_height, bottom);
+    for (index, (kind, line, start, text)) in lines
         .rev()
+        .zip((0..lines_end).rev())
+        .flat_map(|((kind, text), line)| {
+            // Rows are slices of their line, so a row's address gives its byte offset.
+            text.split('\n').rev().map(move |row| {
+                let start = row.as_ptr() as usize - text.as_ptr() as usize;
+                (kind, line, start, row)
+            })
+        })
         .skip(scroll_offset)
         .take(maximum)
         .enumerate()
@@ -244,19 +272,15 @@ fn build_options<'a>(
         } else {
             theme.foreground
         };
-        ui.text(
-            text,
-            Rect::new(
-                margin,
-                bottom - (index + 1) as f32 * line_height,
-                width,
-                line_height,
-            ),
-            14.0 * scale,
-            color,
-            FontWeight::Regular,
-            0.0,
+        let rect = Rect::new(
+            margin,
+            bottom - (index + 1) as f32 * line_height,
+            width,
+            line_height,
         );
+        rows.row(ui, index, Mark { line, byte: start }, text, rect, color);
     }
+    rows.finish();
+    selection.end_frame();
     ui.finish(u16::MAX);
 }

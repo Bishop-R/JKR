@@ -82,6 +82,7 @@ macro_rules! stage_shader {
     ($sun:expr, $flares:expr) => {
         concat!(
             include_str!("vertex_transform.wgsl"),
+            include_str!("surface_orientation.wgsl"),
             include_str!("gpu_skinning.wgsl"),
             include_str!("geometry_stage.wgsl"),
             include_str!("stage_runtime.wgsl"),

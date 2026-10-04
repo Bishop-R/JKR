@@ -38,7 +38,6 @@ struct ChatLine {
     sender: Option<ChatTarget>,
     channel: Channel,
     received_ms: u64,
-    system: bool,
     muted: bool,
     wrap: layout::Wrapped,
     y: Option<Tween>,
@@ -69,6 +68,7 @@ pub(crate) struct ChatOverlay {
     visible_targets: [Option<ChatTarget>; MAX_VISIBLE],
     pressed_action: Option<(u16, Option<ChatTarget>)>,
     layout_viewport: [f32; 2],
+    scoreboard_layout: bool,
     options: options::Options,
 }
 
@@ -105,6 +105,7 @@ impl ChatOverlay {
             visible_targets: [None; MAX_VISIBLE],
             pressed_action: None,
             layout_viewport: [0.0; 2],
+            scoreboard_layout: false,
             options: options::Options::default(),
         }
     }
@@ -128,6 +129,10 @@ impl ChatOverlay {
         sender: Option<u16>,
         now: Instant,
     ) {
+        // Console output never enters conversation history, including direct callers.
+        if kind == ServerEventKind::Print {
+            return;
+        }
         let ms = self.millis(now);
         if kind == ServerEventKind::CenterPrint {
             text.reserve(1024usize.saturating_sub(text.len()));
@@ -135,14 +140,13 @@ impl ChatOverlay {
             self.center = Some((text, ms));
             return;
         }
-        let system = kind == ServerEventKind::Print;
         if kind == ServerEventKind::Chat && self.options.clean != 0 {
             let plain = options::clean_body(&text, 1).to_ascii_lowercase();
             if plain.contains("media - currently playing: ") || plain.contains("hi everybody!") {
                 return;
             }
         }
-        let target = (!system).then(|| self.roster.target(sender)).flatten();
+        let target = self.roster.target(sender);
         // Display keeps `^n`; identity, whisper destinations and muting keep
         // using the plain roster name.
         let name = target
@@ -155,9 +159,8 @@ impl ChatOverlay {
         } else {
             chat_body(&display, &name)
         };
-        let body = options::clean_body(body, if system { 0 } else { self.options.clean });
-        if !system
-            && self.options.clean != 0
+        let body = options::clean_body(body, self.options.clean);
+        if self.options.clean != 0
             && self
                 .lines
                 .back()
@@ -177,7 +180,6 @@ impl ChatOverlay {
                 Channel::Global
             },
             received_ms: ms,
-            system,
             muted: target.is_some_and(|target| self.muted.contains(&target)),
             wrap: layout::Wrapped::default(),
             y: None,
@@ -228,6 +230,16 @@ impl ChatOverlay {
 
     pub(crate) fn draw_list(&self) -> &DrawList {
         self.ui.draw_list()
+    }
+
+    pub(crate) fn set_scoreboard_layout(&mut self, enabled: bool) {
+        if self.scoreboard_layout != enabled {
+            self.scoreboard_layout = enabled;
+            for line in &mut self.lines {
+                line.y = None;
+            }
+            self.pressed_action = None;
+        }
     }
 
     pub(crate) fn append(

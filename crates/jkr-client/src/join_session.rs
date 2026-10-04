@@ -98,10 +98,13 @@ impl ClientSession {
             .min(client_reliable_sequence);
         pending_client_commands.retain(|(sequence, _)| *sequence > client_reliable_acknowledge);
         let mut session = Self {
+            local: None,
+            origin_server: server,
+            retired_world: None,
             download_storage,
             pending_download: None,
             downloaded_message: None,
-            connection,
+            connection: Some(connection),
             game_state: initial.game_state,
             config_string_dirty: jkr_protocol::ConfigStringDirty::default(),
             server_id,
@@ -147,6 +150,8 @@ impl ClientSession {
         for command in &bootstrap_commands {
             session
                 .connection
+                .as_mut()
+                .expect("network bootstrap")
                 .record_server_command(command.sequence, &command.command);
         }
         Ok(session)

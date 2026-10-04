@@ -2,6 +2,8 @@
 
 use super::{TextVertex, UiFont};
 use crate::keybind_editor;
+#[path = "console_browser.rs"]
+mod browser;
 #[path = "console_chat_log.rs"]
 mod chat_log;
 #[path = "console_client_options.rs"]
@@ -33,6 +35,16 @@ mod console_command;
 mod console_forward;
 #[path = "console_keyboard.rs"]
 mod console_keyboard;
+#[path = "console_text.rs"]
+mod console_text;
+#[path = "console_edit_view.rs"]
+mod edit_view;
+#[path = "console_editing.rs"]
+mod editing;
+#[path = "console_line_edit.rs"]
+mod line_edit;
+#[path = "console_selection.rs"]
+mod selection;
 
 #[path = "console_options.rs"]
 mod console_options;
@@ -72,12 +84,13 @@ pub(crate) struct ViewerConsole {
     /// Shift held, for the Shift+Escape console toggle.
     shift: bool,
     input: String,
-    prompt: String,
     history: Vec<String>,
     history_index: Option<usize>,
     scroll_offset: usize,
     server_status: Arc<RwLock<String>>,
     presentation: ConsolePresentation,
+    /// Command and cvar browser drawn in place of the console while open.
+    browser: browser::Browser,
     userinfo_dirty: Arc<AtomicBool>,
     show_timedelta: crate::net_timing::CvarSetting,
     time_nudge: crate::presentation_clock::CvarSetting,
@@ -106,6 +119,7 @@ pub(crate) struct ViewerConsole {
     copied: String,
     pending_quit: bool,
     pending_input: Vec<String>,
+    pending_chat: std::collections::VecDeque<String>,
 
     client_commands: console_client::Commands,
     script_vfs: Option<Arc<jkr_vfs::VirtualFileSystem>>,
@@ -115,6 +129,12 @@ pub(crate) struct ViewerConsole {
     window_options: window_options::Options,
     chat_log: chat_log::ChatLog,
     qcommon: qcommon::Settings,
+    /// Ctrl held, for word motion and clipboard shortcuts.
+    control: bool,
+    /// Caret and selection of `input`.
+    edit: line_edit::LineEdit,
+    /// Scrollback selection and the pointer gesture editing it or the caret.
+    selection: selection::Selection,
 }
 
 impl ViewerConsole {
@@ -175,6 +195,12 @@ impl ViewerConsole {
         self.open
     }
 
+    /// The command and cvar browser is open and covers the whole frame; overlays
+    /// under it should not build their text.
+    pub(crate) fn covers_frame(&self) -> bool {
+        self.open && self.browser.is_open()
+    }
+
     /// Add an application diagnostic to the visible bounded scrollback.
     pub(crate) fn push_log(&mut self, text: impl Into<String>) {
         self.shell.push_log(text);
@@ -229,19 +255,72 @@ impl ViewerConsole {
     }
 
     pub(crate) fn set_cvar(&mut self, name: &str, value: &str) -> bool {
-        match self.shell.cvars.set_text(name, value) {
-            Ok(changed) => {
-                if changed {
-                    if name.eq_ignore_ascii_case("r_resolution") {
-                        self.sync_custom_resolution(value);
-                    }
-                    self.persist();
-                }
-                true
-            }
+        match self.apply_cvar(name, value) {
+            Ok(()) => true,
             Err(error) => {
                 self.shell.push_log(format!("^1{error}"));
                 false
+            }
+        }
+    }
+
+    /// Set a cvar from text and persist a change; the error is returned, not logged.
+    fn apply_cvar(&mut self, name: &str, value: &str) -> Result<(), jkr_shell::CvarError> {
+        if self.shell.cvars.set_text(name, value)? {
+            if name.eq_ignore_ascii_case("r_resolution") {
+                self.sync_custom_resolution(value);
+            }
+            self.persist();
+        }
+        Ok(())
+    }
+
+    /// Open the console with the command and cvar browser in front of it.
+    pub(crate) fn open_browser(&mut self) {
+        if !self.open {
+            self.set_open(true);
+        }
+        self.browser.open(&self.shell);
+    }
+
+    /// Carry out what the browser asked for after a key or pointer event.
+    fn browser_action(&mut self, action: browser::BrowserAction) {
+        use browser::BrowserAction;
+        match action {
+            BrowserAction::None => {}
+            BrowserAction::Close => self.browser.close(),
+            BrowserAction::Insert(name) => {
+                self.browser.close();
+                self.input = format!("{name} ");
+                self.rebuild_prompt();
+            }
+            BrowserAction::Set { name, value } => {
+                let result = self.apply_cvar(&name, &value);
+                self.browser.refresh(&self.shell);
+                match result {
+                    Ok(()) => self
+                        .browser
+                        .set_status(format!("{name} = \"{value}\""), false),
+                    Err(error) => self.browser.set_status(error.to_string(), true),
+                }
+            }
+            BrowserAction::Reset(name) => {
+                let result = self.shell.cvars.reset(&name);
+                if let Ok(true) = result {
+                    if name.eq_ignore_ascii_case("r_resolution")
+                        && let Some(value) = self.shell.cvars.get(&name).map(|c| c.value.as_text())
+                    {
+                        self.sync_custom_resolution(&value);
+                    }
+                    self.persist();
+                }
+                self.browser.refresh(&self.shell);
+                match result {
+                    Ok(_) => self
+                        .browser
+                        .set_status(format!("{name} restored to its default"), false),
+                    Err(error) => self.browser.set_status(error.to_string(), true),
+                }
             }
         }
     }
@@ -323,6 +402,12 @@ impl ViewerConsole {
         viewport: [f32; 2],
         _scale: f32,
     ) {
+        // Overlay text draws above every overlay's shapes, so the browser replaces the
+        // console's drawing rather than covering it.
+        if self.covers_frame() {
+            self.browser.append(vertices, font, viewport);
+            return;
+        }
         let options = self.options();
         let configured = self
             .shell
@@ -334,11 +419,20 @@ impl ViewerConsole {
             })
             .unwrap_or(18);
         let completion = self.shell.completion_hint(&self.input).unwrap_or("");
+        let edit = edit_view::EditFrame {
+            prompt: edit_view::PromptLine {
+                input: &self.input,
+                cursor: self.edit.cursor(&self.input),
+                selection: self.edit.selection(&self.input),
+            },
+            selection: &mut self.selection,
+            lines_end: self.shell.lines_written(),
+        };
         self.presentation.append_options(
             self.shell.lines(),
             configured,
             self.scroll_offset,
-            &self.prompt,
+            edit,
             completion,
             vertices,
             font,
@@ -347,9 +441,13 @@ impl ViewerConsole {
             self.open,
             self.shell.command_clock_millis(),
         );
+        self.apply_prompt_pointer();
     }
 
     pub(crate) fn draw_list(&self) -> &jkr_ui::DrawList {
+        if self.open && self.browser.is_open() {
+            return self.browser.draw_list();
+        }
         self.presentation.draw_list()
     }
 
@@ -386,12 +484,16 @@ impl ViewerConsole {
 
     /// Change the console catcher and its existing animated presentation state.
     pub(crate) fn set_open(&mut self, open: bool) {
+        self.selection.clear();
         if self.bool_cvar("con_autoclear").unwrap_or(true) {
             self.input.clear();
             self.rebuild_prompt();
         }
         self.open = open;
         self.history_index = None;
+        if !open {
+            self.browser.close();
+        }
     }
 
     fn navigate_history(&mut self, direction: i32) {
@@ -419,11 +521,9 @@ impl ViewerConsole {
         }
     }
 
+    /// The input line was replaced as a whole: put the caret at its end.
     fn rebuild_prompt(&mut self) {
-        self.prompt.clear();
-        self.prompt.push_str("] ");
-        self.prompt.push_str(&self.input);
-        self.prompt.push('_');
+        self.edit.to_end(&self.input);
     }
 
     fn persist(&mut self) {
