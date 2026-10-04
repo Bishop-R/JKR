@@ -4,32 +4,94 @@
     let p = array<vec2<f32>, 3>(vec2(-1.0,-1.0), vec2(3.0,-1.0), vec2(-1.0,3.0));
     return vec4(p[id], 0.0, 1.0);
 }
+// Only texels the pre-pass covered hold a receiver: the attribute pass writes exactly
+// those (depth-equal) and leaves the rest of its targets uncleared.
+fn receiver_texel(pixel: vec2<i32>) -> bool {
+    return textureLoad(light_depth, pixel, 0) < 1.0;
+}
 @fragment fn receiver_light(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(position.xy);
+    if !receiver_texel(pixel) { return vec4(0.0, 0.0, 0.0, 1.0); }
     let world = textureLoad(receiver_world, pixel, 0);
     let normal = textureLoad(receiver_normal, pixel, 0);
-    // Cleared texels have a zero normal; every valid receiver stores a unit normal.
-    if dot(normal.xyz, normal.xyz) == 0.0 { return vec4(0.0, 0.0, 0.0, 1.0); }
     return realtime_light_from_visibility(world.xyz, normal.xyz, vec2(world.w, normal.w));
 }
 // The same light with lamps taken from the static cache wherever it is valid.
 @group(3) @binding(0) var receiver_cache: texture_2d<f32>;
 @group(3) @binding(1) var lamp_cache: texture_2d_array<f32>;
 @group(3) @binding(2) var lamp_cache_sampler: sampler;
+// Receivers the cache cannot serve (`receivers::Direct`): the indirect dispatch size of
+// `direct_lamps`, then the count and packed pixels. Each workgroup lights
+// DIRECT_RECEIVERS receivers, DIRECT_LANES lanes walking each one's lamp list.
+const DIRECT_LANES: u32 = 4u;
+const DIRECT_RECEIVERS: u32 = 64u/DIRECT_LANES;
+// A bounded two-dimensional dispatch also covers high-resolution uncached views
+// without exceeding the device's workgroup limit along the x axis.
+const DIRECT_GROUPS_PER_ROW: u32 = 256u;
+struct DirectList { groups: array<atomic<u32>, 3>, count: atomic<u32>, pixels: array<u32> };
+@group(3) @binding(3) var<storage, read_write> direct_list: DirectList;
 @fragment fn receiver_light_cached(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(position.xy);
+    if !receiver_texel(pixel) { return vec4(0.0, 0.0, 0.0, 1.0); }
     let world = textureLoad(receiver_world, pixel, 0);
     let normal = textureLoad(receiver_normal, pixel, 0);
-    if dot(normal.xyz, normal.xyz) == 0.0 { return vec4(0.0, 0.0, 0.0, 1.0); }
     let at = textureLoad(receiver_cache, pixel, 0);
     // All four texels of the bilinear footprint must be valid; otherwise evaluate.
     let cached = textureSampleLevel(lamp_cache, lamp_cache_sampler, at.xy,
         i32(max(at.z, 1.0)) - 1, 0.0);
-    var lamps: vec3<f32>;
-    if at.z >= 1.0 && cached.a >= 0.999 {
-        lamps = lamp_light_cached(cached.rgb, world.xyz, normal.xyz);
-    } else {
-        lamps = lamp_light(world.xyz, normal.xyz);
+    if at.z < 1.0 || cached.a < 0.999 {
+        // Listed instead: `direct_lamps` evaluates every lamp and writes this texel.
+        let slot = atomicAdd(&direct_list.count, 1u);
+        if slot % DIRECT_RECEIVERS == 0u {
+            let group = slot/DIRECT_RECEIVERS;
+            atomicMax(&direct_list.groups[0], min(group + 1u, DIRECT_GROUPS_PER_ROW));
+            atomicMax(&direct_list.groups[1], group/DIRECT_GROUPS_PER_ROW + 1u);
+        }
+        direct_list.pixels[slot] = u32(pixel.x) | (u32(pixel.y) << 16u);
+        return vec4(0.0, 0.0, 0.0, 1.0);
     }
+    let lamps = lamp_light_cached(cached.rgb, world.xyz, normal.xyz);
     return realtime_light_with_lamps(world.xyz, normal.xyz, vec2(world.w, normal.w), lamps);
+}
+// The listed receivers, lit as `receiver_light` would: every lamp evaluated. The lanes of
+// one receiver take every DIRECT_LANES-th entry of its list; lane 0 sums their shares in
+// lane order and finishes the light.
+struct DirectPixels { groups: array<u32, 3>, count: u32, pixels: array<u32> };
+@group(3) @binding(8) var<storage, read> direct_pixels: DirectPixels;
+@group(3) @binding(9) var direct_light: texture_storage_2d<rgba16float, write>;
+var<workgroup> direct_shares: array<vec4<f32>, 64>;
+@compute @workgroup_size(64) fn direct_lamps(@builtin(workgroup_id) group: vec3<u32>,
+    @builtin(local_invocation_index) local: u32) {
+    let index = (group.y*DIRECT_GROUPS_PER_ROW + group.x)*DIRECT_RECEIVERS
+        + local/DIRECT_LANES;
+    let lane = local%DIRECT_LANES;
+    let listed = index < direct_pixels.count;
+    var pixel = vec2(0);
+    var world = vec4(0.0);
+    var normal = vec4(0.0);
+    var share = vec3(0.0);
+    if listed {
+        let packed = direct_pixels.pixels[index];
+        pixel = vec2<i32>(i32(packed & 0xffffu), i32(packed >> 16u));
+        world = textureLoad(receiver_world, pixel, 0);
+        normal = textureLoad(receiver_normal, pixel, 0);
+        let at = lamp_cell(world.xyz);
+        if at.w >= 0 {
+            let entry = lamp_entry(world.xyz, at.xyz);
+            let threshold = lamp_importance_threshold(world.xyz, at.xyz);
+            for (var i = lane; i < entry.y; i += DIRECT_LANES) {
+                let light = lamp_term(entry.x + i, world.xyz, normal.xyz, threshold);
+                if light.w <= 0.0 { continue; }
+                share += light.xyz*light.w;
+            }
+        }
+    }
+    direct_shares[local] = vec4(share, 0.0);
+    workgroupBarrier();
+    if listed && lane == 0u {
+        var lamps = vec3(0.0);
+        for (var k = 0u; k < DIRECT_LANES; k++) { lamps += direct_shares[local + k].xyz; }
+        textureStore(direct_light, pixel,
+            realtime_light_with_lamps(world.xyz, normal.xyz, vec2(world.w, normal.w), lamps));
+    }
 }

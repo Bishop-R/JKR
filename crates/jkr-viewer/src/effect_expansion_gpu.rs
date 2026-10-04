@@ -91,7 +91,7 @@ impl Expansion {
     /// Upload descriptions only, then expand in the existing frame encoder before the draw pass.
     pub(crate) fn prepare(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         encoder: &mut wgpu::CommandEncoder,
         batch: &Batch,
     ) {

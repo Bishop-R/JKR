@@ -43,8 +43,8 @@ pub use server_session::{
     LEGACY_SNAPSHOT_ENTITIES, LegacyAutoDemoSettings, LegacyBotSlots, LegacyClock,
     LegacyConsoleSettings, LegacyDemoFolders, LegacyDownloadFile, LegacyGameHost, LegacyGameOutput,
     LegacyRateSettings, LegacyRosterTooLarge, LegacyServerSession, LegacySessionSettings,
-    LegacySnapshotFrame, LegacySnapshotRefusal, legacy_auto_demo_name, legacy_is_private_address,
-    legacy_prune_auto_demos,
+    LegacySnapshotFrame, LegacySnapshotRefusal, LocalSnapshotBuffer, legacy_auto_demo_name,
+    legacy_is_private_address, legacy_prune_auto_demos,
 };
 mod server_oob;
 pub use server_oob::{

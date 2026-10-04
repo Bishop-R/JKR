@@ -63,7 +63,9 @@ impl GpuState {
     /// No session and no map load in flight, and the menu is up: the world
     /// only serves as the menu backdrop now.
     fn shell_is_off_server(&self) -> bool {
-        self.live_session.is_none()
+        !self.resident.exploring()
+            && self.resident.session.is_none()
+            && self.live_session.is_none()
             && self.demo_session.is_none()
             && self.world_load_task.is_none()
             && self.world_install_task.is_none()

@@ -35,7 +35,7 @@ impl Mask {
     /// Load retail shader images without requiring scope assets in custom-only installations.
     pub(crate) fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         format: wgpu::TextureFormat,
         vfs: &jkr_vfs::VirtualFileSystem,
         shaders: &jkr_shader::ShaderCatalog,
@@ -81,7 +81,7 @@ impl Mask {
                 }
             };
             let texture = device.create_texture_with_data(
-                queue,
+                queue.raw(),
                 &wgpu::TextureDescriptor {
                     label: Some(name),
                     size: wgpu::Extent3d {
@@ -202,7 +202,7 @@ impl Mask {
     /// Rebuild the original 640x480 mask, rotating FOV insert, ammo ticks and charge readout.
     pub(crate) fn prepare(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         visible: bool,
         style: i64,
         fov: f32,

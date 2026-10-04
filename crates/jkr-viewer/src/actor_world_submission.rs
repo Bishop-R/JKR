@@ -17,6 +17,9 @@ pub(crate) mod model_scale;
 #[path = "monster_hold.rs"]
 pub(crate) mod monster_hold;
 
+#[path = "player_sprites.rs"]
+mod player_sprites;
+
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
     shield_mesh: Option<usize>,
@@ -256,6 +259,18 @@ fn submit_actor(
             state.filter(|_| !local),
             transform,
             presentation_time,
+        );
+    }
+    if let Some(snapshot) = snapshot {
+        player_sprites::submit(
+            sinks,
+            entity.kind,
+            transform.translation,
+            snapshot,
+            state,
+            local,
+            draw_actor,
+            visual_now,
         );
     }
     if let (Some(mesh), Some(snapshot)) = (mesh, snapshot) {

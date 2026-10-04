@@ -2,6 +2,9 @@
 use image::{RgbaImage, imageops};
 use std::{error::Error, sync::Arc};
 
+#[path = "texture_mip_cache.rs"]
+pub(crate) mod cache;
+
 /// Number of complete mip levels through 1x1, including rectangular/NPOT images.
 pub(crate) fn levels(width: u32, height: u32) -> u32 {
     32 - width.max(height).max(1).leading_zeros()
@@ -39,21 +42,18 @@ pub(crate) fn extent(images: &[Arc<RgbaImage>]) -> (u32, u32) {
 /// Upload mipmapped stage frames once; no frame-path image generation or readback.
 pub(crate) fn upload(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     images: &[Arc<RgbaImage>],
 ) -> Result<wgpu::TextureView, Box<dyn Error>> {
     let (width, height) = extent(images);
-    let chains: Vec<_> = images
-        .iter()
-        .map(|image| chain(image, width, height))
-        .collect();
+    let chains = cache::prepare(images, width, height);
     upload_chains(device, queue, width, height, &chains)
 }
 
 /// Upload one [`chain`] per layer of a `width` x `height` array.
 pub(crate) fn upload_chains(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     width: u32,
     height: u32,
     chains: &[Vec<RgbaImage>],

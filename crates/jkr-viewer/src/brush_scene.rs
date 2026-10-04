@@ -10,12 +10,14 @@ pub(crate) fn append_frame(gpu: &mut GpuState, time: i64, now: Instant) {
         .live_session
         .as_ref()
         .map(|s| s.game_state())
-        .or_else(|| gpu.demo_session.as_ref().map(|s| s.game_state()));
+        .or_else(|| gpu.demo_session.as_ref().map(|s| s.game_state()))
+        .or_else(|| gpu.resident.scenery.as_ref().map(|(game, _)| game));
     let snapshot = first_person_view::presented_snapshot(
         gpu.live_session.as_ref(),
         gpu.demo_session.as_ref(),
         time as i32,
-    );
+    )
+    .or_else(|| gpu.resident.scenery.as_ref().map(|(_, snapshot)| snapshot));
     append_instances_with_views(
         &gpu.movers,
         &gpu.mover_catalog,

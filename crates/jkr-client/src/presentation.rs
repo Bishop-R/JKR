@@ -122,7 +122,16 @@ impl LegacyWorldAdapter {
         let mut next_entity_flags = BTreeMap::new();
         let mut next_corpses = BTreeSet::new();
         let color_policy = TeamColorPolicy::from_game_state(game_state);
+        let intermission = snapshot.player.movement_type() == crate::PM_INTERMISSION;
         for state in crate::legacy_scene_entities(game_state, snapshot) {
+            // codemp CG_Player: hide players, corpses and vehicles at match end;
+            // ordinary NPCs remain available for scripted intermission scenes.
+            if intermission
+                && matches!(state.entity_type(), 1 | 13 | 15)
+                && !(state.entity_type() == ET_NPC && state.npc_class() != 53)
+            {
+                continue;
+            }
             if !legacy_entity_visible(state.entity_type(), state.e_flags()) {
                 continue;
             }
@@ -251,7 +260,10 @@ impl LegacyWorldAdapter {
         // Its animation fields are commonly zero, so rendering it creates a
         // floating T-pose that follows the view. The difference pass below also
         // removes a previously active local actor after entering spectator mode.
-        if !snapshot.player.is_spectator() && snapshot.player.entity_flags() & EF_NODRAW == 0 {
+        if !intermission
+            && !snapshot.player.is_spectator()
+            && snapshot.player.entity_flags() & EF_NODRAW == 0
+        {
             let mut local_angles = snapshot.player.view_angles();
             local_angles[0] = 0.0;
             local_angles[2] = 0.0;

@@ -10,7 +10,6 @@ pub(crate) enum ClientPhase {
     Player,
     CreateGame,
     Connecting(String),
-    LoadingMap(String),
     ConnectionError,
     InGame,
 }
@@ -84,12 +83,6 @@ impl ClientState {
     pub(crate) fn connection_failed(&mut self, error: impl Into<String>) {
         self.phase = ClientPhase::ConnectionError;
         self.status = format!("Connection failed: {}", error.into());
-    }
-
-    pub(crate) fn loading_map(&mut self, map: impl Into<String>) {
-        let map = map.into();
-        self.status = format!("Loading {map}...");
-        self.phase = ClientPhase::LoadingMap(map);
     }
 
     pub(crate) fn entered_game(&mut self) {

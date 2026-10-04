@@ -31,7 +31,8 @@ impl GpuState {
             }
         }
         let visibility = self.bsp.render().visibility();
-        let preserved = shadows && self.world_materials.copy_preserved_light(encoder, false);
+        // Mirrors are lit in their own light-buffer images when there are any.
+        let preserved = shadows && self.world_materials.begin_mirror_light();
         if let Some(phases) = &self.gpu_phases {
             phases.mark(encoder, "floor-save");
         }
@@ -243,12 +244,10 @@ impl GpuState {
         if let Some(phases) = &self.gpu_phases {
             phases.mark(encoder, "floor-planes");
         }
-        if rendered && shadows {
-            if preserved {
-                self.world_materials.copy_preserved_light(encoder, true);
-            } else {
-                self.world_materials.draw_light_buffer(encoder, main, None);
-            }
+        if preserved {
+            self.world_materials.end_mirror_light();
+        } else if rendered && shadows {
+            self.world_materials.draw_light_buffer(encoder, main, None);
         }
     }
 }

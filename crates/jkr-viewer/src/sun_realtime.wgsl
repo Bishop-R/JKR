@@ -32,9 +32,12 @@ fn realtime_light_with_lamps(world: vec3<f32>, normal: vec3<f32>, visibility: ve
     var indirect = shadow.ambient.rgb*0.5;
     if probes.counts.w != 0u { indirect = probe_irradiance(world, normal)/3.1415927; }
     if (debug & 16u) != 0u { indirect = shadow.ambient.rgb*0.5; }
-    indirect += readability_fill(direct + local + indirect, shadow.fill);
-    // Screen-space obscurance applies to sky and bounce only; the cascades shadow the sun.
-    if (debug & 1u) == 0u { indirect *= ambient_occlusion(world, normal); }
+    // Gain is applied when shading, never fed back into the probe bounce solver.
+    // Screen-space obscurance affects sky/bounce; fill can retain a bounded floor.
+    var occlusion = 1.0;
+    if (debug & 1u) == 0u { occlusion = ambient_occlusion(world, normal); }
+    indirect = readable_indirect(direct + local, indirect, occlusion, shadow.fill,
+        shadow.readability.xy);
     // Bit 128: the sun's visibility itself as the light (grey where the maps say shadow).
     if (debug & 128u) != 0u { return vec4(vec3(0.15 + 0.85*sample.x), 1.0); }
     return vec4(shadow.realtime.x*(direct + local + indirect), mix(1.0, sample.x, sample.y));
