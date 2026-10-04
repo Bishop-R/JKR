@@ -25,6 +25,23 @@ actor kept its previous palette and emitted no active animation-audio request;
 only one diagnostic was emitted per failure episode. Native playtesting remains
 open. See [rendering](rendering.md#actor-animation-failures).
 
+## Distributable builds
+
+Windows x64 and Linux x64 release ZIPs for merged source `3a70c22` were built
+and checked on 2026-10-04 using the
+[GameData packages workflow](https://github.com/Bishop-R/JKR/actions/runs/37194839545).
+Both native jobs extracted their archives, started/stopped an isolated loopback
+dedicated server, and verified client discovery and portable settings with
+synthetic assets. The source snapshots match on both platforms; checkout and
+archiving preserve embedded shader line endings.
+
+Final inspection checked archive CRCs, binary hashes, source revision and
+dependency notices. Linux binaries require at most glibc 2.35; Windows imports
+contain only system DLLs, with no separate VC++ or MinGW runtime DLL requirement.
+No retail data, personal settings or debug symbols are packaged. These checks do
+not cover Windows graphical gameplay. See [packages.md](packages.md) for layout,
+runtime requirements and the repeatable build procedure.
+
 ## Drop-in client installation
 
 Local change based on `da8adc9` (2026-10-04): the client discovers game data

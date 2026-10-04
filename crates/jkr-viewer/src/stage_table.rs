@@ -71,9 +71,10 @@ pub(super) struct Table {
 const HOT_FIELDS: [&str; 4] = ["generators", "animation", "secondary_control", "emission"];
 
 /// The stage program with its per-stage group replaced by the table: `stage.field` reads
-/// the draw's record in place, so every other line of the program is unchanged.
+/// the draw's record in place, so every other line of the program is unchanged. The
+/// patterns span line breaks, so a CRLF checkout's source is normalised first.
 pub(super) fn program_source(source: &str) -> String {
-    let mut source = source.to_owned();
+    let mut source = crate::wgsl_source::lf(source).into_owned();
     for (from, to) in [
         (
             "@group(1) @binding(0) var stage_images: texture_2d_array<f32>;",
@@ -187,7 +188,7 @@ pub(super) fn program_source(source: &str) -> String {
         .replace("output.animation_index", "output.record_animation.y")
         .replace("input.animation_index", "input.record_animation.y");
 
-    source.push_str(include_str!("stage_table.wgsl"));
+    source.push_str(&crate::wgsl_source::lf(include_str!("stage_table.wgsl")));
     // Enable directives precede every declaration.
     format!("enable wgpu_binding_array;\n{source}")
 }
@@ -446,5 +447,26 @@ impl Table {
                 true,
             )
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wgsl_source::{crlf, lf};
+
+    /// The embedded programs patch whatever line endings the checkout gave them, and a
+    /// CRLF copy yields the same program as an LF one (#67).
+    #[test]
+    fn program_source_patches_lf_and_crlf_programs() {
+        for source in [STAGE_SHADER, world_sun_shader()] {
+            let embedded = program_source(source);
+            let unix = program_source(&lf(source));
+            let windows = program_source(&crlf(source));
+            assert_eq!(embedded, unix);
+            assert_eq!(windows, unix);
+            assert!(!unix.contains('\r'));
+            assert!(unix.contains("record_animation: vec2<i32>,"));
+        }
     }
 }

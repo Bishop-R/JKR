@@ -89,12 +89,16 @@ select the row and press Enter, then type a replacement. Enter applies it;
 Escape cancels. Left/Right, Home/End, Backspace and Delete edit the draft.
 Clicking another control discards an unfinished draft. Hovering does not move
 an edit to another setting.
+Text settings such as the master server follow the same rule, and Enter
+writes the setting whose edit was opened.
 
 Manual values respect the slider bounds but do not snap to its drag increment:
 for example, the FPS cap accepts 142 and FOV accepts 97.5. Decimal points and
 commas are accepted; integer controls require whole numbers. Invalid or empty
 input stays open with a red underline and does not change the setting. Dragging
 and arrow adjustment outside editing retain their existing behavior.
+Values they write are rounded to the step's decimals, so a 0.05-step slider
+stores 0.35 rather than 0.35000000000000003.
 
 ## Development maps
 
@@ -167,7 +171,11 @@ becomes the active world.
 
 Server console output (`print`) goes exclusively to the console, including match
 statistics, command replies and server announcements. It never enters chat history.
-Global, team and private chat retain their conversation overlay. Center-print
+Each line of a print becomes its own console row, without the empty row a
+server's closing newline would leave. Global, team and private chat retain their
+conversation overlay, and are also kept in the console scrollback but not among
+its notify lines, as stock cgame echoes chat with the `*` print prefix that
+`CL_ConsolePrint` keeps out of the notify area. Center-print
 gameplay notices keep their separate HUD presentation. The scoreboard continues
 to use structured server scores rather than parsing printed statistics tables.
 
@@ -308,6 +316,12 @@ Unavailable referenced archives do not abort world mounting; only locally
 available checksum matches are selected from the cache. The actual map must
 still exist and match its advertised BSP checksum. HTTP downloading remains
 unsupported, and this policy does not disable pure-server admission checks.
+
+## Colour codes
+
+Text draws `^0` to `^9` as OpenJK's ten-entry colour table does: `^0`–`^7` are
+the retail colours, `^8` is orange and `^9` grey (retail wrapped them onto black
+and red). The table is `quake_color` in [text.rs](../crates/jkr-viewer/src/text.rs).
 
 ## Useful console commands
 
