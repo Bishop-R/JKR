@@ -1247,6 +1247,8 @@ impl Predictor {
         if command.forward_move.unsigned_abs() > 64 || command.right_move.unsigned_abs() > 64 {
             command.buttons &= !BUTTON_WALKING;
         }
+        // "set the talk balloon flag", next in `PmoveSingle`.
+        crate::pmove_talk::set_talk_flag(&mut self.state.entity_flags, command.buttons);
         if predict_weapon {
             crate::pmove_weapon_charge::adjust_zoom(
                 &mut self.state,
@@ -1267,7 +1269,7 @@ impl Predictor {
         }
         // `bg_pmove.c:10527-10534`: a player with the chat open cannot move or press
         // anything; only the talk button survives, for the later slices of a long command.
-        const BUTTON_TALK: u16 = 2;
+        use crate::pmove_talk::BUTTON_TALK;
         if command.buttons & BUTTON_TALK != 0 {
             command.buttons = BUTTON_TALK;
             (command.forward_move, command.right_move, command.up_move) = (0, 0, 0);
