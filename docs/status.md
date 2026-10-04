@@ -30,6 +30,70 @@ Formatting, locked workspace build/tests and the release build passed. Clipboard
 round trips, drag behavior and platform/layout combinations are not exhaustively
 verified.
 
+## Accepted client improvements
+
+The owner approved publishing the current playtest improvements on 2026-10-04.
+These changes retain the accepted rendering defaults. Each topic is verified
+and published separately; platform/content coverage limits below still apply.
+
+## Current transition policy
+
+Local gameplay continuation during match-end intermission and server map changes
+is suspended at the owner's request. Intermission uses the real server's camera,
+scores, chat and ready controls; map changes show a loading notice with gameplay
+paused. The native continuation adapter and the viewer's dedicated-server
+dependency have been removed. Background loading, shared GPU context, archive
+inventory optimization, gate-world adoption and matching same-map reuse remain.
+Earlier continuation results below describe the historical implementation, not
+current enabled behavior. Fast joining and map loading are the current priority;
+no universal loading-time target has been verified.
+
+Verification of this policy (local change based on `7155455`): formatting,
+locked workspace build/tests and the optimized Linux client build passed. An
+external release/Vulkan run against isolated loopback TaystJK exercised a natural
+FFA3 timelimit exit into FFA1 and a same-map restart. It observed 1,666 normal
+intermission frames and 2,023 loading frames, asserted that no local simulation
+started, checked that attempted movement/mouse input could not move the loading
+camera, and verified return to the remote session and disconnect to the menu.
+Captures confirmed the scoreboard, loading notice and absence of the local body
+at the intermission camera. The visibility rule follows codemp `CG_Player`;
+scripted NPC and vehicle intermission scenes were not separately exercised.
+
+On RX 9060 XT at 960×540, this final run took about 7.9 seconds from connection
+request to playable FFA3 (excluding initial menu construction) and 9.3 seconds
+for FFA1 map preparation/adoption, of which 0.52 seconds was CPU map preparation.
+These are individual observations, not a controlled speedup or cold-cache result.
+Native-window owner playtesting and Windows runtime checks remain pending.
+
+### Loading optimization verification
+
+Local loading changes based on `7155455` plus the suspended-continuation policy
+reduce emission-mask preparation, lamp patch searches and serial mip generation.
+An interleaved optimized/baseline/optimized Linux release run on RX 9060 XT,
+Vulkan, 960×540 and an isolated loopback TaystJK server measured:
+
+| Operation | Baseline | Optimized runs |
+| --- | --- | --- |
+| Connection request to playable FFA3, including gate animation | 6.82 s | 4.75 / 4.76 s |
+| Natural FFA3 → FFA1 map preparation/adoption | 7.88 s | 3.82 / 3.64 s |
+
+Initial menu construction is excluded. These are warm-machine observations from
+one host, not cold-cache guarantees or internet-server latency measurements. All
+three runs checked ordinary intermission, paused loading, same-map restart,
+remote-session adoption and disconnect to the menu.
+
+External reference checks matched all generated lamp-source float bits and
+ordering on FFA3 (978 sources), FFA1 (3,562) and `t2_rancor` (4,333). Mip pixels
+matched the original algorithm in 12 dimension/layer cases; changed content,
+concurrent reuse and byte/entry eviction checks passed. Emission reduction
+matched every float bit in 54 rectangular, power-of-two and NPOT cases.
+Before/after 1280×720 Vulkan captures retained the scene appearance; animated
+materials and temporal rendering mean whole screenshots are not bit-identical.
+The isolated checks live outside the source tree and do not add a regression
+suite. Gameplay rules, command quantization and protocol encoding are unchanged.
+Formatting, locked workspace build/tests and the optimized Linux client build
+passed. The owner accepted the faster loading in native playtesting.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.

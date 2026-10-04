@@ -112,13 +112,6 @@ impl GpuState {
             if !active_snapshot(&snapshot) {
                 return true;
             }
-            if self.begin_playable_intermission() {
-                self.finish_resident_attach(game_audio);
-                return false;
-            }
-            if self.live_session.as_ref().is_some_and(|s| !s.is_local()) {
-                self.resident.remember_player(&snapshot.player);
-            }
             self.net_timing.snapshot_received(snapshot.server_time);
             self.present_live_snapshot(&snapshot, true, game_audio, visual_now);
             true

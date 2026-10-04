@@ -23,6 +23,30 @@ occlusion, reflections and post processing. Feature presence does not establish
 correctness on every map or GPU. Preserve the ordinary BSP/material path when
 working on optional effects and validate shared WGSL programs on an actual GPU.
 
+## Load-time texture and light preparation
+
+World installation prepares unique mipmapped texture arrays on up to four CPU
+workers before assembling material stages. Prepared batches are limited to
+64 MiB of mip pixels; a single larger animated array is processed alone. GPU
+uploads and material-cache mutation remain on the installer. Non-mipmapped
+filter modes retain their existing upload path. Layer resizing and mip filtering
+are unchanged.
+
+The process-local CPU mip cache retains at most 128 MiB of source and mip pixel
+storage and 1,024 entries. Keys include target dimensions and retained decoded
+image identities, whose upstream cache checks mounted content, so replacing a
+texture cannot select a stale chain by filename. Active uploads may temporarily
+retain evicted data. These budgets do not describe total process memory. Cache
+locking and allocation happen during loading, not during drawing.
+
+Lamp extraction uses up to four workers for ordinary maps as well as large ones,
+preserving emitter output order. Each emitter reuses sorted neighboring patch
+IDs while its spatial cell and patch count remain unchanged; live patch moments
+and the lowest-eligible-patch selection are preserved. Emission masks use an
+exact single-cell reduction for aligned power-of-two blocks and the previous
+area-overlap calculation for other dimensions. These changes reduce preparation
+work without reducing source count, texture resolution or lighting quality.
+
 ## Selected controls
 
 | Cvar | Behavior |

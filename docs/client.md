@@ -44,40 +44,30 @@ is ready. The gate stays closed while required content is unavailable. The
 existing connection notice shows the server address/status and Cancel action
 over the gate during joining; it disappears when the destination is entered.
 
-On a server map change, other players disappear while your player continues in
-an in-process native game on the old map. The ordinary client pipeline still
-presents your model, saber, weapons, HUD, animations and effects. Movement,
-attacks, pickups and doors use the existing dedicated-server gameplay. The last
-predicted player state seeds the continuation. At normal match end, local play
-starts before the first frozen intermission snapshot is presented, preserving the
-pre-intermission character and camera. The real server's scoreboard remains
-visible over local play and disappears when the server changes maps; your player
-continues until the destination is ready. Visible brush-door trajectories are
-carried across.
-The handoff retains the local actor's animation tracks and uses one monotonic
-local command/presentation timeline, without network drift adjustments. Remote
-adoption starts fresh entity samples; a backwards server timestamp also retires
-samples from the provisional server clock before applying the new snapshot.
+On a server map change, gameplay pauses and a loading notice is shown over the
+previous view until the destination and a fresh active snapshot are ready. The
+client then adopts the server's spawn state. Match-end intermission uses the
+server's normal camera, scoreboard and ready-to-exit controls. Player bodies and
+vehicles are hidden there, matching codemp; scripted non-vehicle NPCs remain visible. Local gameplay
+continuation on the old map is suspended while that feature is developed further.
+The viewer no longer prepares an in-process native game for every loaded world.
 
-The remote connection has its own command timer and stays separate from this
-local authority. Local movement, aim and simulation time never go to the waiting
-server. During intermission only, attack/use buttons retain the stock ready-to-exit
-behavior using the remote snapshot clock; once loading begins, commands are neutral.
-Once the destination and a fresh, active remote snapshot are ready, the client adopts
-that world and the server's spawn state. Matching same-map restarts can reuse the
-resident world. These paths have no separate loading screen.
+CPU map preparation and GPU resource installation remain on background workers,
+using the existing GPU context. Archive checksum inventory reads ZIP directories
+without decompressing every asset. Matching same-map restarts can still reuse
+the prepared world, and the gate adopts its already-built destination. The
+waiting connection sends neutral commands during map loading and is kept separate
+from the displayed old world, so new-map entities cannot appear in the wrong BSP.
+Texture mip preparation and lamp extraction use bounded CPU workers; repeated
+texture loads can reuse a bounded process-local mip cache. See
+[load-time rendering preparation](rendering.md#load-time-texture-and-light-preparation)
+for cache limits and unchanged output semantics. The gate animation and server
+readiness still contribute to the time before play begins.
 
-This is a temporary local game, not a copy of a remote mod's hidden state. It
-uses standard native game rules. Unreplicated script state, entity timers,
-remote projectiles and other players are not imported; unseen map entities start
-from their authored state, and an already-thrown saber returns to the hand at
-handoff. Vehicles and custom scripted interactions need further verification.
-Demo recording is unavailable during local continuation. First entry through
-the gate before any server player exists still uses movement-only exploration
-with frozen brush collision. If native world preparation fails, map-change
-continuation also falls back to that path and reports the error in the console.
-The gate's through-door view still uses the existing lightweight rendering path;
-the full lighting path begins when the destination becomes the active world.
+First entry through the gate before a server player exists retains movement-only
+exploration with frozen brush collision. The gate's through-door view uses the
+existing lightweight rendering path; full lighting begins when the destination
+becomes the active world.
 
 Server console output (`print`) goes exclusively to the console, including match
 statistics, command replies and server announcements. It never enters chat history.
@@ -85,14 +75,12 @@ Global, team and private chat retain their conversation overlay. Center-print
 gameplay notices keep their separate HUD presentation. The scoreboard continues
 to use structured server scores rather than parsing printed statistics tables.
 
-Chat remains connected to the real server during intermission and background
-loading, including global/team/private composer messages and console/bound chat
-commands. The scoreboard reserves a separate left column for messages and the
+Chat remains connected to the real server during intermission, including
+global/team/private composer messages and console/bound chat commands. Messages
+received during background loading are retained; its loading notice hides the HUD. The scoreboard reserves a separate left column for messages and the
 composer, temporarily overriding chat position/width while scores are visible.
 Chat visibility/lifetime settings still apply. Typing captures gameplay input as
 usual, and the ordinary chat layout returns after the scoreboard closes.
-If local authority cannot be prepared, intermission keeps the standard remote
-scoreboard/camera rather than switching to movement-only exploration.
 
 Escape opens the normal menu during exploration. Disconnect/cancel abandons the
 pending connection and restores the retained main-menu world. Connection and asset
@@ -102,7 +90,6 @@ shader, network or download latency, and direct command-line startup is separate
 from the already-open menu's transition path.
 
 Implementation: [resident worlds](../crates/jkr-viewer/src/resident_world.rs),
-[local authority](../crates/jkr-viewer/src/resident_game.rs),
 [early exploration](../crates/jkr-viewer/src/resident_walk.rs),
 [world handoff](../crates/jkr-viewer/src/session_transition.rs) and
 [gate destination](../crates/jkr-viewer/src/portal.rs).
