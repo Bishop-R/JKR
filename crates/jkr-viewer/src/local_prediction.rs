@@ -94,8 +94,8 @@ pub(crate) struct LocalPrediction {
     latest_input: Option<UserCommand>,
     view_height: f32,
     error: PredictionErrorDecay,
-    /// `(eFlags, clientNum)` of the previous snapshot, for teleport detection.
-    previous_player: Option<(u32, u16)>,
+    /// `(eFlags, clientNum, vehicleNum)` for teleport and mount-boundary resets.
+    previous_player: Option<(u32, u16, u16)>,
     frame_millis: i32,
     previous_frame_millis: i32,
     animation_lengths: Option<Arc<dyn AnimationLengths>>,
@@ -223,6 +223,34 @@ impl LocalPrediction {
                 .as_ref()
                 .or(self.predictor.as_ref())
                 .map(Predictor::state)
+        })
+    }
+
+    /// Vehicle strafing already computed by prediction; read-only camera input.
+    pub(crate) fn vehicle_camera_strafe(&self) -> Option<i32> {
+        self.rides
+            .preview
+            .as_ref()
+            .or(self.rides.committed.as_ref())
+            .map(|ride| ride.state().hacking_time)
+    }
+
+    /// Render the piloted vehicle from the same command as the predicted camera,
+    /// as CG_AddPacketEntities does with cg.predictedVehicleState.
+    pub(crate) fn vehicle_pose(&self) -> Option<crate::vehicle_pose::Predicted> {
+        let pilot = self.predicted_state()?;
+        let ride = self
+            .rides
+            .preview
+            .as_ref()
+            .or(self.rides.committed.as_ref())?;
+        if pilot.vehicle_entity_num != ride.number() || pilot.movement_type == 7 {
+            return None;
+        }
+        Some(crate::vehicle_pose::Predicted {
+            number: ride.number(),
+            origin: ride.state().origin,
+            angles: ride.state().view_angles,
         })
     }
 

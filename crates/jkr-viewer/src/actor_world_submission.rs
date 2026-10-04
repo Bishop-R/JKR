@@ -49,6 +49,7 @@ struct Sinks<'a> {
     view_height: f32,
     predicted_force_powers_active: Option<u32>,
     predicted_local_state: Option<&'a jkr_client::pmove::MovementState>,
+    predicted_vehicle: Option<crate::vehicle_pose::Predicted>,
     authoritative_local_saber_move: Option<u32>,
     third_person: bool,
     portal_view: bool,
@@ -138,6 +139,10 @@ pub(crate) fn submit(
             .predicted_state()
             .map(|state| state.force_powers_active),
         predicted_local_state: gpu.local_prediction.predicted_state(),
+        predicted_vehicle: gpu
+            .live_session
+            .as_ref()
+            .and_then(|_| gpu.local_prediction.vehicle_pose()),
         authoritative_local_saber_move: snapshot.map(|value| value.player.saber_move()),
         third_person: gpu.third_person,
         portal_view: gpu.scene_views.has_portal_view(),
@@ -245,6 +250,7 @@ fn submit_actor(
         state,
         Some(entity.id.get()) == local_entity_id,
         presentation_time,
+        sinks.predicted_vehicle,
     );
     if let Some(state) = state {
         model_scale::apply(transform, state.model_scale_percent(), state.npc_class());

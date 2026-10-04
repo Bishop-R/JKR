@@ -20,6 +20,53 @@ const BUTTON_USE: u16 = 32;
 const PS_EFLAGS2: usize = 103;
 
 impl NativeGame {
+    /// Authoritative landing/standing boarding from multiplayer Pmove.
+    pub(in crate::bridge) fn board_from_ground(
+        &mut self,
+        client: usize,
+        landing: Option<u16>,
+        level_time: i32,
+    ) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        if !peer.playing() || peer.state.vehicle_entity_num() != 0 || peer.state.zoom_mode() != 0 {
+            return;
+        }
+        let ground = landing.unwrap_or_else(|| peer.state.ground_entity_num());
+        let gametype = self.gametype;
+        let team = peer.session.team;
+        if !(32..1022).contains(&ground) {
+            return;
+        }
+        let Some(npc) = self
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == ground)
+        else {
+            return;
+        };
+        let Some(vehicle) = npc.vehicle.as_ref() else {
+            return;
+        };
+        if !jkr_game_jka::vehicle_auto_board::may_board(
+            vehicle.kind(),
+            npc.player.vehicle_entity_num() != 0,
+            npc.spawnflags & 2 != 0,
+            landing.is_some(),
+            gametype,
+            npc.allied_team,
+            team,
+        ) {
+            return;
+        }
+        let _ = self.with_rider(client, |roster, rider, host| {
+            roster.board(ground, rider, level_time, host);
+        });
+    }
+
     /// `ClientThink_real`'s opening for a player on a vehicle: the command handed to the
     /// vehicle it pilots, and the use key debounced while it rides.
     pub(crate) fn riding_opening(

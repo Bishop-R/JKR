@@ -7,6 +7,121 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Third-person camera collision and vehicle framing
+
+Local change against `dc36792` (2026-10-04): restore the multiplayer camera's
+collapsed-target fallback, pitch bounds/offset sign, rapid-turn damping,
+vehicle-authored framing and mount/teleport resets. Camera collision now includes
+presented inline doors/platforms and excludes BODY from the stock camera mask.
+Vehicle definitions are read at appearance loading, with no per-frame file reads.
+See [client camera behavior](client.md#third-person-camera).
+
+An external harness compiled the six original OpenJK `codemp/cgame/cg_view.c`
+camera functions and compared 10,000 camera frames at 8/7/4/3 ms. Cases include
+open space, confined rooms, fully collapsed traces, rapid yaw, animal offsets,
+vehicle overrides, pitch-dependent offsets, fighter strafing, unrestricted pitch
+and sideways offsets. Maximum component error was 0.000132; this is a floating
+point tolerance comparison with shared synthetic trace conditions, not full
+client parity certification.
+
+A separately compiled original BSP exercised the production collision adapter:
+player-clip obstruction, a translating inline door and ignored packed vehicle
+bodies passed. All 8,640 low-ceiling/corner camera frames remained finite. The
+optimized camera/collision microbenchmark took 336 ns/frame on this small fixture;
+it does not establish populated-map frame performance. Workspace formatting,
+build and tests passed, and an optimized Linux viewer was built. Offscreen Vulkan
+validation exercised the confined fixture and a mounted stock swoop on an
+isolated loopback server. Broader vehicle/mod playtesting remains open; vehicle
+rider animation is outside this camera correction. The follow-up below addresses
+local vehicle model prediction.
+
+### Local mount presentation follow-up
+
+The local pilot's vehicle model and rider seat now consume its committed/per-frame
+vehicle prediction, instead of interpolating old snapshot transforms behind the
+predicted camera. This follows OpenJK `codemp/cgame/cg_ents.c`:
+`CG_AddPacketEntities` publishes `cg.predictedVehicleState`, and
+`CG_CalcEntityLerpPositions` bypasses snapshot interpolation for that vehicle.
+No movement, command quantization, animation timing or wire code changed.
+
+An external harness exercised the production vehicle placement/seat module for
+8,000 frames at 8/7/4/3 ms, with 50 ms snapshots and 100 ms simulated delay.
+The old vehicle-root lag reached 38.735 units; the new root exactly matched the
+predicted input. Rider bolt placement, remote/demo fallback and unrelated-vehicle
+isolation passed. These are presentation fixtures, not a network or physics
+parity certification. Workspace format/build/tests and the Linux release build
+passed. An isolated offscreen Vulkan session mounted, moved and turned a stock
+tauntaun; a recorded demo confirmed mounted state throughout all 53 snapshots.
+Owner testing found continued severe jitter. The follow-up investigation found
+that the vehicle's snapshot body remained in its own prediction collision list:
+movement started all-solid, then corrected at the next server snapshot. The
+adapter now applies vehicle skip/ownership exclusions. Rider-based error decay
+also incorrectly treated gait motion as a prediction miss; it now measures the
+vehicle root, as stock does. Presentation samples the animated driver seat every
+frame instead of holding the snapshot-time offset.
+
+The unmodified OpenJK `CG_VehicleClipCheck` confirmed pilot/own-vehicle exclusion
+and foreign-vehicle collision. A production collision-adapter fixture reproduced
+all-solid before the fix and clear motion afterward across 4,000 hull sweeps at
+8/7/4/3 ms; foreign ownership and dismount restore collision. Another 4,000 frames
+using the installed tauntaun's real skeleton reduced the maximum seat step from
+5.8814 units (snapshot-held) to 0.9411 (frame-sampled), with no gait-induced
+vehicle prediction correction. Seat evaluation measured about 2 microseconds per
+frame in the optimized harness; this is not a populated-server performance claim.
+In isolated Linux Vulkan play, the same eight-second riding/turning input sequence
+went from 19 logged corrections above eight units (maximum 27.78) to none after
+the self-collision fix. The final demo confirmed mounting in all 183 snapshots.
+Workspace format/build/tests passed. This closes the reproduced self-collision
+fault; owner playtesting and broader vehicle/mod coverage remain open.
+
+The exhausted-boost follow-up found another reset: snapshot reseeding copied the
+fresh vehicle template over client-only runtime state, losing turbo expiry and
+recharge. The same ride now retains that state, as multiplayer cgame retains its
+`Vehicle_t`; a changed entity, pilot or definition resets it. An external harness
+compiled OpenJK's unmodified `AnimalNPC.c` `ProcessMoveCommands` and compared
+27,237 production prediction steps with 50 ms reseeds at 8/7/4/3 ms. Held boost
+through expiry/recharge, with alternating primary attack, matched all speed
+samples within 0.001 units/second. Separate identity checks verified retention
+for the same ride and resets for changed vehicle, pilot and definition.
+
+A silent, headless Linux Vulkan client/server check at 1280x720 and 125 FPS held
+boost while turning and attacking for 32 seconds. Logged corrections above eight
+units fell from 75 (maximum 17.23) to one (17.10, at a boost transition). Demos
+confirmed mounted state in all 696 baseline and 697 corrected snapshots, with
+180 boosted snapshots in each. This fixes the repeated exhausted-boost mismatch;
+it does not establish zero correction at boost boundaries or full vehicle parity.
+Workspace format/build/tests and the owner release build passed. Automated checks
+used isolated zero-volume settings and an ALSA null sink from startup.
+
+## Vehicle assets and boarding
+
+Local work on `dc36792`, verified on Linux on 2026-10-05:
+
+- The appearance loader now uses the shared `.veh` parser. A commented example
+  in retail `template.veh` previously selected an X-wing for `tie-fighter`.
+  Direct lookup and native Vulkan play now load `models/players/tie_fighter`.
+- Vehicle weapon indices now resolve `.vwp` EFX and rigid projectile models.
+  The local AT-ST firing check produced 243 primary and 86 alternate missile
+  samples, selecting `atst/shot_red` and `atst/side_alt_shot` respectively.
+  Replaying that capture at 8/7/4/3 ms exercised 6,345 presentation frames with
+  correct authored model selection and no default rocket model on laser shots.
+  Optimized effect dispatch averaged 66 ns/frame on that small capture; this
+  does not establish populated-map performance. Vehicle flight-loop audio is
+  not changed in this pass.
+- Landing/standing boarding follows multiplayer conditions. The original C
+  landing branch matched 20,090 eligibility cases. Production prediction at
+  8/7/4/3 ms emitted one authoritative request per landing and none for client
+  prediction. A loopback capture confirmed the player boarded the tauntaun by
+  landing without a use-key press. Broader mod vehicles remain unverified.
+- The reported missing glider/minemonster meshes were absent community content
+  in the newer local installation. Mounting the existing pack restored their
+  own models. Its malformed glider animation remains a content limitation;
+  other actors retain the existing error isolation.
+
+Automated checks used headless Gamescope/Vulkan, isolated zero-volume settings and
+an ALSA null sink. Formatting, locked workspace build/tests and optimized
+client/server builds passed. Wire encode/decode paths are unchanged.
+
 ## Actor animation error isolation
 
 Local fix based on `3a70c22` (2026-10-04): a custom glider's run clip ends at

@@ -98,8 +98,9 @@ impl RidePrediction {
         ride
     }
 
-    /// [`Self::new`] again from the next snapshot, in the storage this ride has (the
-    /// driver's offset and the vehicle's animation lengths kept).
+    /// Replace networked state from the next snapshot, retaining local vehicle timers
+    /// for the same ride, pilot and definition. The driver offset and animation lengths
+    /// are kept as well.
     pub fn reseed(
         &mut self,
         vehicle_state: &PlayerState,
@@ -112,7 +113,16 @@ impl RidePrediction {
         let fields = vehicle_state.vehicle_fields();
         let vehicle = match self.own.as_deref_mut() {
             Some(own) => {
-                own.copy_from(template);
+                // cgame retains the entity's Vehicle_t across snapshot replay.
+                // Turbo recharge and other local vehicle timers are not in vps;
+                // resetting them makes an exhausted boost predict as available
+                // again on every snapshot, then snap back to the server speed.
+                if self.number != vehicle_state.client_num()
+                    || self.pilot != pilot
+                    || !Arc::ptr_eq(&own.info, &template.info)
+                {
+                    own.copy_from(template);
+                }
                 own
             }
             None => self.own.insert(Box::new(template.clone())),

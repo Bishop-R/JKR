@@ -12,13 +12,19 @@ impl LocalPrediction {
         scratch: &mut TraceScratch,
     ) -> Vec3 {
         let player = &snapshot.player;
-        let current = (player.entity_flags(), player.client_num());
-        let teleported = self
-            .previous_player
-            .replace(current)
-            .is_some_and(|(flags, client)| {
-                (flags ^ current.0) & EF_TELEPORT_BIT != 0 || client != current.1
-            });
+        let current = (
+            player.entity_flags(),
+            player.client_num(),
+            player.vehicle_entity_num(),
+        );
+        let teleported =
+            self.previous_player
+                .replace(current)
+                .is_some_and(|(flags, client, vehicle)| {
+                    (flags ^ current.0) & EF_TELEPORT_BIT != 0
+                        || client != current.1
+                        || vehicle != current.2
+                });
         if teleported {
             // A teleport can skip the old command endpoint entirely. Clear
             // existing view error now, and do not smooth this discontinuity.
@@ -40,18 +46,23 @@ impl LocalPrediction {
             .predictor
             .as_ref()
             .filter(|_| !teleported)
-            .map(|predictor| {
-                let state = predictor.state();
-                (
+            .and_then(|predictor| {
+                let state = ride::error_state(predictor.state(), self.rides.committed.as_ref())?;
+                Some((
                     state.command_time,
+                    state.client_num,
                     telemetry::Endpoint::new(state),
                     self.render_movers.adjust(
                         state.origin,
-                        self.presentation_ground(state),
+                        if current.2 != 0 {
+                            state.ground_entity_number
+                        } else {
+                            self.presentation_ground(state)
+                        },
                         &self.physics_movers,
                         self.presentation_time,
                     ),
-                )
+                ))
             });
         self.physics_movers.update(snapshot, self.presentation_time);
         self.physics_movers
@@ -73,19 +84,24 @@ impl LocalPrediction {
         let collision =
             BspMovementCollision::with_movers(bsp, scratch, &self.physics_movers.colliders);
         let mut miss_units = 0.0;
-        let server = telemetry::Endpoint::new(predictor.state());
+        let server = telemetry::Endpoint::new(
+            ride::error_state(predictor.state(), self.rides.committed.as_ref())
+                .unwrap_or(predictor.state()),
+        );
         let mut endpoints = None;
         let mut counts = telemetry::Counts::default();
         // Stock checks before the next command. JKR receives snapshots before
         // creating that frame's command, so the final replay endpoint is also
         // a comparison boundary (including a fully acknowledged empty queue).
-        let mut measure = |state: &MovementState| {
-            if let Some((time, old, old_origin)) = previous
+        let mut measure = |state: Option<&MovementState>| {
+            let Some(state) = state else { return };
+            if let Some((time, client, old, old_origin)) = previous
                 && state.command_time == time
+                && state.client_num == client
             {
                 let adjusted = self.render_movers.adjust(
                     state.origin,
-                    if state.command_time == acknowledged {
+                    if current.2 == 0 && state.command_time == acknowledged {
                         seed_ground
                     } else {
                         state.ground_entity_number
@@ -103,7 +119,10 @@ impl LocalPrediction {
                 );
             }
         };
-        measure(predictor.state());
+        measure(ride::error_state(
+            predictor.state(),
+            self.rides.committed.as_ref(),
+        ));
         for command in &self.pending {
             let deferred = predictor.state().saber_special_deferred;
             ride::predict(
@@ -126,7 +145,10 @@ impl LocalPrediction {
                 self.predict_items,
             );
             predictor.emit_events(|event| self.pending_events.push(event));
-            measure(predictor.state());
+            measure(ride::error_state(
+                predictor.state(),
+                self.rides.committed.as_ref(),
+            ));
         }
         if let Some((old, replay)) = endpoints {
             self.miss_log
@@ -163,6 +185,9 @@ impl LocalPrediction {
                 time,
             );
         }
+        // AttachRidersGeneric reads the driver bolt at BG_GetTime (the rendered
+        // frame), not once per network snapshot. Keep the raw replay state intact.
+        self.rides.present_pilot(&mut presented, time);
         let eye = Vec3::from_array(presented.origin) + Vec3::Z * presented.view_height as f32;
         self.presented = Some(presented);
         Some(eye)

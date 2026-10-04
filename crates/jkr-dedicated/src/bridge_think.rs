@@ -30,6 +30,7 @@ impl NativeGame {
         self.lock_think(client, &command, level_time);
         let lock_enemy = self.lock_enemy(client);
         self.gather_obstacles(client);
+        self.board_from_ground(client, None, level_time);
         self.riding_move(client);
         self.space_gravity(client);
         // Whom a rocket's lock may hold on: a living foe (`OnSameTeam` in team games only).
@@ -152,6 +153,7 @@ impl NativeGame {
         let (moved, outcome) = peer.move_command(command, map.as_ref(), others, server_time, lock);
         // Later item/trigger updates may reseed prediction and clear its touch list.
         let shield_impacts = peer.movement.touched();
+        let vehicle_landing = peer.movement.vehicle_landing();
         if let Some(npc) = npc_foe {
             jkr_game_jka::npc_saber_lock::pushed_by_player(npc, &outcome);
         }
@@ -178,6 +180,9 @@ impl NativeGame {
             command.generic_command,
             level_time,
         );
+        if vehicle_landing.is_some() {
+            self.board_from_ground(client, vehicle_landing, level_time);
+        }
         if let Some(loser) = outcome.duel_loss {
             self.duel_loss(client, loser, level_time);
         }

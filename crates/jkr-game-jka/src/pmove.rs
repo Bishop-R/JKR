@@ -701,6 +701,8 @@ pub struct Predictor {
     /// entity with; a standing player's until a command has run.
     box_bounds: ([f32; 3], [f32; 3]),
     touched: TouchedEntities,
+    /// Server-only landing request; consumed after this command, never serialized.
+    vehicle_landing: Option<u16>,
     events: crate::predicted_events::PredictedEvents,
     state: MovementState,
     config: MovementConfig,
@@ -746,6 +748,7 @@ impl Predictor {
             zoom_history: Default::default(),
             box_bounds: ([-15.0, -15.0, -24.0], [15.0, 15.0, 40.0]),
             touched: TouchedEntities::default(),
+            vehicle_landing: None,
             config,
             animation_lengths: None,
             gametype: 0,
@@ -775,6 +778,7 @@ impl Predictor {
             zoom_history: Default::default(),
             box_bounds: ([-15.0, -15.0, -24.0], [15.0, 15.0, 40.0]),
             touched: TouchedEntities::default(),
+            vehicle_landing: None,
             config,
             animation_lengths: None,
             gametype: 0,
@@ -888,6 +892,11 @@ impl Predictor {
     /// Sets the box the move left (`pm->mins`, `pm->maxs`), as the game links it.
     pub fn set_box_bounds(&mut self, bounds: ([f32; 3], [f32; 3])) {
         self.box_bounds = bounds;
+    }
+
+    /// A server command landed on an entity which may be a boardable vehicle.
+    pub fn vehicle_landing(&self) -> Option<u16> {
+        self.vehicle_landing
     }
 
     /// What the last move stood on or walked into (`pm->touchents`), which the game
@@ -1084,6 +1093,7 @@ impl Predictor {
     ) {
         self.gametype = context.gametype;
         self.events.clear();
+        self.vehicle_landing = None;
         self.state.input_freeze_active = false;
         self.state.saber_deferred_active = false;
         // cg_predict.c:1109-1118: fixed mode updates angles even when this
@@ -1343,6 +1353,12 @@ impl Predictor {
                 previous_origin,
                 previous_velocity,
             );
+            if self.config.authoritative {
+                self.vehicle_landing = crate::vehicle_auto_board::landing_candidate(
+                    &self.state,
+                    self.state.ground_entity_number,
+                );
+            }
             self.start_landing_timer(previous_velocity[2]);
         }
         if hovering {
@@ -1415,6 +1431,12 @@ impl Predictor {
                 previous_origin,
                 previous_velocity,
             );
+            if self.config.authoritative {
+                self.vehicle_landing = crate::vehicle_auto_board::landing_candidate(
+                    &self.state,
+                    self.state.ground_entity_number,
+                );
+            }
             self.start_landing_timer(previous_velocity[2]);
         }
         if hovering {

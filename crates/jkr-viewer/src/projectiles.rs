@@ -22,6 +22,8 @@ const TR_INTERPOLATE: u8 = 1; // codemp/qcommon/q_shared.h:1542-1545
 pub(crate) enum Visual {
     /// A retail MD3/GLM model whose local +X axis follows travel.
     Model(&'static str),
+    /// Authored model at a registered vehicle weapon index.
+    VehicleModel(usize),
     /// A representative component of the retail repeating projectile EFX.
     Effect(EffectVisual),
     /// Intentionally not drawn by codemp (the flying tripmine case).
@@ -90,7 +92,15 @@ fn present(state: &EntityState, at_time: i32) -> Presented {
     Presented {
         origin,
         rotation: rotation.to_array(),
-        visual: visual(state.weapon(), alternate),
+        visual: if state.other_entity_num2() != 0 && state.weapon() != 3 {
+            if state.e_flags() & (1 << 11) != 0 {
+                Visual::VehicleModel(usize::from(state.other_entity_num2()))
+            } else {
+                Visual::None
+            }
+        } else {
+            visual(state.weapon(), alternate)
+        },
     }
 }
 
@@ -144,3 +154,32 @@ pub(crate) fn model_paths() -> impl Iterator<Item = &'static str> {
 }
 
 impl Visual {}
+
+/// Draw only authored rigid projectiles; their EFX are submitted separately.
+pub(crate) fn append_models(
+    projectiles: &[Presented],
+    effects: &jkr_client::LegacyMissileEffects,
+    meshes: &[crate::object_meshes::StaticModelMesh],
+    groups: &mut [Vec<crate::ActorInstance>],
+) {
+    for missile in projectiles {
+        let model = match missile.visual {
+            Visual::Model(model) => Some(model),
+            Visual::VehicleModel(index) => effects
+                .vehicle_weapon(index)
+                .and_then(|weapon| weapon.model.as_deref()),
+            _ => None,
+        };
+        if let Some(model) = model
+            && let Some(mesh) = meshes
+                .iter()
+                .position(|mesh| mesh.appearance.model.eq_ignore_ascii_case(model))
+        {
+            groups[mesh].push(crate::ActorInstance::new(
+                missile.origin,
+                missile.rotation,
+                [1.0; 3],
+            ));
+        }
+    }
+}

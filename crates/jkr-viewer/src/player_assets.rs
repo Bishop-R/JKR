@@ -57,6 +57,7 @@ pub(super) struct PlayerPreview {
     pub(super) yaw: f32,
     /// Set when the appearance named a vehicle (`$<vehicle>`).
     pub(super) vehicle: Option<crate::vehicle_assets::VehicleKind>,
+    pub(crate) vehicle_camera: Option<crate::camera::VehicleProfile>,
 }
 
 pub(super) fn load_player_preview(
@@ -216,6 +217,7 @@ pub(super) fn load_player_appearance_with(
         origin,
         yaw: camera_yaw + std::f32::consts::PI,
         vehicle: vehicle_kind,
+        vehicle_camera: vehicle.as_ref().map(|look| look.camera),
     })
 }
 
