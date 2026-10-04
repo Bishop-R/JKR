@@ -277,6 +277,8 @@ matching the server went from 549/774, 643/772, 536/776 and 544/775 at 8/7/4/3 m
 to 762, 763, 763 and 763; pull intervals mismatched 8/159, 4/94, 9/174 and 8/166
 (all before: the hook's game-side edges) and rope-hang intervals 0 of 62, 30, 62
 and 61 (all before). Without the plugin identity, 685 → 762 of 774 at 8 ms.
+The hook's rope is drawn as EternalJK draws it
+([rendering.md](rendering.md#billboard-icons)), checked by unit tests only.
 Nothing was run in the client. Crouched and in-water pulls and TaystJK/jaPRO's
 own grapple were not exercised.
 

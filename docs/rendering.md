@@ -625,6 +625,16 @@ depth testing, orientation and bounded effect-pass coverage. Smoke and other FX
 quads still soften against nearby surfaces. Applying the smoke fade to icons
 made opaque bubble interiors transparent near geometry.
 
+JA+ grapple ropes ([grapple_rope.rs](../crates/jkr-viewer/src/grapple_rope.rs))
+follow EternalJK's `CG_Missile`: on a JA+ server each `WP_STUN_BATON` missile is a
+hook, drawn as `CG_TestLine` draws it, a one-unit-wide near-black (RGB 6, 0, 0)
+`white` line from the hooked player's right hand to the hook, rebuilt every frame
+as a frame-billboard streak and hidden while the local player duels. The hooks are
+gathered once per frame into a fixed table. The effect atlas builds a generated
+white tile for `$whiteimage`/`*white` stages so the `white` shader keeps its alpha
+blend instead of falling back to the additive spark. The JA+ client plugin's hook
+model is not drawn, as in EternalJK.
+
 ## Default visual profile
 
 New profiles use the owner-approved rendering setup: day/night enabled at a fixed
