@@ -7,9 +7,13 @@ impl GpuState {
     /// and tell the menu whether the gate may open.
     pub(crate) fn drive_portal(&mut self) {
         let map = self.destination_map();
-        if let (Some(map), Some(session)) = (map.as_deref(), self.live_session.as_ref()) {
-            self.portal
-                .aim_session(map, &self.game_data, session.game_state());
+        if let (Some(map), Some(session)) = (map.as_deref(), self.resident.session.as_ref()) {
+            self.portal.aim_session(
+                map,
+                &self.game_data,
+                session.game_state(),
+                Some(session.latest_snapshot()),
+            );
         } else {
             self.portal.aim(map.as_deref(), self.vfs.as_ref());
         }
@@ -28,6 +32,9 @@ impl GpuState {
         // a server has nothing to preview.
         if !self.is_menu_world || !menu.is_connecting() {
             return None;
+        }
+        if self.resident.session.is_some() {
+            return self.pending_map_path().ok();
         }
         if !self.world_load_map.is_empty() {
             return Some(self.world_load_map.clone());

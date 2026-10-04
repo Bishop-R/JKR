@@ -16,9 +16,6 @@ use std::time::{Duration, Instant};
 #[path = "audio_pending.rs"]
 mod pending;
 
-#[path = "audio_player_mutes.rs"]
-mod player_mutes;
-
 pub(super) const SAMPLE_RATE: u32 = 44_100;
 pub(super) const VOICES: usize = 32;
 pub(super) const LOOPS: usize = 32;
@@ -191,7 +188,6 @@ enum DecodedAction {
 }
 
 pub(super) struct AudioOutput {
-    pub(super) muted_players: u32,
     _stream: Option<OutputStream>,
     pub(super) description: String,
     commands: HeapProd<AudioCommand>,
@@ -281,7 +277,6 @@ impl AudioOutput {
             return None;
         }
         Some(Self {
-            muted_players: 0,
             _stream: Some(stream),
             description,
             commands: command_producer,
@@ -295,9 +290,6 @@ impl AudioOutput {
     }
 
     pub(super) fn send(&mut self, mut command: AudioCommand) {
-        if player_mutes::blocked(self.muted_players, &command) {
-            return;
-        }
         if self.show
             && let AudioCommand::Play(handle, _) = &command
         {

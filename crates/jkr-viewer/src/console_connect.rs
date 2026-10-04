@@ -1,4 +1,4 @@
-//! Local console connection-command parsing.
+//! Local console connection and development-map command parsing.
 
 use jkr_client::LegacyServerAddress;
 
@@ -11,9 +11,13 @@ pub(crate) enum Action {
     Disconnect,
     /// Connect to the most recently requested address.
     Reconnect,
+    /// Start an owned local map with server-authorized cheats.
+    DevMap(String),
 }
 
-/// Parse commands registered by OpenJK at `codemp/client/cl_main.cpp:2879-2882`.
+/// Parse client connection commands plus the local `devmap` launch request.
+/// OpenJK registers connection commands in `codemp/client/cl_main.cpp`;
+/// `codemp/server/sv_ccmds.cpp:SV_Map_f` enables cheats for `devmap`.
 ///
 /// `CL_Connect_f` requires one argument and saves it for `CL_Reconnect_f`
 /// (`cl_main.cpp:994-1068`). `CL_Disconnect_f` tears down the active session
@@ -22,6 +26,12 @@ pub(crate) fn parse(tokens: &[String]) -> Result<Option<Action>, String> {
     let Some(name) = tokens.first() else {
         return Ok(None);
     };
+    if name.eq_ignore_ascii_case("devmap") {
+        if tokens.len() != 2 {
+            return Err("usage: devmap <map> (for example: devmap mp/ffa3)".to_owned());
+        }
+        return map_name(&tokens[1]).map(|map| Some(Action::DevMap(map)));
+    }
     if name.eq_ignore_ascii_case("connect") {
         if tokens.len() != 2 {
             return Err("usage: connect <host[:port]>".to_owned());
@@ -49,4 +59,19 @@ fn exact_arity(
     } else {
         Err(usage.to_owned())
     }
+}
+
+/// Accept an installed BSP name, optionally with its virtual path/extension.
+fn map_name(input: &str) -> Result<String, String> {
+    if input.contains('\\') || input.chars().any(char::is_whitespace) {
+        return Err("Invalid map name; use forward slashes, for example mp/ffa3".into());
+    }
+    let path =
+        jkr_vfs::VirtualPath::new(input).map_err(|error| format!("Invalid map name: {error}"))?;
+    let name = path.as_str().strip_prefix("maps/").unwrap_or(path.as_str());
+    let name = name.strip_suffix(".bsp").unwrap_or(name);
+    if name.is_empty() || name.starts_with('-') || name.contains([';', '"']) {
+        return Err("Invalid map name".into());
+    }
+    Ok(name.to_owned())
 }

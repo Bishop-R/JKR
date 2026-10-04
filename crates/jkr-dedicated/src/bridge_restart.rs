@@ -222,7 +222,7 @@ impl NativeGame {
     /// the session and the connection carry — its session, its userinfo and what it said
     /// of itself, its sabers and posed model, its last command. Returns whether it was in
     /// the world.
-    fn clear_client(&mut self, client: usize) -> bool {
+    pub(super) fn clear_client(&mut self, client: usize) -> bool {
         let movement = self.spectator(client);
         let Some(peer) = self.peer_mut(client) else {
             return false;
@@ -243,6 +243,9 @@ impl NativeGame {
         peer.sabers = old.sabers;
         peer.skeleton = old.skeleton;
         peer.last_command = old.last_command;
+        // ClientConnect(..., isBot) preserves bot ownership across restarts.
+        peer.bot = old.bot;
+        peer.personality = old.personality;
         in_world
     }
 
