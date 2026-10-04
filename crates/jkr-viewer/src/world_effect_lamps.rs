@@ -146,6 +146,7 @@ fn spectrum(
             &images,
             resolved || key.contains("$white;"),
             false,
+            false,
         );
     }
     Ok(Vec3::from_array(emission))

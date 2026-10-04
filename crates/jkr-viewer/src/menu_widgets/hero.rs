@@ -104,22 +104,6 @@ impl MenuCanvas {
         ));
     }
 
-    /// Feathered readability behind floating text: no border or hard panel edge.
-    pub(crate) fn floating_scrim(&mut self, rect: Rect, opacity: f32) {
-        const BANDS: usize = 32;
-        let band = rect.height / BANDS as f32;
-        for i in 0..BANDS {
-            let t = (i as f32 + 0.5) / BANDS as f32;
-            let edge = (t * 6.0).min((1.0 - t) * 6.0).min(1.0);
-            let alpha = opacity * edge * edge * (3.0 - 2.0 * edge);
-            let _ = self.draw.push(horizontal(
-                Rect::new(rect.x, rect.y + i as f32 * band, rect.width, band),
-                ink(alpha),
-                ink(0.0),
-            ));
-        }
-    }
-
     /// Begin a screen over the live world with `scrim` so the chrome stays
     /// readable over any map lighting. Everything up to [`Self::end_hero`]
     /// is drawn at `opacity`, which lets a screen fade in as the backdrop

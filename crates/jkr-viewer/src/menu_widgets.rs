@@ -11,6 +11,7 @@ pub(crate) use hero::{HeroColumn, Scrim};
 pub(crate) use vote::VoteLayout;
 mod controls;
 mod form;
+pub(crate) mod numeric;
 
 pub(crate) use form::{BACK_TOKEN, FormLayout, TAB_BASE, cycler_direction, palette_index};
 

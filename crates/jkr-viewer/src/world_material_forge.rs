@@ -312,7 +312,8 @@ impl Runtime {
         let known = self.forge.pipeline_keys.len();
         for key in materials {
             let lightmap = self.forge.fallback_lightmap.clone();
-            let material = compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache)?;
+            let material =
+                compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache, false)?;
             let stages = build_passes(
                 device,
                 queue,
@@ -350,7 +351,8 @@ impl Runtime {
         let known = self.forge.pipeline_keys.len();
         for key in materials {
             let lightmap = self.forge.fallback_lightmap.clone();
-            let material = compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache)?;
+            let material =
+                compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache, false)?;
             let stages = build_passes(
                 device,
                 queue,

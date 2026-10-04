@@ -22,6 +22,22 @@ impl PlayerMenu {
         let Some(token) = event.token else {
             return PlayerMenuResult::None;
         };
+        if event.kind == UiEventKind::Press
+            && crate::menu_widgets::numeric::value_row(token).is_none()
+        {
+            self.numeric = None;
+        }
+        if event.kind == UiEventKind::Activate {
+            if let Some(row) = crate::menu_widgets::numeric::value_row(token) {
+                if self.numeric.as_ref().is_none_or(|edit| edit.row != row) {
+                    self.begin_numeric(row);
+                }
+                return PlayerMenuResult::None;
+            }
+            self.numeric = None;
+        } else if self.numeric.is_some() {
+            return PlayerMenuResult::None;
+        }
         let count = self.row_count();
         if event.kind == UiEventKind::Wheel {
             let direction = event.delta.map_or(0, |delta| -delta.y.signum() as i32);
@@ -40,7 +56,7 @@ impl PlayerMenu {
         {
             return self.tile_event(event.kind, usize::from(tile), console);
         }
-        let row = usize::from(token);
+        let row = crate::menu_widgets::numeric::value_row(token).unwrap_or(usize::from(token));
         if matches!(event.kind, UiEventKind::HoverEnter | UiEventKind::Hover) {
             if row < count && !self.name_editing {
                 self.selected = row;
@@ -48,6 +64,9 @@ impl PlayerMenu {
             return PlayerMenuResult::None;
         }
         if event.kind == UiEventKind::Drag {
+            if crate::menu_widgets::numeric::value_row(token).is_some() {
+                return PlayerMenuResult::None;
+            }
             if let Some(position) = event.position.filter(|_| row < count) {
                 self.selected = row;
                 self.set_slider_from_pointer(console, token, position.x);

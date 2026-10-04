@@ -58,8 +58,8 @@ impl NativeGame {
             *gametype,
             duel_fraglimit,
         );
-        // `ClientSpawn` wipes the client: no longer a loser of the round.
-        peer.loser = false;
+        // `ClientSpawn` wipes the client: no longer a loser of the round, nor in noclip.
+        (peer.loser, peer.noclip) = (false, false);
         peer.health = peer.state.health();
         peer.corpse = None;
         peer.saber = SaberFrame::default();

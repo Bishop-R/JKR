@@ -8,6 +8,7 @@ mod force;
 mod force_view;
 mod grid;
 mod icons;
+mod numeric;
 mod pointer;
 mod rows;
 mod saber;
@@ -109,6 +110,7 @@ pub(crate) struct PlayerMenu {
     /// Keyboard/pointer selection: a row index on the current page.
     selected: usize,
     name_editing: bool,
+    numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
     name_before_edit: String,
     return_target: ReturnTarget,
     resolved_catalogue: bool,
@@ -134,6 +136,7 @@ impl PlayerMenu {
             variants: [0; 4],
             selected: 0,
             name_editing: false,
+            numeric: None,
             name_before_edit: String::with_capacity(32),
             return_target: ReturnTarget::MainMenu,
             resolved_catalogue: false,

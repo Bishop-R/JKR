@@ -32,6 +32,9 @@ impl GpuState {
             }
             true
         });
+        if gameplay.finish_buffered_input() {
+            action_count = 0;
+        }
         if console.take_quit() {
             self.quit_requested = true;
         }

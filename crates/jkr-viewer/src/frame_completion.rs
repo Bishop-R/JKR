@@ -39,6 +39,7 @@ impl GpuState {
         self.sync_runtime_cvars();
         self.update_input_motion();
         self.poll_client_shell();
+        self.finish_resident_attach(game_audio);
         self.drive_portal();
         if let Err(error) = self.update_player_animation() {
             eprintln!("player preview animation stopped: {error}");

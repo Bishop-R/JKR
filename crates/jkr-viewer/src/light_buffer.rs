@@ -611,8 +611,9 @@ impl Pipelines {
 fn source() -> String {
     let (visibility, probes, realtime) = super::super::realtime_sources(1);
     format!(
-        "{}{}{}{}{}{}{}",
+        "{}{}{}{}{}{}{}{}",
         include_str!("vertex_transform.wgsl"),
+        include_str!("surface_orientation.wgsl"),
         include_str!("sun_shadow_uniform.wgsl"),
         visibility,
         probes,
