@@ -100,6 +100,8 @@ impl GpuState {
         let present_mode = preferred_present_mode(&self.present_modes, vsync);
         if present_mode != self.configuration.present_mode {
             self.configuration.present_mode = present_mode;
+            // The frame in flight presents before its swapchain is reconfigured.
+            self.frame_pacer.split.wait_previous();
             if let Some(surface) = &self.context.surface {
                 surface.configure(&self.device, &self.configuration);
             }

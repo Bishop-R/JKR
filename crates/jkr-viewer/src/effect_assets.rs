@@ -83,7 +83,8 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
 ];
 
 /// Shaders referenced from code rather than from EFX graphs: the saber clash
-/// flare (`cg_draw.c`) and the disruptor beam lines (`fx_disruptor.c`).
+/// flare (`cg_draw.c`), the disruptor beam lines (`fx_disruptor.c`) and the
+/// sprites floated over players (`cg_players.c`).
 pub(crate) const CODE_SHADERS: &[&str] = &[
     "gfx/damage/rivetmark",
     "gfx/effects/saberdamageglow",
@@ -93,6 +94,8 @@ pub(crate) const CODE_SHADERS: &[&str] = &[
     "gfx/effects/saberFlare",
     "gfx/effects/redLine",
     "gfx/misc/whiteline2",
+    jkr_client::LegacyPlayerSprite::ConnectionInterrupted.shader(),
+    jkr_client::LegacyPlayerSprite::Talk.shader(),
 ];
 
 pub(crate) fn required_shaders<'a>(

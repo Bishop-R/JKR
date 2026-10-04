@@ -16,9 +16,6 @@ use std::time::{Duration, Instant};
 #[path = "audio_pending.rs"]
 mod pending;
 
-#[path = "audio_player_mutes.rs"]
-mod player_mutes;
-
 pub(super) const SAMPLE_RATE: u32 = 44_100;
 pub(super) const VOICES: usize = 32;
 pub(super) const LOOPS: usize = 32;
@@ -44,6 +41,9 @@ pub(super) struct OutputStats {
     pub(super) decode_failures: AtomicU64,
     /// Registrations whose bank index differed from the handle handed out.
     pub(super) handle_mismatches: AtomicU64,
+    /// Mix blocks rendered while the render thread was still sending a
+    /// frame's loops; each one used to cut the unsent loops for a block.
+    pub(super) split_loop_frames: AtomicU64,
 }
 
 impl OutputStats {
@@ -120,6 +120,9 @@ impl Iterator for MixerSource {
                 }
             }
             self.pending.flush(&mut self.mixer);
+            if self.mixer.loop_frame_open() {
+                self.stats.split_loop_frames.fetch_add(1, Ordering::Relaxed);
+            }
             let started = Instant::now();
             self.mixer.render(&mut self.scratch);
             if started.elapsed() > MIX_BLOCK_BUDGET {
@@ -165,7 +168,10 @@ pub(super) enum AudioCommand {
     SourcePosition(SourceId, [f32; 3]),
     StopChannel(SourceId, ChannelId),
     StopLoops(SourceId),
+    /// Start a frame's loop set; the previous set plays on until `CommitLoops`.
     ClearLoops,
+    /// End the loop set begun by `ClearLoops`.
+    CommitLoops,
     StopAll,
     StopEffects,
     SetLoop(SoundHandle, PlayRequest, [f32; 3]),
@@ -182,7 +188,6 @@ enum DecodedAction {
 }
 
 pub(super) struct AudioOutput {
-    pub(super) muted_players: u32,
     _stream: Option<OutputStream>,
     pub(super) description: String,
     commands: HeapProd<AudioCommand>,
@@ -272,7 +277,6 @@ impl AudioOutput {
             return None;
         }
         Some(Self {
-            muted_players: 0,
             _stream: Some(stream),
             description,
             commands: command_producer,
@@ -286,9 +290,6 @@ impl AudioOutput {
     }
 
     pub(super) fn send(&mut self, mut command: AudioCommand) {
-        if player_mutes::blocked(self.muted_players, &command) {
-            return;
-        }
         if self.show
             && let AudioCommand::Play(handle, _) = &command
         {
@@ -402,6 +403,7 @@ fn apply_command(mixer: &mut Mixer, command: AudioCommand) -> bool {
         AudioCommand::ClearLoops => {
             mixer.clear_loops();
         }
+        AudioCommand::CommitLoops => mixer.commit_loops(),
         AudioCommand::StopAll => mixer.stop_all(),
         AudioCommand::StopEffects => mixer.stop_effects(),
         AudioCommand::SetLoop(handle, request, velocity) => {

@@ -10,6 +10,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 
 mod catalog;
 mod display;
+mod numeric;
 mod pointer;
 mod resolution;
 mod resolution_list;
@@ -40,6 +41,7 @@ pub(crate) struct SettingsMenu {
     choices: Vec<ResolutionChoice>,
     /// The resolution list, open over the form.
     picker: ResolutionPicker,
+    numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
     ui: MenuCanvas,
 }
 
@@ -54,6 +56,7 @@ impl SettingsMenu {
             wants_monitor: false,
             choices: Vec::with_capacity(48),
             picker: ResolutionPicker::new(),
+            numeric: None,
             ui: MenuCanvas::new(),
         }
     }
@@ -74,6 +77,7 @@ impl SettingsMenu {
         self.editing = None;
         self.picker.close();
         self.wants_monitor = true;
+        self.numeric = None;
         self.refresh(console);
     }
 
@@ -114,6 +118,9 @@ impl SettingsMenu {
         };
         if self.picker.is_open() {
             self.resolution_key(key, event.repeat, console);
+            return SettingsResult::None;
+        }
+        if self.edit_numeric(key, event.text.as_deref(), console) {
             return SettingsResult::None;
         }
         if let Some(buffer) = &mut self.editing {
@@ -174,7 +181,7 @@ impl SettingsMenu {
                         self.editing = Some(value_text(console, setting.cvar));
                     } else if matches!(setting.kind, ValueKind::Resolution) {
                         self.open_resolutions(console);
-                    } else {
+                    } else if !self.begin_numeric(console, self.selected) {
                         self.adjust(console, 1);
                     }
                 }

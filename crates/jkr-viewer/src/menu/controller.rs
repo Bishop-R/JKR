@@ -34,12 +34,12 @@ impl ClientMenu {
                 let reveal = self.screen_reveal();
                 self.create_game.append(vertices, font, viewport, reveal);
             }
-            ClientPhase::Connecting(_) | ClientPhase::LoadingMap(_) => {
+            ClientPhase::Connecting(_) => {
                 let notice = NetworkNotice {
                     kicker: "NETWORK",
                     title: "Loading",
                     status: self.state.status(),
-                    body: "Negotiating protocol 26 and loading server assets...",
+                    body: "Joining the server and preparing its map...",
                     action: ("Cancel", "Stop joining and return to the browser"),
                 };
                 network_view::build(&mut self.ui, viewport, &notice);

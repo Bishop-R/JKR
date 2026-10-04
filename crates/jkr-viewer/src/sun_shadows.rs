@@ -19,6 +19,8 @@ pub(super) mod lamp_shadows;
 #[path = "light_buffer.rs"]
 pub(super) mod light_buffer;
 
+#[path = "sun_shadow_bounds.rs"]
+pub(super) mod bounds;
 #[path = "sun_shadow_gpu.rs"]
 mod resources;
 #[path = "sun_shadow_volume.rs"]
@@ -43,6 +45,12 @@ fn light_divisor(supersampling: u32) -> u32 {
     2 * supersampling.max(1)
 }
 
+/// The mirror images' counterparts of `Runtime::receiver` and `Runtime::light_group`.
+pub(super) struct MirrorGroups {
+    pub(super) receiver: wgpu::BindGroup,
+    light: wgpu::BindGroup,
+}
+
 /// Map-lifetime resources; absent entirely in the default-off path.
 pub(super) struct Runtime {
     view: std::cell::Cell<Option<glam::Mat4>>,
@@ -54,6 +62,7 @@ pub(super) struct Runtime {
     /// Live `jkr_dayBrightness` for the real-time lighting mode.
     light_scale: std::cell::Cell<f32>,
     ambient_fill: std::cell::Cell<f32>,
+    indirect_readability: std::cell::Cell<[f32; 2]>,
     /// Live `jkr_dayDebug` bitmask, handed to the shaders in `Parameters.realtime.w`.
     pub(in crate::world_materials) debug: std::cell::Cell<u32>,
     filter_reference: std::cell::Cell<bool>,
@@ -75,6 +84,8 @@ pub(super) struct Runtime {
     receiver: wgpu::BindGroup,
     /// Lighting inputs for evaluation and baked diffuse correction; no colour output.
     light_group: wgpu::BindGroup,
+    /// `receiver` and `light_group` over the light buffer's mirror images.
+    mirror_groups: Option<MirrorGroups>,
     /// Geometry-only sun visibility; lamp/probe bindings stay in the fullscreen pass.
     sun_group: wgpu::BindGroup,
     /// Half-resolution light buffer and its pass; day mode only.
@@ -86,6 +97,7 @@ pub(super) struct Runtime {
     /// the map's lamp cache.
     cache_group: Option<wgpu::BindGroup>,
     sampler: wgpu::Sampler,
+    bounds: bounds::Bounds,
     /// The map's lamps as GPU buffers, bound during lighting evaluation.
     lamps: crate::lamp_lights::Gpu,
     /// Shadow maps of the nearest lamps; day mode only.
@@ -108,6 +120,14 @@ pub(super) struct Runtime {
 }
 
 impl Runtime {
+    /// The light pass group of the active light-buffer images (`LightBuffer::images`).
+    pub(in crate::world_materials) fn light_group(&self) -> &wgpu::BindGroup {
+        match &self.mirror_groups {
+            Some(groups) if self.light.as_ref().is_some_and(|l| l.mirror_active()) => &groups.light,
+            _ => &self.light_group,
+        }
+    }
+
     fn light_frame(&self, time: f32) -> day::Frame {
         let day = self.day.get();
         let mut frame = if day.enabled {
@@ -188,6 +208,8 @@ pub(super) struct Parameters {
     realtime: [f32; 4],
     /// Readability fill tint and strength, independent of the sky environment.
     fill: [f32; 4],
+    /// Indirect gain, fill occlusion fraction, two reserved lanes.
+    readability: [f32; 4],
 }
 
 impl crate::GpuState {
@@ -237,7 +259,11 @@ impl super::Runtime {
     }
 
     /// Publish one directed sun to every lighting pass; no resource recreation.
-    pub(crate) fn set_director_sun(&self, queue: &wgpu::Queue, sun: Option<(Vec3, f32)>) {
+    pub(crate) fn set_director_sun(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        sun: Option<(Vec3, f32)>,
+    ) {
         if let Some(shadow) = &self.shadows {
             let sun = sun.and_then(|(v, weight)| v.try_normalize().map(|v| (v, weight)));
             if shadow.director_sun.replace(sun) != sun {
@@ -247,7 +273,11 @@ impl super::Runtime {
     }
 
     /// Update already-installed day resources; shape/enabling changes still require restart.
-    pub(crate) fn update_day_clock(&self, queue: &wgpu::Queue, values: [f32; 4]) {
+    pub(crate) fn update_day_clock(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        values: [f32; 4],
+    ) {
         let Some(shadow) = &self.shadows else {
             return;
         };
@@ -279,6 +309,17 @@ impl super::Runtime {
             }
         }
     }
+    /// Live indirect gain and fill occlusion, shared by world, actors and reflections.
+    pub(crate) fn set_indirect_readability(&self, values: [f32; 2]) {
+        if let Some(shadow) = &self.shadows {
+            if values.iter().all(|v| v.is_finite()) {
+                shadow
+                    .indirect_readability
+                    .set([values[0].clamp(0., 4.), values[1].clamp(0., 1.)]);
+            }
+        }
+    }
+
     /// Live `jkr_shadowGapClose` width in world units.
     pub(crate) fn set_gap_close(&self, width: f32) {
         if let Some(shadow) = &self.shadows {
@@ -325,9 +366,14 @@ impl super::Runtime {
         shadow.light = Some(light);
         shadow.receiver = shadow.build_receiver(device);
         shadow.light_group = shadow.build_light_group(device);
+        shadow.mirror_groups = shadow.build_mirror_groups(device);
         shadow.cache_group = cache_group(device, self.lamp_cache.as_ref(), shadow.light.as_ref());
         let receiver = shadow.receiver.clone();
-        self.configure_model_sun(device, Some(&receiver));
+        let mirror = shadow
+            .mirror_groups
+            .as_ref()
+            .map(|groups| groups.receiver.clone());
+        self.configure_model_sun(device, Some(&receiver), mirror.as_ref());
     }
     /// Configure map-local shadow resources, without changing shared material shaders.
     /// `scene` is the main-view raster size the light buffer is fitted to, `supersampling`
@@ -335,13 +381,13 @@ impl super::Runtime {
     pub(crate) fn enable_sun_shadows(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         settings: settings::Settings,
         scene: [u32; 2],
         supersampling: u32,
     ) {
         self.shadows = None;
-        self.configure_model_sun(device, None);
+        self.configure_model_sun(device, None, None);
         self.sky.configure_day(
             device,
             &self.forge.camera_layout,
@@ -456,7 +502,7 @@ impl super::Runtime {
         let models = settings.day.enabled;
 
         if models {
-            self.configure_model_sun(device, Some(&shadow.receiver));
+            self.configure_model_sun(device, Some(&shadow.receiver), None);
         }
         // Converge the probes now so the first frame is lit; the far cascade for the sun
         // does not exist yet, so this pass is sky and emission, refined in play.
@@ -509,16 +555,12 @@ impl super::Runtime {
     pub(crate) fn draw_sun_casters(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         input: &FrameDraw<'_>,
         instances: &[crate::ActorInstance],
         actor_end: u32,
         phases: Option<&crate::gpu_phases::Profiler>,
     ) -> bool {
-        // The main view's shadow pass opens every frame's world rendering.
-        if let Some(indirect) = &self.indirect {
-            indirect.begin_frame();
-        }
         if let Some(sun) = &self.forge.model_sun {
             sun.ready.set(false);
         }
@@ -557,7 +599,18 @@ impl super::Runtime {
         };
         queue.write_buffer(&shadow.camera_buffer, 0, bytemuck::bytes_of(&camera));
         let far = shadow.far.as_ref().and_then(|far| {
-            self.refresh_far_cascade(encoder, queue, far, sun, shadow.settings.resolution, input)
+            let (fit, fresh) = self.refresh_far_cascade(
+                encoder,
+                queue,
+                far,
+                sun,
+                shadow.settings.resolution,
+                input,
+            )?;
+            if fresh {
+                shadow.bounds.encode(encoder, 2);
+            }
+            Some(fit)
         });
 
         let close = shadow.close.as_ref().and_then(|close| {
@@ -574,6 +627,9 @@ impl super::Runtime {
                 Some(actor_end),
                 shadow.held.as_ref().map(|held| (&held[1], fresh)),
             );
+            if fresh {
+                shadow.bounds.encode(encoder, 1);
+            }
             Some(fit)
         });
         if let Some(phases) = phases {
@@ -677,6 +733,10 @@ impl super::Runtime {
                     }) as f32,
             ],
             fill: [0.95, 0.97, 1., shadow.ambient_fill.get()],
+            readability: {
+                let [gain, occlusion] = shadow.indirect_readability.get();
+                [gain, occlusion, 0., 0.]
+            },
         };
         queue.write_buffer(&shadow.receiver_buffer, 0, bytemuck::bytes_of(&parameters));
         let main = Cascade {
@@ -697,6 +757,9 @@ impl super::Runtime {
                 .filter(|_| shadow.settings.world)
                 .map(|held| (&held[0], fresh)),
         );
+        if fresh && shadow.settings.world {
+            shadow.bounds.encode(encoder, 0);
+        }
         if let Some(sun) = &self.forge.model_sun {
             sun.ready.set(true);
         }
@@ -762,7 +825,7 @@ impl super::Runtime {
     fn render_lamp_shadows(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         lamp_shadows: &lamp_shadows::Runtime,
         input: &FrameDraw<'_>,
         instances: &[crate::ActorInstance],
@@ -887,7 +950,7 @@ impl super::Runtime {
     fn render_cascade(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         cascade: &Cascade,
         fit: &fit::Fit,
         input: &FrameDraw<'_>,
@@ -994,25 +1057,25 @@ impl super::Runtime {
         moving(&mut pass);
     }
 
-    /// Re-render the map-wide cascade only when the sun has turned; return the fit in use.
+    /// Return the far fit and whether its depth changed, rebuilding only as the sun turns.
     fn refresh_far_cascade(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         far: &FarCascade,
         sun: Vec3,
         resolution: u32,
         input: &FrameDraw<'_>,
-    ) -> Option<fit::Fit> {
+    ) -> Option<(fit::Fit, bool)> {
         if let Some((rendered, fit)) = far.rendered.get() {
             if rendered.dot(sun) >= FAR_REFRESH_COS {
-                return Some(fit);
+                return Some((fit, false));
             }
         }
         let fit = volume::fit_map(sun, self.shadow_bounds, resolution)?;
         self.render_cascade(encoder, queue, &far.cascade, &fit, input, None, None);
         far.rendered.set(Some((sun, fit)));
-        Some(fit)
+        Some((fit, true))
     }
 
     /// Multiply only known diffuse world receivers, before fog and all transparent/emissive work.
@@ -1028,7 +1091,7 @@ impl super::Runtime {
         };
         let mut pass = flares::begin_pass(encoder, color, &depth.view);
         pass.set_bind_group(0, input.camera, &[]);
-        pass.set_bind_group(1, &shadow.light_group, &[]);
+        pass.set_bind_group(1, shadow.light_group(), &[]);
         pass.set_vertex_buffer(0, input.vertices.slice(..));
         pass.set_index_buffer(input.indices.slice(..), wgpu::IndexFormat::Uint32);
         for &(material, pipeline) in &shadow.receivers {
@@ -1070,8 +1133,8 @@ fn cache_group(
     cache: Option<&lamp_cache::Cache>,
     light: Option<&light_buffer::LightBuffer>,
 ) -> Option<wgpu::BindGroup> {
-    let coordinates = light?.receiver_cache()?;
-    Some(cache?.group(device, coordinates))
+    let light = light?;
+    Some(cache?.group(device, light.receiver_cache()?, light.direct_list()?))
 }
 
 /// Sort index ranges and join the touching ones; empty ranges are dropped.

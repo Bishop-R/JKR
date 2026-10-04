@@ -212,6 +212,10 @@ impl GameplayInput {
 
 impl GpuState {
     pub(crate) fn update_input_motion(&mut self) {
+        if self.resident.map_change_pending {
+            self.gameplay_input.clear();
+            return;
+        }
         let Some(console) = &self.console else { return };
         let now = console.input_millis();
         self.gameplay_input.motion.zoom_sensitivity = self.scope.sensitivity;

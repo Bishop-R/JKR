@@ -82,7 +82,7 @@ pub(crate) fn attach_world(
 pub(crate) fn upload_menu_images(
     menu: &mut Option<ClientMenu>,
     renderer: &crate::ui_renderer::ShapeRenderer,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
 ) {
     let Some(menu) = menu else { return };
     match menu.state.phase() {
@@ -147,7 +147,6 @@ fn shot_for(phase: &ClientPhase, player: &PlayerMenu) -> Shot {
     match phase {
         ClientPhase::Browser
         | ClientPhase::Connecting(_)
-        | ClientPhase::LoadingMap(_)
         | ClientPhase::ConnectionError
         | ClientPhase::CreateGame => Shot::Browser,
         ClientPhase::Settings | ClientPhase::Keybinds => Shot::Settings,
@@ -159,10 +158,7 @@ fn shot_for(phase: &ClientPhase, player: &PlayerMenu) -> Shot {
 /// Whether `phase` is a connect in progress, during which the backdrop's
 /// gate opens.
 fn connecting(phase: &ClientPhase) -> bool {
-    matches!(
-        phase,
-        ClientPhase::Connecting(_) | ClientPhase::LoadingMap(_)
-    )
+    matches!(phase, ClientPhase::Connecting(_))
 }
 
 impl ClientMenu {
@@ -663,10 +659,9 @@ impl ClientMenu {
                 self.state.open_browser();
                 MenuAction::None
             }
-            ClientPhase::Connecting(_)
-            | ClientPhase::LoadingMap(_)
-            | ClientPhase::ConnectionError
-            | ClientPhase::InGame => MenuAction::None,
+            ClientPhase::Connecting(_) | ClientPhase::ConnectionError | ClientPhase::InGame => {
+                MenuAction::None
+            }
         }
     }
 
@@ -675,7 +670,6 @@ impl ClientMenu {
             ClientPhase::MainMenu
             | ClientPhase::Browser
             | ClientPhase::Connecting(_)
-            | ClientPhase::LoadingMap(_)
             | ClientPhase::ConnectionError => Some(self.ui.draw_list()),
             ClientPhase::Settings => Some(self.settings.draw_list()),
             ClientPhase::Keybinds => Some(self.keybinds.draw_list()),
@@ -698,7 +692,6 @@ impl ClientMenu {
             ClientPhase::Player => (7.0, self.player.visual_selection() as f32),
             ClientPhase::CreateGame => (8.0, self.create_game.visual_selection() as f32),
             ClientPhase::Connecting(_) => (6.0, 0.0),
-            ClientPhase::LoadingMap(_) => (6.0, 0.0),
             ClientPhase::ConnectionError => (6.0, 0.0),
             ClientPhase::InGame => (0.0, 0.0),
         }
@@ -717,18 +710,17 @@ impl ClientMenu {
         self.state.entered_game();
     }
 
-    /// The server named its map: the browser row's guess is no longer
-    /// needed to aim the gate's preview.
-    pub(crate) fn loading_map(&mut self, map: impl Into<String>) {
-        self.destination_map = None;
-        self.state.loading_map(map);
-    }
-
     pub(crate) fn state_connecting(&mut self, address: String) {
         // A join leaves the current server; a cancelled or failed one lands
         // in the browser, which then returns to the main menu.
         self.browser_return = ReturnTarget::MainMenu;
         self.state.connecting(address);
+    }
+
+    /// Show map preparation using the existing cancellable connection notice.
+    pub(crate) fn state_loading(&mut self, map: &str) {
+        self.state_connecting(map.to_owned());
+        self.state.set_status(format!("Loading {map}..."));
     }
 
     pub(crate) fn join_failed(&mut self, error: impl Into<String>) {

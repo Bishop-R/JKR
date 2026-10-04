@@ -46,6 +46,7 @@ impl SettingsMenu {
                 setting,
                 value,
                 editing,
+                self.numeric.as_ref(),
             );
         }
         if self.tab == KEYBINDS_TAB {
@@ -62,6 +63,7 @@ impl SettingsMenu {
 }
 
 /// One settings row: label, selection sweep and the value control.
+#[allow(clippy::too_many_arguments)]
 fn row_view(
     ui: &mut MenuCanvas,
     layout: &FormLayout,
@@ -70,6 +72,7 @@ fn row_view(
     setting: &Setting,
     value: &str,
     editing: bool,
+    numeric: Option<&crate::menu_widgets::numeric::NumericEdit>,
 ) {
     let s = layout.scale;
     let rect = layout.row_rect(row);
@@ -101,13 +104,13 @@ fn row_view(
             let ratio = value
                 .parse::<f32>()
                 .map_or(0.0, |v| (v - min as f32) / span);
-            ui.form_slider(value_zone, value, ratio, value_color, s);
+            ui.form_slider(value_zone, row, numeric, value, ratio, value_color, s);
         }
         ValueKind::Float { min, max, .. } => {
             let ratio = value
                 .parse::<f64>()
                 .map_or(0.0, |v| ((v - min) / (max - min)) as f32);
-            ui.form_slider(value_zone, value, ratio, value_color, s);
+            ui.form_slider(value_zone, row, numeric, value, ratio, value_color, s);
         }
         ValueKind::Choice(_) | ValueKind::Resolution | ValueKind::DisplayMode => {
             ui.form_cycler(value_zone, value, None, value_color, s)
