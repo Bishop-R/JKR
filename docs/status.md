@@ -232,6 +232,23 @@ No windows or game instances are launched for this layout-only revision; visual
 playtesting remains with the owner. Formatting, locked workspace build/tests
 and the optimized build passed.
 
+## Game-data HUD preview
+
+Local change based on `dc36792` (2026-10-04): `cg_hudStyle game` draws the
+status HUD from the game's menu files (`cg_hudFiles`), giving the retail HUD
+and custom HUD packs; a nonzero integer `cg_hudFiles` gives the stock text HUD
+([rendering](rendering.md#game-data-hud)). Windows 11 checks, no client window:
+a temporary test read the real files and composited one HUD frame (health 60,
+armor 40, Force 80, blaster ammo 120 and a medium-style saber) to PNG at
+1920×1080 for retail `assets1.pk3`'s `ui/hud.menu` (13 menus, 31 pictures), the
+TheRisqe Radial HUD PK3 (33 pictures, centred on the crosshair) and JoF's
+`ui/elegance_hud.txt` (22 pictures); every picture resolved and the placement,
+tic fades and digits matched the reference logic. Unit tests cover the reader,
+item resolution, tic/number/blink/ammo-colour logic, `cg_hudFiles` values,
+widescreen placement and atlas packing. The checks are not bundled. Not run in
+the client; vehicle/siege HUD menus and the out-of-Force flash are not drawn.
+Formatting, locked workspace build/tests passed.
+
 ## Manual slider entry preview
 
 Local preview `sliders1` (2026-10-04, based on `7155455`) adds direct numeric

@@ -67,6 +67,9 @@ pub(crate) struct HudVisibility {
     /// The third-person ground HUD stands in for health, shield, Force and
     /// stance this frame (`crate::ground_hud`), so those widgets hide.
     pub(crate) ground_hud: bool,
+    /// The game-data menu HUD (`crate::menu_hud`) draws health, armor,
+    /// Force and ammo this frame, so JKR's status and weapon widgets hide.
+    pub(crate) menu_hud: bool,
 }
 
 impl HudVisibility {
@@ -91,6 +94,7 @@ impl HudVisibility {
                     .unwrap_or(0)
                     > 0,
             ground_hud: false,
+            menu_hud: false,
         }
     }
 
@@ -105,6 +109,7 @@ impl HudVisibility {
         lagometer: false,
         team_overlay: false,
         ground_hud: false,
+        menu_hud: false,
     };
 }
 
@@ -272,6 +277,7 @@ impl HudOverlay {
     pub(crate) fn layout(
         &mut self,
         font: &UiFont,
+        classic_layout: bool,
         viewport: [f32; 2],
         user_scale: f32,
         visibility: HudVisibility,
@@ -285,7 +291,7 @@ impl HudOverlay {
                 WEAPON_FADE_MS,
             )
         });
-        let modern = font.is_modern();
+        let modern = font.is_modern() && !classic_layout;
         let document = if modern {
             self.override_document
                 .as_ref()

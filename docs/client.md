@@ -255,6 +255,16 @@ positioned team overlay flow below that block. Explicit team-overlay coordinates
 remain authoritative. Visibility and server-selected leader/opponent rules are
 unchanged.
 
+## HUD style
+
+Settings > HUD > "HUD style" (`cg_hudStyle`) chooses JKR's `modern` or `classic`
+layout or `game`, the status HUD of the game's own menu files: the original Jedi
+Academy HUD, or a custom HUD pack that replaces `ui/hud.menu`. "Game HUD files"
+(`cg_hudFiles`) names the menu list, `ui/jahud.txt` by default; `1` gives the
+text-only HUD and EternalJK's `3`/`4` name its elegance and JoF HUD lists when
+those files are installed. See
+[game-data HUD](rendering.md#game-data-hud) for what is drawn.
+
 ## Configuration and content
 
 The default writable client folder is `GameData/jkr/`, under the selected game

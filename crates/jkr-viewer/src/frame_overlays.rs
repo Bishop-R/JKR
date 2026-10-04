@@ -136,6 +136,7 @@ impl GpuState {
                 pass.set_scissor_rect(0, 0, self.configuration.width, self.configuration.height);
             }
         }
+        self.menu_hud.draw(&mut pass);
         self.ui_shapes.draw(&mut pass);
         if let Some(mask) = &self.scope_mask {
             mask.draw(&mut pass);

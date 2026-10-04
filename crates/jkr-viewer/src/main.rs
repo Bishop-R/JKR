@@ -90,6 +90,7 @@ mod log;
 mod main_scene_pass;
 mod menu;
 mod menu_backdrop;
+mod menu_hud;
 mod menu_stage;
 mod menu_widgets;
 mod menu_world;
@@ -322,6 +323,8 @@ struct GpuState {
     field_of_view: f32,
     scope: scope::Zoom,
     scope_mask: Option<scope::Mask>,
+    /// The game's menu-file status HUD (`cg_hudStyle game`).
+    menu_hud: menu_hud::MenuHud,
     ground_hud: ground_hud::GroundHud,
     applied_fullscreen: bool,
     applied_resolution: [u32; 2],
@@ -931,6 +934,7 @@ impl GpuState {
         });
         let depth = DepthTarget::new(&device, configuration.width, configuration.height);
         let (ui_shapes, hud) = hud::icons::install(&device, &queue, format, &vfs, &shaders);
+        let menu_hud = menu_hud::MenuHud::new(&device, format);
         let (scope_mask, ground_hud) = (
             scope::Mask::new(&device, &queue, format, &vfs, &shaders),
             ground_hud::GroundHud::new(device, context.scene_format(), &text_layout),
@@ -1070,6 +1074,7 @@ impl GpuState {
             field_of_view: 90.0,
             scope: scope::Zoom::default(),
             scope_mask,
+            menu_hud,
             ground_hud,
             applied_fullscreen: false,
             applied_resolution: [size.width, size.height],
@@ -1312,6 +1317,8 @@ impl GpuState {
             self.configuration.height as f32,
         ];
         let text_scale = (self.configuration.height as f32 / 1_080.0).clamp(0.85, 1.35);
+        menu_hud::MenuHud::sync(self);
+        hud_visibility.menu_hud = self.menu_hud.active();
         hud_runtime::update(
             self,
             view_position,
@@ -1331,6 +1338,7 @@ impl GpuState {
         };
         let hud_layout = self.hud.layout(
             hud_font,
+            menu_hud::HudStyle::read(self.console.as_ref()) == menu_hud::HudStyle::Classic,
             viewport,
             runtime_settings::hud_scale(self.console.as_ref()),
             hud_visibility,
@@ -1404,6 +1412,19 @@ impl GpuState {
                 text_scale,
                 viewport,
             );
+        }
+        let hud_scale = runtime_settings::hud_scale(self.console.as_ref());
+        let menu_readout = (information_visible && intermission_view.is_none())
+            .then(|| menu_hud::readout(self, presentation_time as i32))
+            .flatten();
+        self.menu_hud
+            .prepare(&self.queue, menu_readout.as_ref(), viewport, hud_scale);
+        if classic_hud && let Some(font) = &self.classic_hud_font {
+            self.menu_hud
+                .append_text(&mut self.classic_text_vertices, font, viewport, hud_scale);
+        } else {
+            self.menu_hud
+                .append_text(&mut self.text_vertices, &self.ui_font, viewport, hud_scale);
         }
         let scoreboard_visible = information_visible
             && scoreboard::requested(self, intermission_view.is_some())

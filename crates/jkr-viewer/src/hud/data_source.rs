@@ -79,12 +79,22 @@ impl HudDataSource for WidgetData<'_> {
     fn flag(&self, binding: &str) -> Option<bool> {
         match binding {
             // The ground HUD replaces the status block (and its scrim) and the stance.
-            "draw_status" => Some(self.visibility.status && !self.visibility.ground_hud),
-            "draw_weapon" => Some(self.visibility.weapon && self.weapon_alpha > 0.0),
-            "draw_ammo" => Some(self.visibility.weapon && !self.ammo_value.is_empty()),
-            "draw_style" => {
-                Some(self.visibility.status && !self.visibility.ground_hud && self.style)
+            // So does the game-data menu HUD, which also shows the ammo.
+            "draw_status" => Some(
+                self.visibility.status && !self.visibility.ground_hud && !self.visibility.menu_hud,
+            ),
+            "draw_weapon" => {
+                Some(self.visibility.weapon && !self.visibility.menu_hud && self.weapon_alpha > 0.0)
             }
+            "draw_ammo" => Some(
+                self.visibility.weapon && !self.visibility.menu_hud && !self.ammo_value.is_empty(),
+            ),
+            "draw_style" => Some(
+                self.visibility.status
+                    && !self.visibility.ground_hud
+                    && !self.visibility.menu_hud
+                    && self.style,
+            ),
             "draw_crosshair" => Some(self.visibility.crosshair),
             "draw_team" => Some(self.visibility.team_overlay && self.team_len != 0),
             "draw_vote" => Some(self.visibility.hud && (self.vote_active || self.team_vote_active)),
