@@ -37,7 +37,10 @@ pub(crate) struct Profiler {
 
 impl Profiler {
     /// Present only when requested by environment and supported by the device.
-    pub(crate) fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Option<Self> {
+    pub(crate) fn new(
+        device: &wgpu::Device,
+        queue: &crate::frame_queue::FrameQueue,
+    ) -> Option<Self> {
         let wanted = std::env::var_os("JKR_FRAME_BUDGET").is_some()
             || std::env::var_os("JKR_GPU_PHASES").is_some();
         let supported = device.features().contains(

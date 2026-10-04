@@ -38,7 +38,9 @@ pub use bots::LegacyBotSlots;
 pub use console::LegacyConsoleSettings;
 pub use download::LegacyDownloadFile;
 pub use schedule::{LegacyRateSettings, legacy_is_private_address};
-pub use snapshot::{LEGACY_SNAPSHOT_ENTITIES, LegacySnapshotFrame, LegacySnapshotRefusal};
+pub use snapshot::{
+    LEGACY_SNAPSHOT_ENTITIES, LegacySnapshotFrame, LegacySnapshotRefusal, LocalSnapshotBuffer,
+};
 
 /// The authoritative server and game, as the legacy endpoint needs them.
 ///

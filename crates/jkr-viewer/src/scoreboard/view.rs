@@ -1,7 +1,7 @@
 //! Floating hero scoreboard, using the existing retained match data.
 
 use super::ScoreRow;
-use crate::menu_widgets::{HeroColumn, MenuCanvas};
+use crate::menu_widgets::MenuCanvas;
 use jkr_ui::{Color, FontWeight, Rect, TextAlign};
 
 /// Cached match identity for presentation.
@@ -21,19 +21,16 @@ pub(super) fn build(
     viewport: [f32; 2],
 ) {
     ui.begin_transparent(viewport);
-    let column = HeroColumn::new(viewport);
-    let s = column.scale;
-    // A measured table, not full bleed: on a wide frame the numeric columns
-    // would otherwise sit a screen away from the name they belong to.
-    let width = (viewport[0] - column.margin * 2.0).min(940.0 * s);
-    let x = (viewport[0] - width) * 0.5;
+    let layout = super::layout::Layout::new(viewport);
+    let s = layout.scale;
+    let width = layout.table_width;
+    let x = layout.table_left;
     let theme = ui.theme();
     let groups = if header.team_game { 3 } else { 2 };
     let row_height = ((viewport[1] - 226.0 * s - groups as f32 * 46.0 * s)
         / rows.len().max(1) as f32)
         .min(38.0 * s);
-    // Keep the world untinted. Chat is suppressed while this board is visible;
-    // the common HUD text outline supplies contrast without a scrim.
+    // Chat owns the left column; the world remains visible behind both overlays.
     ui.accent_bar(
         Rect::new(x - 18.0 * s, 64.0 * s, 4.0 * s, 72.0 * s),
         theme.accent,
@@ -102,7 +99,7 @@ pub(super) fn build(
                 row,
                 header.local_client,
                 Rect::new(x, y, width, row_height),
-                s,
+                s.min(row_height / 28.0),
             );
             y += row_height;
         }

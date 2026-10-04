@@ -262,7 +262,12 @@ impl crate::GpuState {
     /// Refresh recipient identity at submission time and use the existing reliable
     /// channel. No pointer action sends traffic or enters the gameplay bind path.
     pub(crate) fn chat_key(&mut self, event: &KeyEvent) {
-        if let Some(session) = &self.live_session {
+        if let Some(session) = self
+            .resident
+            .session
+            .as_ref()
+            .or(self.live_session.as_ref())
+        {
             self.chat.update_roster(session.game_state());
         }
         if let ChatInputResult::Submit(command) = self.chat.handle_key(event) {
@@ -270,12 +275,17 @@ impl crate::GpuState {
                 || command.clone(),
                 |console| console.color_chat_command(&command),
             );
-            if let Some(session) = &mut self.live_session
-                && let Err(error) = session.send_reliable_command(command.as_bytes())
-            {
-                eprintln!("failed to send chat: {error}");
-            }
+            self.send_chat_command(&command);
         }
         self.sync_cursor_policy();
+    }
+
+    /// Composer and console messages share the real server's reliable channel.
+    pub(crate) fn send_chat_command(&mut self, command: &str) {
+        if let Some(session) = self.communication_session_mut()
+            && let Err(error) = session.send_reliable_command(command.as_bytes())
+        {
+            eprintln!("failed to send chat: {error}");
+        }
     }
 }

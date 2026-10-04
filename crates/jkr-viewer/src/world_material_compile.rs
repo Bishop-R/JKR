@@ -11,6 +11,7 @@ pub(in crate::world_materials) fn compile_material(
     lightmap: &wgpu::TextureView,
     collapse: bool,
     image_cache: &mut ImageCache,
+    fixed_fixture: bool,
 ) -> Result<CompiledMaterial, Box<dyn Error>> {
     let sprite_source = crate::scene_flatten::sprites::source(&key.shader);
     let flare_source = key
@@ -19,6 +20,7 @@ pub(in crate::world_materials) fn compile_material(
     let source_name =
         flare_source.unwrap_or_else(|| sprite_source.map_or(key.shader.as_str(), |(name, _)| name));
     let definition = shaders.get(source_name);
+    let declared = definition.is_some_and(|d| d.surface_light > 0.);
     let (stages, sort, cull) =
         if let Some(stage) = crate::scene_flatten::sprites::stage(shaders, &key.shader) {
             (
@@ -29,6 +31,9 @@ pub(in crate::world_materials) fn compile_material(
         } else {
             material_stages(definition, key.lightmap)
         };
+    // Entities are lit per instance: only the static world has fixtures without a light.
+    let self_lit = (fixed_fixture || key.lightmap != crate::world_stage::LIGHTMAP_NONE)
+        && super::emission::self_lit(definition);
     // Fixed additive surfaces (including crystal glows) are sources too. View-
     // dependent environment maps remain excluded by the source-stage accumulator.
     let infer_emission = sprite_source.is_none()
@@ -36,13 +41,14 @@ pub(in crate::world_materials) fn compile_material(
             d.sky.is_none()
                 && d.deforms.is_empty()
                 && (sort == SORT_OPAQUE
+                    || (self_lit
+                        && d.stages.last().is_some_and(|s| {
+                            s.blend == jkr_shader::StageBlend::Replace && s.alpha_function.is_none()
+                        }))
                     || d.stages
                         .iter()
                         .all(|s| s.blend == jkr_shader::StageBlend::Add))
         });
-    // Entities are lit per instance: only the static world has fixtures without a light.
-    let self_lit =
-        key.lightmap != crate::world_stage::LIGHTMAP_NONE && super::emission::self_lit(definition);
     let hardware_stages = if collapse {
         collapse_multitexture(&stages)
     } else {
@@ -115,10 +121,10 @@ pub(in crate::world_materials) fn compile_material(
                     images,
                     !key.contains("$missing:"),
                     self_lit,
+                    !declared,
                 );
             }
         }
-        let declared = definition.is_some_and(|d| d.surface_light > 0.);
         if declared || infer_emission {
             // Preserve original source order even after lightmap-stage collapsing.
             let secondary = stage.secondary.as_ref().zip(secondary_pixels.as_deref());
@@ -138,9 +144,9 @@ pub(in crate::world_materials) fn compile_material(
                     || source.images.iter().any(|s| {
                         s.eq_ignore_ascii_case("$whiteimage") || s.eq_ignore_ascii_case("*white")
                     });
-                emission_texture.observe(source, images, resolved, false, self_lit);
+                emission_texture.observe(source, images, resolved, false, self_lit, !declared);
                 if declared {
-                    fallback_emission.observe(source, images, resolved, true, false);
+                    fallback_emission.observe(source, images, resolved, true, false, false);
                 }
             }
         }

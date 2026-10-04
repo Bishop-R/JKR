@@ -125,7 +125,7 @@ impl Runtime {
     pub(crate) fn prepare(
         &mut self,
         timing: &mut frame_pacing::budget::Timer,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         encoder: &mut wgpu::CommandEncoder,
         particles: &mut [Particle],
         decals: &mut crate::decal_store::DecalStore,
