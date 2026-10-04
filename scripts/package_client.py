@@ -97,8 +97,11 @@ def smoke_check(package, platform, source):
         suffix = ".exe" if platform == "windows-x64" else ""
         for name in ("jkr-viewer", "jkr-dedicated"):
             (game / (name + suffix)).chmod(0o755)
-        subprocess.run([str(game / ("jkr-dedicated" + suffix)), "--help"],
-                       check=True, capture_output=True, timeout=30)
+        server = subprocess.run([str(game / ("jkr-dedicated" + suffix)),
+                                 "--bind", "127.0.0.1:0", "--quit-on-eof"],
+                                cwd=root, input="", text=True,
+                                check=True, capture_output=True, timeout=30)
+        assert "listening on 127.0.0.1:" in server.stdout, server.stderr
         (game / "base").mkdir()
         for number in (0, 3):
             (game / f"base/assets{number}.pk3").touch()
@@ -112,7 +115,7 @@ def smoke_check(package, platform, source):
         assert run.returncode == 1, run.stderr
         assert "was not found in the mounted game data" in run.stderr, run.stderr
         assert (game / "jkr/config.cfg").is_file(), run.stderr
-        print("Extracted client discovered adjacent synthetic assets and saved portable settings; server --help passed.")
+        print("Extracted client discovered adjacent synthetic assets and saved portable settings; loopback server startup/shutdown passed.")
 
 
 def main():

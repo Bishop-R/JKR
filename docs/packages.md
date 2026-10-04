@@ -28,7 +28,8 @@ window-system/graphics-driver libraries. The Windows build targets MSVC with a
 static C runtime, for Windows 10/11 x64. Drivers remain a system requirement.
 
 After building, [package_client.py](../scripts/package_client.py) extracts each
-ZIP into an isolated directory with spaces, runs the dedicated server's `--help`,
+ZIP into an isolated directory with spaces, starts the dedicated server on an
+ephemeral loopback port and closes it through stdin EOF,
 and launches the client from a different working directory with synthetic asset
 markers. The client must find those assets and save `jkr/config.cfg`, then exit
 on the intentionally invalid content before creating a window. No real servers,
