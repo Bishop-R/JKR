@@ -70,6 +70,7 @@ pub(crate) fn build_actor_mesh(
         saber_names,
         render_yaw_degrees: None,
         animator,
+        audio_events: Default::default(),
         pose_vertices: Vec::with_capacity(pose_vertex_capacity),
         gpu_palette: None,
         retained_pose,
@@ -81,9 +82,17 @@ fn load_or_fallback(
     vfs: &VirtualFileSystem,
     appearance: &Appearance,
     fallback: &Appearance,
+    cache: &mut crate::player_assets::GlaCache,
 ) -> Result<PlayerPreview, Box<dyn Error>> {
-    let load = |appearance: &Appearance| {
-        load_player_appearance(vfs, &appearance.model, &appearance.variant, [0.0; 3], 0.0)
+    let mut load = |appearance: &Appearance| {
+        crate::player_assets::load_player_appearance_with(
+            vfs,
+            &appearance.model,
+            &appearance.variant,
+            [0.0; 3],
+            0.0,
+            cache,
+        )
     };
     match load(appearance) {
         Ok(actor) => Ok(actor),
@@ -107,6 +116,7 @@ pub(crate) fn load_actor_meshes(
     scene: &mut FlattenedScene,
 ) -> Result<Vec<ActorMesh>, Box<dyn Error>> {
     let fallback = fallback_appearance();
+    let mut cache = crate::player_assets::GlaCache::default();
     // Player entity numbers are their client slots. Build a dedicated
     // deformable mesh for every advertised client, even if that player
     // was outside the first snapshot's PVS. Otherwise a later arrival
@@ -140,7 +150,7 @@ pub(crate) fn load_actor_meshes(
         let saber_names = client_num
             .map(|client_num| client_saber_names(game_state, client_num))
             .unwrap_or_else(|| [Some("single_1".to_owned()), None]);
-        match load_or_fallback(vfs, &appearance, &fallback) {
+        match load_or_fallback(vfs, &appearance, &fallback, &mut cache) {
             Ok(actor) => {
                 for (assigned_entity, corpse_pool, preview) in
                     [(Some(entity_id), false, actor.clone()), (None, true, actor)]
@@ -161,9 +171,14 @@ pub(crate) fn load_actor_meshes(
             ),
         }
     }
-    if let Ok(actor) =
-        load_player_appearance(vfs, &fallback.model, &fallback.variant, [0.0; 3], 0.0)
-    {
+    if let Ok(actor) = crate::player_assets::load_player_appearance_with(
+        vfs,
+        &fallback.model,
+        &fallback.variant,
+        [0.0; 3],
+        0.0,
+        &mut cache,
+    ) {
         let names = [Some("single_1".to_owned()), None];
         meshes.push(build_actor_mesh(
             scene, actor, None, false, fallback, names,

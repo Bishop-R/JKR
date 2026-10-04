@@ -20,6 +20,7 @@ pub(crate) struct ActorMesh {
     pub(crate) saber_names: [Option<String>; 2],
     pub(crate) angle_controller: jkr_client::LegacyPlayerAngleController,
     pub(crate) render_yaw_degrees: Option<f32>,
+    pub(crate) audio_events: crate::actor_pose::sounds::State,
     pub(crate) animator: crate::actor_pose::evaluation::Slot,
     pub(crate) pose_vertices: Vec<GpuVertex>,
     /// Optional render-only joint upload; CPU trace posing never depends on this buffer.

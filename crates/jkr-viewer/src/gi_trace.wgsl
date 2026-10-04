@@ -42,18 +42,19 @@ fn gi_trace_through(origin: vec3<f32>, direction: vec3<f32>, range: f32,
     var cell = vec3<i32>(floor(local));
     let step = vec3<i32>(sign(direction));
     let inv = 1.0/max(abs(direction), vec3(1e-6));
-    // Distance along the ray to the next boundary on each axis.
-    var next = (select(floor(local), floor(local)+1.0, direction > vec3(0.0)) - local)
+    // Forward distance is nonnegative on either side of a cell. Using a signed
+    // coordinate difference with abs(direction) sends negative rays behind the origin.
+    var next = select(local-floor(local), floor(local)+1.0-local, direction > vec3(0.0))
         * inv * size;
     next = select(next, vec3(1e30), abs(direction) < vec3(1e-6));
     let delta = inv*size;
     var travelled = 0.0;
     var normal = vec3(0.0);
     for (var i = 0; i < 4096; i++) {
+        if travelled > range { break; }
         if gi_occupied(cell) && !(through_sky && gi_sky_cell(cell)) {
             return GiHit(travelled, normal, true);
         }
-        if travelled > range { break; }
         if next.x < next.y && next.x < next.z {
             travelled = next.x; next.x += delta.x; cell.x += step.x;
             normal = vec3(-f32(step.x), 0.0, 0.0);

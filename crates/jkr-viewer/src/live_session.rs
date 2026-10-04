@@ -18,6 +18,13 @@ pub(crate) fn drain_snapshots(mut receive_and_present: impl FnMut() -> bool) {
 impl GpuState {
     /// Only the installed live world shares the session's snapshot time domain.
     pub(crate) fn live_presentation_ready(&self) -> bool {
+        if self
+            .live_session
+            .as_ref()
+            .is_some_and(jkr_client::ClientSession::is_local)
+        {
+            return self.live_map_installed && !self.is_menu_world;
+        }
         self.live_session.is_some()
             && self.live_map_installed
             && !self.is_menu_world
@@ -35,9 +42,6 @@ impl GpuState {
     ) {
         use crate::frame_pacing::budget::Phase;
         timing.mark(Phase::Snapshot);
-        if let Some(audio) = game_audio.as_mut() {
-            audio.set_muted_players(self.chat.muted_players());
-        }
         drain_snapshots(|| {
             let Some(session) = &mut self.live_session else {
                 return false;
@@ -74,10 +78,19 @@ impl GpuState {
                 // world built for the new timeline anchors the clock again.
                 self.server_clock.restart();
                 self.pending_map_reload = true;
-                self.local_prediction.clear_pending();
+                self.retain_world_for_connection();
+                self.resident.after_sequence = reactions.gamestate_sequence.or_else(|| {
+                    self.resident
+                        .session
+                        .as_ref()
+                        .map(|s| s.latest_snapshot().message_sequence)
+                });
             }
             if let Some(reason) = reactions.disconnect_reason {
                 self.session_disconnected(reason);
+                return false;
+            }
+            if reactions.reload_world {
                 return false;
             }
             let snapshot = match received {
@@ -88,11 +101,20 @@ impl GpuState {
                     return false;
                 }
             };
+            if self.live_session.is_none() {
+                return false;
+            }
+            // CG_ProcessSnapshots does not install SNAPFLAG_NOT_ACTIVE frames.
+            // These may contain cleared player state while a new map is primed.
+            if !active_snapshot(&snapshot) {
+                return true;
+            }
             self.net_timing.snapshot_received(snapshot.server_time);
             self.present_live_snapshot(&snapshot, true, game_audio, visual_now);
             true
         });
         timing.mark(Phase::Commands);
+        let talking = self.key_catcher_active();
         let Some(session) = &mut self.live_session else {
             return;
         };
@@ -120,7 +142,7 @@ impl GpuState {
         server_commands::consume(
             session,
             &self.localization,
-            &mut self.chat,
+            self.resident.session.is_none().then_some(&mut self.chat),
             self.console.as_mut(),
             self.legacy_world_adapter.as_mut(),
             &mut self.clientinfo_watch,
@@ -131,7 +153,7 @@ impl GpuState {
         }
         let intermission =
             session.latest_snapshot().player.movement_type() == jkr_client::PM_INTERMISSION;
-        if !intermission {
+        if !intermission && !session.is_local() {
             self.intermission_score_request_time = None;
         }
         if intermission
@@ -165,7 +187,7 @@ impl GpuState {
         if let Some(yaw) = emplaced_view::forced_yaw(snapshot, self.camera_yaw.to_degrees()) {
             self.camera_yaw = yaw.to_radians();
         }
-        let command = self.gameplay_input.user_command(
+        let mut command = self.gameplay_input.user_command(
             self.server_clock.server_time(Instant::now()),
             self.camera_pitch,
             self.camera_yaw,
@@ -175,6 +197,7 @@ impl GpuState {
             snapshot.player.selected_force_power(),
             self.pending_generic_command,
         );
+        command.buttons = jkr_game_jka::pmove_talk::command_buttons(command.buttons, talking);
         if let Some(console) = &self.console {
             session.set_packet_dup(console.packet_dup());
         }
@@ -197,4 +220,8 @@ impl GpuState {
             self.network_command_due = now;
         }
     }
+}
+
+pub(crate) fn active_snapshot(snapshot: &jkr_protocol::Snapshot) -> bool {
+    snapshot.flags & 2 == 0
 }

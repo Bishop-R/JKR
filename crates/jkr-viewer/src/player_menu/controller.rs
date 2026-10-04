@@ -18,6 +18,7 @@ impl PlayerMenu {
         self.read_console(console);
         self.saber.open(console);
         self.force.open(console);
+        self.numeric = None;
         self.name_editing = false;
         self.page = ProfilePage::Character;
         self.selected = 0;
@@ -289,6 +290,9 @@ impl PlayerMenu {
     /// Enter/click on the selected row: edit the name, reset the Force
     /// profile, or step a cycler forward.
     pub(super) fn activate(&mut self, console: &mut ViewerConsole) {
+        if self.begin_numeric(self.selected) {
+            return;
+        }
         match (self.page, self.selected) {
             (ProfilePage::Character, 0) => {
                 self.name_before_edit.clone_from(&self.draft.name);
@@ -303,6 +307,7 @@ impl PlayerMenu {
     }
 
     pub(super) fn set_page(&mut self, page: ProfilePage) {
+        self.numeric = None;
         self.page = page;
         self.selected = 0;
         self.name_editing = false;
@@ -319,6 +324,9 @@ impl PlayerMenu {
         let PhysicalKey::Code(key) = event.physical_key else {
             return PlayerMenuResult::None;
         };
+        if self.edit_numeric(key, event.text.as_deref(), console) {
+            return PlayerMenuResult::None;
+        }
         if self.name_editing {
             return self.edit_name(event, key, console);
         }

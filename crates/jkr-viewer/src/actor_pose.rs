@@ -1,5 +1,8 @@
 //! Ghoul2-compatible actor pose evaluation and GPU upload.
 
+#[path = "actor_sounds.rs"]
+pub(crate) mod sounds;
+
 use super::{ActorMesh, GpuState, GpuVertex, preview_gpu_vertex};
 use glam::Quat;
 use jkr_client::LegacyPlayerAngleController;
@@ -243,8 +246,11 @@ impl GpuState {
     pub(crate) fn update_actor_animations(
         &mut self,
         presentation_time: i64,
+        audio: &mut Option<crate::GameAudio>,
     ) -> Result<(), Box<dyn Error>> {
-        update(self, presentation_time)
+        update(self, presentation_time)?;
+        sounds::update(self, presentation_time, audio);
+        Ok(())
     }
 
     pub(crate) fn assign_corpse_meshes(&mut self, presentation_time: i64) {

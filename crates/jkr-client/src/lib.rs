@@ -3,6 +3,8 @@
 mod actor_color;
 mod ambient_sets;
 mod ambient_world;
+/// Model-authored multiplayer animation sound events.
+pub mod animation_events;
 mod animation_selection;
 mod asset_catalog;
 mod base_server_commands;
@@ -51,6 +53,7 @@ mod player_identity;
 pub use body_animation::{legacy_body_frame, legacy_body_queue_command};
 pub use client_info::LegacyClientInfo;
 mod player_profile;
+mod player_sprites;
 pub use jkr_game_jka::pmove;
 use jkr_game_jka::pmove_anim;
 use jkr_game_jka::pmove_roll;
@@ -60,6 +63,7 @@ mod prediction_error;
 pub use jkr_game_jka::prediction_items;
 mod presentation;
 mod pure_checksums;
+pub mod referenced_paks;
 pub mod string_table;
 pub use permanent_entities::{legacy_permanent_visible, legacy_scene_entities};
 mod presentation_equipment;
@@ -175,6 +179,10 @@ pub use player_identity::{
 pub use player_profile::{
     PlayerProfile, PlayerProfileError, SaberColor, pack_saber_rgb, unpack_saber_rgb,
 };
+pub use player_sprites::{
+    LEGACY_PLAYER_SPRITE_HEIGHT, LEGACY_PLAYER_SPRITE_RADIUS, LegacyPlayerSprite,
+    legacy_player_sprite,
+};
 pub use pmove_anim::{AnimationLengthTable, AnimationLengths, AnimationTiming};
 pub use pmove_roll::{PMF_ROLLING, RollRules};
 pub use pmove_saber::move_is_predicted as legacy_saber_move_is_predicted;
@@ -280,11 +288,17 @@ pub struct ScoreEntry {
     pub flags: u32,
 }
 
+mod local_session;
+pub use local_session::LocalSimulation;
+
 pub struct ClientSession {
+    local: Option<Box<dyn LocalSimulation>>,
+    origin_server: SocketAddr,
+    retired_world: Option<(GameState, Snapshot)>,
     download_storage: Option<Box<dyn download::DownloadStorage>>,
     pending_download: Option<jkr_network::ServerMessage>,
     downloaded_message: Option<jkr_network::ServerMessage>,
-    connection: LegacyConnection,
+    connection: Option<LegacyConnection>,
     game_state: GameState,
     config_string_dirty: jkr_protocol::ConfigStringDirty,
     server_id: i32,
@@ -411,16 +425,20 @@ impl ClientSession {
     /// Socket counters, for telling a quiet server apart from packets that
     /// arrive and are dropped before they become snapshots.
     pub fn connection_traffic(&self) -> jkr_network::ConnectionTraffic {
-        self.connection.traffic()
+        self.connection
+            .as_ref()
+            .map_or_else(Default::default, |c| c.traffic())
     }
 
     /// Source and opening bytes of the most recently discarded packet.
     pub fn last_rejected_packet(&self) -> Option<(SocketAddr, &[u8])> {
-        self.connection.last_rejected_packet()
+        self.connection
+            .as_ref()
+            .and_then(|c| c.last_rejected_packet())
     }
 
     pub fn server(&self) -> SocketAddr {
-        self.connection.server()
+        self.origin_server
     }
 
     pub fn game_state(&self) -> &GameState {
@@ -464,6 +482,9 @@ impl ClientSession {
         name: Option<&str>,
         now: SystemTime,
     ) -> Result<&Path, DemoRecorderError> {
+        if self.is_local() {
+            return Err(DemoRecorderError::LocalContinuation);
+        }
         let result = self.demo_recorder.start(
             !self.disconnected,
             config_directory,
@@ -501,6 +522,9 @@ impl ClientSession {
     /// time, mirroring codemp's `cg.snap` choice while `cg.nextSnap` is newer.
     /// No decoding or wire state is changed by this read-only lookup.
     pub fn snapshot_at_or_before(&self, server_time: i32) -> &Snapshot {
+        if self.local.is_some() {
+            return &self.latest_snapshot;
+        }
         if self.latest_snapshot.server_time <= server_time {
             return &self.latest_snapshot;
         }
@@ -565,6 +589,10 @@ impl ClientSession {
     }
 
     pub fn send_command(&mut self, command: &UserCommand) -> Result<(), ClientError> {
+        if let Some(local) = &mut self.local {
+            local.command(command);
+            return Ok(());
+        }
         if self.pending_download.is_some() {
             return Ok(()); // Stay CS_PRIMED until donedl; never enter while downloading.
         }
@@ -587,17 +615,20 @@ impl ClientSession {
                 highest_server_command: self.highest_server_command,
             },
         );
-        self.connection.send_user_commands_with_reliables(
-            self.server_id,
-            self.latest_snapshot.message_sequence,
-            self.reliable_sequence,
-            self.game_state.checksum_feed,
-            // CL_WritePacket keeps clc_moveNoDelta active for all of demowaiting,
-            // even when an in-flight delta cleared the general recovery flag.
-            !self.request_full_snapshot && !self.demo_recorder.waiting_for_full_snapshot(),
-            &pending,
-            batch,
-        )?;
+        self.connection
+            .as_mut()
+            .expect("network session")
+            .send_user_commands_with_reliables(
+                self.server_id,
+                self.latest_snapshot.message_sequence,
+                self.reliable_sequence,
+                self.game_state.checksum_feed,
+                // CL_WritePacket keeps clc_moveNoDelta active for all of demowaiting,
+                // even when an in-flight delta cleared the general recovery flag.
+                !self.request_full_snapshot && !self.demo_recorder.waiting_for_full_snapshot(),
+                &pending,
+                batch,
+            )?;
         Ok(())
     }
 
@@ -619,6 +650,10 @@ impl ClientSession {
     /// released by a later `send_command`, `receive_snapshot` or
     /// [`Self::pump_reliable_commands`] call.
     pub fn send_reliable_command(&mut self, command: &[u8]) -> Result<(), ClientError> {
+        if let Some(local) = &mut self.local {
+            local.reliable(command);
+            return Ok(());
+        }
         if !self.command_pacer.push(command.to_vec()) {
             return Err(ClientError::ReliableCommandOverflow);
         }
@@ -658,12 +693,15 @@ impl ClientSession {
             .iter()
             .map(|(sequence, command)| (*sequence, command.as_slice()))
             .collect::<Vec<_>>();
-        self.connection.send_reliable_commands(
-            self.server_id,
-            self.latest_snapshot.message_sequence,
-            self.reliable_sequence,
-            &pending,
-        )?;
+        self.connection
+            .as_mut()
+            .expect("network session")
+            .send_reliable_commands(
+                self.server_id,
+                self.latest_snapshot.message_sequence,
+                self.reliable_sequence,
+                &pending,
+            )?;
         Ok(())
     }
 
@@ -684,6 +722,23 @@ impl ClientSession {
 
     /// Receive the next snapshot; zero timeout drains only immediately queued network data.
     pub fn receive_snapshot(&mut self, timeout: Duration) -> Result<&Snapshot, ClientError> {
+        if let Some(local) = &mut self.local {
+            return if local.receive(
+                &mut self.game_state,
+                &mut self.latest_snapshot,
+                &mut self.config_string_dirty,
+            ) {
+                let mut commands = std::mem::take(&mut self.latest_snapshot.server_commands);
+                for command in &commands {
+                    self.apply_server_command(&command.command)?;
+                }
+                commands.clear();
+                self.latest_snapshot.server_commands = commands;
+                Ok(&self.latest_snapshot)
+            } else {
+                Err(NetworkError::TimedOut("local snapshot pending").into())
+            };
+        }
         if self.pending_download.is_some() {
             return Err(NetworkError::TimedOut("content download pending").into());
         }
@@ -691,7 +746,11 @@ impl ClientSession {
         loop {
             let message = match self.downloaded_message.take() {
                 Some(message) => message,
-                None => self.connection.receive_server_message(timeout)?,
+                None => self
+                    .connection
+                    .as_mut()
+                    .expect("network session")
+                    .receive_server_message(timeout)?,
             };
             // LegacyConnection has already removed/reassembled the netchan
             // sequence and fragment headers and reversed the command-key XOR.
@@ -766,6 +825,8 @@ impl ClientSession {
                         self.gamestate_probe
                             .command(command.sequence, &command.command);
                         self.connection
+                            .as_mut()
+                            .expect("network session")
                             .record_server_command(command.sequence, &command.command);
                         self.highest_server_command =
                             self.highest_server_command.max(command.sequence);
@@ -778,6 +839,9 @@ impl ClientSession {
                     self.reliable_sequence = initial.game_state.server_command_sequence;
                     self.acknowledge_client_commands(initial.reliable_acknowledge);
                     self.command_pacer.clear();
+                    self.retired_world.get_or_insert_with(|| {
+                        (self.game_state.clone(), self.latest_snapshot.clone())
+                    });
                     self.game_state = initial.game_state;
                     self.config_string_dirty.mark_all();
                     self.pending_big_config_string = None;
@@ -857,6 +921,8 @@ impl ClientSession {
                 // or not (`CL_ParseCommandString`): a packet is keyed by the
                 // command its acknowledgement names, not by the newest one.
                 self.connection
+                    .as_mut()
+                    .expect("network session")
                     .record_server_command(command.sequence, &command.command);
                 self.highest_server_command = self.highest_server_command.max(command.sequence);
                 if command.sequence <= self.reliable_sequence {
@@ -898,6 +964,11 @@ impl ClientSession {
     }
 
     pub fn disconnect(&mut self) -> Result<(), ClientError> {
+        if self.connection.is_none() {
+            self.local = None;
+            self.disconnected = true;
+            return Ok(());
+        }
         if self.disconnected {
             return Ok(());
         }
@@ -942,6 +1013,8 @@ impl ClientSession {
             return Ok(());
         }
         if name == b"map_restart" {
+            self.retired_world
+                .get_or_insert_with(|| (self.game_state.clone(), self.latest_snapshot.clone()));
             self.demo_recorder.stop()?;
             let map = legacy_map_name(&self.game_state);
             self.history.clear();
@@ -1082,15 +1155,18 @@ impl ClientSession {
         // carries every still-unacknowledged reliable command before its
         // usercmd (`client/cl_input.cpp:1590-1595`).
         for _ in 0..3 {
-            self.connection.send_user_command_with_reliables(
-                self.server_id,
-                gamestate_sequence,
-                self.reliable_sequence,
-                self.game_state.checksum_feed,
-                false,
-                &pending,
-                &command,
-            )?;
+            self.connection
+                .as_mut()
+                .expect("network session")
+                .send_user_command_with_reliables(
+                    self.server_id,
+                    gamestate_sequence,
+                    self.reliable_sequence,
+                    self.game_state.checksum_feed,
+                    false,
+                    &pending,
+                    &command,
+                )?;
         }
         Ok(())
     }
