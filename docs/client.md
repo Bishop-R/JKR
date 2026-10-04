@@ -259,6 +259,12 @@ available checksum matches are selected from the cache. The actual map must
 still exist and match its advertised BSP checksum. HTTP downloading remains
 unsupported, and this policy does not disable pure-server admission checks.
 
+## Colour codes
+
+Text draws `^0` to `^9` as OpenJK's ten-entry colour table does: `^0`–`^7` are
+the retail colours, `^8` is orange and `^9` grey (retail wrapped them onto black
+and red). The table is `quake_color` in [text.rs](../crates/jkr-viewer/src/text.rs).
+
 ## Useful console commands
 
 Printable console shortcuts open the console but type normally once it is open;

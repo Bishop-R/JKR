@@ -273,8 +273,14 @@ pub(crate) fn load_classic(vfs: &VirtualFileSystem) -> Result<FontAtlas, Box<dyn
     })
 }
 
+/// Colour of the `^<digit>` code `index` (0-9).
+///
+/// OpenJK's `g_color_table` (`shared/qcommon/q_color.c`) has ten entries and
+/// `ColorIndex` masks with `Q_COLOR_BITS` (0xF), so `^8` is orange and `^9` grey
+/// rather than retail's `& 7` wrap to black and red. Saturated colours keep their
+/// zero channels lifted for legibility on dark backdrops, as the other entries do.
 fn quake_color(index: u8) -> [f32; 4] {
-    match index & 7 {
+    match index {
         0 => [0.0, 0.0, 0.0, 1.0],
         1 => [1.0, 0.2, 0.2, 1.0],
         2 => [0.25, 1.0, 0.25, 1.0],
@@ -282,6 +288,8 @@ fn quake_color(index: u8) -> [f32; 4] {
         4 => [0.25, 0.45, 1.0, 1.0],
         5 => [0.20, 0.82, 1.0, 1.0],
         6 => [1.0, 0.25, 1.0, 1.0],
+        8 => [1.0, 0.5, 0.2, 1.0],
+        9 => [0.5, 0.5, 0.5, 1.0],
         _ => [0.92, 0.95, 0.98, 1.0],
     }
 }
@@ -480,4 +488,56 @@ pub(crate) fn visible_text_width_style(
         }
     }
     maximum.max(width)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colour_codes_eight_and_nine_are_orange_and_grey() {
+        assert_eq!(quake_color(8), [1.0, 0.5, 0.2, 1.0]);
+        assert_eq!(quake_color(9), [0.5, 0.5, 0.5, 1.0]);
+        // No longer the retail `& 7` wrap onto black and red.
+        assert_ne!(quake_color(8), quake_color(0));
+        assert_ne!(quake_color(9), quake_color(1));
+        assert_eq!(quake_color(7), [0.92, 0.95, 0.98, 1.0]);
+    }
+
+    fn test_font() -> UiFont {
+        let mut glyphs = [[FontGlyph::default(); GLYPH_COUNT]; 2];
+        for face in &mut glyphs {
+            for glyph in face.iter_mut() {
+                *glyph = FontGlyph {
+                    width: 8.0,
+                    height: 10.0,
+                    advance: 8.0,
+                    ..FontGlyph::default()
+                };
+            }
+        }
+        UiFont {
+            glyphs,
+            height: 12.0,
+            modern: true,
+        }
+    }
+
+    #[test]
+    fn drawn_glyphs_take_the_extended_code_colours() {
+        let font = test_font();
+        let mut vertices = Vec::new();
+        append_text(
+            &mut vertices,
+            &font,
+            "^8a^9b",
+            [0.0, 0.0],
+            1.0,
+            [640.0, 480.0],
+        );
+        // Each glyph emits a shadow quad then the glyph quad, six vertices each.
+        assert_eq!(vertices.len(), 24);
+        assert_eq!(vertices[6].color, [1.0, 0.5, 0.2, 1.0]);
+        assert_eq!(vertices[18].color, [0.5, 0.5, 0.5, 1.0]);
+    }
 }
