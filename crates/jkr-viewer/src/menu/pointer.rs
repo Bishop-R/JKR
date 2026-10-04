@@ -97,19 +97,16 @@ impl ClientMenu {
             ClientPhase::Browser => {
                 self.handle_browser_pointer(token, event.kind, event.position, event.delta, console)
             }
-            ClientPhase::Connecting(_) | ClientPhase::LoadingMap(_)
-                if token == 0 && event.kind == UiEventKind::Activate =>
-            {
+            ClientPhase::Connecting(_) if token == 0 && event.kind == UiEventKind::Activate => {
                 self.cancel_join()
             }
             ClientPhase::ConnectionError if token == 0 && event.kind == UiEventKind::Activate => {
                 self.state.open_browser();
                 MenuAction::None
             }
-            ClientPhase::Connecting(_)
-            | ClientPhase::LoadingMap(_)
-            | ClientPhase::ConnectionError
-            | ClientPhase::InGame => MenuAction::None,
+            ClientPhase::Connecting(_) | ClientPhase::ConnectionError | ClientPhase::InGame => {
+                MenuAction::None
+            }
             ClientPhase::Settings | ClientPhase::Keybinds => unreachable!(),
             ClientPhase::Player | ClientPhase::CreateGame => unreachable!(),
         }

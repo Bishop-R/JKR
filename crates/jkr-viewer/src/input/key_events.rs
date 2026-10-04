@@ -83,7 +83,7 @@ impl GpuState {
                 .is_some_and(|c| c.has_key_binding("ESCAPE"))
         {
             self.release_pointer();
-            if self.live_session.is_some() {
+            if self.live_session.is_some() || self.resident.exploring() {
                 self.game_menu = true;
                 self.game_menu_page = GameMenuPage::Main;
                 self.game_menu_row = 0;

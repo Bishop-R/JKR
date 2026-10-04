@@ -7,12 +7,13 @@ use std::sync::{
 
 /// Allocation-free presentation controls shared by console callbacks and render upload:
 /// solar hour, minutes per day, volumetric clarity, real-time light scale, the
-/// diagnostics bitmask, contact shadows, gap closure and ambient readability fill.
+/// diagnostics bitmask, contact shadows, gap closure, ambient readability fill and
+/// indirect-light controls.
 #[derive(Clone)]
-pub(crate) struct Clock(Arc<[AtomicU32; 8]>);
+pub(crate) struct Clock(Arc<[AtomicU32; 10]>);
 
 /// Names in slot order; every slot is a live cvar registered by `day::register`.
-pub(crate) const LIVE_CVARS: [&str; 8] = [
+pub(crate) const LIVE_CVARS: [&str; 10] = [
     "jkr_dayHour",
     "jkr_dayMinutes",
     "jkr_volumetricClarity",
@@ -21,19 +22,23 @@ pub(crate) const LIVE_CVARS: [&str; 8] = [
     "jkr_contactShadows",
     "jkr_shadowGapClose",
     "jkr_ambientFill",
+    "jkr_indirectBoost",
+    "jkr_ambientFillOcclusion",
 ];
 
 impl Default for Clock {
     fn default() -> Self {
         Self(Arc::new([
-            AtomicU32::new(7.5_f32.to_bits()),
+            AtomicU32::new(11_f32.to_bits()),
             AtomicU32::new(0),
             AtomicU32::new(1_f32.to_bits()),
             AtomicU32::new(1_f32.to_bits()),
             AtomicU32::new(0),
             AtomicU32::new(0),
-            AtomicU32::new(4_f32.to_bits()),
+            AtomicU32::new(0),
             AtomicU32::new(0.025_f32.to_bits()),
+            AtomicU32::new(1_f32.to_bits()),
+            AtomicU32::new(1_f32.to_bits()),
         ]))
     }
 }
@@ -71,6 +76,8 @@ impl Clock {
             3 => value.clamp(0.1, 10.),
             6 => value.clamp(0., 64.),
             7 => value.clamp(0., 0.2),
+            8 => value.clamp(0., 4.),
+            9 => value.clamp(0., 1.),
             _ => value.clamp(0., 4095.),
         };
         self.0[index].store(value.to_bits(), Ordering::Relaxed);
@@ -90,6 +97,11 @@ impl Clock {
     /// Live readability fill; zero preserves fully unlit rooms.
     pub(crate) fn ambient_fill(&self) -> f32 {
         f32::from_bits(self.0[7].load(Ordering::Relaxed))
+    }
+
+    /// Indirect-light gain and the fraction of AO applied to readability fill.
+    pub(crate) fn indirect_readability(&self) -> [f32; 2] {
+        [8, 9].map(|i| f32::from_bits(self.0[i].load(Ordering::Relaxed)))
     }
 
     /// `jkr_dayDebug` plus the contact shadow toggle folded into bit 2: which real-time

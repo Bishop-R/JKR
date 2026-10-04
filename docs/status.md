@@ -1,10 +1,34 @@
 # Status and priorities
 
-Reviewed 2026-10-01 against source baseline `0d215f1`.
+Reviewed 2026-10-03 against source baseline `8f692ac` and the owner-approved
+rendering and transition changes described below.
 
 JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
+
+## Console editing and command browser
+
+The console includes the command/cvar browser contributed in PR #6 and the
+caret/output-selection controls from PR #33. Browser Apply/Cancel pointer actions
+match the keyboard, the footer Filter control works, and underlying menu shapes,
+text and FPS output are suppressed while browsing. Printable opening shortcuts
+become text when the console is open. Dead-key `^` inserts a literal colour-code
+prefix; toggling the console clears pending accent composition so the next
+command letter is not changed or swallowed. Escape and non-text toggle bindings
+still close it. Gameplay and wire code are unchanged.
+
+Linux verification (2026-10-04, based on `7155455`): 22 temporary checks passed
+for caret motion, selection/copying, UTF-8 byte limits, glyph alignment and browser
+footer pointer actions at 960×540, 1920×1080 and 3840×2160. Test infrastructure
+remains outside the repository. A release X11/Vulkan desktop run exercised
+browser opening, search and edit mode. Native keyboard probes reproduced and
+corrected the pending-accent problem; the owner confirmed that fix and accepted
+the console preview. A separate-profile release run typed a dead-circumflex
+followed by `1Bishop` and saved exactly `^1Bishop`, with the console still open.
+Formatting, locked workspace build/tests and the release build passed. Clipboard
+round trips, drag behavior and platform/layout combinations are not exhaustively
+verified.
 
 ## Implemented scope
 
@@ -103,7 +127,157 @@ Finite image comparisons and workspace/release checks passed; see
 [rendering](rendering.md#submission-and-lighting-work-reduction) for evidence
 and limits. Gameplay and protocol code are unchanged.
 
+Resident world transitions (2026-10-03, local changes based on `8f692ac`):
+menu joining and live map changes retain a rendered, locally playable world.
+External release checks against an isolated loopback TaystJK server exercised
+FFA3 entry, FFA3 → FFA1, same-map restart, and two consecutive map changes.
+Cancellation after entering the destination restored the menu, and the transition
+sequence also passed with a local bot present. Artificially delaying delivery of
+the completed session from the connection worker allowed more than 1,600 locally controlled
+frames before the verified session attached without rebuilding the map. That
+check exercises delayed handoff, not a real slow-network handshake. The
+same-map restart reattached about 50 ms after its transition event. Old-map
+movement and rendering continued while the replacement was built, without a
+loading overlay or old remote actors in the resident runtime world.
+
+The installed-archive checksum comparison matched ordered CRC sequences for all
+73 previously readable PK3s. Six small external ZIP cases covered empty archives,
+empty files, Unicode names, duplicate names, an executable prefix and ZIP64
+sizes; malformed central-directory data was rejected. A catalogue with an invalid
+unused local payload header is now inventory-readable, matching OpenJK's
+central-directory inventory behavior; loading an affected asset still validates
+its header/data. One installed-set comparison measured 4,697 ms for the old
+payload-header inventory and 134 ms for the directory reader. These checks do not
+constitute a new pure-server/wire certification; protocol codecs were unchanged.
+
+Checks used Linux/RADV on a Radeon RX 9060 XT, 960×540, owner graphics settings,
+and external ignored harnesses. Normal joins measured about 7–18 seconds in these
+runs, depending on machine/cache pressure; the early pre-optimization run took
+41 seconds. Typical FFA1 background preparation was about 8–12 seconds. These
+are observations, not a controlled cold-cache speedup or a populated-match frame
+budget result. Simultaneous build pressure worsened some runs substantially.
+One default-backend headless run emitted an EGL destruction panic on the submit
+thread after all assertions passed and while exiting. The explicit Vulkan rerun
+completed without that diagnostic; native-window/backend shutdown coverage is
+still needed. Cold loading, missing-content downloads, platform coverage and visual acceptance
+remain open. The movement adapter calls the existing predictor; the external
+OpenJK on-foot/force-jump comparison still passed 560 cases / 72,275 commands,
+including 8/7/4/3 ms caps. See [client transitions](client.md#joining-and-changing-maps)
+for local-authority and exploration limits.
+
+Local gameplay continuation (2026-10-03, same unmerged baseline): departed live
+worlds now run the native dedicated gameplay behind a socket-free client session.
+Release GPU checks on isolated loopback TaystJK exercised FFA3 → FFA1, same-map
+restart, rapid map changes and cancellation, both with and without a bot. They
+asserted that only the local player remained, local saber moves advanced, and
+the real connection reattached. Screenshots confirmed the third-person model and
+saber remained visible. A further run granted test-only weapons and observed
+pistol projectiles after releasing the saber attack and switching weapons. It
+injected an intermission movement type at handoff to check recovery from the
+cached playable state; natural match-end timing remains unverified. A stock
+FFA3 door import check preserved its open position, area portal and closing timer.
+Native import/reuse checks covered slots 0/17/31 at
+8/7/4/3 ms; the 560-case movement/animation/event fixtures and compiled codemp
+weapon zoom/charge fixture passed. These are focused checks, not complete native
+combat, mod or vehicle compatibility certification. First gate entry is still
+movement-only until a server player is available. Its original connection notice
+and pointer Cancel action are restored for menu joins; in-server map changes
+keep the local gameplay presentation without that overlay. The notice restoration
+passed workspace build/test/format checks; native visual acceptance is pending.
+
+In the final 960×540 Vulkan run, local render calls after the first ten local
+frames measured 0.98 ms median, 2.72 ms p99 and 38.35 ms maximum, excluding the
+harness sleep and capture work. This is a single-player continuation while
+background loading, not a 31-player benchmark. Initial model, effect and shader
+work can still hitch; moving native skeleton loading into background preparation
+removed the observed roughly 0.6-second first-saber-command stall in that run.
+It does not establish hitch-free transitions or complete content coverage.
+
+Transition/input polish (2026-10-03, unmerged changes based on `8f692ac`):
+a queued Alt bind was reproduced surviving focus loss; focus handling now drops
+that frame's gameplay input and ignores synthetic keyboard events. Isolated
+TaystJK and native JKR runs observed a genuine saber throw return after focus
+loss. The retained actor keeps its animation tracks and displayed prediction,
+with local presentation paced by the same wall-clock origin as local commands.
+Remote world adoption and backwards server time retire stale runtime samples;
+a forced provisional-clock rollback restored every entity to the current epoch.
+
+Native server lifecycle checks also found bots waiting for an impossible network
+acknowledgement after a map change, loss of bot identity during `map_restart`,
+and old saber entity handles surviving a rebuilt entity pool. Bots now begin
+immediately on the new map, and transient player state is reset while preserving
+session/bot ownership, following multiplayer `SV_SpawnServer`/`ClientConnect`.
+External integration checks cover active bot slots, current-pool saber handles
+and advancing bot commands after both kinds of transition. No packet codec or
+movement/combat rules changed. The external 560-case on-foot reference checks
+passed again at 8/7/4/3 ms. Native visual acceptance and wider mod/vehicle coverage
+remain open.
+The final 960×540 Vulkan native-server run covered eight bots, FFA3 → FFA1,
+same-map restart, rapid map changes and cancellation. All 8,650 presented remote
+actor endpoints matched their received snapshot positions. The saber returned
+about 1.21 seconds after the test press, following focus loss. Local render calls
+measured 0.56 ms median and 1.93 ms p99, with a 287.81 ms maximum during background
+loading; this does not establish hitch-free transitions or 31-player performance.
+Workspace build/tests, formatting, standalone clock checks and release builds
+passed. The owner playtested the updated transitions and accepted the combined
+preview for publication. Wider mod, vehicle and platform coverage remains open.
+
+Natural intermission and chat (2026-10-03, local changes based on `a993436`):
+the previous forced-map checks missed the frozen scoreboard phase at normal
+match end. The viewer now starts full local continuation before presenting that
+snapshot, while the real remote session retains scores and communication.
+A Linux/RADV 960×540 release check against an isolated loopback TaystJK server
+expired its timelimit, displayed authoritative scores over the local character,
+used the stock ready button and followed `nextmap` from FFA3 to FFA1. The final
+run observed 1,404 scoreboard frames and 2,450 loading frames with exactly one
+local actor and continuing movement, then adopted the destination. Local render
+calls measured 0.92 ms median, 2.37 ms p99 and 309.76 ms maximum; an earlier run
+under concurrent build pressure reached 3.11 seconds. This is not hitch-free or
+a populated-match performance certification.
+
+Socket-free mock endpoints verified global/team/private composer dispatch and
+console chat routing without sending test messages to any server. Incoming
+server announcements continued during intermission. They now go to the console
+exclusively: the owner requested a general separation of console prints from
+chat after observing TaystJK's `PrintStats` table in the conversation overlay.
+Global/team/private chat and separate center-print HUD notices are preserved;
+no server-specific table filter is used. An external offline check confirmed
+that 101 console prints, including a stats table, could not enter or displace
+chat history or close its composer; chat/team messages and a center notice still
+reached their intended presentation. Workspace build/tests, formatting and the
+updated production release build passed. This routing check sent no messages
+to a server. Captures cover the composer
+beside real scores and a synthetic 32-player team board; 576 geometry cases cover
+1–32 rows, FFA/team layouts and nine viewports from 640×480 through 4K, including
+ultrawide and portrait. These checks do not establish human-to-human delivery or
+all mod/platform behavior. Client changes leave gameplay rules and wire codecs
+untouched. External compiled OpenJK on-foot/force-jump checks passed again at
+8/7/4/3 ms (560 cases / 72,275 commands). Workspace build/tests, formatting and
+the production release build passed. The owner accepted the combined preview
+for publication; broader mod and platform coverage remains open.
+
+Default visual profile (local change based on `a993436`): fresh profiles now
+use the selected day/night, volumetric, shadow, HDR, AO and filtering defaults.
+An external release/Vulkan check on Linux/RADV RX 9060 XT verified the graphics
+values for empty, explicit and existing override configs and rendered FFA5 and
+FFA1. The fresh and explicit FFA5 captures matched at 99.94% of pixels, with
+mean absolute RGB difference 0.00022 levels and maximum 2/255. Existing saved
+values remained authoritative. Formatting, workspace build/tests and the
+production release build passed on the combined local changes. Personal configuration is
+excluded; see [default visual profile](rendering.md#default-visual-profile).
+This is startup/rendering evidence, not a new populated-match performance claim.
+
 ## Open validation and limitations
+
+Volumetric silhouette correction (local changes based on `a993436`): excluded
+depth samples no longer dilute the visible-air lighting estimate. External
+Linux/RADV release checks reproduced and removed the sampled FFA5 player fringe
+without increasing grid resolution. Paired 720p/4K timings showed no material
+change in the tested scene; captures also cover FFA3, a Rancor interior and 24
+camera turns. See [volumetric coverage](rendering.md#volumetric-silhouette-coverage)
+for measurements and reproduction limits. Formatting, workspace build/tests and
+the production release build passed. Owner acceptance and broad content coverage
+remain open.
 
 - Complete server/gameplay parity remains unverified. Audit concrete scenarios
   across game types, combat, vehicles, NPCs, scripting and map transitions before
@@ -130,14 +304,43 @@ and limits. Gameplay and protocol code are unchanged.
 - The repository does not bundle a regression suite. Required reference evidence
   must be supplied externally until an in-repository verification approach is agreed.
 
+Sky/terrain correction (2026-10-03, local preview based on `8f692ac`): the three
+`t1_danger` marks exposed sky draw-buffer reuse between views and smoothed normals
+flipping across visible hills. Both terrain bands are removed in fixed GPU views;
+a 24-turn capture reproduced sky disappearance in 12 old-reset frames and verified
+the corrected path against direct draws. Workspace checks and owner release build
+passed. Native owner playtesting remains pending; see
+[rendering](rendering.md#sky-scenery-and-hillside-orientation) for scope and timings.
+
 ## Current priorities
 
-1. Improve populated-match release frame times while preserving the owner-accepted
+1. Evaluate dark-area readability while preserving the accepted lighting style
+   (owner priority, 2026-10-03). A local, default-preserving indirect gain and fill
+   occlusion experiment passed workspace and external GPU checks; see
+   [rendering](rendering.md#indirect-lighting-and-dark-area-readability). Owner
+   acceptance and populated-match measurements are pending. The marked custom-map
+   ceiling lights were recognized but underpowered; an explicit-glow inference
+   refinement passed source-policy and GPU checks on that map plus two stock maps
+   ([fixture inference](rendering.md#inferring-fixture-light-from-legacy-materials)).
+   That refinement also awaits owner acceptance. Static model fixtures were also
+   missing from source extraction: both `t2_rancor` marks now gain local illumination,
+   with unchanged stock-map appearance in the sampled `ffa1`/`ffa3` views. The
+   Rancor checks add approximately 0.017–0.144 ms of GPU work; see
+   [static model fixtures](rendering.md#static-model-fixtures) for evidence and
+   remaining visibility limits. Owner acceptance is pending. A subsequent GPU audit
+   confirmed a sign error in GI voxel traversal. The corrected forward distances
+   and range checks pass 8,302 external GPU/reference cases and workspace checks.
+   Both Rancor captures remain byte-identical, so the correction has not solved
+   their low visibility. Readback confirms nonzero live probe lighting; receiver
+   coverage and effective bounce strength remain to investigate. See
+   [GI traversal correction](rendering.md#gi-traversal-correction).
+   Dust remains parked.
+2. Improve populated-match release frame times while preserving the owner-accepted
    appearance (owner priority, 2026-10-02). Target below 2 ms with 31 players;
    reaching that target is not a reason to stop investigating useful savings.
-2. Stabilize normal client and dedicated-server use with reproducible local reports.
-3. Audit compatibility gaps by subsystem and scenario; preserve exact combat and wire behavior.
-4. Broaden community-content and platform validation.
+3. Stabilize normal client and dedicated-server use with reproducible local reports.
+4. Audit compatibility gaps by subsystem and scenario; preserve exact combat and wire behavior.
+5. Broaden community-content and platform validation.
 
 These priorities guide requested work; they do not authorize an assistant to
 start an unrelated task. Update this page when evidence or agreed priorities

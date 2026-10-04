@@ -46,7 +46,7 @@ impl ArtTextures {
     pub(super) fn install(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         layout: &wgpu::BindGroupLayout,
         decoded: &Decoded,
     ) {

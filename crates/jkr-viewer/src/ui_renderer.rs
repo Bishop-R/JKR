@@ -152,7 +152,11 @@ impl ShapeRenderer {
 
     /// Upload the classic menu artwork once its decode has finished; does
     /// nothing before that or after it has been installed.
-    pub(crate) fn install_menu_art(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub(crate) fn install_menu_art(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &crate::frame_queue::FrameQueue,
+    ) {
         if self.art.installed() {
             return;
         }
