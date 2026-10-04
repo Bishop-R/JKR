@@ -22,25 +22,36 @@ platform support; Windows runtime behavior has not yet been verified.
 
 ## Game data
 
-A legally obtained Jedi Academy installation is required. Point JKR at its
-`GameData` directory, containing `base/assets0.pk3` and the other retail PK3s.
+A legally obtained Jedi Academy installation is required. Put `jkr-viewer`
+(`jkr-viewer.exe` on Windows) in its `GameData` directory, beside the `base`
+folder containing `assets0.pk3` through `assets3.pk3`.
 Game data is not included in this repository.
 
 ## Client
 
-```sh
-./target/release/jkr-viewer /path/to/GameData
-```
+Launch the client from that folder or a shortcut to open the main menu. No
+game-data path, environment variable or particular working directory is needed.
+Put `jkr-dedicated` (`jkr-dedicated.exe` on Windows) beside it too for Create game
+and local `devmap` support.
 
 Connect directly to a server:
 
 ```sh
-./target/release/jkr-viewer /path/to/GameData --connect 127.0.0.1:29070
+./jkr-viewer --connect 127.0.0.1:29070
 ```
 
-The client also supports launch without arguments when it can locate an
-installation or has a saved game-data path. Use the in-game menus for controls,
-graphics, audio and player settings.
+If keeping the binary elsewhere, use `JKR_GAME_DATA=/path/to/GameData` or the
+saved game-data setting; known installation locations are also checked. The
+explicit positional form `jkr-viewer /path/to/GameData --connect HOST:PORT`
+remains supported. See [client launch](docs/client.md#launch) for discovery order.
+Use the in-game menus for controls, graphics, audio and player settings.
+
+Settings and player-created files live in `GameData/jkr/`: `config.cfg`,
+`marks.txt`, favorites, friends, screenshots, demos and optional chat logs.
+Existing JKR user files are imported once without overwriting files already
+there; the originals are retained. If that directory cannot be written, the
+client uses its per-user folder instead. The console's `path` command shows the
+active location. See [configuration and content](docs/client.md#configuration-and-content).
 
 ## Dedicated server
 

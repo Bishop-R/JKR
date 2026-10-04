@@ -5,21 +5,44 @@ Jedi Academy `GameData` directory with the retail `base/assets*.pk3` files.
 
 ## Launch
 
-Open the main menu using an explicit content environment:
+Put `jkr-viewer` (`jkr-viewer.exe` on Windows) inside the installed game's
+`GameData` folder, beside `base/`, then launch it to open the main menu. A shortcut
+can use any working directory. No path settings are required. Keep
+`jkr-dedicated` (`jkr-dedicated.exe` on Windows) beside the client for Create game
+and local `devmap`.
+
+From that folder:
 
 ```sh
-JKR_GAME_DATA=/path/to/GameData ./target/release/jkr-viewer
+./jkr-viewer
 ```
 
 Join a server directly:
 
 ```sh
-./target/release/jkr-viewer /path/to/GameData --connect 127.0.0.1:29071
+./jkr-viewer --connect 127.0.0.1:29071
 ```
 
-The no-argument launch also checks the saved game-data location and known install
-locations. Positional launch accepts a map path and optional player-model directory;
-it is a direct world/viewer launch, whereas no arguments opens the main menu.
+Without an explicit positional GameData argument, discovery checks these locations
+in order and uses the first containing `base/assets0.pk3` and `base/assets3.pk3`:
+
+1. `JKR_GAME_DATA`, if set and nonempty.
+2. The executable's directory, then its `GameData` subdirectory.
+3. The saved `fs_gameData` setting.
+4. The working directory, its `GameData` subdirectory, then its
+   `Star Wars Jedi Knight - Jedi Academy/GameData` subdirectory.
+5. The existing Linux Steam and `~/Games/Jedi Academy/GameData` locations.
+
+Thus a drop-in installation wins over a saved location from another installation,
+while an explicit environment or positional path still overrides it. Invalid
+discovery candidates are skipped; an invalid explicit positional path is an error.
+Discovery does not change the working directory or move any game data.
+
+For a binary kept separately, `JKR_GAME_DATA=/path/to/GameData ./jkr-viewer` opens
+the main menu. Positional launch also accepts a map path and optional player-model
+directory (`jkr-viewer /path/to/GameData maps/mp/ffa3.bsp`); it remains a direct
+world/viewer launch, whereas no arguments opens the main menu. Demo playback
+retains its explicit GameData argument.
 See [launch.rs](../crates/jkr-viewer/src/launch.rs) and
 [app_launch.rs](../crates/jkr-viewer/src/app_launch.rs).
 
@@ -226,9 +249,36 @@ unchanged.
 
 ## Configuration and content
 
-The Linux configuration is `$XDG_CONFIG_HOME/jkr/config.cfg`, falling back to
-`~/.config/jkr/config.cfg`. The source also defines Windows `%APPDATA%` and macOS
-Application Support locations in [platform.rs](../crates/jkr-viewer/src/platform.rs).
+The default writable client folder is `GameData/jkr/`, under the selected game
+installation. It is independent of the executable's location and working
+directory. The client creates it automatically. Important files include:
+
+| File or folder | Contents |
+| --- | --- |
+| `config.cfg` | Settings and key bindings |
+| `marks.txt` | Marked map positions, views and notes |
+| `favorites.json`, `chat-friends.txt` | Favorite servers and friend names |
+| `jakey` | Persistent client identity key |
+| `hud.json` | Optional custom HUD |
+| `screenshots/`, `demos/` | Screenshots and recordings |
+| `chatlogs/`, `qconsole.log` | Logs when enabled |
+
+On first use, existing files from the previous per-user JKR folder are copied
+into this folder. Root-level `.cfg` files and `configs/` are included. Files
+already present in the destination win; the originals are never deleted. A
+`.user-data-imported` marker prevents repeated imports, including restoration of
+files subsequently deleted by the player. Imports skip source links and PK3s.
+An incomplete import reports an error and can be retried without overwriting
+completed files.
+
+If `GameData/jkr/` cannot be written, the client uses its per-user folder:
+`$XDG_CONFIG_HOME/jkr/` (otherwise `~/.config/jkr/`) on Linux, `%APPDATA%\jkr\`
+on Windows, or `~/Library/Application Support/jkr/` on macOS. The chosen folder
+is shared by all profile consumers for the entire session. Startup reports it;
+the console's `path` command also lists it. The fallback uses the profile in
+that per-user folder; the old and portable profiles are not continuously synced.
+See [platform.rs](../crates/jkr-viewer/src/platform.rs) and
+[storage.rs](../crates/jkr-viewer/src/platform/storage.rs).
 Edit settings through the client, or edit the file while the client is stopped
 so autosaving cannot overwrite your changes.
 

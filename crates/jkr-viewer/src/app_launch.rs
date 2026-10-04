@@ -5,8 +5,6 @@ use super::*;
 pub(super) fn run() -> Result<(), Box<dyn Error>> {
     let arguments = std::env::args_os().skip(1).collect::<Vec<_>>();
     let demo_request = demo_playback::request(&arguments)?;
-    let mut console = console::ViewerConsole::new(platform::user_config_file()?)?;
-    assets::search_paths::initialize(&console)?;
     let (
         game_data,
         map_override,
@@ -21,7 +19,10 @@ pub(super) fn run() -> Result<(), Box<dyn Error>> {
         }
         (request.game_data, None, None, None, false, Some(session))
     } else {
-        let launch = launch::resolve(arguments.into_iter(), console.configured_game_data())?;
+        let configured = platform::legacy_config_file()
+            .ok()
+            .and_then(|path| launch::saved_game_data(&path));
+        let launch = launch::resolve(arguments.into_iter(), configured)?;
         (
             launch.game_data,
             launch.map_path,
@@ -31,6 +32,9 @@ pub(super) fn run() -> Result<(), Box<dyn Error>> {
             None,
         )
     };
+    platform::initialize_storage(&game_data)?;
+    let mut console = console::ViewerConsole::new(platform::user_config_file()?)?;
+    assets::search_paths::initialize(&console)?;
     // The menu goes up first so its master-server fetch runs while the map
     // loads: the browser has servers by the time the main menu is on screen.
     let mut client_menu = menu::ClientMenu::new(open_main_menu, console.master_server()?);

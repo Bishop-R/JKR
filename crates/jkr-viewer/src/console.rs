@@ -160,15 +160,6 @@ impl ViewerConsole {
             .clamp(0, jkr_client::command_history::MAX_PACKET_DUP as i64) as usize
     }
 
-    /// Configured retail-data directory, if the user selected one.
-    pub(crate) fn configured_game_data(&self) -> Option<PathBuf> {
-        self.text_cvar("fs_gameData")
-            .ok()
-            .map(str::trim)
-            .filter(|path| !path.is_empty())
-            .map(PathBuf::from)
-    }
-
     pub(crate) fn config_directory(&self) -> &std::path::Path {
         &self.config_directory
     }

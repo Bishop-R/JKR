@@ -3,6 +3,30 @@
 use std::env;
 use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+#[path = "platform/storage.rs"]
+mod storage;
+
+static CONFIG_FILE: OnceLock<PathBuf> = OnceLock::new();
+
+/// Select writable client storage once, before constructing any UI or workers.
+pub(crate) fn initialize_storage(game_data: &std::path::Path) -> Result<(), Error> {
+    if CONFIG_FILE.get().is_some() {
+        return Err(Error::other("client storage already initialized"));
+    }
+    let legacy = legacy_config_file().ok();
+    let selection = storage::select(game_data, legacy.as_deref())?;
+    if let Some(reason) = selection.fallback_reason {
+        crate::log::progress(format_args!(
+            "GameData/jkr is not writable ({reason}); using user storage"
+        ));
+    }
+    crate::log::progress(format_args!("client files: {}", selection.config.display()));
+    CONFIG_FILE
+        .set(selection.config)
+        .map_err(|_| Error::other("client storage already initialized"))
+}
 
 /// Ask the native interface-listing utility; no external probe packets or DNS tricks.
 pub(crate) fn interface_addresses() -> Result<String, Error> {
@@ -22,9 +46,16 @@ pub(crate) fn interface_addresses() -> Result<String, Error> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Resolve the native per-user configuration file without touching retail or
-/// repository data.
+/// The selected client configuration; all file consumers share this location.
 pub(crate) fn user_config_file() -> Result<PathBuf, Error> {
+    CONFIG_FILE
+        .get()
+        .cloned()
+        .map_or_else(legacy_config_file, Ok)
+}
+
+/// Previous per-user location, retained for discovery, import and fallback.
+pub(crate) fn legacy_config_file() -> Result<PathBuf, Error> {
     let root = if cfg!(target_os = "windows") {
         env_path("APPDATA")?
     } else if cfg!(target_os = "macos") {
