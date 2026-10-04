@@ -5,6 +5,8 @@ use jkr_shell::{CvarDefinition, CvarFlags, CvarRegistry};
 use jkr_ui::{DrawCommand, FontWeight, Rect, TextAlign, TextOverflow};
 use std::fmt::Write;
 
+const TOP: f32 = 32.0;
+
 /// Register only the option consumed by this panel.
 pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarError> {
     cvars.register(CvarDefinition::new(
@@ -124,7 +126,6 @@ pub(crate) struct State {
     portrait: super::portrait::Portrait,
     choice: Option<Choice>,
     visible: bool,
-    top: f32,
     /// Bounded display name borrowed from the shared roster on change.
     pub(super) name: String,
     /// Bounded role, score and health label, formatted only on metadata changes.
@@ -137,7 +138,6 @@ impl Default for State {
             portrait: Default::default(),
             choice: None,
             visible: false,
-            top: 230.0,
             name: String::with_capacity(256),
             detail: String::with_capacity(128),
         }
@@ -162,12 +162,6 @@ impl State {
             && !(enabled("cg_drawradar", false) && snapshot.player.vehicle_entity_num() != 0)
             && !(enabled("cg_spechud", false)
                 && (snapshot.player.team() == 3 || snapshot.player.movement_flags() & 0x1000 != 0));
-        let items = if enabled("cg_drawinventory", true) && snapshot.player.stats[1] != 0 {
-            (snapshot.player.stats[2] & 0x0f7e).count_ones()
-        } else {
-            0
-        };
-        self.top = 230.0_f32.max(116.0 + items as f32 * 26.0);
         let mut choice = choose(game, snapshot);
         if let Some(choice) = &mut choice
             && let Some(duel) = &mut choice.duel
@@ -245,15 +239,27 @@ impl State {
         );
     }
 
+    /// Bottom of the visible corner block in 1080p HUD units, or zero if hidden.
+    pub(super) fn bottom(&self) -> f32 {
+        if !self.visible || self.choice.is_none() {
+            return 0.0;
+        }
+        TOP + if self.portrait.drawn() {
+            super::portrait::Portrait::HEIGHT
+        } else {
+            0.0
+        } + 56.0
+    }
+
     /// Hero text and actual model portrait, without placeholders or a tinted panel.
     pub(super) fn emit(&self, list: &mut DrawList, viewport: [f32; 2], theme: Theme) {
         if !self.visible || self.choice.is_none() {
             return;
         }
-        self.portrait.emit(list, viewport, self.top);
+        self.portrait.emit(list, viewport, TOP);
         let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
         // The portrait heads the block; the text keeps its place when no image resolved.
-        let text_top = self.top
+        let text_top = TOP
             + if self.portrait.drawn() {
                 super::portrait::Portrait::HEIGHT
             } else {

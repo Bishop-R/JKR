@@ -6,6 +6,8 @@ use std::error::Error;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Definition {
+    pub(crate) sound_spin: Option<String>,
+    pub(crate) sound_swing: [Option<String>; 3],
     pub(crate) name: String,
     pub(crate) model: String,
     pub(crate) num_blades: u8,
@@ -29,6 +31,8 @@ pub(crate) fn load(
                 key,
                 Definition {
                     name: definition.name,
+                    sound_spin: definition.sound_spin,
+                    sound_swing: definition.sound_swing,
                     model: definition.model,
                     num_blades: definition.num_blades,
                     blade_lengths: definition.blade_lengths,

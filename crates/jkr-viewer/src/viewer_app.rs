@@ -133,8 +133,10 @@ impl ApplicationHandler for ViewerApplication {
                 }
             }
             WindowEvent::ModifiersChanged(modifiers) => {
+                gpu.chat.set_modifiers(modifiers.state());
                 if let Some(console) = gpu.console.as_mut() {
                     console.set_shift(modifiers.state().shift_key());
+                    console.set_control(modifiers.state().control_key());
                     console.window_alt(modifiers.state().alt_key());
                 }
             }
@@ -157,6 +159,10 @@ impl ApplicationHandler for ViewerApplication {
             WindowEvent::MouseInput { state, button, .. } => gpu.pointer_button(button, state),
             WindowEvent::MouseWheel { delta, .. } => gpu.pointer_wheel(delta),
             WindowEvent::Focused(focused) => {
+                if !focused {
+                    gpu.chat
+                        .set_modifiers(winit::keyboard::ModifiersState::empty());
+                }
                 if let Some(console) = &mut gpu.console {
                     console.window_state(
                         Some(focused),

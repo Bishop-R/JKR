@@ -9,6 +9,7 @@ use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 mod catalog;
+mod numeric;
 mod pointer;
 mod view;
 
@@ -25,6 +26,7 @@ pub(crate) struct SettingsMenu {
     selected: usize,
     values: Vec<String>,
     editing: Option<String>,
+    numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
     ui: MenuCanvas,
 }
 
@@ -35,6 +37,7 @@ impl SettingsMenu {
             selected: 0,
             values: Vec::with_capacity(12),
             editing: None,
+            numeric: None,
             ui: MenuCanvas::new(),
         }
     }
@@ -53,6 +56,7 @@ impl SettingsMenu {
         self.tab = tab.min(TABS.len() - 1);
         self.selected = 0;
         self.editing = None;
+        self.numeric = None;
         self.refresh(console);
     }
     pub(crate) fn visual_selection(&self) -> (usize, bool) {
@@ -73,6 +77,9 @@ impl SettingsMenu {
         let PhysicalKey::Code(key) = event.physical_key else {
             return SettingsResult::None;
         };
+        if self.edit_numeric(key, event.text.as_deref(), console) {
+            return SettingsResult::None;
+        }
         if let Some(buffer) = &mut self.editing {
             match key {
                 KeyCode::Escape => self.editing = None,
@@ -128,8 +135,8 @@ impl SettingsMenu {
             KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => {
                 if let Some(setting) = settings(self.tab).get(self.selected) {
                     if matches!(setting.kind, ValueKind::Text) {
-                        self.editing = Some(value_text(console, setting));
-                    } else {
+                        self.editing = Some(value_text(console, setting.cvar));
+                    } else if !self.begin_numeric(console, self.selected) {
                         self.adjust(console, 1);
                     }
                 }
@@ -171,7 +178,7 @@ impl SettingsMenu {
         self.values.extend(
             settings(self.tab)
                 .iter()
-                .map(|setting| value_text(console, setting)),
+                .map(|setting| row_text(console, setting)),
         );
     }
 }
@@ -204,15 +211,23 @@ fn step_integer(value: i64, direction: i32, min: i64, max: i64, step: i64) -> i6
     (value + i64::from(direction) * step).clamp(min, max)
 }
 
-fn value_text(console: &ViewerConsole, setting: &Setting) -> String {
-    console.cvar(setting.cvar).map_or_else(
+/// The value a row shows: AUTO for the one special value below a negative
+/// minimum (`com_maxfps -1`), otherwise the cvar's text.
+fn row_text(console: &ViewerConsole, setting: &Setting) -> String {
+    match (setting.kind, console.cvar(setting.cvar)) {
+        (ValueKind::Integer { min, .. }, Some(CvarValue::Integer(value)))
+            if min < 0 && *value < 0 =>
+        {
+            "AUTO".to_owned()
+        }
+        _ => value_text(console, setting.cvar),
+    }
+}
+
+fn value_text(console: &ViewerConsole, name: &str) -> String {
+    console.cvar(name).map_or_else(
         || "?".to_owned(),
         |value| match value {
-            CvarValue::Integer(v)
-                if *v < 0 && matches!(setting.kind, ValueKind::Integer { min, .. } if min < 0) =>
-            {
-                "AUTO".to_owned()
-            }
             CvarValue::Bool(v) => {
                 if *v {
                     "ON".to_owned()

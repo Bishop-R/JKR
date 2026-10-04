@@ -216,7 +216,5 @@ fn byte_signature(bytes: &[u8]) -> u64 {
 
 /// Automatic intermission scores and the ordinary held scoreboard share one layout.
 pub(crate) fn requested(gpu: &crate::GpuState, intermission: bool) -> bool {
-    intermission
-        || gpu.resident_scoreboard_visible()
-        || gpu.gameplay_input.held(crate::input::GameButton::Scores)
+    intermission || gpu.gameplay_input.held(crate::input::GameButton::Scores)
 }

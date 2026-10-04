@@ -15,6 +15,22 @@ impl SettingsMenu {
         let Some(token) = event.token else {
             return SettingsResult::None;
         };
+        if event.kind == UiEventKind::Press
+            && crate::menu_widgets::numeric::value_row(token).is_none()
+        {
+            self.numeric = None;
+        }
+        if event.kind == UiEventKind::Activate {
+            if let Some(row) = crate::menu_widgets::numeric::value_row(token) {
+                if self.numeric.as_ref().is_none_or(|edit| edit.row != row) {
+                    self.begin_numeric(console, row);
+                }
+                return SettingsResult::None;
+            }
+            self.numeric = None;
+        } else if self.numeric.is_some() {
+            return SettingsResult::None;
+        }
         if event.kind == UiEventKind::Wheel {
             let direction = event.delta.map_or(0, |delta| -delta.y.signum() as i32);
             let count = settings(self.tab).len() + usize::from(self.tab == KEYBINDS_TAB);
@@ -32,6 +48,9 @@ impl SettingsMenu {
             return SettingsResult::None;
         }
         if event.kind == UiEventKind::Drag {
+            if crate::menu_widgets::numeric::value_row(token).is_some() {
+                return SettingsResult::None;
+            }
             if let (Some(row), Some(position)) = (self.setting_row(token), event.position) {
                 self.selected = row;
                 self.set_numeric_from_pointer(console, row, position.x);
@@ -59,7 +78,7 @@ impl SettingsMenu {
                 self.selected = row;
                 if let Some(setting) = settings(self.tab).get(row) {
                     if matches!(setting.kind, ValueKind::Text) {
-                        self.editing = Some(value_text(console, setting));
+                        self.editing = Some(value_text(console, setting.cvar));
                     } else if let Some(position) = event.position {
                         if !self.set_numeric_from_pointer(console, row, position.x) {
                             self.adjust(console, 1);
@@ -74,7 +93,7 @@ impl SettingsMenu {
     }
 
     fn setting_row(&self, token: u16) -> Option<usize> {
-        let row = usize::from(token);
+        let row = crate::menu_widgets::numeric::value_row(token).unwrap_or(usize::from(token));
         (row < settings(self.tab).len()).then_some(row)
     }
 

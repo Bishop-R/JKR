@@ -294,7 +294,9 @@ fn button(
 
 fn slider(ui: &mut MenuCanvas, panel: &Panel, row: usize, rect: Rect, s: f32) {
     let (name, min, max, _) = SLIDERS[row];
-    if panel.selected == row as u16 {
+    if panel.selected == row as u16
+        || panel.selected == crate::menu_widgets::numeric::VALUE_BASE + row as u16
+    {
         ui.accent_sweep(rect, 0.12, 0.);
     }
     label(
@@ -313,15 +315,24 @@ fn slider(ui: &mut MenuCanvas, panel: &Panel, row: usize, rect: Rect, s: f32) {
     } else {
         ""
     };
-    ui.text_fmt_aligned(
-        format_args!("{:.1}{suffix}", panel.values[row]),
-        Rect::new(rect.x, rect.y, rect.width, 20. * s),
-        15. * s,
-        ui.theme().foreground,
-        FontWeight::Semibold,
-        0.,
-        TextAlign::End,
+    let value_rect = Rect::new(rect.right() - 104.0 * s, rect.y, 104.0 * s, 20.0 * s);
+    ui.hit_region(
+        crate::menu_widgets::numeric::VALUE_BASE + row as u16,
+        value_rect,
     );
+    if let Some(edit) = panel.numeric.as_ref().filter(|edit| edit.row == row) {
+        edit.draw(ui, value_rect, s);
+    } else {
+        ui.text_fmt_aligned(
+            format_args!("{}{suffix}", panel.values[row]),
+            value_rect,
+            15.0 * s,
+            ui.theme().foreground,
+            FontWeight::Semibold,
+            0.0,
+            TextAlign::End,
+        );
+    }
     let rail = Rect::new(
         rect.x + 6. * s,
         rect.y + 22. * s,

@@ -165,45 +165,57 @@ pub(crate) fn valid_filename(name: &str) -> bool {
 }
 
 fn requests(game: &GameState, checksums: &[i32]) -> Result<Vec<PakRequest>, String> {
+    let server_info = InfoString::parse(&String::from_utf8_lossy(
+        game.config_string(0).unwrap_or(b""),
+    ))
+    .map_err(|e| e.to_string())?;
+    // A referenced pak is not an admission requirement. Tayst's CL_InitDownloads
+    // continues with local content when downloads are disabled. We support UDP
+    // only, so an HTTP URL does not enable this transport.
+    if server_info.get_i32("sv_allowDownload") == Some(0) {
+        crate::log::progress(format_args!(
+            "session content: server disabled UDP downloads; using available content"
+        ));
+        return Ok(Vec::new());
+    }
     let Some(raw) = game.config_string(1) else {
         return Ok(Vec::new());
     };
     let info = InfoString::parse(std::str::from_utf8(raw).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    let names: Vec<_> = info
-        .get("sv_referencedPakNames")
-        .unwrap_or("")
-        .split_whitespace()
-        .collect();
-    let sums: Vec<_> = info
-        .get("sv_referencedPaks")
-        .unwrap_or("")
-        .split_whitespace()
-        .collect();
-    if names.len() != sums.len() || names.len() > 1024 {
-        return Err("invalid referenced pak list".into());
-    }
+    let references = jkr_client::referenced_paks::parse(
+        info.get("sv_referencedPaks").unwrap_or(""),
+        info.get("sv_referencedPakNames").unwrap_or(""),
+    )?;
     let mut missing = Vec::new();
-    for (name, sum) in names.into_iter().zip(sums) {
-        let checksum = sum
-            .parse::<i32>()
-            .map_err(|_| "invalid referenced checksum")?;
+    for reference in references {
+        let name = reference.name;
+        let checksum = reference.checksum;
         if checksums.contains(&checksum) {
             continue;
         }
-        let (directory, stem) = name
-            .split_once('/')
-            .ok_or("pak reference lacks game directory")?;
+        let Some((directory, stem)) = name.split_once('/') else {
+            crate::log::progress(format_args!(
+                "session content: skipping unrequestable pak name {name:?}"
+            ));
+            continue;
+        };
         if directory.is_empty()
             || !directory
                 .bytes()
                 .all(|b| b.is_ascii_alphanumeric() || b == b'_')
         {
-            return Err("unsafe pak game directory".into());
+            crate::log::progress(format_args!(
+                "session content: skipping unsafe pak game directory in {name:?}"
+            ));
+            continue;
         }
         let filename = format!("{stem}.pk3");
         if !valid_filename(&filename) {
-            return Err(format!("unsafe pak filename: {filename:?}"));
+            crate::log::progress(format_args!(
+                "session content: skipping unsafe pak filename {filename:?}"
+            ));
+            continue;
         }
         // FS_ComparePaks never downloads the retail asset packs.
         if (directory.eq_ignore_ascii_case("base") || directory.eq_ignore_ascii_case("missionpack"))
@@ -211,9 +223,7 @@ fn requests(game: &GameState, checksums: &[i32]) -> Result<Vec<PakRequest>, Stri
             && stem[..6].eq_ignore_ascii_case("assets")
             && (b'0'..=b'8').contains(&stem.as_bytes()[6])
         {
-            return Err(format!(
-                "missing retail pak {name}; install retail data locally"
-            ));
+            continue;
         }
         if !missing.iter().any(|r: &PakRequest| r.checksum == checksum) {
             missing.push(PakRequest {
@@ -235,11 +245,12 @@ impl DownloadStorage for Store {
         self.cancelled = cancelled;
     }
     fn missing(&self, game: &GameState) -> Result<Vec<PakRequest>, String> {
-        let missing = requests(game, &self.checksums)?;
-        if !missing.is_empty() && !self.enabled {
-            return Err("missing server paks; UDP downloads disabled (cl_allowDownload 0)".into());
+        // cl_allowDownload controls transfers, not permission to join using the
+        // installed map. Missing maps still fail when the BSP is loaded.
+        if !self.enabled {
+            return Ok(Vec::new());
         }
-        Ok(missing)
+        requests(game, &self.checksums)
     }
 
     fn check(&self) -> Result<(), String> {

@@ -42,9 +42,6 @@ impl GpuState {
     ) {
         use crate::frame_pacing::budget::Phase;
         timing.mark(Phase::Snapshot);
-        if let Some(audio) = game_audio.as_mut() {
-            audio.set_muted_players(self.chat.muted_players());
-        }
         drain_snapshots(|| {
             let Some(session) = &mut self.live_session else {
                 return false;
@@ -112,18 +109,12 @@ impl GpuState {
             if !active_snapshot(&snapshot) {
                 return true;
             }
-            if self.begin_playable_intermission() {
-                self.finish_resident_attach(game_audio);
-                return false;
-            }
-            if self.live_session.as_ref().is_some_and(|s| !s.is_local()) {
-                self.resident.remember_player(&snapshot.player);
-            }
             self.net_timing.snapshot_received(snapshot.server_time);
             self.present_live_snapshot(&snapshot, true, game_audio, visual_now);
             true
         });
         timing.mark(Phase::Commands);
+        let talking = self.key_catcher_active();
         let Some(session) = &mut self.live_session else {
             return;
         };
@@ -196,7 +187,7 @@ impl GpuState {
         if let Some(yaw) = emplaced_view::forced_yaw(snapshot, self.camera_yaw.to_degrees()) {
             self.camera_yaw = yaw.to_radians();
         }
-        let command = self.gameplay_input.user_command(
+        let mut command = self.gameplay_input.user_command(
             self.server_clock.server_time(Instant::now()),
             self.camera_pitch,
             self.camera_yaw,
@@ -206,6 +197,7 @@ impl GpuState {
             snapshot.player.selected_force_power(),
             self.pending_generic_command,
         );
+        command.buttons = jkr_game_jka::pmove_talk::command_buttons(command.buttons, talking);
         if let Some(console) = &self.console {
             session.set_packet_dup(console.packet_dup());
         }
