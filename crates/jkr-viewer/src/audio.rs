@@ -76,10 +76,6 @@ pub(crate) struct GameAudio {
 }
 
 impl GameAudio {
-    /// Apply explicit chat-menu player mutes to present and future source sounds.
-    pub(crate) fn set_muted_players(&mut self, mask: u32) {
-        self.output.set_muted_players(mask);
-    }
     /// Feed immediate local movement through the snapshot sound resolver and mixer.
     pub(crate) fn observe_predicted_event(
         &mut self,
@@ -321,6 +317,10 @@ impl GameAudio {
     }
 
     /// Rebuild all codemp loops at rendered cadence from interpolated origins.
+    ///
+    /// The set is bracketed by `ClearLoops`/`CommitLoops` because the audio
+    /// thread may drain the queue while it is still being filled; without the
+    /// commit, loops not yet re-sent would drop out for a mix block.
     pub(crate) fn update_frame_loops(
         &mut self,
         snapshot: &Snapshot,
@@ -331,6 +331,18 @@ impl GameAudio {
     ) {
         self.poll_legacy_load();
         self.output.send(AudioCommand::ClearLoops);
+        self.send_frame_loops(snapshot, presented_time, listener_origin, world, bsp);
+        self.output.send(AudioCommand::CommitLoops);
+    }
+
+    fn send_frame_loops(
+        &mut self,
+        snapshot: &Snapshot,
+        presented_time: i32,
+        listener_origin: [f32; 3],
+        world: &World,
+        bsp: &Bsp,
+    ) {
         let Some(adapter) = &mut self.legacy else {
             return;
         };

@@ -10,30 +10,15 @@ use std::time::Instant;
 pub(super) fn consume(
     session: &mut ClientSession,
     localization: &Localization,
-    chat: &mut ChatOverlay,
+    chat: Option<&mut ChatOverlay>,
     mut console: Option<&mut ViewerConsole>,
     mut adapter: Option<&mut LegacyWorldAdapter>,
     watch: &mut crate::clientinfo_refresh::ClientInfoWatch,
 ) {
-    chat.update_roster(session.game_state());
-    chat.configure(console.as_deref());
-    for event in session.drain_events() {
-        if let Some(console) = &mut console {
-            console.notify_server_text(&event.kind, &event.text);
-        }
-        let text = localization.translate(&event.text);
-        if let Some(console) = &mut console {
-            console.log_chat(&event.kind, &text);
-        }
-        // stderr, not stdout: the launcher captures only stderr, so anything
-        // the server tells us -- a drop reason above all -- was being written
-        // where nobody would ever read it.
-        crate::log::progress(format_args!(
-            "server {:?}: {}",
-            event.kind,
-            text.replace('\n', " "),
-        ));
-        chat.receive(event.kind, text, event.sender, Instant::now());
+    if let Some(chat) = chat {
+        consume_messages(session, localization, chat, console.as_deref_mut());
+    } else {
+        session.drain_events().for_each(drop);
     }
 
     while let Some(event) = session.pop_base_command_event() {
@@ -88,5 +73,41 @@ pub(super) fn consume(
     }
     if let Some(console) = &mut console {
         console.flush_userinfo(session, Instant::now());
+    }
+}
+
+/// Receive communication from the remote endpoint without touching local actors.
+pub(crate) fn consume_messages(
+    session: &mut ClientSession,
+    localization: &Localization,
+    chat: &mut ChatOverlay,
+    mut console: Option<&mut ViewerConsole>,
+) {
+    chat.update_roster(session.game_state());
+    chat.configure(console.as_deref());
+    for event in session.drain_events() {
+        if let Some(console) = &mut console {
+            console.notify_server_text(&event.kind, &event.text);
+        }
+        let text = localization.translate(&event.text);
+        if let Some(console) = &mut console {
+            console.log_chat(&event.kind, &text);
+        }
+        // stderr, not stdout: the launcher captures only stderr, so anything
+        // the server tells us -- a drop reason above all -- was being written
+        // where nobody would ever read it.
+        crate::log::progress(format_args!(
+            "server {:?}: {}",
+            event.kind,
+            text.replace('\n', " "),
+        ));
+        let now = Instant::now();
+        if event.kind == jkr_client::ServerEventKind::Print {
+            if let Some(console) = &mut console {
+                console.push_log(text);
+            }
+        } else {
+            chat.receive(event.kind, text, event.sender, now);
+        }
     }
 }

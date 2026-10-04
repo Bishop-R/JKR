@@ -9,6 +9,8 @@ mod downloads;
 pub(crate) enum JoinPoll {
     Pending,
     Progress(String),
+    Map(String),
+    Prepared(Box<GameState>),
     Joined(JoinedSession),
     Failed(String),
 }
@@ -27,6 +29,8 @@ pub(crate) struct JoinedSession {
 pub(crate) struct JoinTask {
     receiver: Receiver<Result<JoinedSession, String>>,
     progress: Receiver<String>,
+    map: Receiver<String>,
+    prepared: Receiver<GameState>,
     cancelled: Arc<AtomicBool>,
 }
 
@@ -40,6 +44,8 @@ impl JoinTask {
         guid: Option<crate::client_guid::Policy>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
+        let (map_tx, map) = mpsc::channel();
+        let (prepared_tx, prepared) = mpsc::sync_channel(1);
         let (progress_tx, progress) = mpsc::sync_channel(1);
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancelled);
@@ -58,6 +64,10 @@ impl JoinTask {
                     &userinfo,
                     Some(Box::new(storage)),
                     guid,
+                    prepared_tx,
+                    |name| {
+                        let _ = map_tx.send(name);
+                    },
                 )
                 .map_err(|e| e.to_string())
             })()
@@ -71,12 +81,20 @@ impl JoinTask {
         Self {
             receiver,
             progress,
+            map,
+            prepared,
             cancelled,
         }
     }
 
     /// Poll without blocking the rendering thread.
     pub(crate) fn poll(&self) -> JoinPoll {
+        if let Ok(map) = self.map.try_recv() {
+            return JoinPoll::Map(map);
+        }
+        if let Ok(game) = self.prepared.try_recv() {
+            return JoinPoll::Prepared(Box::new(game));
+        }
         if let Ok(text) = self.progress.try_recv() {
             return JoinPoll::Progress(text);
         }

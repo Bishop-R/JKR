@@ -25,19 +25,19 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
     for definition in [
         CvarDefinition::new(
             "r_ext_texture_filter_anisotropic",
-            0_i64,
+            1_i64,
             CvarFlags::ARCHIVE,
             "Enable world/model anisotropy; restart viewer after changing",
         ),
         CvarDefinition::new(
             "r_ext_max_anisotropy",
-            2_i64,
+            16_i64,
             CvarFlags::ARCHIVE,
             "Anisotropy level (1..16); restart viewer after changing",
         ),
         CvarDefinition::new(
             "r_textureMode",
-            "GL_LINEAR",
+            "GL_LINEAR_MIPMAP_LINEAR",
             CvarFlags::ARCHIVE,
             "GL texture filter; restart viewer after changing",
         ),
@@ -79,16 +79,18 @@ impl Policy {
     /// Read once at context construction. Invalid mode names are reported before falling back.
     pub(crate) fn sample(console: Option<&crate::console::ViewerConsole>, maximum: u16) -> Self {
         let Some(console) = console else {
-            return Self::default();
+            return Self::resolve("GL_LINEAR_MIPMAP_LINEAR", true, 16, maximum).unwrap();
         };
-        let mode = console.text_value("r_texturemode").unwrap_or("GL_LINEAR");
+        let mode = console
+            .text_value("r_texturemode")
+            .unwrap_or("GL_LINEAR_MIPMAP_LINEAR");
         let result = Self::resolve(
             mode,
             console
                 .integer_cvar("r_ext_texture_filter_anisotropic")
-                .unwrap_or(0)
+                .unwrap_or(1)
                 != 0,
-            console.integer_cvar("r_ext_max_anisotropy").unwrap_or(2),
+            console.integer_cvar("r_ext_max_anisotropy").unwrap_or(16),
             maximum,
         );
         if result.is_none() {
@@ -100,7 +102,7 @@ impl Policy {
         if policy.mode != 5
             && console
                 .integer_cvar("r_ext_texture_filter_anisotropic")
-                .unwrap_or(0)
+                .unwrap_or(1)
                 != 0
         {
             crate::log::progress(format_args!(

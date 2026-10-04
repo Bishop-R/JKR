@@ -5,7 +5,7 @@ use crate::particle_types::PrimitiveShape;
 
 pub(crate) struct Inputs<'a> {
     pub(crate) geometry: &'a mut crate::effect_geometry_gpu::Runtime,
-    pub(crate) queue: &'a wgpu::Queue,
+    pub(crate) queue: &'a crate::frame_queue::FrameQueue,
     pub(crate) encoder: &'a mut wgpu::CommandEncoder,
     pub(crate) particles: &'a mut [Particle],
     pub(crate) decals: &'a mut crate::decal_store::DecalStore,
@@ -83,12 +83,15 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
             if emitted >= capacity {
                 break 'particles;
             }
+            let uv_transform = billboard_uv_transform(particle.shape, layer.uv_transform);
             let instance = EntityInstance {
                 position: motion.origin.to_array(),
                 kind: if particle.normal.is_some() {
                     5
                 } else if particle.streak.is_some() {
                     4
+                } else if matches!(particle.shape, PrimitiveShape::FrameBillboard) {
+                    7 // World icon: retain texture alpha without soft-particle fading.
                 } else {
                     3
                 },
@@ -103,7 +106,7 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
                 ],
                 direction,
                 rotation: motion.rotation_degrees,
-                uv_transform: layer.uv_transform,
+                uv_transform,
             };
             inputs.blended[crate::effect_blend::slot(layer.blend)].push(instance);
         }
@@ -120,6 +123,22 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
         blended: std::array::from_fn(|index| {
             append_instance_group(inputs.entity_instances, &mut inputs.blended[index])
         }),
+    }
+}
+
+/// The `[scale_u, scale_v, offset_u, offset_v]` texture transform for one billboard layer.
+///
+/// Frame icons use `RT_SPRITE`'s top-down image coordinates: OpenJK's
+/// `RB_AddQuadStamp` puts t=0 at +up. The particle quad in `entity.wgsl` instead
+/// has local v=1 there. Reflect its local v before applying the authored tcMod so
+/// chat/connection and simple-item icons are upright; FX keep their existing
+/// texture convention.
+pub(crate) fn billboard_uv_transform(shape: PrimitiveShape, uv_transform: [f32; 4]) -> [f32; 4] {
+    let [scale_u, scale_v, offset_u, offset_v] = uv_transform;
+    if matches!(shape, PrimitiveShape::FrameBillboard) {
+        [scale_u, -scale_v, offset_u, offset_v + scale_v]
+    } else {
+        uv_transform
     }
 }
 

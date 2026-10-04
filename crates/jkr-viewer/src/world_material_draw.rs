@@ -81,19 +81,17 @@ impl Runtime {
         );
     }
 
-    pub(crate) fn material_sort(&self, material: usize) -> f32 {
-        self.material(material)
-            .map_or(SORT_OPAQUE, |entry| entry.sort)
+    /// Cached ordering keys avoid chasing material/stage storage during entity sorting.
+    pub(crate) fn material_order(&self, material: usize) -> (f32, usize) {
+        self.source_order
+            .get(material)
+            .copied()
+            .unwrap_or((SORT_OPAQUE, 0))
     }
 
-    pub(crate) fn material_blended(&self, material: usize) -> bool {
-        self.material(material).is_some_and(|entry| entry.blended)
-    }
-
-    pub(crate) fn entity_pipeline_index(&self, material: usize) -> usize {
-        self.material(material)
-            .and_then(|entry| entry.stages.first())
-            .map_or(0, |stage| stage.pipeline)
+    /// Missing sources have no stages and must not enter stage-major entity traversal.
+    pub(crate) fn material_blended(&self, material: usize) -> Option<bool> {
+        self.material(material).map(|entry| entry.blended)
     }
 
     pub(super) fn material(&self, source: usize) -> Option<&Material> {
@@ -107,7 +105,7 @@ impl Runtime {
     /// Publish one lighting-mode word in the already allocated scene block.
     pub(crate) fn update_scene_lighting_mode(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         lights: &PointLightList,
         model_pixels: bool,
         mode: u32,
@@ -284,12 +282,7 @@ impl Runtime {
         // draws instead of once per stage of every draw (a pipeline switch is the most
         // expensive state change to encode). Blended and depth-less draws keep their order.
 
-        let stage_major = |draw: &crate::entity_materials::Draw| {
-            !draw.no_depth
-                && self
-                    .material(draw.material)
-                    .is_some_and(|material| !material.blended)
-        };
+        let stage_major = |draw: &crate::entity_materials::Draw| draw.stage_major;
         let deepest = draws
             .iter()
             .filter(|draw| stage_major(draw))

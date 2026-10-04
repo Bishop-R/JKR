@@ -4,6 +4,8 @@
 //! share this runtime. Stage compilation lives exclusively in `world_stage`;
 //! `model_materials` is only a cgame override-name adapter.
 
+#[path = "depth_prime.rs"]
+mod depth_prime;
 #[path = "world_material_draw.rs"]
 mod draw;
 #[path = "gi_probe_domain.rs"]
@@ -38,6 +40,8 @@ mod gpu;
 mod model_grid;
 #[path = "world_ssao.rs"]
 pub(crate) mod ssao;
+#[path = "world_texture_prepare.rs"]
+mod texture_prepare;
 
 use fog_draws::FogDraw;
 pub(crate) use fog_draws::FrameDraw;
@@ -80,6 +84,7 @@ macro_rules! stage_shader {
     ($sun:expr, $flares:expr) => {
         concat!(
             include_str!("vertex_transform.wgsl"),
+            include_str!("surface_orientation.wgsl"),
             include_str!("gpu_skinning.wgsl"),
             include_str!("geometry_stage.wgsl"),
             include_str!("stage_runtime.wgsl"),
@@ -228,6 +233,7 @@ pub(crate) struct Runtime {
     shadow_hulls: Option<shadows::hulls::Hulls>,
     /// Every static sun caster as joined index runs, built on first use per map.
     caster_runs: std::cell::OnceCell<Vec<Range<u32>>>,
+    depth_prime: std::cell::OnceCell<[wgpu::RenderPipeline; 3]>,
     /// BSP-sealed void/solid cells on the fixed probe lattice; load-time only.
     probe_domain: gi_probe_domain::Domain,
     environment_policy: lighting_environment::Policy,
@@ -261,6 +267,8 @@ pub(crate) struct Runtime {
     sky: crate::sky_stage::Runtime,
     materials: Vec<Material>,
     source_to_runtime: Vec<usize>,
+    /// Immutable sort/pipeline keys indexed by source, also extended for late materials.
+    source_order: Vec<(f32, usize)>,
     /// One depth-tested pipeline per key for world statics (bound to the forge's identity
     /// instance), movers and entities alike, plus the entities' no-depth variant. Slots
     /// fill at load for the keys the scene uses and on first draw otherwise (every
@@ -324,13 +332,14 @@ pub(crate) mod filtering;
 
 fn finish_runtime(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     mut forge: Forge,
     sky: crate::sky_stage::Runtime,
     fog: FogGpu,
     pending: Vec<PendingMaterial>,
     resolved: usize,
 ) -> Result<(Runtime, usize), Box<dyn Error>> {
+    texture_prepare::upload(device, queue, &mut forge, &pending)?;
     let dynamic_light_buffer = forge.point_lights.clone();
     let source_count = pending
         .iter()
@@ -382,6 +391,19 @@ fn finish_runtime(
             mover_draws: material.mover_draws,
         });
     }
+    let source_order = source_to_runtime
+        .iter()
+        .map(|&index| {
+            runtime_materials
+                .get(index)
+                .map_or((SORT_OPAQUE, 0), |material| {
+                    (
+                        material.sort,
+                        material.stages.first().map_or(0, |stage| stage.pipeline),
+                    )
+                })
+        })
+        .collect();
     let opaque_order = build_draw_order(&runtime_materials, false);
     let blended_order = build_draw_order(&runtime_materials, true);
     let keys = forge.pipeline_keys.clone();
@@ -405,6 +427,7 @@ fn finish_runtime(
         shadow_bounds: [glam::Vec3::ZERO; 2],
         shadow_hulls: None,
         caster_runs: std::cell::OnceCell::new(),
+        depth_prime: std::cell::OnceCell::new(),
         probe_domain: gi_probe_domain::Domain::default(),
         environment_policy: lighting_environment::Policy::default(),
         ssao: ssao::AmbientOcclusion::default(),
@@ -419,6 +442,7 @@ fn finish_runtime(
         sky,
         materials: runtime_materials,
         source_to_runtime,
+        source_order,
         entity_pipelines: Vec::with_capacity(keys.len()),
         entity_no_depth_pipelines: Vec::with_capacity(keys.len()),
         opaque_order,

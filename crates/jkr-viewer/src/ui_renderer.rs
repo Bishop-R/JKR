@@ -60,7 +60,7 @@ impl ShapeRenderer {
     /// Create the one process-lifetime pipeline and fixed vertex storage.
     pub(crate) fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         format: wgpu::TextureFormat,
         depth_format: wgpu::TextureFormat,
     ) -> Self {
@@ -138,7 +138,7 @@ impl ShapeRenderer {
     /// Translate every active retained layer and upload one shared vertex batch.
     pub(crate) fn prepare_layers<'a>(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         draw_lists: impl IntoIterator<Item = &'a DrawList>,
         viewport: [f32; 2],
     ) {
@@ -349,13 +349,18 @@ impl ShapeRenderer {
 
     /// Upload one decoded [`ICON_SIZE`]-square RGBA icon into a stable atlas
     /// cell, sampled by `TexturedQuad` commands naming `texture`.
-    pub(crate) fn upload_icon(&self, queue: &wgpu::Queue, texture: jkr_ui::TextureId, rgba: &[u8]) {
+    pub(crate) fn upload_icon(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        texture: jkr_ui::TextureId,
+        rgba: &[u8],
+    ) {
         self.icons.upload(queue, texture, rgba);
     }
 
     /// Upload the one [`LEVELSHOT_SIZE`] RGBA map preview sampled by
     /// `TexturedQuad` commands naming [`LEVELSHOT_TEXTURE`].
-    pub(crate) fn upload_levelshot(&self, queue: &wgpu::Queue, rgba: &[u8]) {
+    pub(crate) fn upload_levelshot(&self, queue: &crate::frame_queue::FrameQueue, rgba: &[u8]) {
         self.icons.upload_levelshot(queue, rgba);
     }
 }

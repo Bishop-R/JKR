@@ -28,6 +28,7 @@ mod config_string_refresh;
 mod connection;
 mod connection_commands;
 mod console;
+mod console_overlay;
 mod console_runtime;
 mod crosshair_scan;
 mod cut_trace;
@@ -63,6 +64,7 @@ mod fog_frame;
 mod fog_volumes;
 mod force_overlay_submission;
 mod frame_pacing;
+mod frame_queue;
 mod frame_split;
 
 mod frame_target;
@@ -179,7 +181,7 @@ use local_prediction::LocalPrediction;
 use localization::Localization;
 use particle_types::ParticleBlend;
 use player_animation::{GpuPlayerAnimation, PreviewVertexRange};
-use player_assets::{PlayerPreview, load_player_appearance, load_player_preview};
+use player_assets::{PlayerPreview, load_player_preview};
 use render_helpers::{angle_to_short, append_instance_group, mesh_center, texture_layout_entry};
 
 use scene_flatten::{
@@ -222,7 +224,7 @@ struct GpuState {
     render_scale: Option<frame_target::scale::Runtime>,
     screenshots: screenshot::Manager,
     device: wgpu::Device,
-    queue: wgpu::Queue,
+    queue: frame_queue::FrameQueue,
     configuration: wgpu::SurfaceConfiguration,
     present_modes: Vec<wgpu::PresentMode>,
     adapter_name: String,
@@ -290,6 +292,8 @@ struct GpuState {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     hud_buffer: wgpu::Buffer,
+    /// Where this frame's HUD program can draw (`hud_runtime::HudScissors`).
+    hud_scissors: hud_runtime::HudScissors,
     hud_bind_group: wgpu::BindGroup,
     text_vertex_buffer: wgpu::Buffer,
     classic_text_vertex_buffer: wgpu::Buffer,
@@ -400,6 +404,7 @@ struct GpuState {
     is_menu_world: bool,
     /// The map being joined, seen through the menu's gate.
     portal: portal::Destination,
+    resident: session_transition::resident::State,
 }
 use assets::GpuWorldInput;
 
@@ -415,13 +420,14 @@ impl GpuState {
         input: GpuWorldInput,
     ) -> Result<Self, Box<dyn Error>> {
         let context = gpu_context::Context::new(window, input.console.as_ref()).await?;
-        Self::new_with_context(context, target_size, input).await
+        Self::new_with_context(context, target_size, input, None).await
     }
 
     async fn new_with_context(
         context: Arc<gpu_context::Context>,
         target_size: [u32; 2],
         input: GpuWorldInput,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
     ) -> Result<Self, Box<dyn Error>> {
         let input = assets::prepare_instances(input)?;
         let GpuWorldInput {
@@ -444,7 +450,7 @@ impl GpuState {
             mut connect_timeline,
             completed_map_changes,
         } = input;
-        let mut load_profile = load_profile::LoadProfile::start();
+        let mut load_profile = load_profile::LoadProfile::start(cancelled);
         let session_active =
             live_session.is_some() || demo_session.is_some() || build_game_state.is_some();
         let active_game_state = live_session
@@ -530,7 +536,7 @@ impl GpuState {
         }
 
         let mut flattened = scene_flatten::prepare(&scene, &bsp, &shaders)?;
-        load_profile.mark("flatten-bsp");
+        load_profile.mark("flatten-bsp")?;
         let player_animation = player_preview
             .map(|preview| GpuPlayerAnimation::append(&mut flattened, preview))
             .transpose()?;
@@ -542,25 +548,21 @@ impl GpuState {
         } else {
             Vec::new()
         };
-        load_profile.mark("player-models");
+        load_profile.mark("player-models")?;
         let mover_catalog = movers::build_catalog(&bsp, &mut flattened);
         let decal_surfaces = decal_marks::DecalSurfaces::from_flattened(&flattened, &bsp);
-        let mut object_meshes = if session_active {
-            object_meshes::load(
-                &vfs,
-                &bsp,
-                demo_session
-                    .as_ref()
-                    .map_or(&live_world, demo_playback::Session::world),
-                active_game_state,
-                map_effects
-                    .effect_names()
-                    .chain(missile_effects.effect_names()),
-                &mut flattened,
-            )
-        } else {
-            Vec::new()
-        };
+        let mut object_meshes = object_meshes::load(
+            &vfs,
+            &bsp,
+            demo_session
+                .as_ref()
+                .map_or(&live_world, demo_playback::Session::world),
+            active_game_state,
+            map_effects
+                .effect_names()
+                .chain(missile_effects.effect_names()),
+            &mut flattened,
+        );
         let saber_hilts = if session_active {
             saber::load_hilts(
                 &vfs,
@@ -589,9 +591,9 @@ impl GpuState {
         if let Some(timeline) = &mut connect_timeline {
             timeline.mark(log::TimelinePhase::Models);
         }
-        load_profile.mark("object-models");
+        load_profile.mark("object-models")?;
         let geometry = actor_pose::gpu_skinning::upload(&device, &mut actor_meshes, &flattened)?;
-        load_profile.mark("geometry-upload");
+        load_profile.mark("geometry-upload")?;
         let world_minimums = Vec3::from_array(world_minimums);
         let world_maximums = Vec3::from_array(world_maximums);
         let far_plane = (world_maximums - world_minimums).length().max(4096.0) * 2.0;
@@ -610,7 +612,7 @@ impl GpuState {
             label: Some("JKR camera layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -778,7 +780,7 @@ impl GpuState {
             &bsp,
             &shaders,
         );
-        load_profile.mark("world-materials");
+        load_profile.mark("world-materials")?;
         if let Some(timeline) = &mut connect_timeline {
             timeline.mark(log::TimelinePhase::Materials);
         }
@@ -807,7 +809,7 @@ impl GpuState {
             &particle_layout,
             frame_target::aa::effects::FORMAT,
         );
-        load_profile.mark("effect-atlas");
+        load_profile.mark("effect-atlas")?;
         let (entity_pipeline, particle_pipelines) = particle_draw::create(
             device,
             &camera_layout,
@@ -932,7 +934,7 @@ impl GpuState {
             scope::Mask::new(&device, &queue, format, &vfs, &shaders),
             ground_hud::GroundHud::new(device, context.scene_format(), &text_layout),
         );
-        load_profile.mark("pipelines-ui");
+        load_profile.mark("pipelines-ui")?;
 
         let third_person = live_session.is_some()
             || build_game_state.is_some()
@@ -946,12 +948,13 @@ impl GpuState {
         let object_groups = object_meshes::instance_groups(&object_meshes);
         let mover_groups = movers::instance_groups(&mover_catalog.meshes);
         let effects = config_string_refresh::preload_effects(&vfs, &map_effects, &missile_effects);
-        load_profile.mark("effect-graphs");
+        load_profile.mark("effect-graphs")?;
         let sound_prefetch = audio::SoundPrefetch::read(&vfs, build_game_state.as_ref(), &bsp);
-        load_profile.mark("sound-prefetch");
+        load_profile.mark("sound-prefetch")?;
         if let Some(timeline) = &mut connect_timeline {
             timeline.mark(log::TimelinePhase::Sounds);
         }
+        let resident = session_transition::resident::State::new(active_game_state, active_snapshot);
         let live_map_installed = live_session.is_some();
         let trace_scratch = bsp.trace_scratch();
         let entity_lighting = entity_lighting::EntityLighting::from_world(&bsp);
@@ -1034,6 +1037,7 @@ impl GpuState {
             camera_buffer,
             camera_bind_group,
             hud_buffer,
+            hud_scissors: None,
             hud_bind_group,
             text_vertex_buffer,
             classic_text_vertex_buffer,
@@ -1139,6 +1143,7 @@ impl GpuState {
             quit_requested: false,
             is_menu_world: false,
             portal: portal::Destination::new(),
+            resident,
         }
         .with_render_scale()
         .with_sun_shadows())
@@ -1223,36 +1228,9 @@ impl GpuState {
             self.camera_yaw.sin() * self.camera_pitch.cos(),
             self.camera_pitch.sin(),
         );
-        let horizontal_forward = Vec3::new(self.camera_yaw.cos(), self.camera_yaw.sin(), 0.0);
         let right = Vec3::new(-self.camera_yaw.sin(), self.camera_yaw.cos(), 0.0);
         self.finish_audio_frame(game_audio, forward, right);
-        let mut movement = Vec3::ZERO;
-        if self.gameplay_input.held(input::GameButton::Forward) {
-            movement += horizontal_forward;
-        }
-        if self.gameplay_input.held(input::GameButton::Back) {
-            movement -= horizontal_forward;
-        }
-        if self.gameplay_input.held(input::GameButton::MoveRight) {
-            movement += right;
-        }
-        if self.gameplay_input.held(input::GameButton::MoveLeft) {
-            movement -= right;
-        }
-        if self.gameplay_input.held(input::GameButton::Up) {
-            movement += Vec3::Z;
-        }
-        if self.gameplay_input.held(input::GameButton::Down) {
-            movement -= Vec3::Z;
-        }
-        if self.live_session.is_none() && self.demo_session.is_none() {
-            let speed = if self.gameplay_input.held(input::GameButton::Speed) {
-                1_800.0
-            } else {
-                600.0
-            };
-            self.camera_position += movement.normalize_or_zero() * speed * delta_seconds;
-        }
+        self.advance_resident_movement(delta_seconds);
         net_timing::frame(self, presentation_time);
         clock_trace::tick(self, presentation_time, visual_now);
         let first_person = (!backdrop_view)
@@ -1366,38 +1344,39 @@ impl GpuState {
                 (0.0, self.game_menu_row as f32),
                 menu::ClientMenu::visual_selection,
             );
-        self.queue.write_buffer(
-            &self.hud_buffer,
-            0,
-            bytemuck::bytes_of(&HudUniform {
-                crosshair_color: self.hud.targeting.color,
-                health_ratio,
-                armor_ratio,
-                force_ratio,
-                menu_open: menu_backdrop::shader_menu_state(self),
-                inverse_width: 1.0 / self.configuration.width as f32,
-                inverse_height: 1.0 / self.configuration.height as f32,
-                menu_row: visual_menu_row,
-                menu_row_count: self.game_menu_row_count() as f32,
-                crosshair: hud::options::crosshair_size(
-                    self.console.as_ref(),
-                    hud_visibility.crosshair,
-                ),
-                hud_visible: f32::from(hud_visibility.hud),
-                status_visible: 0.0,
-                menu_kind,
-                menu_phase: now.duration_since(self.ui_epoch).as_secs_f32(),
-                damage_x: damage.map_or(0.0, |sample| sample.x),
-                damage_y: damage.map_or(0.0, |sample| sample.y),
-                damage_alpha: damage.map_or(0.0, |sample| sample.alpha),
-                damage_strength: damage.map_or(0.0, |sample| sample.strength),
-                health_bar: hud_layout.health_bar,
-                armor_bar: hud_layout.armor_bar,
-                force_bar: hud_layout.force_bar,
-                _padding: [0.0; 3],
-                crosshair_parameters: self.hud.targeting.parameters(viewport),
-            }),
-        );
+        let hud_uniform = HudUniform {
+            crosshair_color: self.hud.targeting.color,
+            health_ratio,
+            armor_ratio,
+            force_ratio,
+            menu_open: menu_backdrop::shader_menu_state(self),
+            inverse_width: 1.0 / self.configuration.width as f32,
+            inverse_height: 1.0 / self.configuration.height as f32,
+            menu_row: visual_menu_row,
+            menu_row_count: self.game_menu_row_count() as f32,
+            crosshair: hud::options::crosshair_size(
+                self.console.as_ref(),
+                hud_visibility.crosshair,
+            ),
+            hud_visible: f32::from(hud_visibility.hud),
+            status_visible: 0.0,
+            menu_kind,
+            menu_phase: now.duration_since(self.ui_epoch).as_secs_f32(),
+            damage_x: damage.map_or(0.0, |sample| sample.x),
+            damage_y: damage.map_or(0.0, |sample| sample.y),
+            damage_alpha: damage.map_or(0.0, |sample| sample.alpha),
+            damage_strength: damage.map_or(0.0, |sample| sample.strength),
+            health_bar: hud_layout.health_bar,
+            armor_bar: hud_layout.armor_bar,
+            force_bar: hud_layout.force_bar,
+            _padding: [0.0; 3],
+            crosshair_parameters: self.hud.targeting.parameters(viewport),
+        };
+        self.queue
+            .write_buffer(&self.hud_buffer, 0, bytemuck::bytes_of(&hud_uniform));
+        self.hud_scissors =
+            hud_uniform.scissors(self.configuration.width, self.configuration.height);
+        let console_covers_frame = self.console_covers_frame();
         self.text_vertices.clear();
         self.classic_text_vertices.clear();
         let information_visible = (self.live_session.is_some() || self.demo_session.is_some())
@@ -1426,19 +1405,19 @@ impl GpuState {
             );
         }
         let scoreboard_visible = information_visible
-            && (intermission_view.is_some() || self.gameplay_input.held(input::GameButton::Scores))
+            && scoreboard::requested(self, intermission_view.is_some())
             && self
                 .console
                 .as_ref()
                 .and_then(|c| c.bool_cvar("cg_drawScores"))
                 .unwrap_or(true);
-        let chat_visible = scoreboard::chat_visible(
-            scoreboard_visible,
-            information_visible,
-            self.chat.wants_history(self.console.as_ref()),
-        );
+        let chat_visible = !self.console_covers_frame()
+            && scoreboard::chat_visible(
+                information_visible,
+                self.chat.wants_history(self.console.as_ref()),
+            );
         if chat_visible {
-            self.append_configured_chat(viewport, text_scale);
+            self.append_configured_chat(viewport, text_scale, scoreboard_visible);
         }
         if self
             .weapon_selected_at
@@ -1459,7 +1438,7 @@ impl GpuState {
                 viewport,
             );
         }
-        if self.game_menu {
+        if self.game_menu && !self.console_covers_frame() {
             let team_sizes = self.live_session.as_ref().map_or([0, 0], |session| {
                 ingame_menu::team_sizes(session.game_state())
             });
@@ -1485,29 +1464,20 @@ impl GpuState {
         if scoreboard_visible {
             scoreboard::append_overlay(self, viewport, text_scale * 1.05);
         }
-        if let Some(menu) = &mut self.client_menu {
+        if let Some(menu) = self.client_menu.as_mut().filter(|_| !console_covers_frame) {
             menu.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
         }
-        if let Some(console) = &mut self.console {
-            console.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
-        }
-        if hud::family::fps(self.console.as_ref()) {
-            append_text(
-                &mut self.text_vertices,
-                &self.ui_font,
-                self.frame_pacer.label(),
-                [(viewport[0] - 780.0).max(8.0), 18.0],
-                text_scale * 0.8,
-                viewport,
-            );
-        }
+        self.append_console_overlay(viewport, text_scale);
         let layers = [
             information_visible.then(|| &self.hud.identification.list),
             information_visible.then(|| self.hud.draw_list()),
             chat_visible.then(|| self.chat.draw_list()),
             scoreboard_visible.then(|| self.scoreboard.draw_list()),
-            self.game_menu.then(|| self.in_game_menu.draw_list()),
-            self.client_menu.as_ref().and_then(|menu| menu.draw_list()),
+            (self.game_menu && !console_covers_frame).then(|| self.in_game_menu.draw_list()),
+            self.client_menu
+                .as_ref()
+                .filter(|_| !console_covers_frame)
+                .and_then(|menu| menu.draw_list()),
             self.console.as_ref().map(|console| console.draw_list()),
         ];
         self.ui_shapes
@@ -1535,7 +1505,7 @@ impl GpuState {
             self.assign_corpse_meshes();
         }
         {
-            if let Err(error) = self.update_actor_animations(presentation_time) {
+            if let Err(error) = self.update_actor_animations(presentation_time, game_audio) {
                 eprintln!("remote actor animation stopped: {error}");
             }
         }
@@ -1636,7 +1606,9 @@ impl GpuState {
                 .update(snapshot, presentation_time as i32);
         } else {
             self.projectiles.clear();
-            self.movers.clear();
+            if !self.resident.exploring() {
+                self.movers.clear();
+            }
             self.pickups.clear();
         }
         let view_weapon = first_person_weapon::frame_inputs(
@@ -1685,11 +1657,11 @@ impl GpuState {
             game_audio,
         );
         timing.mark(Phase::Acquire);
-        let (frame, output_view) = match frame_target::acquire(self) {
+        let target = match frame_target::prepare(self) {
             Ok(target) => target,
             Err(status) => return status,
         };
-        let target_view = self.scene_target(&output_view).clone();
+        let target_view = target.scene.clone();
         timing.mark(Phase::Effects);
         let mut encoder = self
             .device
@@ -1895,7 +1867,6 @@ impl GpuState {
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "views");
         }
-        let visibility = self.bsp.render().visibility();
         timing.mark(Phase::EncodeWorld);
         self.encode_world_scene(
             &mut encoder,
@@ -1905,6 +1876,11 @@ impl GpuState {
             &particle_ranges,
             has_entity_instances,
         );
+        let (frame, output_view, mut encoder) = match target.finish(self, encoder, timing) {
+            Ok(output) => output,
+            Err(status) => return status,
+        };
+        let visibility = self.bsp.render().visibility();
         timing.mark(Phase::EncodeOverlays);
         self.draw_frame_overlays(
             &mut encoder,
@@ -1919,24 +1895,16 @@ impl GpuState {
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "overlays+post+hud");
         }
-        let screenshot_encoded = self.encode_console_screenshot(&mut encoder, frame.as_ref());
+        self.encode_console_screenshot(&mut encoder, frame.as_ref());
         if let Some(phases) = &self.gpu_phases {
             phases.mark(&mut encoder, "capture");
             phases.finish(&mut encoder);
         }
         timing.mark(Phase::Submit);
-        self.frame_pacer.split.submit(&self.queue, encoder, timing);
-        if let Some(phases) = &self.gpu_phases {
-            phases.after_submit();
-            phases.report();
-        }
-        if screenshot_encoded {
-            self.screenshots.after_submit();
-        }
+        self.frame_pacer
+            .split
+            .submit(&self.queue, encoder, frame, timing);
         timing.mark(Phase::Present);
-        if let Some(frame) = frame {
-            self.queue.present(frame);
-        }
         timing.mark(Phase::Other);
         self.complete_render_transition(game_audio);
         FrameStatus::Rendered
@@ -1969,76 +1937,7 @@ struct ParticleLayerSample {
     uv_transform: [f32; 4],
 }
 
-impl ParticleAtlas {
-    fn first_layer(&self, shader: &str, age_seconds: f32) -> ParticleLayerSample {
-        self.animations
-            .get(shader)
-            .and_then(|animations| animations.first())
-            .map(|animation| self.sample_animation(animation, age_seconds))
-            .unwrap_or(ParticleLayerSample {
-                uv_rect: self.fallback,
-                blend: ParticleBlend::Add,
-                rgb: 1.0,
-                alpha: 1.0,
-                uv_transform: [1.0, 1.0, 0.0, 0.0],
-            })
-    }
-
-    fn sample_animation(
-        &self,
-        animation: &ParticleAtlasAnimation,
-        age_seconds: f32,
-    ) -> ParticleLayerSample {
-        if animation.frames.len() == 1 || animation.frequency <= 0.0 {
-            return ParticleLayerSample {
-                uv_rect: animation.frames.first().copied().unwrap_or(self.fallback),
-                blend: animation.blend,
-                rgb: effect_wave::evaluate(animation.rgb_wave.as_ref(), age_seconds),
-                alpha: effect_wave::evaluate(animation.alpha_wave.as_ref(), age_seconds),
-                uv_transform: effect_texcoords::sample(
-                    animation.tc_scale,
-                    animation.tc_scroll,
-                    age_seconds,
-                ),
-            };
-        }
-        let raw = (age_seconds.max(0.0) * animation.frequency).floor() as usize;
-        let frame = if animation.one_shot {
-            raw.min(animation.frames.len() - 1)
-        } else {
-            raw % animation.frames.len()
-        };
-        ParticleLayerSample {
-            uv_rect: animation.frames[frame],
-            blend: animation.blend,
-            rgb: effect_wave::evaluate(animation.rgb_wave.as_ref(), age_seconds),
-            alpha: effect_wave::evaluate(animation.alpha_wave.as_ref(), age_seconds),
-            uv_transform: effect_texcoords::sample(
-                animation.tc_scale,
-                animation.tc_scroll,
-                age_seconds,
-            ),
-        }
-    }
-
-    fn layers_for(&self, shader: &str, age_seconds: f32) -> effect_runtime::ParticleLayerSamples {
-        let fallback = ParticleLayerSample {
-            uv_rect: self.fallback,
-            blend: ParticleBlend::Add,
-            rgb: 1.0,
-            alpha: 1.0,
-            uv_transform: [1.0, 1.0, 0.0, 0.0],
-        };
-        let mut samples = effect_runtime::ParticleLayerSamples::new(fallback);
-        if let Some(animations) = self.animations.get(shader) {
-            for animation in animations.iter().take(8) {
-                samples.push(self.sample_animation(animation, age_seconds));
-            }
-        }
-        samples.ensure_fallback();
-        samples
-    }
-}
+mod particle_atlas_sampling;
 
 mod depth_target;
 use depth_target::DepthTarget;

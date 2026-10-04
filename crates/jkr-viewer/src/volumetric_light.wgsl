@@ -165,12 +165,11 @@ fn sunlight(map: texture_depth_2d, world_map: texture_depth_2d, vp: mat4x4<f32>,
     let center = (vec2<f32>(id.xy)+0.5)/vec2<f32>(p.grid.xy);
     let cell_angle = length(ray(center+vec2(1.0/f32(p.grid.x),0.0))-ray(center));
     var source = vec3(0.0);
-    var taken = 0u;
+    var visible = 0u;
     var first_shade = -1.0;
     var agree = true;
     for (var i = 0u; i < samples; i++) {
         let sample = select(i, ORDER[i], samples == 16u);
-        taken = i + 1u;
         let lattice = vec2<f32>(f32(sample%cols),f32(sample/cols))+0.5;
         let offset = lattice/vec2<f32>(f32(cols),f32(rows));
         let uv = (vec2<f32>(id.xy)+offset)/vec2<f32>(p.grid.xy);
@@ -180,6 +179,7 @@ fn sunlight(map: texture_depth_2d, world_map: texture_depth_2d, vp: mat4x4<f32>,
         // wall must not gather the sunlit outdoors beyond it (camera-relative wall streaks).
         var shade = -1.0;
         if depth < range.x || depth < surface_axial(uv) {
+            visible += 1u;
             shade = cell_shade(uv, direction, depth, cell_angle);
             if shade > 0.0 {
                 source += p.color.rgb*phase(dot(direction,p.sun.xyz))*shade;
@@ -191,7 +191,11 @@ fn sunlight(map: texture_depth_2d, world_map: texture_depth_2d, vp: mat4x4<f32>,
             if i == 4u && agree { break; }
         }
     }
-    textureStore(output_volume,vec3<i32>(id),vec4(source/f32(taken),0.0));
+    // Estimate the source in visible air, not its screen-space coverage. Hidden samples
+    // are unavailable, not unlit air: counting them darkens the background beside a
+    // foreground silhouette. Visible shadowed samples still count, preserving shadows.
+    // Composite clips the integrated source to each pixel's own surface distance.
+    textureStore(output_volume,vec3<i32>(id),vec4(source/f32(max(visible,1u)),0.0));
 }
 // Fade over the filter footprint before the projection boundary.
 fn cascade_coverage(vp: mat4x4<f32>, point: vec3<f32>) -> f32 {
@@ -255,6 +259,7 @@ var<workgroup> partial: array<vec3<f32>, 64>;
     let uv = (vec2<f32>(id.xy)+0.5)/vec2<f32>(p.grid.xy);
     let cosine = dot(ray(uv),p.forward.xyz);
     var scattering = vec3(0.0);
+    var start_depth = slice_depth(0.0);
     for (var z = 0u; z < p.grid.z; z++) {
         var cell = textureLoad(input_volume,vec3<i32>(vec2<i32>(id.xy),i32(z)),0).rgb;
         // Rays are the contrast in sunlit air, not its mean: air lit uniformly across a
@@ -264,8 +269,10 @@ var<workgroup> partial: array<vec3<f32>, 64>;
         let tile_uv = vec3(uv,(f32(z)+0.5)/f32(p.grid.z));
         let wide = textureSampleLevel(tile_means,volume_sampler,tile_uv,0.0).rgb;
         cell = max(cell-p.range.z*wide,vec3(0.0));
-        let length = (slice_depth(f32(z+1u)/f32(p.grid.z))-
-            slice_depth(f32(z)/f32(p.grid.z)))/cosine;
+        // The previous end is this slice's exact start; avoid repeating its power.
+        let end_depth = slice_depth(f32(z+1u)/f32(p.grid.z));
+        let length = (end_depth-start_depth)/cosine;
+        start_depth = end_depth;
         // Thin-air approximation: sunlit in-scattering only, no global extinction.
         scattering += cell*length;
         textureStore(output_volume,vec3<i32>(vec2<i32>(id.xy),i32(z)),

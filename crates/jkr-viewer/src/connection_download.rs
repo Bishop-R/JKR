@@ -6,6 +6,8 @@ impl JoinTask {
     /// Resume content loading with the same client and reliable-command sequences.
     pub(crate) fn resume(mut session: ClientSession) -> Self {
         let (sender, receiver) = mpsc::channel();
+        let (_, map) = mpsc::channel();
+        let (_, prepared) = mpsc::channel();
         let (progress_tx, progress) = mpsc::sync_channel(1);
         let cancelled = Arc::new(AtomicBool::new(false));
         let worker_cancel = Arc::clone(&cancelled);
@@ -27,6 +29,8 @@ impl JoinTask {
         Self {
             receiver,
             progress,
+            map,
+            prepared,
             cancelled,
         }
     }

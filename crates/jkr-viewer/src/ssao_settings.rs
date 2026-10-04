@@ -5,27 +5,27 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
-/// Shared across world installs; default off preserves the authored baked lighting.
+/// Shared across world installs; zero restores the authored baked lighting.
 #[derive(Clone)]
 pub(crate) struct Settings(Arc<(AtomicBool, AtomicU32)>);
 
-pub(super) const DEFAULT_INTENSITY: f32 = 1.5;
+pub(super) const DEFAULT_INTENSITY: f32 = 4.0;
 
 impl Default for Settings {
     fn default() -> Self {
         Self(Arc::new((
-            AtomicBool::new(false),
+            AtomicBool::new(true),
             AtomicU32::new(DEFAULT_INTENSITY.to_bits()),
         )))
     }
 }
 
 impl Settings {
-    /// OpenJK rd-rend2/tr_init.cpp registers r_ssao with default zero.
+    /// Register JKR's ambient-occlusion defaults; archived values still take precedence.
     pub(crate) fn bind(cvars: &mut CvarRegistry) -> Result<Self, CvarError> {
         cvars.register(CvarDefinition::new(
             "r_ssao",
-            0_i64,
+            1_i64,
             CvarFlags::ARCHIVE,
             "Main-view static lightmapped surface SSAO; applies immediately",
         ))?;
@@ -33,7 +33,7 @@ impl Settings {
             "ssao_intensity",
             f64::from(DEFAULT_INTENSITY),
             CvarFlags::ARCHIVE,
-            "SSAO strength 0-4; 1 original, 1.5 default; live with r_ssao 1",
+            "SSAO strength 0-4; 1 original, 4 default; live with r_ssao 1",
         ))?;
         Self::from_registered(cvars)
     }

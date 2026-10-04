@@ -342,6 +342,8 @@ impl HudOverlay {
         }
         let dpi_scale =
             (viewport[1] / 1_080.0).clamp(2.0 / 3.0, 4.0 / 3.0) * user_scale.clamp(0.25, 2.0);
+        let upper_right_bottom =
+            self.upper_right_stack()[2] * (viewport[1] / 1080.0).clamp(0.6, 2.5);
         let rectangles = LayoutEngine.layout(
             &self.tree,
             LayoutContext {
@@ -368,7 +370,11 @@ impl HudOverlay {
                 self.theme,
                 widget,
                 if widget.binding.as_deref() == Some("team_rows") {
-                    self.family.team_rect(*rect, viewport)
+                    let mut rect = self.family.team_rect(*rect, viewport);
+                    if self.family.team[1] == 0.0 {
+                        rect.y = rect.y.max(upper_right_bottom);
+                    }
+                    rect
                 } else {
                     *rect
                 },
