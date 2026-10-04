@@ -48,6 +48,7 @@ impl GpuState {
         }
         panel.hud = console.bool_cvar("cg_draw2D").unwrap_or(true);
         panel.dirty = [false; 2];
+        panel.numeric = None;
         self.game_menu = true;
         self.game_menu_page = Page::Shot;
         self.release_pointer();
@@ -107,25 +108,29 @@ impl GpuState {
             return true;
         }
         let panel = &mut self.in_game_menu.shot;
-        let action = match key {
-            KeyCode::F8 | KeyCode::Escape if !event.repeat => Some(Action::Hide),
-            KeyCode::ArrowLeft => panel.adjust(-1.),
-            KeyCode::ArrowRight => panel.adjust(1.),
-            KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::Tab => {
-                let direction = if key == KeyCode::ArrowUp {
-                    jkr_ui::AbstractAction::Previous
-                } else {
-                    jkr_ui::AbstractAction::Next
-                };
-                if let Some(token) = self.in_game_menu.canvas.action(direction) {
-                    panel.selected = token;
+        let action = if panel.numeric.is_some() && key != KeyCode::F8 {
+            panel.edit_numeric(key, event.text.as_deref())
+        } else {
+            match key {
+                KeyCode::F8 | KeyCode::Escape if !event.repeat => Some(Action::Hide),
+                KeyCode::ArrowLeft => panel.adjust(-1.),
+                KeyCode::ArrowRight => panel.adjust(1.),
+                KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::Tab => {
+                    let direction = if key == KeyCode::ArrowUp {
+                        jkr_ui::AbstractAction::Previous
+                    } else {
+                        jkr_ui::AbstractAction::Next
+                    };
+                    if let Some(token) = self.in_game_menu.canvas.action(direction) {
+                        panel.selected = token;
+                    }
+                    None
                 }
-                None
+                KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space if !event.repeat => {
+                    panel.activate(panel.selected)
+                }
+                _ => None,
             }
-            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space if !event.repeat => {
-                panel.activate(panel.selected)
-            }
-            _ => None,
         };
         if let Some(action) = action {
             self.apply_shot_action(action);

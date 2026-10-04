@@ -20,6 +20,8 @@ use jkr_protocol::{EntityState, GameState, Snapshot};
 use jkr_vfs::VirtualFileSystem;
 #[path = "sound_feedback.rs"]
 mod feedback;
+#[path = "sound_taunts.rs"]
+mod taunts;
 
 const CS_SOUNDS: usize = 811; // codemp/game/bg_public.h:132
 const MAX_SOUNDS: usize = 256;
@@ -523,7 +525,7 @@ pub struct LegacySoundAdapter {
     water_steps: [[Option<u16>; 4]; 3],
     custom: [CustomSet; MAX_CLIENTS],
     client_teams: [u8; MAX_CLIENTS],
-    gametype: u8,
+    taunt_random: crate::animation_events::Random,
     saber_attack: [Option<u16>; 8],
     saber_hit: [Option<u16>; 3],
     saber_block: [Option<u16>; 9],
@@ -731,9 +733,7 @@ impl LegacySoundAdapter {
         let custom =
             std::array::from_fn(|client| custom_set(game_state, vfs, client as u16, &mut intern));
         let client_teams = std::array::from_fn(|client| client_team(game_state, client));
-        let gametype = server_info_value(game_state, "g_gametype")
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(0);
+
         drop(intern);
         if let Some(id) = preferred_chat.filter(|id| sounds[*id as usize].handle.is_some()) {
             local_media.private_chat = Some(id);
@@ -753,7 +753,7 @@ impl LegacySoundAdapter {
             custom,
             client_teams,
             predicted_events: Default::default(),
-            gametype,
+            taunt_random: Default::default(),
             saber_attack,
             saber_hit,
             saber_block,
@@ -818,9 +818,7 @@ impl LegacySoundAdapter {
             self.custom[client] = custom_set(game_state, vfs, client as u16, &mut intern);
             self.client_teams[client] = client_team(game_state, client);
         }
-        self.gametype = server_info_value(game_state, "g_gametype")
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(self.gametype);
+
         self.loops.refresh_clients(game_state, vfs, &mut register);
         self.local.observe_config(game_state);
     }
@@ -1483,7 +1481,7 @@ impl LegacySoundAdapter {
                 }
                 75 => self.emit_voice_command(parameter, entity, snapshot),
                 115 => {
-                    let sound = self.taunt_sound(client, parameter, variant);
+                    let sound = self.taunt_sound(client, parameter);
                     self.emit(
                         LegacySoundEvent::Taunt,
                         sound,
@@ -1613,28 +1611,6 @@ impl LegacySoundAdapter {
             entity.origin,
             snapshot,
         );
-    }
-
-    fn taunt_sound(&self, client: usize, parameter: u8, variant: usize) -> Option<u16> {
-        let set = self.custom[client];
-        if !matches!(self.gametype, 3 | 4) && parameter == 0 {
-            return set.taunt;
-        }
-        let selected = match parameter {
-            3 if variant & 1 == 0 => set.deflect[variant % 3]
-                .or(set.gloat[variant % 3])
-                .or(set.anger[variant % 3]),
-            3 => set.gloat[variant % 3]
-                .or(set.deflect[variant % 3])
-                .or(set.anger[variant % 3]),
-            4 => set.victory[variant % 3],
-            0 if variant & 1 == 0 => set.anger[variant % 3],
-            0 => set.taunt_numbered[variant % 3].or(set.anger[variant % 3]),
-            _ => None,
-        };
-        selected
-            .filter(|index| self.sounds[usize::from(*index)].handle.is_some())
-            .or(set.taunt)
     }
 
     fn configured_sound(&self, parameter: u8, client: usize) -> Option<u16> {
@@ -1854,10 +1830,6 @@ fn client_team(game_state: &GameState, client: usize) -> u8 {
     )
     .and_then(|value| value.parse().ok())
     .unwrap_or(0)
-}
-
-fn server_info_value<'a>(game_state: &'a GameState, key: &str) -> Option<&'a str> {
-    config_info_value(game_state.config_string(0)?, key)
 }
 
 pub(crate) fn config_info_value<'a>(bytes: &'a [u8], key: &str) -> Option<&'a str> {

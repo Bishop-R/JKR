@@ -38,11 +38,11 @@ mod console_keyboard;
 #[path = "console_text.rs"]
 mod console_text;
 #[path = "console_edit_view.rs"]
-mod edit_view;
+pub(crate) mod edit_view;
 #[path = "console_editing.rs"]
 mod editing;
 #[path = "console_line_edit.rs"]
-mod line_edit;
+pub(crate) mod line_edit;
 #[path = "console_selection.rs"]
 mod selection;
 
