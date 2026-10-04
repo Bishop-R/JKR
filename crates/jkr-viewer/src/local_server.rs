@@ -63,6 +63,8 @@ pub(crate) struct HostSettings {
     pub(crate) capturelimit: u32,
     /// Bind every interface instead of loopback only.
     pub(crate) allow_lan: bool,
+    /// Enable server-authorized development commands for a devmap launch.
+    pub(crate) cheats: bool,
 }
 
 impl HostSettings {
@@ -99,6 +101,10 @@ impl HostSettings {
             .chain(MASTER_CVARS.map(|name| (name, "")))
         {
             arguments.extend(["--set".into(), name.into(), value.into()]);
+        }
+        if self.cheats {
+            arguments.push("--cheats".into());
+            arguments.push("--team-auto-join".into());
         }
         arguments.push("--quit-on-eof".into());
         arguments

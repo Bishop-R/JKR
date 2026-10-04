@@ -727,6 +727,12 @@ impl ClientMenu {
         self.state.connecting(address);
     }
 
+    /// Show map preparation using the existing cancellable connection notice.
+    pub(crate) fn state_loading(&mut self, map: &str) {
+        self.state_connecting(map.to_owned());
+        self.state.set_status(format!("Loading {map}..."));
+    }
+
     pub(crate) fn join_failed(&mut self, error: impl Into<String>) {
         self.state.connection_failed(error);
     }

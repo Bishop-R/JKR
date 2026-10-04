@@ -47,7 +47,7 @@ fn band(y: f32, size: f32, pitch: f32) -> (f32, f32) {
 /// it) and at the end. `stop(index, x, advance)` gets each stop's byte offset, its
 /// distance from the text's start and the advance of the glyph after it (zero at the
 /// end); returning `true` ends the walk at that stop, whose offset is returned.
-fn walk(
+pub(crate) fn walk(
     text: &str,
     advance: impl Fn(u8) -> f32,
     mut stop: impl FnMut(usize, f32, f32) -> bool,
@@ -73,13 +73,13 @@ fn walk(
 }
 
 /// Caret stop of `text` nearest to `x` (measured from the text's start).
-pub(super) fn byte_at(text: &str, x: f32, advance: impl Fn(u8) -> f32) -> usize {
+pub(crate) fn byte_at(text: &str, x: f32, advance: impl Fn(u8) -> f32) -> usize {
     walk(text, advance, |_, pen, width| x < pen + width * 0.5)
 }
 
 /// First caret stop from which `text[..cursor]` fits in `room`: where to start drawing
 /// so the caret stays visible.
-pub(super) fn scroll_start(
+pub(crate) fn scroll_start(
     text: &str,
     cursor: usize,
     room: f32,
