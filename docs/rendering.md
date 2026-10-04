@@ -28,6 +28,43 @@ endings. Code that patches a program by text with a pattern spanning a line brea
 normalises it first with [wgsl_source.rs](../crates/jkr-viewer/src/wgsl_source.rs);
 `.gitattributes` keeps `*.wgsl` LF in new checkouts.
 
+## Server shader remaps
+
+The client consumes multiplayer `CS_SHADERSTATE` on joining and live updates,
+and reliable `remapShader` commands, including during demo playback. Replacements
+use the shared world/model material compiler: stage images, blending, alpha tests,
+texture animation, scrolling, waves and deforms are replaced together. Shader
+names are case-insensitive and extension-independent. Aliases resolve one hop;
+remapping a shader to itself restores it. The destination's time offset is shared
+by its users and subtracted from shader time. Removing an entry from the server's
+configstring alone does not undo it, matching stock cgame.
+
+`cg_remaps` follows Tayst's policy: **0** disables server remaps, **1** (default)
+accepts map remaps while excluding player-texture configstring entries, and **2**
+includes those entries. Like Tayst, a reliable `remapShader` command is accepted
+in either nonzero mode. JKR applies this preference live rather than requiring a
+map reload. `listRemaps` lists the currently enabled server entries and local
+overrides; `remapShader <old> <new>` sets a temporary local override for the loaded
+map, without sending anything to the server or saving it to config.
+
+Material recompilation and draw/fog/table invalidation happen on changes, not
+per frame. Late-loaded entity materials also receive the current remaps. Map
+replacement/reconnection isolates server state. Authored sky-box remaps replace
+the sky images while retaining the existing day/night policy.
+
+This is shader replacement, not BSP editing. Existing server entity and sub-BSP
+presentation use their separate paths. Collision and baked lightmaps are unchanged;
+the modern renderer's extracted lamps, GI and sealed BSP shadow boundaries are
+not rebuilt by a live remap.
+Particle/HUD texture atlases, generated surface sprites, detached menu previews
+and mirror/portal classification do not yet follow arbitrary shader remaps.
+Sky remaps do not turn ordinary geometry into new sky portals. Broad community-map
+and multi-lightmap registration parity remain to be verified.
+
+Implementation: [compatibility state](../crates/jkr-client/src/shader_remaps.rs),
+[event-time material updates](../crates/jkr-viewer/src/world_shader_remaps.rs),
+[replacement compilation](../crates/jkr-viewer/src/world_remap_material.rs).
+
 ## Actor animation failures
 
 Actor animation failures are isolated to the affected mesh. An invalid clip or

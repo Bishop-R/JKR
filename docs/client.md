@@ -437,3 +437,13 @@ Community NPCs need their model PK3 mounted by both the server and client. An NP
 definition alone cannot supply a missing mesh. JKR does not distribute those
 packs. The animation-error isolation described in [rendering.md](rendering.md#actor-animation-failures)
 protects other actors from malformed custom clips, but does not repair the clip.
+
+## Shader remap controls
+
+Server map recolors and material replacements are enabled by default. Use
+`cg_remaps 0` to disable them, `cg_remaps 1` for Tayst's default policy excluding
+player-texture configstring remaps, or `cg_remaps 2` to include those textures.
+`listRemaps` lists enabled server replacements and temporary local overrides.
+`remapShader <old> <new>` replaces a shader locally for the loaded map; remapping
+it to itself restores the original. See [rendering](rendering.md#server-shader-remaps)
+for scope and remaining limitations. These controls do not edit map geometry.

@@ -21,6 +21,7 @@ impl OfflineServerCommands {
         command: &[u8],
         game_state: &mut GameState,
         dirty: &mut jkr_protocol::ConfigStringDirty,
+        remaps: &mut crate::ShaderRemaps,
     ) -> Result<(), DemoPlaybackError> {
         if sequence <= self.reliable_sequence {
             return Ok(());
@@ -30,6 +31,9 @@ impl OfflineServerCommands {
         let Some(name) = arguments.first().map(Vec::as_slice) else {
             return Ok(());
         };
+        if remaps.command(&arguments) {
+            return Ok(());
+        }
         match name {
             b"cs" => {
                 let index = parse_index(arguments.get(1))?;
@@ -37,6 +41,9 @@ impl OfflineServerCommands {
                 self.pending_big_config_string = None;
                 if game_state.replace_config_string(index, value.to_vec())? {
                     dirty.mark(index);
+                }
+                if index == crate::SHADER_STATE_CONFIG {
+                    remaps.apply_config(game_state.config_string(index).unwrap_or_default());
                 }
             }
             b"bcs0" => {
@@ -59,6 +66,10 @@ impl OfflineServerCommands {
                     .ok_or(DemoPlaybackError::UnexpectedBigConfigPart)?;
                 if game_state.replace_config_string(pending_index, bytes)? {
                     dirty.mark(pending_index);
+                }
+                if pending_index == crate::SHADER_STATE_CONFIG {
+                    remaps
+                        .apply_config(game_state.config_string(pending_index).unwrap_or_default());
                 }
             }
             _ => {}

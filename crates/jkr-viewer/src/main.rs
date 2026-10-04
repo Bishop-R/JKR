@@ -1279,7 +1279,7 @@ impl GpuState {
         let fov = self.scope_fov(presentation_time as i32, game_audio);
         let projection = perspective(fov.to_radians(), aspect, 2.0, self.far_plane);
         // rd-vanilla `tr_shade.cpp:367` derives tess.shaderTime from the
-        // frame/refdef time. Legacy remap timeOffset is zero on this path.
+        // frame/refdef time; materials apply their own remap time offsets.
         self.upload_scene_camera(CameraUniform {
             view_projection: (projection * view).to_cols_array_2d(),
             camera_position: view_position.to_array(),

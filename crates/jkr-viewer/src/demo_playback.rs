@@ -304,6 +304,10 @@ impl Session {
         self.stream.drain_config_string_changes(visit);
     }
 
+    pub(crate) fn shader_remaps(&self) -> &jkr_client::ShaderRemaps {
+        self.stream.shader_remaps()
+    }
+
     pub(crate) fn game_state(&self) -> &GameState {
         self.stream.game_state()
     }

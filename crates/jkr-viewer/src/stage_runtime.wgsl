@@ -1,5 +1,5 @@
 // Quake 3 world stage evaluator. The only frame-varying uniform is
-// camera.shader_time; material tables and animation arrays are map-lifetime.
+// (camera.shader_time - stage.emission.z); material tables and animation arrays are map-lifetime.
 
 @group(1) @binding(0) var stage_images: texture_2d_array<f32>;
 @group(1) @binding(1) var stage_sampler: sampler;
@@ -155,18 +155,18 @@ fn apply_tcmods(initial: vec2<f32>, position: vec3<f32>, entity_translate: vec2<
         let b = stage.tcmod_b[index];
         let kind = i32(a.x);
         if kind == 1 {
-            uv += fract(vec2(a.y, a.z) * camera.shader_time);
+            uv += fract(vec2(a.y, a.z) * (camera.shader_time - stage.emission.z));
         } else if kind == 2 {
             uv *= vec2(a.y, a.z);
         } else if kind == 3 {
-            let cycle = -a.y * camera.shader_time / 360.0;
+            let cycle = -a.y * (camera.shader_time - stage.emission.z) / 360.0;
             let sine = table_value(0, cycle);
             let cosine = table_value(0, cycle + 0.25);
             let centered = uv - vec2(0.5);
             uv = vec2(cosine * centered.x - sine * centered.y,
                       sine * centered.x + cosine * centered.y) + vec2(0.5);
         } else if kind == 4 {
-            let now = a.w + camera.shader_time * b.x;
+            let now = a.w + (camera.shader_time - stage.emission.z) * b.x;
             uv.x += table_value(0, (position.x + position.z) / 1024.0 + now) * a.z;
             uv.y += table_value(0, position.y / 1024.0 + now) * a.z;
         } else if kind == 5 {
@@ -191,18 +191,18 @@ fn apply_secondary_tcmods(initial: vec2<f32>, position: vec3<f32>,
         let b = stage.secondary_tcmod_b[index];
         let kind = i32(a.x);
         if kind == 1 {
-            uv += fract(vec2(a.y, a.z) * camera.shader_time);
+            uv += fract(vec2(a.y, a.z) * (camera.shader_time - stage.emission.z));
         } else if kind == 2 {
             uv *= vec2(a.y, a.z);
         } else if kind == 3 {
-            let cycle = -a.y * camera.shader_time / 360.0;
+            let cycle = -a.y * (camera.shader_time - stage.emission.z) / 360.0;
             let sine = table_value(0, cycle);
             let cosine = table_value(0, cycle + 0.25);
             let centered = uv - vec2(0.5);
             uv = vec2(cosine * centered.x - sine * centered.y,
                       sine * centered.x + cosine * centered.y) + vec2(0.5);
         } else if kind == 4 {
-            let now = a.w + camera.shader_time * b.x;
+            let now = a.w + (camera.shader_time - stage.emission.z) * b.x;
             uv.x += table_value(0, (position.x + position.z) / 1024.0 + now) * a.z;
             uv.y += table_value(0, position.y / 1024.0 + now) * a.z;
         } else if kind == 5 {
@@ -273,7 +273,7 @@ fn generated_color(input: VertexOutput) -> vec4<f32> {
 // `R_BindAnimatedImage`: RF_SETANIMINDEX overrides the clock for this entity.
 fn animated_image_frame(animation: vec4<f32>, index: i32) -> i32 {
     let count = max(i32(animation.y), 1);
-    var frame = max(i32(floor(camera.shader_time * animation.x)), 0);
+    var frame = max(i32(floor((camera.shader_time - stage.emission.z) * animation.x)), 0);
     if index >= 0 { frame = index; }
     return select(frame % count, min(frame, count - 1), animation.z > 0.5);
 }

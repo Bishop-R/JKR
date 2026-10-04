@@ -360,6 +360,14 @@ impl Runtime {
                 &self.dynamic_light_buffer,
                 material.stages,
             )?;
+            self.remaps.applied = None;
+            self.remaps.sources.push(remaps::Source {
+                key: key.clone(),
+                name: jkr_client::shader_name(&key.shader),
+                lightmap: lightmap.clone(),
+                fog: Vec::new(),
+                applied: None,
+            });
             self.source_to_runtime.push(self.materials.len());
             self.source_order.push((
                 material.sort,

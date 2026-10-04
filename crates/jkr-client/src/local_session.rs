@@ -59,6 +59,7 @@ impl ClientSession {
             pending_download: None,
             downloaded_message: None,
             connection: None,
+            shader_remaps: ShaderRemaps::from_game_state(&game_state),
             game_state,
             latest_snapshot,
             config_string_dirty: dirty,
