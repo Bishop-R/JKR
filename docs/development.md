@@ -24,6 +24,11 @@ The first formatting command requires the rustfmt component. Use `-j2` to limit
 build parallelism on constrained machines. `CARGO_TARGET_DIR` can put build
 artifacts outside the checkout; do not commit binaries or generated output.
 
+On Windows, Git's `core.autocrlf` checks text out with CRLF line endings.
+[.gitattributes](../.gitattributes) keeps WGSL programs LF; a checkout made before
+it existed keeps CRLF `.wgsl` files until they are checked out again, for example
+by deleting them and running `git checkout -- '*.wgsl'`. The viewer accepts either.
+
 The repository currently has no bundled regression suite. `cargo test` checks
 its test/doc-test build targets but is not evidence of gameplay or wire parity.
 Some source comments refer to external reference harnesses; those paths are not

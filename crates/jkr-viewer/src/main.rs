@@ -151,6 +151,7 @@ mod static_models;
 mod text;
 mod ui_renderer;
 mod weapon_view;
+mod wgsl_source;
 mod world_materials;
 mod world_props;
 mod world_stage;
