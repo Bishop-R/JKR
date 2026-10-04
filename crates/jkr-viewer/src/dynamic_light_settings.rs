@@ -76,6 +76,7 @@ impl Settings {
         world.set_day_debug(self.3.debug());
         world.set_gap_close(self.3.gap_close());
         world.set_ambient_fill(self.3.ambient_fill());
+        world.set_indirect_readability(self.3.indirect_readability());
         world.update_scene_lighting_mode(queue, lights, self.1.enabled(), self.2.bits());
     }
 }

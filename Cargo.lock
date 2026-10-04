@@ -990,6 +990,7 @@ dependencies = [
  "jkr-audio",
  "jkr-bsp",
  "jkr-client",
+ "jkr-dedicated",
  "jkr-effect",
  "jkr-entity",
  "jkr-game-jka",

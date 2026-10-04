@@ -350,6 +350,7 @@ impl Runtime {
                 true,
                 Default::default(),
                 &mut image_cache,
+                false,
             )?;
             let stages = build_passes(
                 device,
@@ -396,6 +397,7 @@ impl Runtime {
                 true,
                 Default::default(),
                 &mut image_cache,
+                false,
             )?;
             let stages = build_passes(
                 device,

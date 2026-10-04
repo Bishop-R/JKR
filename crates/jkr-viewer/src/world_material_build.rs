@@ -4,6 +4,8 @@ use super::*;
 mod effect_lamps;
 #[path = "world_flare_lamps.rs"]
 mod flare_lamps;
+#[path = "world_static_lamps.rs"]
+mod static_lamps;
 
 /// Map-load filtering policy; the old entry point remains the unmodified baseline.
 #[allow(clippy::too_many_arguments)]
@@ -261,6 +263,7 @@ fn build(
         .iter()
         .filter(|material| material.surface.emission.iter().any(|c| *c > 0.))
         .map(|material| crate::lamp_lights::Emitter {
+            shared_reach: false,
             omnidirectional: material.sort != SORT_OPAQUE,
             radiance: material.surface.emission,
             texture: &material.emission_texture,
@@ -272,9 +275,14 @@ fn build(
         })
         .collect();
     let mut extra = effect_lamps::extract(bsp, vfs, shaders)?;
+    extra.extend(static_lamps::extract(
+        bsp,
+        vfs,
+        shaders,
+        &forge.fallback_lightmap,
+    )?);
     extra.extend(flare_lamps::extract(&pending, &positions, geometry.1));
-    let lamps =
-        crate::lamp_lights::LampSet::extract(&positions, geometry.1, &emitters).append(extra);
+    let lamps = crate::lamp_lights::LampSet::extract(&positions, geometry.1, &emitters, extra);
     let brightest = lamps
         .lamps
         .iter()
@@ -398,6 +406,7 @@ fn compile_all(
                                     collapse,
                                     material_maps,
                                     &mut cache,
+                                    false,
                                 )
                                 .map_err(|error| error.to_string())
                             })

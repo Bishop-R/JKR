@@ -3,8 +3,7 @@ struct Attributes {
     @location(1) normal: vec4<f32>,
 };
 fn receiver_attributes(input: LightOutput) -> Attributes {
-    var normal = normalize(input.normal);
-    if dot(normal, camera.camera_position - input.world) < 0.0 { normal = -normal; }
+    let normal = surface_normal(input.world, normalize(input.normal), camera.camera_position);
     // These derivatives must come from this primitive, including its helper lanes.
     // Recomputing them across fullscreen texels would cross surface boundaries.
     let visibility = sun_visibility(input.world, normal, camera.camera_position, camera.view_forward);
@@ -22,7 +21,7 @@ struct CachedAttributes {
 };
 @fragment fn attributes_cached(input: LightOutput) -> CachedAttributes {
     let plain = receiver_attributes(input);
-    let front = dot(normalize(input.normal), camera.camera_position - input.world) >= 0.0;
+    let front = dot(plain.normal.xyz, input.normal) >= 0.0;
     let page = select(0.0, input.cache_page, front);
     return CachedAttributes(plain.world, plain.normal, vec4(input.cache_uv, page, 0.0));
 }
