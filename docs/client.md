@@ -92,6 +92,20 @@ development. Run `noclip` again to return to ordinary movement; spawning again
 clears it. Normal servers still require their own cheat permission. `god` remains
 unimplemented on the native server.
 
+## Talk balloons
+
+Opening chat, the console or a menu sends the stock talk button and disables
+other movement input while that keyboard catcher is active. Players carrying
+the talk flag have a chatbubble over their heads; the connection-trouble icon
+takes priority when the server marks a lost connection. These are upright frame
+billboards using the existing [sprite orientation](rendering.md#billboard-icons).
+Their texture opacity is preserved near walls even with soft particles enabled.
+Your own bubble is visible in third person, not the first-person view. Mind-tricked
+players, NPC talk flags and intermission do not show talk balloons. Siege voice
+command icons remain unimplemented. See
+[player_sprites.rs](../crates/jkr-viewer/src/player_sprites.rs) and
+[pmove_talk.rs](../crates/jkr-game-jka/src/pmove_talk.rs).
+
 ## Joining and changing maps
 
 The menu's FFA3 gate opens onto the prepared destination world. Map preparation

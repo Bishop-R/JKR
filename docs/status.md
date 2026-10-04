@@ -1,7 +1,7 @@
 # Status and priorities
 
-Reviewed 2026-10-03 against source baseline `8f692ac` and the owner-approved
-rendering and transition changes described below.
+Reviewed 2026-10-04 against GitHub baseline `b394022` and the owner-approved
+client, server, rendering and loading changes described below.
 
 JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
@@ -190,6 +190,39 @@ No gameplay or protocol codec changes were made. The test child stopped cleanly;
 no windows were opened and the owner's running game was untouched. Visual
 transition playtesting remains open. Formatting, locked workspace build/tests and
 the optimized build passed.
+
+## Noclip and talk balloons preview
+
+Local `playfeatures1` preview (2026-10-04, based on `7155455`) integrates
+PR #31 (`60533c8`) and PR #30 (`379aaa2`) into the current client/server sources,
+retaining the later upright billboard correction and current UI changes.
+Native `noclip` requires cheats and a living player; spawning clears it.
+Talk/connection icons use stock priority, placement and visibility rules. See
+[development maps](client.md#development-maps), [talk balloons](client.md#talk-balloons)
+and [server noclip](server.md#noclip).
+
+On Linux, eleven temporary contributed checks passed for movement, talk flags,
+sprite selection and billboard orientation. An external harness compared 640
+noclip states against unmodified OpenJK multiplayer movement at 8/7/4/3 ms:
+origin, velocity and talk flags matched exactly, including vertical-only input.
+Headless loopback checks passed for flying, toggling, respawn reset, normal-server
+cheat rejection, and a second client receiving the talk flag and selecting the
+balloon. No chat messages were sent. Test servers stopped cleanly; the owner's
+running game was untouched. Temporary checks are not bundled in the repository.
+Visual owner acceptance and populated-match performance remain unverified.
+Formatting, locked workspace build/tests and both optimized binaries passed.
+
+
+Owner follow-up `bubbleopacity1` fixes status/item icons fading like smoke near
+geometry when soft particles are enabled. The new icon instance kind bypasses
+only that depth fade; authored texture alpha, depth testing and bounded draw
+regions remain intact. An offscreen Vulkan check on the RX 9060 XT compared the
+production vertex/fragment shaders at 1/8/32-unit depth gaps with texture alpha
+0/0.4/1. All nine icon outputs matched the plain shader byte-for-byte; ordinary
+particles still faded at close gaps. No windows were opened. Native visual
+confirmation remains with the owner. Formatting, locked workspace build/tests
+and the optimized client build passed.
+
 
 ## Implemented scope
 

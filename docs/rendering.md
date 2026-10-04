@@ -618,6 +618,13 @@ OpenJK `RB_AddQuadStampExt`: four corners with three scale/scroll transforms
 matched, while ordinary FX transforms were unchanged. Native visual confirmation
 of the correction remains pending.
 
+World icons (talk/connection and simple-item sprites) preserve their authored
+texture alpha even when `jkr_softParticles` is enabled. They use a distinct
+instance kind to bypass the 16-unit intersection fade, while retaining ordinary
+depth testing, orientation and bounded effect-pass coverage. Smoke and other FX
+quads still soften against nearby surfaces. Applying the smoke fade to icons
+made opaque bubble interiors transparent near geometry.
+
 ## Default visual profile
 
 New profiles use the owner-approved rendering setup: day/night enabled at a fixed
