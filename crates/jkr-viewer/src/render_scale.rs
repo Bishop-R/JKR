@@ -175,6 +175,8 @@ impl crate::GpuState {
         self.size = size;
         self.configuration.width = size.width;
         self.configuration.height = size.height;
+        // The frame in flight presents before its swapchain is reconfigured.
+        self.frame_pacer.split.wait_previous();
         if let Some(surface) = &self.context.surface {
             surface.configure(&self.device, &self.configuration);
         }
@@ -188,15 +190,13 @@ impl crate::GpuState {
             .map_or([self.size.width, self.size.height], |s| s.size)
     }
 
-    /// Final output and postprocess intermediates remain native-sized.
-    pub(crate) fn scene_target<'a>(
-        &'a self,
-        output: &'a wgpu::TextureView,
-    ) -> &'a wgpu::TextureView {
-        self.render_scale.as_ref().map_or_else(
-            || self.post_aa.as_ref().map_or(output, |aa| &aa.scene),
-            |s| &s.scene,
-        )
+    /// The offscreen texture the scene is drawn into, when the frame has one; without it
+    /// the scene is drawn straight into the swapchain image.
+    pub(crate) fn offscreen_scene_target(&self) -> Option<&wgpu::TextureView> {
+        self.render_scale
+            .as_ref()
+            .map(|scale| &scale.scene)
+            .or_else(|| self.post_aa.as_ref().map(|aa| &aa.scene))
     }
 
     /// Publish scaled attachments only after the entire candidate succeeded.

@@ -142,8 +142,10 @@ impl GpuState {
 
     pub(crate) fn pointer_focus(&mut self, focused: bool) {
         self.cursor_policy.set_focus(focused);
+        self.gameplay_input.focus(focused);
         if !focused {
-            self.gameplay_input.clear();
+            self.pending_generic_command = 0;
+            self.network_command_due = std::time::Instant::now();
         }
         self.sync_cursor_policy();
     }
@@ -166,8 +168,9 @@ impl GpuState {
         self.gameplay_input.clear();
     }
 
-    pub(crate) fn sync_cursor_policy(&mut self) {
-        let overlay = self.game_menu
+    /// Keyboard catchers also advertise BUTTON_TALK, as CL_CmdButtons does.
+    pub(crate) fn key_catcher_active(&self) -> bool {
+        self.game_menu
             || self.chat.is_typing()
             || self
                 .console
@@ -176,10 +179,15 @@ impl GpuState {
             || self
                 .client_menu
                 .as_ref()
-                .is_some_and(|menu| menu.is_visible());
-        let desired = self
-            .cursor_policy
-            .desired(self.live_session.is_some(), overlay);
+                .is_some_and(|menu| menu.is_visible())
+    }
+
+    pub(crate) fn sync_cursor_policy(&mut self) {
+        let overlay = self.key_catcher_active();
+        let desired = self.cursor_policy.desired(
+            self.live_session.is_some() || self.resident.exploring(),
+            overlay,
+        );
         self.apply_cursor_mode(desired);
     }
 

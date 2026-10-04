@@ -27,7 +27,7 @@ fn soften(color: vec4<f32>, fade: f32) -> vec4<f32> {
 
 @fragment fn fragment_soft(input: VertexOutput) -> @location(0) vec4<f32> {
     let color = particle_color(input);
-    // Only world-space particle quads, not clip-space overlays or entity placeholders.
+    // Only FX quads, not world icons, clip-space overlays or entity placeholders.
     if input.particle < 0.5 || input.particle > 1.5 { return color; }
     let depth = textureLoad(soft_scene_depth, vec2<i32>(input.clip_position.xy), 0);
     return soften(color, clamp(soft_gap(input.clip_position, depth) / 16.0, 0.0, 1.0));
