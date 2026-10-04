@@ -46,6 +46,13 @@ pub(super) struct Active {
     pub(super) list: Vec<usize>,
 }
 
+impl Active {
+    /// Material classification changed; retain the allocated frame storage.
+    pub(super) fn invalidate(&mut self) {
+        self.key = None;
+    }
+}
+
 impl Runtime {
     /// The active material set for `source`, refreshed only when its inputs change.
     pub(super) fn active_materials(

@@ -41,7 +41,7 @@ pub(crate) struct GpuStage {
     pub(crate) deform_c: [[f32; 4]; 3],
     pub(crate) sprites: [[f32; 4]; 5],
     /// X/Y: live emission gain for primary/secondary texture bundles (zero means
-    /// diffuse); Z reserved; W material gloss. Never a diffuse illumination term.
+    /// diffuse); Z shader time offset; W material gloss. Never a diffuse illumination term.
     pub(crate) emission: [f32; 4],
 }
 

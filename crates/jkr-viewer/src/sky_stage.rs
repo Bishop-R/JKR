@@ -21,6 +21,8 @@ use wgpu::util::DeviceExt;
 mod day;
 #[path = "sky_gpu.rs"]
 mod gpu;
+#[path = "sky_remaps.rs"]
+mod remaps;
 
 const FACE_SUFFIXES: [&str; 6] = ["rt", "lf", "bk", "ft", "up", "dn"];
 
@@ -53,6 +55,7 @@ struct SkyDraw {
 
 struct SkyMaterial {
     name: String,
+    remapped: Option<String>,
     bind_group: Option<wgpu::BindGroup>,
     vertex_buffer: Option<wgpu::Buffer>,
     vertex_count: u32,
@@ -136,6 +139,7 @@ impl Runtime {
                 )?;
             sky_materials.push(SkyMaterial {
                 name: material.shader.clone(),
+                remapped: None,
                 bind_group,
                 vertex_buffer,
                 vertex_count,

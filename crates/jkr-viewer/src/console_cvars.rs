@@ -46,6 +46,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
     let archive = CvarFlags::ARCHIVE;
     let definitions = [
         CvarDefinition::new(
+            "cg_remaps",
+            1_i64,
+            archive,
+            "Shader remaps: 0 off, 1 map (default), 2 include player textures",
+        ),
+        CvarDefinition::new(
             "cg_forceEnemyModel",
             "none",
             archive,

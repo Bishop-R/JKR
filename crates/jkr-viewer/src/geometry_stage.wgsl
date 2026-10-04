@@ -32,13 +32,13 @@ fn table_value(function: i32, value: f32) -> f32 {
 fn wave(parameters: vec4<f32>, function: i32) -> f32 {
     if function == 5 {
         return parameters.x + legacy_noise(vec4(0.0, 0.0, 0.0,
-            (camera.shader_time + parameters.z) * parameters.w)) * parameters.y;
+            ((camera.shader_time - stage.emission.z) + parameters.z) * parameters.w)) * parameters.y;
     }
     if function == 6 {
         let value = 1.0 + surface_tables.noise_values[surface_tables.noise_perm[
-            i32(camera.shader_time * 1000.0 + parameters.z) & 255]];
+            i32((camera.shader_time - stage.emission.z) * 1000.0 + parameters.z) & 255]];
         return parameters.x + select(0.0, parameters.y, value <= parameters.w);
     }
-    return parameters.x + table_value(function, parameters.z + camera.shader_time * parameters.w) *
+    return parameters.x + table_value(function, parameters.z + (camera.shader_time - stage.emission.z) * parameters.w) *
         parameters.y;
 }

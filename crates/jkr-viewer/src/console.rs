@@ -96,6 +96,7 @@ pub(crate) struct ViewerConsole {
     time_nudge: crate::presentation_clock::CvarSetting,
     smooth_clients: console_cvars::IntegerSetting,
     draw_fog: console_cvars::IntegerSetting,
+    remaps: console_cvars::IntegerSetting,
     packet_dup: console_cvars::IntegerSetting,
     pub(crate) geometry_controls: crate::shared_geometry::environment::Cvars,
     pub(crate) post_color: crate::frame_target::aa::color::Settings,
@@ -557,4 +558,10 @@ fn invalid_cvar(name: &str, requirement: &str) -> IoError {
         ErrorKind::InvalidInput,
         format!("cvar {name:?} {requirement}"),
     )
+}
+
+impl ViewerConsole {
+    pub(crate) fn remap_mode(&self) -> i64 {
+        self.remaps.value()
+    }
 }

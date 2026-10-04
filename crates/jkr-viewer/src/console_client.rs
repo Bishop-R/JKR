@@ -18,6 +18,8 @@ mod identity;
 mod info;
 #[path = "console_queries.rs"]
 mod queries;
+#[path = "console_remaps.rs"]
+mod remaps;
 #[path = "console_restarts.rs"]
 mod restarts;
 
@@ -25,6 +27,11 @@ pub(super) use identity::color_chat;
 
 /// Completion/help inventory for commands owned by viewer services.
 pub(super) const COMMANDS: &[(&str, &str)] = &[
+    (
+        "remapShader",
+        "Replace a local shader: remapShader <old> <new>",
+    ),
+    ("listRemaps", "List server and local shader replacements"),
     ("speedometer", "Configure supported speedometer flags"),
     ("strafehelper", "Configure supported airborne CGAZ flags"),
     ("play", "Play local sound files"),
@@ -321,6 +328,7 @@ impl crate::GpuState {
         let name = tokens[0].to_ascii_lowercase();
         let args = &tokens[1..];
         match name.as_str() {
+            "remapshader" | "listremaps" => return self.remap_command(&name, args),
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,

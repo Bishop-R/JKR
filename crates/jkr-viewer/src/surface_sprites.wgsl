@@ -48,7 +48,7 @@ fn material_vertex(input_source: VertexInput, index: u32, origin: vec3<f32>, rot
     var seed = start_seed;
     var phase = 0.0;
     if kind == 3 {
-        let life = (camera.shader_time * 1000.0 + 10000.0 * sprite_random(seed)) /
+        let life = ((camera.shader_time - stage.emission.z) * 1000.0 + 10000.0 * sprite_random(seed)) /
             stage.sprites[3].y;
         phase = fract(life);
         seed = u32(f32(seed) + life);
@@ -116,7 +116,7 @@ fn material_vertex(input_source: VertexInput, index: u32, origin: vec3<f32>, rot
         }
         let skew = height * stage.sprites[2].z * (2.0 * vec2(sprite_random(seed),
             sprite_random(seed + 1u)) - 1.0);
-        let angle = (loc.x + loc.y) * 0.02 + camera.shader_time * 1.5;
+        let angle = (loc.x + loc.y) * 0.02 + (camera.shader_time - stage.emission.z) * 1.5;
         let sway = height * stage.sprites[3].x * 0.075;
         top = loc + vec3(skew + vec2(cos(angle), sin(angle)) * sway,
             select(height, -height, stage.sprites[2].w != 0.0));
@@ -156,7 +156,7 @@ fn material_vertex(input_source: VertexInput, index: u32, origin: vec3<f32>, rot
                     top += height * wind * environment.grass_speed.xyz;
                 }
                 top += vec3(height * direction * force, -height * force * (0.75 + 0.15 *
-                    sin((camera.shader_time * 1000.0 + 500.0 * force) * 0.01)));
+                    sin(((camera.shader_time - stage.emission.z) * 1000.0 + 500.0 * force) * 0.01)));
             }
         }
     }

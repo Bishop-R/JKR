@@ -10,13 +10,13 @@ fn deform_point(source: VertexInput, i: u32) -> VertexInput {
             if b.w != 0.0 {
                 phase += (vertex.position.x + vertex.position.y + vertex.position.z) * a.z;
             }
-            let amount = select(b.x + table_value(i32(a.y), phase + camera.shader_time * b.w) *
+            let amount = select(b.x + table_value(i32(a.y), phase + (camera.shader_time - stage.emission.z) * b.w) *
                 b.y, wave(b, i32(a.y)), b.w == 0.0);
             vertex.position += vertex.normal * amount;
         } else if kind == 2 {
             var amount = b.y;
             if b.x != 0.0 || b.z != 0.0 {
-                let phase = (vertex.texture_coordinates.x * b.x + camera.shader_time * b.z) /
+                let phase = (vertex.texture_coordinates.x * b.x + (camera.shader_time - stage.emission.z) * b.z) /
                     6.28318530718;
                 amount *= table_value(0, phase);
             }
@@ -25,7 +25,7 @@ fn deform_point(source: VertexInput, i: u32) -> VertexInput {
             vertex.position += stage.deform_c[i].xyz * wave(b, i32(a.y));
         } else if kind == 4 {
             let p = vertex.position * 0.98;
-            let t = camera.shader_time * b.y;
+            let t = (camera.shader_time - stage.emission.z) * b.y;
             vertex.normal += b.x * vec3(
                 legacy_noise(vec4(p, t)),
                 legacy_noise(vec4(p + vec3(100.0, 0.0, 0.0), t)),

@@ -13,6 +13,13 @@ pub(super) struct FogDraw {
     mover: Option<usize>,
 }
 
+impl FogDraw {
+    pub(super) fn rebind(&mut self, pipeline: usize, geometry_source: Option<usize>) {
+        self.pipeline = pipeline;
+        self.geometry_source = geometry_source;
+    }
+}
+
 /// Retain BSP fog indices and resolve inline/detached mover ranges at map load.
 pub(super) fn collect(
     bsp: &Bsp,

@@ -31,12 +31,15 @@ fn consumer(index: usize) -> Option<Consumer> {
 /// to skip assets already built by the world-install worker.
 pub(crate) struct ConfigStringRefresh {
     values: Vec<Vec<u8>>,
+    initial_remaps: jkr_client::ShaderRemaps,
 }
 
 impl ConfigStringRefresh {
     /// Seed from the exact gamestate used by the world builder.
     pub(crate) fn new(game_state: Option<&GameState>) -> Self {
         Self {
+            initial_remaps: game_state
+                .map_or_else(Default::default, jkr_client::ShaderRemaps::from_game_state),
             values: (0..MAX_CONFIGSTRINGS)
                 .map(|index| {
                     game_state
@@ -189,6 +192,29 @@ impl GpuState {
             }
         });
         self.refresh_npc_actors();
+        let remaps = self
+            .live_session
+            .as_ref()
+            .map(ClientSession::shader_remaps)
+            .or_else(|| {
+                self.demo_session
+                    .as_ref()
+                    .map(demo_playback::Session::shader_remaps)
+            })
+            .unwrap_or(&self.config_string_refresh.initial_remaps);
+        if let Some(vfs) = self.vfs.as_ref() {
+            if let Err(error) = self.world_materials.refresh_remaps(
+                &self.device,
+                &self.queue,
+                vfs,
+                &self.shaders,
+                remaps,
+                self.console.as_ref().map_or(1, |c| c.remap_mode()),
+                self.bsp.render().visibility(),
+            ) {
+                log::progress(format_args!("shader remap failed: {error}"));
+            }
+        }
     }
 
     fn load_config_model(&mut self, appearance: &Appearance) -> Result<(), Box<dyn Error>> {

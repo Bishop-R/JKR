@@ -194,6 +194,16 @@ pub(super) fn program_source(source: &str) -> String {
 }
 
 impl Table {
+    /// Repack changed material records while retaining compiled pipeline variants.
+    pub(super) fn rebuild(&mut self, device: &wgpu::Device, forge: &Forge, materials: &[Material]) {
+        self.records.clear();
+        self.table.clear();
+        self.images.clear();
+        self.lightmaps.clear();
+        self.group = None;
+        self.append(device, forge, materials);
+    }
+
     /// `None`: the device lacks binding arrays, the table is switched off, or the map has
     /// no stage it could serve.
     pub(super) fn build(

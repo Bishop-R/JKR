@@ -7,6 +7,40 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Server shader remaps
+
+Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and
+live multiplayer shader-state consumption, reliable `remapShader` commands,
+demo playback support, destination animation offsets and Tayst-style controls.
+`cg_remaps` defaults to 1 (exclude player-texture configstring remaps); 0 disables
+server remaps and 2 includes player textures. The setting applies live.
+`listRemaps` and temporary local `remapShader` overrides are available.
+See [rendering scope and limitations](rendering.md#server-shader-remaps).
+
+External evidence used the unmodified OpenJK multiplayer
+`CG_ShaderStateChanged` function: 6,000 valid entries matched the compatibility
+parser's result, including extension/case variants, repeated sources, shared
+clocks and truncated tails. Separate checks covered one-hop aliases, self-reset,
+empty configstrings, nonfinite offsets, policy filtering and gamestate reset.
+A 400-snapshot synthetic demo derived from a local recording exercised a direct
+remap command followed by reapplication of an unchanged shader-state string.
+Both its decoded state and offscreen blue-to-green rendering passed.
+
+An isolated local Tayst server and an original small BSP verified join-time green
+replacement, live pulsing material, self-reset to red, enable/disable, translucent
+local replacement, and the default/player-inclusive policies (24 player material
+slots changed when enabled). Automated checks used an ALSA null sink and isolated
+zero-volume settings. Simple remap updates measured 0.5–0.8 ms. One settled
+2,048-frame sample at 1280×720 measured 0.419 ms mean and 0.609 ms p99 CPU frame
+work; this is a small fixture, not a populated-server benchmark, and excludes cold
+pipeline compilation. No wire, movement or combat rules changed. Workspace
+formatting, locked build/tests and the optimized Linux viewer build passed.
+
+Shader replacement does not imply geometry editing. Existing server entity and
+sub-BSP paths were inspected but not changed. Arbitrary particle/HUD and generated
+sprite remaps, full lighting reconstruction and broad custom-map parity remain
+outside this implementation; these limitations are recorded on the rendering page.
+
 ## Third-person camera collision and vehicle framing
 
 Local change against `dc36792` (2026-10-04): restore the multiplayer camera's

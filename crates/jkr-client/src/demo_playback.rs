@@ -34,6 +34,7 @@ pub struct DemoAdvance {
 pub struct DemoPlayback<R> {
     reader: DemoReader<R>,
     game_state: GameState,
+    shader_remaps: crate::ShaderRemaps,
     config_string_dirty: jkr_protocol::ConfigStringDirty,
     history: VecDeque<Snapshot>,
     latest_snapshot: Option<Snapshot>,
@@ -54,6 +55,7 @@ impl<R: Read> DemoPlayback<R> {
         let sequence = initial.game_state.server_command_sequence;
         Ok(Self {
             reader,
+            shader_remaps: crate::ShaderRemaps::from_game_state(&initial.game_state),
             game_state: initial.game_state,
             config_string_dirty: jkr_protocol::ConfigStringDirty::default(),
             history: VecDeque::with_capacity(SNAPSHOT_HISTORY),
@@ -92,6 +94,7 @@ impl<R: Read> DemoPlayback<R> {
                 Err(SnapshotError::UnexpectedCommand(ServiceCommand::GameState)) => {
                     let initial = decode_initial_gamestate(&record.payload)?;
                     let sequence = initial.game_state.server_command_sequence;
+                    self.shader_remaps.reset(&initial.game_state);
                     self.game_state = initial.game_state;
                     self.config_string_dirty.mark_all();
                     self.commands = OfflineServerCommands::new(sequence);
@@ -113,6 +116,7 @@ impl<R: Read> DemoPlayback<R> {
                     &command.command,
                     &mut self.game_state,
                     &mut self.config_string_dirty,
+                    &mut self.shader_remaps,
                 )?;
             }
             let previous_server_time = self
@@ -353,5 +357,12 @@ impl From<SnapshotError> for DemoPlaybackError {
 impl From<MessageError> for DemoPlaybackError {
     fn from(value: MessageError) -> Self {
         Self::Snapshot(SnapshotError::Message(value))
+    }
+}
+
+impl<R: Read> DemoPlayback<R> {
+    /// Persistent shader aliases at the current playback position.
+    pub fn shader_remaps(&self) -> &crate::ShaderRemaps {
+        &self.shader_remaps
     }
 }
