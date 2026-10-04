@@ -162,6 +162,10 @@ impl ViewerConsole {
             ("quit", "Quit the client"),
             ("exit", "Quit the client (alias of quit)"),
             ("connect", "Connect to host[:port]"),
+            (
+                "devmap",
+                "devmap <map>: play a local map with cheats enabled",
+            ),
             ("disconnect", "Leave the current server"),
             ("reconnect", "Reconnect to the last server"),
             ("record", "Begin recording a protocol-26 demo"),

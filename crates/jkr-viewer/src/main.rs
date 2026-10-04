@@ -182,7 +182,7 @@ use local_prediction::LocalPrediction;
 use localization::Localization;
 use particle_types::ParticleBlend;
 use player_animation::{GpuPlayerAnimation, PreviewVertexRange};
-use player_assets::{PlayerPreview, load_player_appearance, load_player_preview};
+use player_assets::{PlayerPreview, load_player_preview};
 use render_helpers::{angle_to_short, append_instance_group, mesh_center, texture_layout_entry};
 
 use scene_flatten::{
@@ -957,8 +957,7 @@ impl GpuState {
         if let Some(timeline) = &mut connect_timeline {
             timeline.mark(log::TimelinePhase::Sounds);
         }
-        let resident =
-            session_transition::resident::State::new(active_game_state, active_snapshot, &vfs);
+        let resident = session_transition::resident::State::new(active_game_state, active_snapshot);
         let live_map_installed = live_session.is_some();
         let trace_scratch = bsp.trace_scratch();
         let entity_lighting = entity_lighting::EntityLighting::from_world(&bsp);
@@ -1510,7 +1509,7 @@ impl GpuState {
             self.assign_corpse_meshes();
         }
         {
-            if let Err(error) = self.update_actor_animations(presentation_time) {
+            if let Err(error) = self.update_actor_animations(presentation_time, game_audio) {
                 eprintln!("remote actor animation stopped: {error}");
             }
         }
