@@ -199,6 +199,9 @@ pub struct MovementConfig {
     /// (`g_fixSaberMoveData`, `g_fixWeaponAttackAnim`, `g_fixRunWalkAnims`, bits 0-2).
     /// A retail server publishes none and runs none.
     pub legacy_fixes: u32,
+    /// `CS_SERVERINFO` `g_debugMelee` as the server's dialect reads it. JKR's own server
+    /// does not simulate it and keeps the default (off).
+    pub debug_melee: crate::pmove_debug_melee::DebugMelee,
 }
 
 impl Default for MovementConfig {
@@ -214,6 +217,7 @@ impl Default for MovementConfig {
             authoritative: false,
             // The reference server's cvar defaults: every fix on.
             legacy_fixes: 0b111,
+            debug_melee: crate::pmove_debug_melee::DebugMelee::default(),
         }
     }
 }
@@ -1217,12 +1221,14 @@ impl Predictor {
                     &self.state,
                     &command,
                     self.animation_lengths.is_some(),
+                    self.config.debug_melee,
                 )
         } else {
             crate::pmove_weapon::predicts_command(
                 &self.state,
                 &command,
                 self.animation_lengths.is_some(),
+                self.config.debug_melee,
             )
         };
         let cancel_zoom = if predict_weapon {
@@ -1452,6 +1458,7 @@ impl Predictor {
                 context,
                 (bounds.minimums, bounds.maximums),
                 self.config.legacy_fixes,
+                self.config.debug_melee,
                 opponent,
                 outcome,
             );

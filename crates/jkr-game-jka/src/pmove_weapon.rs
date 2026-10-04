@@ -5,6 +5,7 @@
 //! 7608-7692`. Attack animation selection remains snapshot-driven; charge/zoom
 //! and the three charged guns' fire events are predicted.
 
+use crate::pmove_debug_melee::DebugMelee;
 use jkr_protocol::UserCommand;
 
 use crate::pmove::MovementState;
@@ -83,11 +84,12 @@ pub(crate) fn predicts_command(
     state: &MovementState,
     command: &UserCommand,
     has_animation_lengths: bool,
+    debug_melee: DebugMelee,
 ) -> bool {
     if state.vehicle_entity_num != 0 {
         return false;
     }
-    predicts_rider_command(state, command, has_animation_lengths)
+    predicts_rider_command(state, command, has_animation_lengths, debug_melee)
 }
 
 /// [`predicts_command`] for a rider whose weapon the vehicle allows
@@ -96,6 +98,7 @@ pub(crate) fn predicts_rider_command(
     state: &MovementState,
     command: &UserCommand,
     has_animation_lengths: bool,
+    debug_melee: DebugMelee,
 ) -> bool {
     // A player on an emplaced gun holding another weapon (the moment it takes the gun,
     // before the gun's think hands it the gun's) runs that weapon's code as anyone; the
@@ -109,7 +112,10 @@ pub(crate) fn predicts_rider_command(
     if state.forced_saber || !primary_is_predicted(state.weapon) {
         return false;
     }
-    if command.buttons & BUTTON_ALT_ATTACK != 0 && !alternate_is_predicted(state.weapon) {
+    if command.buttons & BUTTON_ALT_ATTACK != 0
+        && !alternate_is_predicted(state.weapon)
+        && !melee_alternate_is_predicted(state, debug_melee, has_animation_lengths)
+    {
         return false;
     }
     // A switch to the saber is predicted too: it ends in the saber's draw.
@@ -191,6 +197,7 @@ pub(crate) fn advance_events_in(
     context: &crate::pmove::MoveContext,
     bounds: ([f32; 3], [f32; 3]),
     legacy_fixes: u32,
+    debug_melee: DebugMelee,
     opponent: Option<crate::pmove_saber_lock::LockOpponent>,
     outcome: &mut crate::pmove_saber_lock::LockOutcome,
 ) -> u16 {
@@ -206,6 +213,7 @@ pub(crate) fn advance_events_in(
         context,
         bounds,
         legacy_fixes,
+        debug_melee,
         opponent,
         outcome,
     );
@@ -224,6 +232,7 @@ fn advance_command(
     context: &crate::pmove::MoveContext,
     bounds: ([f32; 3], [f32; 3]),
     legacy_fixes: u32,
+    debug_melee: DebugMelee,
     opponent: Option<crate::pmove_saber_lock::LockOpponent>,
     outcome: &mut crate::pmove_saber_lock::LockOutcome,
 ) {
@@ -438,19 +447,35 @@ fn advance_command(
         data.primary_cost
     };
     // The attack's torso animation (`bg_pmove.c:7455-7606`): the scoped disruptor's,
-    // melee's alternating punches (whose running timer becomes the weapon's time), or
-    // the weapon's own from `WeaponAttackAnim`.
+    // melee's (on foot only: `g_debugMelee`'s grapple and kicks, else alternating punches
+    // whose running timer becomes the weapon's time), or the weapon's own from
+    // `WeaponAttackAnim`.
     if state.weapon == WP_DISRUPTOR && state.zoom_mode == 1 {
         crate::pmove_anim::start_torso(state, BOTH_ATTACK4);
     } else if state.weapon == WP_MELEE {
-        let punch = if state.torso_anim == BOTH_MELEE1 {
-            BOTH_MELEE2
-        } else {
-            BOTH_MELEE1
-        };
-        crate::pmove_anim::start_torso(state, punch);
-        if state.torso_anim == punch {
-            state.weapon_time = state.torso_timer;
+        if state.vehicle_entity_num == 0 {
+            if debug_melee.melee_moves()
+                && let crate::pmove_debug_melee::MeleeMove::Done = crate::pmove_debug_melee::melee(
+                    state,
+                    command,
+                    debug_melee,
+                    animation_lengths,
+                    collision,
+                    bounds,
+                    legacy_fixes & 1 != 0,
+                )
+            {
+                return;
+            }
+            let punch = if state.torso_anim == BOTH_MELEE1 {
+                BOTH_MELEE2
+            } else {
+                BOTH_MELEE1
+            };
+            crate::pmove_anim::start_torso(state, punch);
+            if state.torso_anim == punch {
+                state.weapon_time = state.torso_timer;
+            }
         }
     } else {
         crate::pmove_anim::start_torso(state, WEAPON_ATTACK_ANIM[usize::from(state.weapon)]);
@@ -486,6 +511,19 @@ fn advance_command(
         add_time = (add_time as f32 * 1.5) as i32;
     }
     state.weapon_time += add_time;
+}
+
+/// Melee's alternate attack on foot (`bg_pmove.c:7461-7581`): the punches with
+/// `g_debugMelee` off, as the primary attack's; with it on, the grapple, which a client
+/// does not predict past returning, or a kick, which needs the animation table.
+fn melee_alternate_is_predicted(
+    state: &MovementState,
+    debug_melee: DebugMelee,
+    has_animation_lengths: bool,
+) -> bool {
+    state.weapon == WP_MELEE
+        && state.vehicle_entity_num == 0
+        && (!debug_melee.melee_moves() || has_animation_lengths)
 }
 
 fn primary_is_predicted(weapon: u8) -> bool {

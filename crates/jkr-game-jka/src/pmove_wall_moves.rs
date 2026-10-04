@@ -273,8 +273,10 @@ impl Predictor {
     /// `PM_AdjustAngleForWallJump` (`bg_pmove.c:1576-1732`): a grabbed wall is held,
     /// facing it and pulled to it, while the rebound's animation has more than 100 ms to
     /// run; then the player kicks off it — 200 units a second away, 336 up, half a second
-    /// without control, Force spent as a Force jump's. `g_debugMelee`'s hold-until-released
-    /// (`:1629-1650`) is not ported: the cvar is off by default.
+    /// without control, Force spent as a Force jump's. Under `g_debugMelee` a player
+    /// holding jump keeps a wall until letting go (`:1621-1641`, from level 2 on JA+); on
+    /// JA+ the held wall does not turn the view, which follows the mouse
+    /// ([`crate::pmove_debug_melee`]).
     fn hold_wall(&mut self, command: &mut UserCommand, collision: &impl MovementCollision) {
         let rebounding = |animation| rebound_jump(animation) || rebound_hold(animation);
         let state = &self.state;
@@ -298,6 +300,26 @@ impl Predictor {
                 return;
             }
         };
+        let debug_melee = self.config.debug_melee;
+        if debug_melee.holds_walls() && command.up_move > 0 {
+            if rebound_hold(self.state.legs_anim) {
+                // Keep holding.
+                self.state.legs_timer = self.state.legs_timer.max(150);
+            } else if self.state.legs_timer <= 300 {
+                // The rebound reached its hold: `BOTH_FORCEWALLRELEASE_FORWARD` plus the
+                // rebound's offset from `BOTH_FORCEWALLHOLD_FORWARD` is its hold pose.
+                self.state.saber_holstered = 2;
+                let hold = i32::from(BOTH_FORCEWALLRELEASE_FORWARD)
+                    + (i32::from(self.state.legs_anim) - i32::from(BOTH_FORCEWALLHOLD_FORWARD));
+                self.wall_animation(
+                    SETANIM_BOTH,
+                    hold as u16,
+                    SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+                );
+                self.state.legs_timer = 150;
+                self.state.torso_timer = 150;
+            }
+        }
         let origin = Vec3::from_array(self.state.origin);
         let trace = collision.trace(
             self.state.origin,
@@ -309,11 +331,13 @@ impl Predictor {
         if self.state.legs_timer > 100 && trace.fraction < 1.0 && trace.plane_normal[2].abs() <= 0.2
         {
             command.up_move = command.up_move.max(0);
-            face(
-                &mut self.state,
-                command,
-                crate::npc_nav::vector_to_yaw(trace.plane_normal) + yaw_adjust,
-            );
+            if !debug_melee.free_wall_look {
+                face(
+                    &mut self.state,
+                    command,
+                    crate::npc_nav::vector_to_yaw(trace.plane_normal) + yaw_adjust,
+                );
+            }
             self.state.velocity = (Vec3::from_array(trace.plane_normal) * -128.0).to_array();
             command.up_move = 0;
             self.state.movement_flags |= PMF_STUCK_TO_WALL;

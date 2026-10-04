@@ -254,6 +254,7 @@ pub mod map;
 pub mod match_end;
 pub mod pmove;
 pub mod pmove_anim;
+pub mod pmove_debug_melee;
 pub mod pmove_dir;
 pub mod pmove_input_freeze;
 pub mod pmove_locomotion;

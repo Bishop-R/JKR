@@ -224,6 +224,43 @@ confirmation remains with the owner. Formatting, locked workspace build/tests
 and the optimized client build passed.
 
 
+## g_debugMelee prediction
+
+Local change based on `da8adc9` (2026-10-04): client prediction reads
+`CS_SERVERINFO` `g_debugMelee` as OpenJK `codemp` does (`cg_servercmds.c:137`)
+and predicts its melee kicks, the grapple's early return and the wall hold
+(`bg_pmove.c:1621-1641,7464-7581`). Melee's alternate attack is now predicted
+with the cvar off too (stock punches). On the JA+ dialect the levels follow JA+:
+1 is the melee attacks only and 2 adds the wall hold; a grabbed wall leaves the
+view to the player, and alternate attack standing still is a front kick. The
+TaystJK dialect takes the JA+ levels without the view or standing kick (from
+jaPRO's server code; not observed). JKR's own server does not simulate the cvar,
+whose default there is 0. See [networking](networking.md#server-dialect-movement-rules).
+
+Evidence (Windows 11): a scratch harness outside the repository joined a local,
+windowless JA+ 2.4 Build 7 server (EternalJK x86 dedicated, `mp/ffa3`, loopback),
+sent scripted commands at 8/7/4/3 ms, and replayed them offline through
+`jkr-game-jka` exactly as the viewer reseeds from each snapshot, comparing
+origin, velocity, view, animations, timers, flags, weapon time/state, holster and
+ground per snapshot (about 640 per run). Scenarios: punches, four ground kicks,
+standing alternate attack, the grapple, an air kick after a Force jump, a kick out
+of a run; and a wall grab approached squarely and 30 degrees off square, holding
+jump while sweeping the pitch.
+
+| `g_debugMelee` | Melee runs, clean intervals | Wall runs, clean intervals |
+| --- | --- | --- |
+| 0 | all clean at every step (489 of 639 before) | free look clean in every grab |
+| 1 | all but 2 (the grapple) at every step | all clean at every step (about 20 view misses per grab before) |
+| 2 | all but 2 (the grapple) at every step | all clean at every step (439-554 of about 640 before) |
+
+The grapple (`TryGrapple`) is server-only; stock clients do not predict it
+either. Remaining misses in other runs came from a moving platform and a corner
+slide that the world-only harness collision does not model, one wall run-up
+onset and one 1-unit Force-jump velocity difference (one interval each in about
+30 wall runs), both outside the changed code. Saber staff kicks
+standing still on JA+ are not changed. Not run in the client. Formatting, locked
+workspace build/tests passed.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.
