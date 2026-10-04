@@ -606,6 +606,18 @@ and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
 
+UI text uses the bundled Inter font, rasterized once per monitor DPI into a
+Latin-1 atlas ([text.rs](../crates/jkr-viewer/src/text.rs)). Byte 0xAC (`¬`) is
+the exception: the retail `ergoec` and `ocr_a` fonts draw it as the boxed
+"WSI fonts" foundry logo, which players use in names, so when the game data
+provides either font the atlas takes that glyph instead of Inter's not-sign
+([logo_glyph.rs](../crates/jkr-viewer/src/text/logo_glyph.rs)). It is cropped
+from the mounted atlas (an HD replacement included), scaled so the retail
+font's `H` matches Inter's cap height, and spliced into both faces at atlas
+build and DPI rebuild; nothing is read or rasterized per frame. Without the
+retail fonts `¬` stays Inter's. Outgoing chat and names are still sent as UTF-8,
+so other clients may draw a stray `Â` before the logo.
+
 ## Billboard icons
 
 Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0
