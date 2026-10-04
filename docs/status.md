@@ -7,6 +7,46 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Drop-in client installation
+
+Local change based on `da8adc9` (2026-10-04): the client discovers game data
+beside its executable (or in its `GameData` subdirectory), independently of the
+working directory. This takes priority over saved paths; explicit positional
+paths and `JKR_GAME_DATA` remain overrides. Direct `--connect HOST:PORT` also
+supports discovery. See [client launch](client.md#launch) for the full order.
+
+Linux verification: 19 external startup checks passed with synthetic asset-file
+markers, covering unrelated working directories, spaces/non-ASCII paths,
+discovery precedence, invalid/incomplete locations, known-install fallbacks and
+both direct-connect syntaxes. The unmodified optimized binary, placed beside
+synthetic `base/` assets and launched from elsewhere with isolated configuration,
+found and attempted to read those archives; it then exited on the intentionally
+invalid content before creating a window. No retail files were copied. Formatting,
+locked workspace build/tests and the optimized client build passed. Windows
+double-click/shortcut behavior and full rendering from a drop-in install have not
+been exercised by these checks.
+
+The same local work now defaults generated client files to `GameData/jkr/`.
+Storage is selected before the console, browser or HUD is created, so settings,
+marks, screenshots, recordings, favorites, friends and identity share one root.
+A one-time, non-overwriting import copies supported files from the old user
+folder and leaves originals intact. Unwritable installations use the existing
+per-user profile. Downloaded content keeps its separate cache.
+
+Eleven external Linux storage scenarios passed using synthetic profiles:
+first-run creation, supported-file import and byte preservation, identity-file
+permissions, PK3/link exclusion, existing destination conflicts, repeated launches,
+real permission-denied fallback, both roots unwritable, obstructing files, failed
+import/retry, linked destinations, saved installation hints and same-root aliases.
+The checks execute the production storage module in separate processes; they do
+not migrate the owner's profile. The unmodified release binary also passed
+first-launch, repeat-launch and read-only-installation checks with isolated
+synthetic content: imported settings were loaded, autosave used the selected
+root, marks/key bytes survived, and originals remained unchanged during portable
+launches. Intentionally invalid PK3s stopped these runs before window creation.
+Formatting, locked workspace build/tests and the optimized client build passed.
+Windows ACLs and native Windows launch remain unverified.
+
 ## Console editing and command browser
 
 The console includes the command/cvar browser contributed in PR #6 and the
