@@ -107,6 +107,16 @@ impl ChatRoster {
         (player.generation == target.generation && !player.name.is_empty())
             .then_some(player.name.as_str())
     }
+
+    /// Resolve a typed name to one connected player's slot; see [`crate::lookup_player`].
+    pub fn lookup(&self, query: &str) -> crate::PlayerLookup {
+        crate::lookup_player(
+            self.players.iter().enumerate().map(|(slot, player)| {
+                (slot as u16, player.name.as_str(), player.raw_name.as_str())
+            }),
+            query,
+        )
+    }
 }
 
 fn player_name(config: &[u8]) -> Option<&[u8]> {

@@ -53,7 +53,7 @@ impl GpuState {
                 .as_ref()
                 .is_some_and(console::ViewerConsole::is_open)
         {
-            self.gameplay_input.clear();
+            self.gameplay_input.release_keys();
             self.release_pointer();
         }
         consumed

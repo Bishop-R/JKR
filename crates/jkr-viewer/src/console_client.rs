@@ -224,7 +224,7 @@ impl crate::GpuState {
                     .game_state(),
             );
             if self.chat.whisper_to(slot) {
-                self.gameplay_input.clear();
+                self.gameplay_input.release_keys();
                 if let Some(console) = &mut self.console {
                     console.set_open(false);
                 }

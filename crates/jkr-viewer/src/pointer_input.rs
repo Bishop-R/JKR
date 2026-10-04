@@ -165,7 +165,7 @@ impl GpuState {
 
     pub(crate) fn release_pointer(&mut self) {
         self.apply_cursor_mode(CursorMode::Free);
-        self.gameplay_input.clear();
+        self.gameplay_input.release_keys();
     }
 
     /// Keyboard catchers also advertise BUTTON_TALK, as CL_CmdButtons does.

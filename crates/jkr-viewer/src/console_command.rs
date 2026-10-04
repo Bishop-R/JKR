@@ -157,8 +157,28 @@ impl ViewerConsole {
                         ForwardAction::Ignore => Ok(Vec::new()),
                         ForwardAction::Unknown => Err(format!("Unknown command \"{}\"", tokens[0])),
                         ForwardAction::Reliable(payload) => {
+                            // JA+ style `tell <name>` is resolved against the roster
+                            // first; chat is then coloured and queued like stock.
+                            let resolved;
+                            let payload = match session.as_deref() {
+                                Some(active) if tokens[0].eq_ignore_ascii_case("tell") => {
+                                    let mut roster = jkr_client::ChatRoster::default();
+                                    roster.update(active.game_state());
+                                    match console_tell::resolve(tokens, &roster) {
+                                        console_tell::Tell::Unchanged => payload,
+                                        console_tell::Tell::Send(command) => {
+                                            resolved = command;
+                                            &resolved
+                                        }
+                                        console_tell::Tell::Refused(lines) => {
+                                            return Some(Ok(lines));
+                                        }
+                                    }
+                                }
+                                _ => payload,
+                            };
                             let payload =
-                                console_client::color_chat(&payload, chat_mask, chat_random);
+                                console_client::color_chat(payload, chat_mask, chat_random);
                             if ["say", "say_team", "tell"]
                                 .iter()
                                 .any(|name| tokens[0].eq_ignore_ascii_case(name))

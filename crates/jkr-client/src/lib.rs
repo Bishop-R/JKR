@@ -49,6 +49,7 @@ mod permanent_entities;
 mod player_angle_rules;
 mod player_angles;
 mod player_identity;
+mod player_lookup;
 pub use client_info::{LegacyClientInfo, legacy_body_frame};
 mod player_profile;
 mod player_sprites;
@@ -174,6 +175,7 @@ pub use player_identity::{
     legacy_client_appearance, legacy_client_appearance_forced, legacy_client_saber_name,
     legacy_client_saber_names,
 };
+pub use player_lookup::{PlayerLookup, lookup_player};
 pub use player_profile::{
     PlayerProfile, PlayerProfileError, SaberColor, pack_saber_rgb, unpack_saber_rgb,
 };
