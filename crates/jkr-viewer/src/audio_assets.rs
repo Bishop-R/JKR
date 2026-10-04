@@ -82,11 +82,38 @@ pub(crate) struct SoundPrefetch {
 }
 
 impl SoundPrefetch {
+    /// Read authored animation samples on the appearance loader, never the frame path.
+    pub(crate) fn paths<'a>(vfs: &VirtualFileSystem, paths: impl Iterator<Item = &'a str>) -> Self {
+        let mut seen = std::collections::HashSet::new();
+        Self {
+            assets: paths
+                .filter(|path| seen.insert(*path))
+                .filter_map(|requested| {
+                    let (resolved, asset) = resolve_sound(vfs, requested)?;
+                    Some((requested.to_owned(), resolved, asset))
+                })
+                .collect(),
+        }
+    }
+
     /// Read the map's music (server `CS_MUSIC`, else worldspawn) and the duel
     /// music that `configure_audio` will ask for.
     pub(crate) fn read(vfs: &VirtualFileSystem, game_state: Option<&GameState>, bsp: &Bsp) -> Self {
         let music = game_state.and_then(game_music).or_else(|| world_music(bsp));
         let mut paths = vec![DUEL_MUSIC.to_owned()];
+        paths.extend(
+            jkr_client::animation_events::footsteps::PATHS
+                .iter()
+                .flatten()
+                .flatten()
+                .map(|path| (*path).to_owned()),
+        );
+        if let Ok(definitions) = jkr_client::legacy_saber_definitions(vfs) {
+            for definition in definitions.into_values() {
+                paths.extend(definition.sound_spin);
+                paths.extend(definition.sound_swing.into_iter().flatten());
+            }
+        }
         paths.extend(crate::effect_aux::saber_contacts::SOUNDS.map(str::to_owned));
         if let Some(music) = music {
             paths.push(default_music_extension(&music.intro));
@@ -107,6 +134,15 @@ impl SoundPrefetch {
 const DUEL_MUSIC: &str = "music/mp/duel.mp3";
 
 impl GameAudio {
+    /// Queue decoding once when an appearance first joins the active audio output.
+    pub(crate) fn absorb_animation_prefetch(&mut self, prefetch: &SoundPrefetch) {
+        for (requested, resolved, asset) in &prefetch.assets {
+            if !self.handles.contains_key(requested) {
+                self.register_resolved(requested.clone(), resolved.clone(), asset);
+            }
+        }
+    }
+
     /// Register sounds read ahead of time; later requests for the same paths
     /// hit the handle cache instead of the VFS.
     pub(crate) fn absorb_prefetch(&mut self, prefetch: SoundPrefetch) {

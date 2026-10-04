@@ -25,6 +25,19 @@ pub struct GameState {
 }
 
 impl GameState {
+    /// Empty state for a local game host using the compatibility presentation schema.
+    /// This does not encode, decode or change any network message.
+    pub fn empty_local(client_num: i32) -> Self {
+        Self {
+            server_command_sequence: 0,
+            config_strings: vec![None; MAX_CONFIGSTRINGS],
+            baselines: vec![None; MAX_LEGACY_ENTITIES],
+            client_num,
+            checksum_feed: 0,
+            rmg_marker: 0,
+        }
+    }
+
     pub fn config_string(&self, index: usize) -> Option<&[u8]> {
         self.config_strings.get(index)?.as_deref()
     }

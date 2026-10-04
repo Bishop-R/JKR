@@ -24,7 +24,7 @@ impl ClientSession {
             .ok_or_else(|| ClientError::Download("download capability unavailable".into()))?;
         storage.feedback(progress, cancelled);
         self.downloaded_message = Some(download::run(
-            &mut self.connection,
+            self.connection.as_mut().expect("network download"),
             message,
             storage.as_mut(),
             &mut self.client_reliable_sequence,
