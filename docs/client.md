@@ -56,6 +56,14 @@ Set `JKR_DEDICATED` to its executable path if installed elsewhere. The child
 lifetime is managed by the client and defaults to local access; see
 [local_server.rs](../crates/jkr-viewer/src/local_server.rs).
 
+Map previews (`levelshots/<map>.jpg`, `.tga` or `.png`) keep the resolution they
+ship in, so an HD levelshot pack stays sharp in a large preview. They are decoded
+with their mip chain on a worker thread
+([levelshot.rs](../crates/jkr-viewer/src/menu/levelshot.rs)) and drawn from
+their own texture ([ui_renderer/levelshot.rs](../crates/jkr-viewer/src/ui_renderer/levelshot.rs)),
+stretched to the 4:3 frame as the stock UI draws them. Images longer than 4096
+pixels are reduced to that; decoded previews are cached up to 64 MiB.
+
 ## Animation sounds and voice variants
 
 Footsteps and authored swing/spin sounds follow the evaluated lower/upper Ghoul2

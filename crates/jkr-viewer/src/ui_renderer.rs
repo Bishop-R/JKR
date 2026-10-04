@@ -5,10 +5,11 @@ use bytemuck::{Pod, Zeroable};
 use jkr_ui::{Color, DrawCommand, DrawList, FontWeight, Rect, TextAlign, TextId};
 
 mod icons;
+mod levelshot;
 use icons::IconAtlas;
-pub(crate) use icons::{
-    BANNER_SIZE, BANNER_TEXTURE, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE, LEVELSHOT_TEXTURE,
-};
+pub(crate) use icons::{BANNER_SIZE, BANNER_TEXTURE, ICON_CELLS, ICON_SIZE};
+pub(crate) use levelshot::LEVELSHOT_TEXTURE;
+use levelshot::LevelshotTexture;
 
 /// Main-menu wordmark: the Jedi Knight saber emblem laid horizontal, white
 /// on transparent, tinted by the player's accent at draw time.
@@ -48,12 +49,26 @@ impl ShapeVertex {
     }
 }
 
+/// Vertices from `start` on sample the levelshot texture, or the icon atlas.
+#[derive(Clone, Copy)]
+struct Run {
+    start: u32,
+    levelshot: bool,
+}
+
+/// Typical frames switch texture a few times at most; more grows the list once.
+const RUN_CAPACITY: usize = 16;
+
 /// Fixed-capacity WGPU shape renderer. GPU ownership never leaks into `jkr-ui`.
 pub(crate) struct ShapeRenderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertices: Vec<ShapeVertex>,
+    /// Texture runs over `vertices`, in draw order.
+    runs: Vec<Run>,
+    texture_layout: wgpu::BindGroupLayout,
     icons: IconAtlas,
+    levelshot: LevelshotTexture,
 }
 
 impl ShapeRenderer {
@@ -123,6 +138,7 @@ impl ShapeRenderer {
             mapped_at_creation: false,
         });
         let icons = IconAtlas::new(device, &texture_layout);
+        let levelshot = LevelshotTexture::new(device, &texture_layout);
         match image::load_from_memory(MENU_WORDMARK) {
             Ok(wordmark) => icons.upload_banner(queue, &wordmark.into_rgba8()),
             Err(error) => eprintln!("menu wordmark: {error}"),
@@ -131,7 +147,10 @@ impl ShapeRenderer {
             pipeline,
             vertex_buffer,
             vertices: Vec::with_capacity(MAX_SHAPE_VERTICES),
+            runs: Vec::with_capacity(RUN_CAPACITY),
+            texture_layout,
             icons,
+            levelshot,
         }
     }
 
@@ -143,11 +162,22 @@ impl ShapeRenderer {
         viewport: [f32; 2],
     ) {
         self.vertices.clear();
+        self.runs.clear();
         let mut opacity = [1.0_f32; 8];
         let mut opacity_depth = 0_usize;
         let mut clips = [Rect::new(0.0, 0.0, viewport[0], viewport[1]); 8];
         let mut clip_depth = 0_usize;
         for command in draw_lists.into_iter().flat_map(DrawList::commands) {
+            match *command {
+                DrawCommand::TexturedQuad { texture, .. } => {
+                    self.select_texture(texture == LEVELSHOT_TEXTURE);
+                }
+                DrawCommand::SolidRect { .. }
+                | DrawCommand::RoundedRect { .. }
+                | DrawCommand::GradientRect { .. }
+                | DrawCommand::Border { .. } => self.select_texture(false),
+                _ => {}
+            }
             match *command {
                 DrawCommand::SolidRect { rect, color }
                 | DrawCommand::RoundedRect {
@@ -258,15 +288,42 @@ impl ShapeRenderer {
         }
     }
 
-    /// Draw every retained shape in one pipeline/buffer submission.
+    /// Start a run on the levelshot texture or the icon atlas, unless the
+    /// current one already samples it.
+    fn select_texture(&mut self, levelshot: bool) {
+        if self
+            .runs
+            .last()
+            .is_none_or(|run| run.levelshot != levelshot)
+        {
+            self.runs.push(Run {
+                start: self.vertices.len() as u32,
+                levelshot,
+            });
+        }
+    }
+
+    /// Draw every retained shape from one pipeline and buffer, switching
+    /// bind group only between texture runs.
     pub(crate) fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         if self.vertices.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, self.icons.bind_group(), &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.draw(0..self.vertices.len() as u32, 0..1);
+        let end = self.vertices.len() as u32;
+        for (index, run) in self.runs.iter().enumerate() {
+            let stop = self.runs.get(index + 1).map_or(end, |next| next.start);
+            if stop > run.start {
+                let group = if run.levelshot {
+                    self.levelshot.bind_group()
+                } else {
+                    self.icons.bind_group()
+                };
+                pass.set_bind_group(0, group, &[]);
+                pass.draw(run.start..stop, 0..1);
+            }
+        }
     }
 
     fn push_rect(
@@ -358,10 +415,16 @@ impl ShapeRenderer {
         self.icons.upload(queue, texture, rgba);
     }
 
-    /// Upload the one [`LEVELSHOT_SIZE`] RGBA map preview sampled by
-    /// `TexturedQuad` commands naming [`LEVELSHOT_TEXTURE`].
-    pub(crate) fn upload_levelshot(&self, queue: &crate::frame_queue::FrameQueue, rgba: &[u8]) {
-        self.icons.upload_levelshot(queue, rgba);
+    /// Replace the map preview sampled by `TexturedQuad` commands naming
+    /// [`LEVELSHOT_TEXTURE`] with `image`, at its own resolution.
+    pub(crate) fn upload_levelshot(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &crate::frame_queue::FrameQueue,
+        image: &crate::menu::levelshot::LevelshotImage,
+    ) {
+        self.levelshot
+            .upload(device, queue, &self.texture_layout, image);
     }
 }
 
