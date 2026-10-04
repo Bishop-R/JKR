@@ -40,7 +40,7 @@ pub(super) struct Forge {
     /// The frame's point-light block, shared by every stage group and the receiver group.
     pub(super) point_lights: wgpu::Buffer,
     /// The queue, for per-view uploads made while a pass is being recorded.
-    pub(super) queue: wgpu::Queue,
+    pub(super) queue: crate::frame_queue::FrameQueue,
     pub(super) pipeline_keys: Vec<PipelineKey>,
     pub(super) texture_cache: std::collections::HashMap<String, wgpu::TextureView>,
 }
@@ -48,7 +48,7 @@ pub(super) struct Forge {
 impl Forge {
     pub(super) fn new(
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         camera_layout: &wgpu::BindGroupLayout,
         format: wgpu::TextureFormat,
     ) -> Self {
@@ -138,7 +138,7 @@ impl Forge {
     pub(super) fn texture(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         key: &str,
         pixels: &[Arc<RgbaImage>],
     ) -> Result<wgpu::TextureView, Box<dyn Error>> {
@@ -171,7 +171,7 @@ pub(super) struct CompiledMaterial {
 /// the caller creates pipelines for any key this registered as new.
 pub(super) fn build_passes(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     forge: &mut Forge,
     dynamic_lights: &wgpu::Buffer,
     stages: Vec<PendingStage>,
@@ -302,7 +302,7 @@ impl Runtime {
     pub(crate) fn compile_detached(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         vfs: &VirtualFileSystem,
         shaders: &ShaderCatalog,
         materials: &[ViewerMaterial],
@@ -312,7 +312,8 @@ impl Runtime {
         let known = self.forge.pipeline_keys.len();
         for key in materials {
             let lightmap = self.forge.fallback_lightmap.clone();
-            let material = compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache)?;
+            let material =
+                compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache, false)?;
             let stages = build_passes(
                 device,
                 queue,
@@ -340,7 +341,7 @@ impl Runtime {
     pub(crate) fn append_entity_materials(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         vfs: &VirtualFileSystem,
         shaders: &ShaderCatalog,
         materials: &[ViewerMaterial],
@@ -350,7 +351,8 @@ impl Runtime {
         let known = self.forge.pipeline_keys.len();
         for key in materials {
             let lightmap = self.forge.fallback_lightmap.clone();
-            let material = compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache)?;
+            let material =
+                compile_material(vfs, shaders, key, &lightmap, true, &mut image_cache, false)?;
             let stages = build_passes(
                 device,
                 queue,

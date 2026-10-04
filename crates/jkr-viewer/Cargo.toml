@@ -19,6 +19,7 @@ getrandom = { version = "0.3.4", features = ["std"] }
 jkr-bsp.workspace = true
 jkr-audio.workspace = true
 jkr-client.workspace = true
+jkr-dedicated = { path = "../jkr-dedicated" }
 jkr-game-jka.workspace = true
 jkr-entity.workspace = true
 jkr-effect.workspace = true

@@ -11,6 +11,9 @@ pub(crate) use texture::Texture;
 /// White emission is four units of linear radiance. This is a renderer exposure
 /// convention, not a recovered q3map intensity; the texture mask sets emitting area.
 const RADIANCE: f32 = 4.;
+/// Explicit glow on a fixed fixture is a stronger source than an unmarked additive
+/// decoration. This is an artistic fallback, never a recovered compiler intensity.
+const FIXTURE_RADIANCE: f32 = 16.;
 
 /// Accumulate the time-average emission of one resolved, additive texture stage.
 /// Reflection/specular and entity-dependent stages are view-dependent, not lamps.
@@ -20,6 +23,7 @@ pub(super) fn accumulate(
     images: &[Arc<RgbaImage>],
     resolved: bool,
     self_lit: bool,
+    infer_fixture: bool,
 ) {
     // Follow later covers too: the FFA5 landing pad paints opaque metal back over
     // its effects, so only the uncovered portion can contribute to a lamp.
@@ -53,12 +57,13 @@ pub(super) fn accumulate(
     for image in images {
         let mean = additive_mean(image);
         for c in 0..3 {
-            sum[c] += mean[c] * gain[c] * RADIANCE / images.len() as f32;
+            sum[c] +=
+                mean[c] * gain[c] * stage_radiance(stage, infer_fixture) / images.len() as f32;
         }
     }
 }
 
-/// Linear luminance below which full-bright paint is a dark panel, not a fixture.
+/// An unlit fixture needs luminous texels; dark housing must not dilute their test.
 const SELF_LIT_FLOOR: f32 = 0.2;
 /// Radiance of white self-lit paint. Such a fixture stands in for a point light the map
 /// compiler baked and stripped, so it gets what a modest declared light surface gets
@@ -72,17 +77,26 @@ pub(super) const SELF_LIT_RADIANCE: f32 = 16.;
 /// the fixture itself must be the source, or the room it lit goes dark.
 ///
 /// Only where nothing else says what the material emits: a declared surface light or an
-/// additive glow stage has authority, and the paint under it stays paint.
+/// additive glow stage has authority, and the paint under it stays paint. A full
+/// opaque replacement hides earlier stages, which cannot light its visible paint.
 pub(super) fn self_lit(definition: Option<&jkr_shader::ShaderDefinition>) -> bool {
     definition.is_some_and(|definition| {
         !definition.stages.is_empty()
             && !(definition.surface_light.is_finite() && definition.surface_light > 0.)
-            && definition.stages.iter().all(|stage| {
-                stage.texture_generator != TextureGenerator::Lightmap
-                    && stage_gain(stage).is_some()
-                    && !stage.glow
-                    && stage.blend != StageBlend::Add
-            })
+            && definition.stages[definition
+                .stages
+                .iter()
+                .rposition(|stage| {
+                    stage.blend == StageBlend::Replace && stage.alpha_function.is_none()
+                })
+                .unwrap_or(0)..]
+                .iter()
+                .all(|stage| {
+                    stage.texture_generator != TextureGenerator::Lightmap
+                        && stage_gain(stage).is_some()
+                        && !stage.glow
+                        && stage.blend != StageBlend::Add
+                })
     })
 }
 
@@ -111,7 +125,27 @@ pub(super) fn self_lit_radiance(
     }
     let luminance =
         (0.2126 * radiance[0] + 0.7152 * radiance[1] + 0.0722 * radiance[2]) / SELF_LIT_RADIANCE;
-    (luminance >= SELF_LIT_FLOOR).then_some(radiance)
+    let luminous = luminance >= SELF_LIT_FLOOR
+        || images.iter().any(|image| {
+            image.pixels().any(|pixel| {
+                let linear = std::array::from_fn::<_, 3, _>(|c| {
+                    (f32::from(pixel[c]) / 255.).powf(2.2) * gain[c]
+                });
+                0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2] >= SELF_LIT_FLOOR
+            })
+        });
+    // Eligibility uses luminous texels; energy still uses the whole-area mean.
+    luminous.then_some(radiance)
+}
+
+/// Shared gain for mean energy and spatial masks. Declared lights and effect
+/// sprites keep their existing interpretation; only eligible fixed fixtures opt in.
+fn stage_radiance(stage: &ShaderStage, infer_fixture: bool) -> f32 {
+    if infer_fixture && stage.glow {
+        FIXTURE_RADIANCE
+    } else {
+        RADIANCE
+    }
 }
 
 fn stage_gain(stage: &ShaderStage) -> Option<[f32; 3]> {

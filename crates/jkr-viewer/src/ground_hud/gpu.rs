@@ -187,7 +187,7 @@ impl Renderer {
     /// Upload one frame's uniform: the view, the placement and every quad.
     pub(super) fn upload(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         view: View,
         placement: Placement,
         layout: &Layout,

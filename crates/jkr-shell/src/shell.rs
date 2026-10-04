@@ -37,6 +37,17 @@ pub enum ConsoleLineKind {
     Log,
 }
 
+/// Where a command listed by [`Shell::command_help`] is handled.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandSource {
+    /// A command of the shell itself (`bind`, `set`, `exec`, ...).
+    Shell,
+    /// A command the application registered.
+    Application,
+    /// A command forwarded to an external processor, such as the game server.
+    External,
+}
+
 /// One bounded console scrollback entry.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConsoleLine {
@@ -68,6 +79,8 @@ pub struct Shell {
     file_log: file_log::FileLog,
     lines: VecDeque<ConsoleLine>,
     log_capacity: usize,
+    /// Lines ever appended, so frontends can name a line across scrollback trimming.
+    lines_written: u64,
     external_command_help: BTreeMap<String, String>,
     command_buffer: CommandBuffer,
 }
@@ -85,6 +98,7 @@ impl Shell {
             file_log: file_log::FileLog::default(),
             lines: VecDeque::with_capacity(DEFAULT_LOG_CAPACITY),
             log_capacity: DEFAULT_LOG_CAPACITY,
+            lines_written: 0,
             external_command_help: BTreeMap::new(),
             command_buffer: CommandBuffer::new(),
         }
@@ -130,6 +144,15 @@ impl Shell {
         self.lines.iter()
     }
 
+    /// Number of lines ever appended to scrollback. Lines are numbered from zero in
+    /// the order they were appended, so the newest line in [`Self::lines`] is number
+    /// `lines_written() - 1`. Numbers are never reused, even after trimming or
+    /// clearing, so a frontend can keep one (for a text selection, say) and later
+    /// find the line again or learn that it is gone.
+    pub fn lines_written(&self) -> u64 {
+        self.lines_written
+    }
+
     /// Remove every scrollback line.
     pub fn clear_lines(&mut self) {
         self.lines.clear();
@@ -158,6 +181,25 @@ impl Shell {
                 .into_iter()
                 .map(|(name, description)| (name.to_ascii_lowercase(), description)),
         );
+    }
+
+    /// Every command `cmdlist` lists, with its description and where it runs, in
+    /// no particular order.
+    pub fn command_help(&self) -> impl Iterator<Item = (&str, &str, CommandSource)> {
+        builtin_commands()
+            .map(|(name, description)| (name, description, CommandSource::Shell))
+            .chain(
+                self.commands
+                    .iter()
+                    .map(|(name, description)| (name, description, CommandSource::Application)),
+            )
+            .chain(
+                self.external_command_help
+                    .iter()
+                    .map(|(name, description)| {
+                        (name.as_str(), description.as_str(), CommandSource::External)
+                    }),
+            )
     }
 
     /// Return whether the first token is handled by this shell rather than an
@@ -336,6 +378,7 @@ impl Shell {
             written_millis,
             stamped_text,
         });
+        self.lines_written += 1;
     }
 }
 

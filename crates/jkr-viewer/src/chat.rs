@@ -68,6 +68,7 @@ pub(crate) struct ChatOverlay {
     visible_targets: [Option<ChatTarget>; MAX_VISIBLE],
     pressed_action: Option<(u16, Option<ChatTarget>)>,
     layout_viewport: [f32; 2],
+    scoreboard_layout: bool,
     options: options::Options,
 }
 
@@ -104,6 +105,7 @@ impl ChatOverlay {
             visible_targets: [None; MAX_VISIBLE],
             pressed_action: None,
             layout_viewport: [0.0; 2],
+            scoreboard_layout: false,
             options: options::Options::default(),
         }
     }
@@ -129,14 +131,15 @@ impl ChatOverlay {
         sender: Option<u16>,
         now: Instant,
     ) {
+        // Console output never enters conversation history, including direct callers.
+        if kind == ServerEventKind::Print {
+            return;
+        }
         let ms = self.millis(now);
         if kind == ServerEventKind::CenterPrint {
             text.reserve(1024usize.saturating_sub(text.len()));
             self.combat.height = None;
             self.center = Some((text, ms));
-            return;
-        }
-        if kind == ServerEventKind::Print {
             return;
         }
         if kind == ServerEventKind::Chat && self.options.clean != 0 {
@@ -229,6 +232,16 @@ impl ChatOverlay {
 
     pub(crate) fn draw_list(&self) -> &DrawList {
         self.ui.draw_list()
+    }
+
+    pub(crate) fn set_scoreboard_layout(&mut self, enabled: bool) {
+        if self.scoreboard_layout != enabled {
+            self.scoreboard_layout = enabled;
+            for line in &mut self.lines {
+                line.y = None;
+            }
+            self.pressed_action = None;
+        }
     }
 
     pub(crate) fn append(

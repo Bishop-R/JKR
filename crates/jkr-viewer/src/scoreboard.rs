@@ -1,6 +1,7 @@
 //! Cached authoritative scoreboard projection rendered through `jkr-ui`.
 
 mod deaths;
+pub(crate) mod layout;
 mod view;
 
 use crate::menu_widgets::MenuCanvas;
@@ -11,9 +12,9 @@ use jkr_ui::DrawList;
 
 const CS_PLAYERS: usize = 1_131;
 
-/// Hide both chat geometry and text while scores are visible, without clearing chat state.
-pub(crate) fn chat_visible(scores: bool, information: bool, history: bool) -> bool {
-    !scores && (information || history)
+/// Chat remains available beside the scoreboard.
+pub(crate) fn chat_visible(information: bool, history: bool) -> bool {
+    information || history
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -128,7 +129,7 @@ impl Scoreboard {
 
 /// Append the current server scoreboard.
 pub(crate) fn append_overlay(gpu: &mut crate::GpuState, viewport: [f32; 2], scale: f32) {
-    if let Some(session) = &gpu.live_session {
+    if let Some(session) = gpu.resident.session.as_ref().or(gpu.live_session.as_ref()) {
         gpu.scoreboard.append(
             session,
             &mut gpu.text_vertices,
@@ -211,4 +212,11 @@ fn byte_signature(bytes: &[u8]) -> u64 {
     bytes.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
     })
+}
+
+/// Automatic intermission scores and the ordinary held scoreboard share one layout.
+pub(crate) fn requested(gpu: &crate::GpuState, intermission: bool) -> bool {
+    intermission
+        || gpu.resident_scoreboard_visible()
+        || gpu.gameplay_input.held(crate::input::GameButton::Scores)
 }

@@ -44,7 +44,7 @@ pub(crate) enum Shot {
 const REVEAL_SPAN: f32 = 0.18;
 /// How long the gate takes to open once the camera is in front of it, and
 /// to close again when a connection is abandoned.
-const GATE_OPEN_MILLIS: u32 = 2_800;
+const GATE_OPEN_MILLIS: u32 = 1_200;
 const GATE_CLOSE_MILLIS: u32 = 1_200;
 /// Browser-flight progress from which the gate is close enough to open.
 const GATE_IN_VIEW: f32 = 0.5;

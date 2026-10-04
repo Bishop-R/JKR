@@ -39,7 +39,7 @@ pub(crate) fn extent(images: &[Arc<RgbaImage>]) -> (u32, u32) {
 /// Upload mipmapped stage frames once; no frame-path image generation or readback.
 pub(crate) fn upload(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     images: &[Arc<RgbaImage>],
 ) -> Result<wgpu::TextureView, Box<dyn Error>> {
     let (width, height) = extent(images);
@@ -53,7 +53,7 @@ pub(crate) fn upload(
 /// Upload one [`chain`] per layer of a `width` x `height` array.
 pub(crate) fn upload_chains(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     width: u32,
     height: u32,
     chains: &[Vec<RgbaImage>],

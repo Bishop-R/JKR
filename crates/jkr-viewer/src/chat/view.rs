@@ -36,13 +36,23 @@ impl ChatOverlay {
         }
         self.ui.begin_transparent(viewport);
         self.visible_targets.fill(None);
-        let g = self.options.geometry(viewport);
+        let mut g = self.options.geometry(viewport);
+        if self.scoreboard_layout {
+            let layout = crate::scoreboard::layout::Layout::new(viewport);
+            g.scale = layout.scale * self.options.font.min(1.5);
+            g.left = layout.chat_left;
+            g.width = layout.chat_width;
+            g.top = 150.0 * layout.scale;
+            g.bottom = viewport[1] - 200.0 * g.scale;
+            g.font = 18.0 * g.scale;
+            g.row = 27.0 * g.scale;
+        }
         if (draw_feed || self.is_typing()) && self.options.lifetime != 0 {
             self.build_feed(font, &g, ms);
         }
         if let Some((text, received)) = &self.center {
             let age = ms.saturating_sub(*received);
-            if age < self.options.center_time {
+            if age < self.options.center_time && !self.scoreboard_layout {
                 // CG_DrawCenterString (cg_draw.c:4488): every `\n` row is its own
                 // centred draw with the base colour, so colour codes never bleed
                 // into the next row; the block sits around cg.centerPrintY (0.30).
@@ -72,12 +82,14 @@ impl ChatOverlay {
                     );
                     y += row;
                 }
-            } else {
+            } else if age >= self.options.center_time {
                 self.combat.spare = self.center.take().unwrap().0;
                 self.combat.height = None;
             }
         }
-        self.draw_plums();
+        if !self.scoreboard_layout {
+            self.draw_plums();
+        }
         if self.is_typing() {
             self.build_composer(font, &g, ms);
             self.build_player_menu(&g, viewport, font);
