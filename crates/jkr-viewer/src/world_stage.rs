@@ -153,6 +153,7 @@ fn implicit_stage(
         alpha_function: None,
         rgb_generator: Some("identity".into()),
         alpha_generator: Some("identity".into()),
+        resolved_colour: jkr_shader::StageColour::IDENTITY,
         rgb_wave: None,
         alpha_wave: None,
         texture_modifications: Vec::new(),
