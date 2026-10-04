@@ -1,11 +1,14 @@
 //! Floating conversation overlay. Chat owns presentation/history only; player
 //! identity and stock command semantics come from the client adapter.
 
+mod editing;
 mod editor;
 
 mod interaction;
 mod layout;
 mod options;
+mod player_actions;
+mod social;
 
 mod view;
 
@@ -46,8 +49,8 @@ struct ChatLine {
 #[derive(Clone, Copy)]
 struct PlayerMenu {
     target: ChatTarget,
-    origin: [f32; 2],
-    selected: u16,
+    anchor_y: f32,
+    selected: Option<u16>,
 }
 
 /// Bounded incoming history and the currently active unboxed composer.
@@ -56,8 +59,10 @@ pub(crate) struct ChatOverlay {
     center: Option<(String, u64)>,
     combat: combat::Combat,
     input: Option<Editor>,
+    modifiers: winit::keyboard::ModifiersState,
     roster: ChatRoster,
     muted: Vec<ChatTarget>,
+    friends: social::Friends,
     player_menu: Option<PlayerMenu>,
     scroll: usize,
     unread: usize,
@@ -80,21 +85,16 @@ impl ChatOverlay {
             .and_then(|target| self.roster.display_name(target))
             .unwrap_or("")
     }
-    /// Current slot mask; roster generations prevent a replacement inheriting a mute.
-    pub(crate) fn muted_players(&self) -> u32 {
-        self.muted
-            .iter()
-            .filter(|target| self.roster.name(**target).is_some())
-            .fold(0, |mask, target| mask | (1_u32 << target.slot()))
-    }
     pub(crate) fn new() -> Self {
         Self {
             lines: VecDeque::with_capacity(HISTORY_LIMIT),
             center: None,
             combat: combat::Combat::default(),
             input: None,
+            modifiers: winit::keyboard::ModifiersState::empty(),
             roster: ChatRoster::default(),
             muted: Vec::with_capacity(HISTORY_LIMIT),
+            friends: social::Friends::default(),
             player_menu: None,
             scroll: 0,
             unread: 0,

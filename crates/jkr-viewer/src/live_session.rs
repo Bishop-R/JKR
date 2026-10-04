@@ -42,9 +42,6 @@ impl GpuState {
     ) {
         use crate::frame_pacing::budget::Phase;
         timing.mark(Phase::Snapshot);
-        if let Some(audio) = game_audio.as_mut() {
-            audio.set_muted_players(self.chat.muted_players());
-        }
         drain_snapshots(|| {
             let Some(session) = &mut self.live_session else {
                 return false;

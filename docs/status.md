@@ -118,6 +118,34 @@ EFF's read-only status advertised stock FFA1 and downloads disabled. Its complet
 join with this follow-up remains unverified; no public server was joined for
 these checks.
 
+## Chat player menu preview
+
+Local preview `chat5` (2026-10-04) adds a compact square-edged dropdown left of
+chat with only `whisper`, `ignore`, `friend`, and `copy`. It follows the clicked
+name, stays above typing controls, and leaves chat positions unchanged. At a
+narrow left margin it falls back inside the right edge of the chat lane, clear
+of the scoreboard. Active ignore/friend toggles are highlighted. There are no
+headers, descriptions, standing hints, or success notices; failures still show.
+Friends have a small five-point star before the name. Name hover fits the glyph
+bounds; each dropdown highlight matches its button rectangle without the wider
+menu-row sweep. The dropdown starts without a selected action and switches
+cleanly between mouse hover and keyboard focus, so whisper is not permanently
+highlighted. See [chat player actions](client.md#chat-player-actions).
+
+Whispers preserve drafts and send only on Enter. Ignores hide messages for the
+current map without muting gameplay sounds; friends are saved as local name
+bookmarks. Copy preserves name colour codes. Draft editing shares the console's
+caret and glyph metrics, including clipboard shortcuts, word motion/deletion,
+Shift/mouse selection, double-click token selection and literal dead-key `^`.
+
+Earlier focused checks covered identity reuse, persistence failures, selection,
+Unicode, draft limits and pointer actions. An offline X11 probe with an isolated
+clipboard adapter verified a `^1Alice^7` clipboard round trip and word selection/
+cut. Those checks predate the compact layout; no windows or game instances are
+launched to verify this layout revision, per owner preference. Visual playtesting
+remains with the owner. Formatting, locked workspace build/tests and the release
+build passed.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.

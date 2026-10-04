@@ -76,10 +76,6 @@ pub(crate) struct GameAudio {
 }
 
 impl GameAudio {
-    /// Apply explicit chat-menu player mutes to present and future source sounds.
-    pub(crate) fn set_muted_players(&mut self, mask: u32) {
-        self.output.set_muted_players(mask);
-    }
     /// Feed immediate local movement through the snapshot sound resolver and mixer.
     pub(crate) fn observe_predicted_event(
         &mut self,
