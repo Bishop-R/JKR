@@ -77,7 +77,12 @@ impl GpuState {
     /// Load, swap or animate the stage model for this frame, and feed the
     /// menu images (model icons, map preview) to the UI atlas.
     pub(crate) fn update_menu_stage(&mut self, now: Instant) {
-        menu::upload_menu_images(&mut self.client_menu, &self.ui_shapes, &self.queue);
+        menu::upload_menu_images(
+            &mut self.client_menu,
+            &mut self.ui_shapes,
+            &self.device,
+            &self.queue,
+        );
         let wanted = menu_backdrop::standalone_menu_visible(self)
             .then(|| {
                 self.client_menu

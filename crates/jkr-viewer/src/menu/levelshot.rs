@@ -1,24 +1,28 @@
-//! Map previews for the Create game screen: `levelshots/<map>.jpg` (or
-//! `.tga`/`.png`) decoded on a worker thread, scaled to the UI atlas'
-//! single 4:3 preview slot and cached per map. The draw path only asks
-//! [`Levelshots::preview`]; decoding never runs on it, and the atlas is
-//! written only when the wanted map changes.
+//! Map previews: `levelshots/<map>.jpg` (or `.tga`/`.png`) decoded on a
+//! worker thread at the image's own resolution, with its mip chain, and
+//! cached per map. The draw path only asks [`Levelshots::preview`]; decoding
+//! and mip generation never run on it, and the levelshot texture is written
+//! only when the wanted map changes.
 
-use crate::ui_renderer::LEVELSHOT_SIZE;
 use jkr_vfs::VirtualFileSystem;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-/// Decoded previews kept before the cache starts over (about 0.8 MB each).
+/// Decoded previews kept before the cache starts over.
 const CACHE_LIMIT: usize = 32;
+/// Decoded bytes kept before the cache starts over: about five 2048x1024 HD
+/// levelshots with their mips, or every retail 512x512 one.
+const CACHE_BYTES: usize = 64 << 20;
+/// Longest edge kept; larger images are reduced to it before upload.
+pub(crate) const MAX_EDGE: u32 = 4_096;
 /// Extensions tried after `levelshots/<map>`, in the stock renderer's order.
 const EXTENSIONS: [&str; 3] = ["jpg", "tga", "png"];
 
 /// What the preview area shows for a map.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Preview {
-    /// The map's levelshot is in the atlas slot.
+    /// The map's levelshot is in the levelshot texture.
     Image,
     /// Still decoding.
     Loading,
@@ -26,17 +30,69 @@ pub(crate) enum Preview {
     Missing,
 }
 
-type Decoded = Option<Arc<[u8]>>;
+/// One decoded levelshot: RGBA mip levels from the image's own size down to
+/// one texel on its short side.
+pub(crate) struct LevelshotImage {
+    /// Width and height of level 0.
+    pub(crate) size: [u32; 2],
+    /// Tightly packed RGBA rows of each level, largest first.
+    pub(crate) levels: Vec<Vec<u8>>,
+}
 
-/// Per-map levelshot cache feeding the one atlas preview slot.
+impl LevelshotImage {
+    /// Build the mip chain of `image`, reduced to [`MAX_EDGE`] first if larger.
+    pub(crate) fn from_rgba(image: image::RgbaImage) -> Self {
+        let (width, height) = image.dimensions();
+        let longest = width.max(height).max(1);
+        let image = if longest > MAX_EDGE {
+            let scale = MAX_EDGE as f32 / longest as f32;
+            image::imageops::resize(
+                &image,
+                ((width as f32 * scale).round() as u32).max(1),
+                ((height as f32 * scale).round() as u32).max(1),
+                image::imageops::FilterType::Triangle,
+            )
+        } else {
+            image
+        };
+        let size = [image.width(), image.height()];
+        let count = size[0].min(size[1]).max(1).ilog2() + 1;
+        let mut levels = Vec::with_capacity(count as usize);
+        let mut level = image;
+        for index in 0..count {
+            if index > 0 {
+                let (w, h) = level.dimensions();
+                level = image::imageops::resize(
+                    &level,
+                    (w / 2).max(1),
+                    (h / 2).max(1),
+                    image::imageops::FilterType::Triangle,
+                );
+            }
+            levels.push(level.as_raw().clone());
+        }
+        Self { size, levels }
+    }
+
+    /// Bytes held by every level.
+    pub(crate) fn bytes(&self) -> usize {
+        self.levels.iter().map(Vec::len).sum()
+    }
+}
+
+type Decoded = Option<Arc<LevelshotImage>>;
+
+/// Per-map levelshot cache feeding the one levelshot texture.
 pub(crate) struct Levelshots {
     vfs: Option<Arc<VirtualFileSystem>>,
     requests: Option<Sender<String>>,
     results: Option<Receiver<(String, Decoded)>>,
     cache: HashMap<String, Decoded>,
+    /// Bytes of the decoded images in `cache`.
+    cached_bytes: usize,
     /// The map whose preview is wanted now.
     wanted: String,
-    /// The map the atlas slot (or the placeholder) currently stands for.
+    /// The map the texture (or the placeholder) currently stands for.
     shown: String,
     shown_image: bool,
 }
@@ -48,6 +104,7 @@ impl Levelshots {
             requests: None,
             results: None,
             cache: HashMap::with_capacity(CACHE_LIMIT),
+            cached_bytes: 0,
             wanted: String::with_capacity(64),
             shown: String::with_capacity(64),
             shown_image: false,
@@ -60,6 +117,7 @@ impl Levelshots {
         self.requests = None;
         self.results = None;
         self.cache.clear();
+        self.cached_bytes = 0;
         self.shown.clear();
         self.shown_image = false;
         let wanted = std::mem::take(&mut self.wanted);
@@ -88,18 +146,15 @@ impl Levelshots {
     }
 
     /// Collect finished decodes and, when the wanted map's preview is ready
-    /// and not yet in the slot, hand its RGBA pixels to `upload`.
-    pub(crate) fn service(&mut self, mut upload: impl FnMut(&[u8])) {
-        if let Some(results) = &self.results {
+    /// and not yet in the texture, hand it to `upload`.
+    pub(crate) fn service(&mut self, mut upload: impl FnMut(&LevelshotImage)) {
+        let results = self.results.take();
+        if let Some(results) = &results {
             while let Ok((map, decoded)) = results.try_recv() {
-                if self.cache.len() >= CACHE_LIMIT {
-                    // Start over, but never drop the one still wanted.
-                    let wanted = &self.wanted;
-                    self.cache.retain(|name, _| name == wanted);
-                }
-                self.cache.insert(map, decoded);
+                self.insert(map, decoded);
             }
         }
+        self.results = results;
         if self.shown == self.wanted {
             return;
         }
@@ -107,14 +162,33 @@ impl Levelshots {
             return;
         };
         self.shown_image = match decoded {
-            Some(pixels) => {
-                upload(pixels);
+            Some(image) => {
+                upload(image);
                 true
             }
             None => false,
         };
         self.shown.clear();
         self.shown.push_str(&self.wanted);
+    }
+
+    fn insert(&mut self, map: String, decoded: Decoded) {
+        let bytes = decoded.as_ref().map_or(0, |image| image.bytes());
+        if self.cache.len() >= CACHE_LIMIT || self.cached_bytes + bytes > CACHE_BYTES {
+            // Start over, but never drop the one still wanted.
+            let wanted = &self.wanted;
+            self.cache.retain(|name, _| name == wanted);
+            self.cached_bytes = self
+                .cache
+                .values()
+                .flatten()
+                .map(|image| image.bytes())
+                .sum();
+        }
+        if let Some(previous) = self.cache.insert(map, decoded) {
+            self.cached_bytes -= previous.map_or(0, |image| image.bytes());
+        }
+        self.cached_bytes += bytes;
     }
 
     /// What to draw for `map` this frame.
@@ -145,7 +219,7 @@ fn spawn_worker(vfs: Arc<VirtualFileSystem>) -> (Sender<String>, Receiver<(Strin
                 while let Ok(newer) = request_rx.try_recv() {
                     map = newer;
                 }
-                let decoded = decode_levelshot(&vfs, &map).map(Arc::from);
+                let decoded = decode_levelshot(&vfs, &map).map(Arc::new);
                 if result_tx.send((map, decoded)).is_err() {
                     return;
                 }
@@ -157,19 +231,73 @@ fn spawn_worker(vfs: Arc<VirtualFileSystem>) -> (Sender<String>, Receiver<(Strin
     (request_tx, result_rx)
 }
 
-/// `map`'s levelshot as [`LEVELSHOT_SIZE`] RGBA, if it ships one.
-pub(crate) fn decode_levelshot(vfs: &VirtualFileSystem, map: &str) -> Option<Vec<u8>> {
+/// `map`'s levelshot at its own resolution, if it ships one.
+pub(crate) fn decode_levelshot(vfs: &VirtualFileSystem, map: &str) -> Option<LevelshotImage> {
     EXTENSIONS.iter().find_map(|extension| {
         let path = format!("levelshots/{map}.{extension}");
         let asset = vfs.read(&path).ok().flatten()?;
         let image = crate::gpu_texture::decode_image(&asset.bytes, &path).ok()?;
-        let [width, height] = LEVELSHOT_SIZE;
-        let scaled = image::imageops::resize(
-            &image.into_rgba8(),
-            width,
-            height,
-            image::imageops::FilterType::Triangle,
-        );
-        Some(scaled.into_raw())
+        Some(LevelshotImage::from_rgba(image.into_rgba8()))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn image(width: u32, height: u32) -> image::RgbaImage {
+        image::RgbaImage::from_pixel(width, height, image::Rgba([10, 20, 30, 255]))
+    }
+
+    #[test]
+    fn keeps_the_source_resolution_with_a_full_mip_chain() {
+        let hd = LevelshotImage::from_rgba(image(2048, 1024));
+        assert_eq!(hd.size, [2048, 1024]);
+        // 1024 on the short side: 11 levels, the last 2x1.
+        assert_eq!(hd.levels.len(), 11);
+        assert_eq!(hd.levels[0].len(), 2048 * 1024 * 4);
+        assert_eq!(hd.levels[1].len(), 1024 * 512 * 4);
+        assert_eq!(hd.levels[10].len(), 2 * 4);
+        let retail = LevelshotImage::from_rgba(image(512, 512));
+        assert_eq!(retail.size, [512, 512]);
+        assert_eq!(retail.levels.len(), 10);
+    }
+
+    #[test]
+    fn reduces_only_images_beyond_the_edge_limit() {
+        let huge = LevelshotImage::from_rgba(image(8192, 4096));
+        assert_eq!(huge.size, [MAX_EDGE, MAX_EDGE / 2]);
+        let odd = LevelshotImage::from_rgba(image(1, 1));
+        assert_eq!((odd.size, odd.levels.len()), ([1, 1], 1));
+    }
+
+    #[test]
+    fn cache_starts_over_past_its_byte_budget_but_keeps_the_wanted_map() {
+        let mut shots = Levelshots::new();
+        shots.wanted.push_str("mp/keep");
+        let hd = || Some(Arc::new(LevelshotImage::from_rgba(image(2048, 1024))));
+        shots.insert("mp/keep".to_owned(), hd());
+        for index in 0..8 {
+            shots.insert(format!("mp/other{index}"), hd());
+            assert!(shots.cached_bytes <= CACHE_BYTES);
+        }
+        assert!(shots.cache.contains_key("mp/keep"));
+        let counted: usize = shots.cache.values().flatten().map(|i| i.bytes()).sum();
+        assert_eq!(counted, shots.cached_bytes);
+    }
+
+    #[test]
+    fn service_uploads_the_wanted_image_once() {
+        let mut shots = Levelshots::new();
+        shots.wanted.push_str("mp/ffa3");
+        shots.insert(
+            "mp/ffa3".to_owned(),
+            Some(Arc::new(LevelshotImage::from_rgba(image(512, 512)))),
+        );
+        let mut uploads = Vec::new();
+        shots.service(|image| uploads.push(image.size));
+        shots.service(|image| uploads.push(image.size));
+        assert_eq!(uploads, [[512, 512]]);
+        assert_eq!(shots.preview("mp/ffa3"), Preview::Image);
+    }
 }
