@@ -146,6 +146,17 @@ launched to verify this layout revision, per owner preference. Visual playtestin
 remains with the owner. Formatting, locked workspace build/tests and the release
 build passed.
 
+## Leader HUD placement preview
+
+Local preview `leader1` moves the portrait and leader/opponent name/score from the
+old minimum 230-unit vertical offset to a 32-unit top margin. The existing right
+margin and sizes remain. Optional inventory/snapshot readouts and the default
+team-overlay placement follow below the visible block; explicit team coordinates
+are preserved. Server selection, scores, visibility and asset resolution are unchanged.
+No windows or game instances are launched for this layout-only revision; visual
+playtesting remains with the owner. Formatting, locked workspace build/tests
+and the optimized build passed.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.
