@@ -284,6 +284,14 @@ pub struct ScoreEntry {
     pub ping: i32,
     pub time_minutes: i32,
     pub flags: u32,
+    /// Powerup bits (`powerUps`), which carry the flag a player holds.
+    pub powerups: u32,
+    /// CTF defends (`defendCount`).
+    pub defends: i32,
+    /// CTF assists (`assistCount`).
+    pub assists: i32,
+    /// CTF flag captures (`captures`).
+    pub captures: i32,
 }
 
 mod local_session;
@@ -1215,6 +1223,12 @@ fn parse_scores(arguments: &[Vec<u8>]) -> Option<([i32; 2], Vec<ScoreEntry>)> {
             ping: integer(base + 2).unwrap_or(-1),
             time_minutes: integer(base + 3).unwrap_or(0),
             flags: integer(base + 4).unwrap_or(0) as u32,
+            // `CG_ParseScores` (`cg_servercmds.c`): powerUps, accuracy, impressive,
+            // excellent, gauntlet, defend, assist, perfect, captures.
+            powerups: integer(base + 5).unwrap_or(0) as u32,
+            defends: integer(base + 10).unwrap_or(0),
+            assists: integer(base + 11).unwrap_or(0),
+            captures: integer(base + 13).unwrap_or(0),
         });
     }
     Some((team_scores, scores))

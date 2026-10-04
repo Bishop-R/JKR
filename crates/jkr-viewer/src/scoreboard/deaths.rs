@@ -44,14 +44,27 @@ impl Scoreboard {
             .config_string(0)
             .and_then(|b| jkr_client::LegacyClientInfo::new(b).integer("g_gametype"))
             .unwrap_or(0);
-        for offset in 0..(tracker.decoded() - d.consumed).min(8) as usize {
-            if let Some(event) = tracker.feed().newest(offset)
-                && let Some(count) = d.counts.get_mut(usize::from(event.target))
-            {
+        let mut killer = None;
+        // Oldest first, so the newest kill of the viewing player wins.
+        for offset in (0..(tracker.decoded() - d.consumed).min(8) as usize).rev() {
+            let Some(event) = tracker.feed().newest(offset) else {
+                continue;
+            };
+            if let Some(count) = d.counts.get_mut(usize::from(event.target)) {
                 *count = count.saturating_add(1);
+            }
+            // `cg.killerName`: set when another player kills you.
+            if event.local_was_killed && event.attacker < 32 && event.attacker != event.target {
+                killer = Some(event.attacker);
             }
         }
         d.consumed = tracker.decoded();
+        if let Some(client) = killer {
+            self.killer = Some(client);
+            self.killer_name.clear();
+            self.killer_name
+                .push_str(&client_identity(game, client as u8).0);
+        }
     }
 }
 

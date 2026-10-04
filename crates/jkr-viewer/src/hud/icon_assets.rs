@@ -12,7 +12,7 @@ pub(super) const WEAPONS: [usize; 19] = [
     0, 19, 20, 21, 22, 25, 26, 27, 28, 29, 30, 31, 35, 36, 37, 23, 24, 38, 39,
 ];
 /// Stock timed powerup slots -> BG_FindItemForPowerup (bg_misc.c:1999-2011).
-pub(super) const POWERS: [usize; 16] = [0, 0, 0, 0, 46, 47, 48, 0, 0, 0, 0, 0, 15, 16, 17, 18];
+pub(crate) const POWERS: [usize; 16] = [0, 0, 0, 0, 46, 47, 48, 0, 0, 0, 0, 0, 15, 16, 17, 18];
 
 const MOD_NAMES: [&str; 43] = [
     "generic",
@@ -66,7 +66,7 @@ const MOD_ITEMS: [usize; 43] = [
 ];
 
 /// Resolve the shader's selected image with the world renderer's exact decoder/cache.
-pub(in crate::hud) fn decode(
+pub(crate) fn decode(
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,
     name: &str,

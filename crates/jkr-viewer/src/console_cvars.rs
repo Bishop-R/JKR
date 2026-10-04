@@ -417,6 +417,36 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Display the bound scoreboard",
         ),
         CvarDefinition::new(
+            crate::scoreboard::style::CVAR,
+            crate::scoreboard::style::ScoreboardStyle::NAMES[0],
+            archive,
+            "Scoreboard layout: modern, or classic (after the retail scoreboard)",
+        ),
+        CvarDefinition::new(
+            "cg_smallScoreboard",
+            false,
+            archive,
+            "Classic scoreboard: always use the small rows",
+        ),
+        CvarDefinition::new(
+            "cg_showClientIDs",
+            true,
+            archive,
+            "Classic scoreboard: show each player's client ID",
+        ),
+        CvarDefinition::new(
+            "cg_drawScoreboardIcons",
+            true,
+            archive,
+            "Classic scoreboard: show each player's head icon",
+        ),
+        CvarDefinition::new(
+            "cg_drawScoreboardPlayerCount",
+            1_i64,
+            archive,
+            "Classic scoreboard header: 0 off, 1 host name and counts, 2 counts",
+        ),
+        CvarDefinition::new(
             "cg_drawChat",
             true,
             archive,

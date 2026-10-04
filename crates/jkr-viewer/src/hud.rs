@@ -9,7 +9,7 @@ pub(crate) mod identification;
 mod info;
 pub(crate) mod movement;
 pub(crate) mod options;
-mod portrait;
+pub(crate) mod portrait;
 mod selection;
 pub(crate) mod targeting;
 mod text_values;

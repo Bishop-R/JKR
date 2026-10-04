@@ -221,6 +221,20 @@ launched to verify this layout revision, per owner preference. Visual playtestin
 remains with the owner. Formatting, locked workspace build/tests and the release
 build passed.
 
+## Classic scoreboard preview
+
+Local change based on `dc36792` (2026-10-04): `cg_scoreboardStyle classic` draws
+the retail scoreboard layout after JoF EternalJK's `cg_scoreboard.c`, with the
+client ID column, head icons, flag icons, compact rows, fades and gliding rows
+([client.md](client.md#scoreboard-styles)). Score rows now also keep the stock
+powerups, defend, assist and capture fields. Verified on Windows 11 with
+formatting, the locked workspace build and tests, including layout tests for the
+retail columns, row sizes, group order, team bands and the many-clients layout.
+A temporary CPU render of the draw list (free-for-all at 1920x1080, team game at
+3440x1440, 26 clients) checked placement and was then deleted. Not run in the
+client; head icons, flag icons and the game-font option's retail fonts on this
+layout are unverified on screen.
+
 ## Leader HUD placement preview
 
 Local preview `leader1` moves the portrait and leader/opponent name/score from the

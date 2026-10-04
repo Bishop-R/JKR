@@ -19,7 +19,8 @@ fn model(game: &GameState, client: Option<u16>) -> &[u8] {
         .unwrap_or_default()
 }
 
-fn icon_path(model: &[u8]) -> Option<String> {
+/// The head icon of a clientinfo `model` value (`models/players/<model>/icon_<skin>`).
+pub(crate) fn icon_path(model: &[u8]) -> Option<String> {
     if model.is_empty() {
         return None;
     }
