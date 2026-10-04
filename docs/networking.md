@@ -22,6 +22,10 @@ Client [compatibility profiles](../crates/jkr-client/src/compat_profile.rs)
 explicitly distinguish BaseJKA, JA+, TaystJK/jaPRO and unknown modules from
 serverinfo. Profile detection and implemented adapter behavior are not a promise
 that every feature of those servers is reproduced by JKR's dedicated server.
+Player blade tints in a player configstring's `c3`/`c4` keys are read for every
+profile; the JA+ 2.4 server module formats both keys too. The JA+ client
+plugin's `serverconfig` and `pluginDisable` commands are client commands (see
+[client.md](client.md#useful-console-commands)).
 
 ## Parity requirements
 
