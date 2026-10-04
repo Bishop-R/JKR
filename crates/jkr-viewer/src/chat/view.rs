@@ -1,6 +1,9 @@
 //! Floating message typography and deterministic motion on the shared canvas.
 
 mod composer;
+mod draft;
+mod name;
+mod player_menu;
 
 use super::*;
 use crate::text::{TextFace, visible_text_width_face};
@@ -36,13 +39,23 @@ impl ChatOverlay {
         }
         self.ui.begin_transparent(viewport);
         self.visible_targets.fill(None);
-        let g = self.options.geometry(viewport);
-        if (draw_feed || self.is_typing()) && self.options.lifetime != 0 {
+        let mut g = self.options.geometry(viewport);
+        if self.scoreboard_layout {
+            let layout = crate::scoreboard::layout::Layout::new(viewport);
+            g.scale = layout.scale * self.options.font.min(1.5);
+            g.left = layout.chat_left;
+            g.width = layout.chat_width;
+            g.top = 150.0 * layout.scale;
+            g.bottom = viewport[1] - 200.0 * g.scale;
+            g.font = 18.0 * g.scale;
+            g.row = 27.0 * g.scale;
+        }
+        if self.is_typing() || (draw_feed && self.options.lifetime != 0) {
             self.build_feed(font, &g, ms);
         }
         if let Some((text, received)) = &self.center {
             let age = ms.saturating_sub(*received);
-            if age < self.options.center_time {
+            if age < self.options.center_time && !self.scoreboard_layout {
                 // CG_DrawCenterString (cg_draw.c:4488): every `\n` row is its own
                 // centred draw with the base colour, so colour codes never bleed
                 // into the next row; the block sits around cg.centerPrintY (0.30).
@@ -72,18 +85,23 @@ impl ChatOverlay {
                     );
                     y += row;
                 }
-            } else {
+            } else if age >= self.options.center_time {
                 self.combat.spare = self.center.take().unwrap().0;
                 self.combat.height = None;
             }
         }
-        self.draw_plums();
+        if !self.scoreboard_layout {
+            self.draw_plums();
+        }
         if self.is_typing() {
             self.build_composer(font, &g, ms);
-            self.build_player_menu(&g, viewport, font);
+            self.build_player_menu(&g, viewport);
         }
-        self.ui
-            .finish(self.player_menu.map_or(u16::MAX, |menu| menu.selected));
+        self.ui.finish(
+            self.player_menu
+                .and_then(|menu| menu.selected)
+                .unwrap_or(u16::MAX),
+        );
     }
 
     fn build_feed(&mut self, font: &UiFont, g: &Geometry, ms: u64) {
@@ -137,18 +155,38 @@ impl ChatOverlay {
                     16.0 * g.scale / font.height,
                     TextFace::Semibold,
                 );
-                let rect = Rect::new(x, y, width + 12.0 * g.scale, 24.0 * g.scale);
                 let actionable = line
                     .sender
                     .filter(|target| self.roster.name(*target).is_some());
+                let friend = actionable
+                    .and_then(|target| self.roster.name(target))
+                    .is_some_and(|name| self.friends.contains(name));
+                let name_x = x + if friend { 14.0 * g.scale } else { 0.0 };
+                let text_rect = Rect::new(name_x, y, width + 1.0, 24.0 * g.scale);
+                let rect = name::ink_bounds(font, name, [name_x, y], 16.0 * g.scale);
+                if friend {
+                    name::star(
+                        &mut self.ui,
+                        Rect::new(
+                            x,
+                            rect.y + (rect.height - 12.0 * g.scale) * 0.5,
+                            12.0 * g.scale,
+                            12.0 * g.scale,
+                        ),
+                        Color::new(0.95, 0.78, 0.35, alpha),
+                    );
+                }
                 if active && let Some(target) = actionable {
                     self.visible_targets[token] = Some(target);
                     self.ui.hit_region(token as u16, rect);
                 }
                 let hover = active && self.ui.token_hovered(token as u16);
+                if hover {
+                    self.ui.accent_bar(rect, Color::new(0.70, 0.88, 0.98, 0.16));
+                }
                 self.ui.text(
                     name,
-                    rect,
+                    text_rect,
                     16.0 * g.scale,
                     if hover {
                         Color::new(1.0, 1.0, 1.0, alpha)
@@ -158,14 +196,8 @@ impl ChatOverlay {
                     FontWeight::Semibold,
                     0.0,
                 );
-                if hover {
-                    self.ui.accent_bar(
-                        Rect::new(x, y + 22.0 * g.scale, width, g.scale),
-                        tint(line.channel, alpha),
-                    );
-                }
                 let label = if line.muted {
-                    "MUTED"
+                    "IGNORED"
                 } else {
                     match line.channel {
                         Channel::Team => "TEAM",
@@ -178,7 +210,7 @@ impl ChatOverlay {
                     Rect::new(
                         rect.right() + 6.0 * g.scale,
                         y + 4.0 * g.scale,
-                        90.0 * g.scale,
+                        160.0 * g.scale,
                         18.0 * g.scale,
                     ),
                     10.0 * g.scale,
@@ -199,11 +231,7 @@ impl ChatOverlay {
                 );
             } else {
                 for (row, range) in line.wrap.rows[..line.wrap.len].iter().enumerate() {
-                    let color = if line.system {
-                        Color::new(0.68, 0.75, 0.81, alpha)
-                    } else {
-                        Color::new(0.96, 0.97, 0.99, alpha)
-                    };
+                    let color = Color::new(0.96, 0.97, 0.99, alpha);
                     let truncated = row + 1 == line.wrap.len && range.end < line.body.len();
                     self.ui.text_fmt_aligned(
                         format_args!(

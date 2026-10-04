@@ -95,11 +95,11 @@ impl crate::ClientSession {
 
     /// Take an expected-server OOB print for the frontend console.
     pub fn pop_server_print(&mut self) -> Option<String> {
-        self.connection.pop_server_print()
+        self.connection.as_mut().and_then(|c| c.pop_server_print())
     }
 
     /// How long the connected server has been silent on the sequenced channel.
     pub fn packet_silence(&self) -> Option<std::time::Duration> {
-        self.connection.packet_silence()
+        self.connection.as_ref().and_then(|c| c.packet_silence())
     }
 }

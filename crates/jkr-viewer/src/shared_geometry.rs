@@ -85,7 +85,7 @@ impl SharedGeometry {
     pub(crate) fn append(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         vertices: &[GpuVertex],
         indices: &[u32],
     ) -> Result<Placement, Box<dyn std::error::Error>> {
@@ -147,7 +147,7 @@ impl SharedGeometry {
 
     pub(crate) fn update_environment(
         &mut self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         time: i32,
         projection: glam::Mat4,
         controls: Option<&environment::Cvars>,
@@ -165,7 +165,7 @@ impl SharedGeometry {
     pub(crate) fn append_actor_skin(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         mesh: &mut crate::ActorMesh,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let skinned = self
@@ -192,7 +192,7 @@ impl SharedGeometry {
 /// write touch disjoint byte ranges, so their order does not matter.
 fn grow(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     encoder: &mut wgpu::CommandEncoder,
     old: &wgpu::Buffer,
     old_size: u64,

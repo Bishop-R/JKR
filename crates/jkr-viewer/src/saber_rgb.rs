@@ -115,7 +115,7 @@ pub(crate) fn neutral_core() -> Vec<u8> {
 /// the retail pairs.
 pub(crate) fn create_material(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     layout: &wgpu::BindGroupLayout,
     samplers: &crate::saber::Samplers,
 ) -> wgpu::BindGroup {

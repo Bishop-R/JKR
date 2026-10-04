@@ -121,10 +121,10 @@ impl crate::GpuState {
                 let position = Vec3::from_array(sprite.position);
                 let direction = Vec3::from_array(sprite.direction);
                 // entity.wgsl: 3 billboard, 4 line along `direction`, 5 oriented quad,
-                // 6 clip-space overlay; a rotated quad reaches √2 of its size.
+                // 6 clip-space overlay, 7 world icon; rotated quads reach √2 of their size.
                 match sprite.kind {
                     4 => bounds.segment(position, position + direction, sprite.size.abs()),
-                    3 | 5 => bounds.sphere(
+                    3 | 5 | 7 => bounds.sphere(
                         position,
                         sprite.size.abs() * std::f32::consts::SQRT_2 + 0.04,
                     ),

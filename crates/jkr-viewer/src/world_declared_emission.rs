@@ -30,7 +30,7 @@ pub(super) fn resolve(
             load_stage_images(vfs, shaders, &stage, &definition.name, cache)?;
         if resolved || key.contains("$white;") {
             let mut texture = Texture::default();
-            texture.observe(&stage, &images, true, true, false);
+            texture.observe(&stage, &images, true, true, false, false);
             selected = Some(texture);
         }
     }

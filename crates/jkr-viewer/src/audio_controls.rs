@@ -108,6 +108,7 @@ impl GameAudio {
     pub(crate) fn idle_frame(&mut self) {
         self.poll_legacy_load();
         self.output.send(AudioCommand::ClearLoops);
+        self.output.send(AudioCommand::CommitLoops);
     }
 
     /// Lookup-only EFX sound playback; `vfs` remains in the signature so old
@@ -131,6 +132,43 @@ impl GameAudio {
                 channel: ChannelId(0),
                 volume,
                 attenuation: jkr_client::legacy_sound_attenuation(0),
+            },
+        ));
+    }
+
+    /// Play a preloaded model animation cue with cgame channel/spatial semantics.
+    pub(crate) fn play_animation(
+        &mut self,
+        path: &str,
+        channel: u8,
+        footstep: bool,
+        origin: [f32; 3],
+        entity: u64,
+        local: bool,
+    ) {
+        if footstep && !self.footsteps {
+            return;
+        }
+        let Some(handle) = self.find_handle(path) else {
+            return;
+        };
+        let relative = local || channel == 12;
+        self.output.send(AudioCommand::Play(
+            handle,
+            PlayRequest {
+                origin: (!relative).then_some(origin),
+                source: SourceId(entity.saturating_sub(1) as u32),
+                channel: ChannelId(u32::from(if channel == 4 || channel == 12 {
+                    3
+                } else {
+                    channel
+                })),
+                volume: 1.0,
+                attenuation: if relative {
+                    jkr_audio::Attenuation::None
+                } else {
+                    jkr_client::legacy_sound_attenuation(u32::from(channel))
+                },
             },
         ));
     }
@@ -191,13 +229,14 @@ impl GameAudio {
         let stats = &self.output.stats;
         crate::log::progress(format_args!(
             "audio trace: peak={:.3} blocks={} music starts={} rejected={} \
-             decode failures={} handle mismatches={} sounds={}",
+             decode failures={} handle mismatches={} split loop frames={} sounds={}",
             stats.take_peak(),
             stats.rendered_blocks.load(Ordering::Relaxed),
             stats.music_starts.load(Ordering::Relaxed),
             stats.music_rejections.load(Ordering::Relaxed),
             stats.decode_failures.load(Ordering::Relaxed),
             stats.handle_mismatches.load(Ordering::Relaxed),
+            stats.split_loop_frames.load(Ordering::Relaxed),
             self.handles.len(),
         ));
     }

@@ -1,7 +1,5 @@
 //! Console keyboard capture and editing.
 use super::*;
-use crate::input::dead_key::TypingField;
-use std::ops::Range;
 
 /// Does `text` (the characters this key press produced) appear in a
 /// `cl_consoleKeys` list? Entries are literal characters or `0x` hex
@@ -115,129 +113,37 @@ impl ViewerConsole {
         if event.state != ElementState::Pressed {
             return true;
         }
-        if self.toggles_console(event, key) {
+        // Printable opening shortcuts belong to text once the console is open.
+        // Keep Escape and non-text bindings available for closing it.
+        if !matches!(
+            event.logical_key,
+            winit::keyboard::Key::Character(_) | winit::keyboard::Key::Dead(_)
+        ) && self.toggles_console(event, key)
+        {
             self.set_open(false);
             return true;
         }
-        // These keys end or replace the line, so a dead key shown at its end stays
-        // typed (see `input::dead_key`).
-        if matches!(
-            key,
-            KeyCode::Escape
-                | KeyCode::Enter
-                | KeyCode::NumpadEnter
-                | KeyCode::Backspace
-                | KeyCode::Tab
-                | KeyCode::ArrowUp
-                | KeyCode::ArrowDown
-        ) || event.text.as_deref() == Some("\u{16}")
-        {
-            self.dead_key.settle();
+        if self.browser.is_open() {
+            let action = self.browser.handle_key(event, self.shift);
+            self.browser_action(action);
+            return true;
         }
         match key {
+            KeyCode::F3 if !event.repeat => self.browser.open(&self.shell),
             KeyCode::Escape => self.set_open(false),
             KeyCode::Enter | KeyCode::NumpadEnter => self.submit(session),
-            KeyCode::Backspace => {
-                self.input.pop();
-                self.rebuild_prompt();
-            }
             KeyCode::Tab => self.complete_command(CompletionKey::Tab),
             KeyCode::ArrowUp if !event.repeat => self.navigate_history(-1),
             KeyCode::ArrowDown if !event.repeat => self.navigate_history(1),
-            // Ctrl+V and Ctrl+C arrive as the control characters they have always been.
-            _ if event.text.as_deref() == Some("\u{16}") => {
-                if let Some(text) = super::clipboard::paste() {
-                    self.type_text(&text);
-                }
-            }
-            _ if event.text.as_deref() == Some("\u{3}") => {
-                super::clipboard::copy(if self.input.is_empty() {
-                    &self.copied
-                } else {
-                    &self.input
-                });
-            }
+            // Caret, deletion and clipboard keys: see `console_editing.rs`.
+            _ if self.edit_key(event, key) => {}
             _ if !event.repeat => {
-                let mut dead = self.dead_key;
-                dead.type_key(
-                    &mut PromptLine(&mut self.input),
-                    &event.logical_key,
-                    event.text.as_deref(),
-                );
-                self.dead_key = dead;
-                self.rebuild_prompt();
+                if let Some(text) = event.text.as_deref() {
+                    self.type_text(text);
+                }
             }
             _ => {}
         }
         true
-    }
-}
-
-impl ViewerConsole {
-    /// Append typed or pasted text to the prompt: no control characters, up to the limit.
-    fn type_text(&mut self, text: &str) {
-        PromptLine(&mut self.input).insert(text);
-        self.rebuild_prompt();
-    }
-}
-
-/// The console input line, typed at its end.
-struct PromptLine<'a>(&'a mut String);
-
-impl TypingField for PromptLine<'_> {
-    fn line(&self) -> &str {
-        self.0
-    }
-
-    fn caret(&self) -> usize {
-        self.0.len()
-    }
-
-    fn insert(&mut self, text: &str) {
-        let remaining = INPUT_LIMIT.saturating_sub(self.0.len());
-        self.0.extend(
-            text.chars()
-                .filter(|character| !character.is_control())
-                .take(remaining),
-        );
-    }
-
-    fn remove(&mut self, range: Range<usize>) {
-        self.0.replace_range(range, "");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::input::dead_key::DeadKey;
-    use winit::keyboard::{Key, NamedKey, SmolStr};
-
-    #[test]
-    fn prompt_line_types_a_dead_key_colour_code_exactly() {
-        let mut input = String::from("say ");
-        let mut dead = DeadKey::default();
-        dead.type_key(&mut PromptLine(&mut input), &Key::Dead(Some('^')), None);
-        assert_eq!(input, "say ^");
-        dead.type_key(
-            &mut PromptLine(&mut input),
-            &Key::Named(NamedKey::Shift),
-            None,
-        );
-        dead.type_key(
-            &mut PromptLine(&mut input),
-            &Key::Character(SmolStr::new("1")),
-            Some("^1"),
-        );
-        assert_eq!(input, "say ^1");
-    }
-
-    #[test]
-    fn prompt_line_keeps_its_limit_for_a_dead_key() {
-        let mut input = "x".repeat(INPUT_LIMIT);
-        let mut dead = DeadKey::default();
-        dead.type_key(&mut PromptLine(&mut input), &Key::Dead(Some('^')), None);
-        assert_eq!(input.len(), INPUT_LIMIT);
-        assert_eq!(dead, DeadKey::default());
     }
 }
