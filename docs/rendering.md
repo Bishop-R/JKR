@@ -608,17 +608,36 @@ movement, combat and network behavior remain compatible.
 
 UI text uses the bundled Inter font, rasterized once per display scale in
 [text.rs](../crates/jkr-viewer/src/text.rs). Two options switch surfaces to
-the game's own bitmap fonts, read from the player's game data and never
-bundled: `cg_classicHudFont` draws the status HUD with `arialnb`, and
-`ui_gameFont` ("Game font for menus and chat", off by default) draws menus
-with `ergoec` and chat with `ocr_a`, the retail menu and chat-box fonts. Their
-`.fontdat` metrics are read by [fontdat.rs](../crates/jkr-viewer/src/text/fontdat.rs);
-the atlas is the highest-priority `fonts/<name>.tga` (or `.png`/`.jpg`), so an
-HD replacement atlas in a later PK3 is used with the retail metrics and is
-mipmapped down to the retail 512-texel size. The game fonts load when a world
-is installed with the option on, or on first use, from
+the game's own fonts, read from the player's game data and never bundled:
+`cg_classicHudFont` draws the status HUD with `arialnb`, and `ui_gameFont`
+("Classic game fonts", off by default) draws every surface the retail game drew
+with its own fonts in that font, following OpenJK `codemp`:
+
+| Retail font | Surfaces |
+| --- | --- |
+| `ergoec` (`FONT_MEDIUM`) | Menus, crosshair name, centre prints, warmup text, match timer, enemy info, scoreboard names and headings |
+| `ocr_a` (`FONT_SMALL`) | Chat box and typing line, weapon/Force/inventory selection names, scoreboard numbers |
+| Console character set `gfx/2d/charsgrid_med` | Console and notify lines, FPS, snapshot, vote, team overlay, connection interrupted, kill feed |
+
+The routing is per text run: the HUD maps its text ids in
+[text_values.rs](../crates/jkr-viewer/src/hud/text_values.rs), chat marks its
+centre-print rows, and the scoreboard sends text made only of digits, `-` and `/`
+to the small font. Everything else, including the command browser and overhead
+names, stays on Inter (or `arialnb` for the status HUD). The `.fontdat` metrics
+are read by [fontdat.rs](../crates/jkr-viewer/src/text/fontdat.rs); the atlas is
+the highest-priority `fonts/<name>.tga` (or `.png`/`.jpg`), so an HD replacement
+atlas in a later PK3 is used with the retail metrics and is mipmapped down to the
+retail 512-texel size. The console character set
+([charset.rs](../crates/jkr-viewer/src/text/charset.rs)) is a 16×16 grid of
+Latin-1 cells; like `SCR_DrawSmallChar` and `CG_DrawChar`, each character is the
+left half of its cell drawn twice as tall as wide, every character advances one
+cell (the console is monospaced), and a space draws nothing. The console keeps its
+own sizes (`con_scale`, row pitch), and its caret, selection and pointer hits
+measure the same fixed advance it draws with. The game fonts load when a world is
+installed with the option on, or on first use, from
 [game_font.rs](../crates/jkr-viewer/src/game_font.rs); a missing font leaves
-its surface on Inter.
+its surfaces on Inter. The console font is drawn after all other text, so the
+console stays on top.
 
 The retail atlases are 256–512 texels on the long side, so 1440p and 4K text
 magnifies them several times and bilinear sampling of their coverage blurs every

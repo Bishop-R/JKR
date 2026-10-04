@@ -4,6 +4,7 @@ mod deaths;
 pub(crate) mod layout;
 mod view;
 
+use crate::game_font::{GameFonts, RetailFont};
 use crate::menu_widgets::MenuCanvas;
 use crate::text::{TextVertex, UiFont};
 use jkr_client::{ClientSession, ScoreEntry};
@@ -63,6 +64,7 @@ impl Scoreboard {
     pub(crate) fn append(
         &mut self,
         session: &ClientSession,
+        fonts: &mut GameFonts,
         vertices: &mut Vec<TextVertex>,
         font: &UiFont,
         viewport: [f32; 2],
@@ -86,7 +88,13 @@ impl Scoreboard {
             viewport,
         );
         self.ui.finish(u16::MAX);
-        self.ui.append_text(vertices, font, viewport);
+        self.ui.append_text_routed(
+            fonts,
+            |_, text| Some(retail_font(text)),
+            vertices,
+            font,
+            viewport,
+        );
     }
 
     fn refresh(&mut self, session: &ClientSession) {
@@ -132,11 +140,27 @@ pub(crate) fn append_overlay(gpu: &mut crate::GpuState, viewport: [f32; 2], scal
     if let Some(session) = gpu.resident.session.as_ref().or(gpu.live_session.as_ref()) {
         gpu.scoreboard.append(
             session,
+            &mut gpu.game_fonts,
             &mut gpu.text_vertices,
             &gpu.ui_font,
             viewport,
             scale,
         );
+    }
+}
+
+/// The font retail's scoreboard draws `text` with: `CG_DrawClientScore`
+/// (`cg_scoreboard.c`) paints names and headings with `FONT_MEDIUM` and the
+/// score, ping and time numbers with `FONT_SMALL`.
+fn retail_font(text: &str) -> RetailFont {
+    let numeric = !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'-' | b'/'));
+    if numeric {
+        RetailFont::Small
+    } else {
+        RetailFont::Medium
     }
 }
 
@@ -217,4 +241,19 @@ fn byte_signature(bytes: &[u8]) -> u64 {
 /// Automatic intermission scores and the ordinary held scoreboard share one layout.
 pub(crate) fn requested(gpu: &crate::GpuState, intermission: bool) -> bool {
     intermission || gpu.gameplay_input.held(crate::input::GameButton::Scores)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numbers_use_the_small_font_and_names_the_medium_one() {
+        for text in ["12", "-3", "7/2"] {
+            assert_eq!(retail_font(text), RetailFont::Small);
+        }
+        for text in ["", "^1Padawan", "PING", "SCORE / DEATHS", "2fast"] {
+            assert_eq!(retail_font(text), RetailFont::Medium);
+        }
+    }
 }

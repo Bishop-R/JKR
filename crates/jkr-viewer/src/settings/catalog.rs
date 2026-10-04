@@ -232,7 +232,7 @@ pub(super) const HUD: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
-        label: "Game font for menus and chat",
+        label: "Classic game fonts",
         cvar: crate::game_font::CVAR,
         kind: ValueKind::Bool,
     },

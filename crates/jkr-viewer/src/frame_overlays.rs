@@ -162,6 +162,9 @@ impl GpuState {
             pass.set_vertex_buffer(0, self.classic_text_vertex_buffer.slice(..));
             pass.draw(0..classic_text, 0..1);
         }
+        // The console's character set goes last so the console covers all text.
+        self.game_fonts
+            .draw_console(&mut pass, &self.text_pipeline, &self.sdf_text_pipeline);
         drop(pass);
 
         if let Some(aa) = &self.post_aa {

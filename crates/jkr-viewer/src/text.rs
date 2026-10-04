@@ -3,10 +3,12 @@
 //! Inter is rasterized once when the graphics device is created.  The render
 //! loop only performs glyph lookup and appends vertices into reused buffers;
 //! it never rasterizes a glyph or grows the atlas.  The legacy JKA `fontdat`
-//! reader ([`fontdat`]) feeds the optional classic HUD font and the optional
-//! game fonts for menus and chat ([`crate::game_font`]).
+//! reader ([`fontdat`]) feeds the optional classic HUD font and, with the
+//! console character set ([`charset`]), the optional game fonts
+//! ([`crate::game_font`]).
 
 mod bounded;
+pub(crate) mod charset;
 pub(crate) mod fontdat;
 pub(crate) mod sdf;
 pub(crate) use bounded::append_bounded;

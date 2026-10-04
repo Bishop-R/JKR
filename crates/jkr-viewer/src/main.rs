@@ -1454,17 +1454,21 @@ impl GpuState {
             .is_some_and(|selected| selected.elapsed() < Duration::from_secs(2))
             && !self.weapon_selection_label.is_empty()
         {
-            let width = visible_text_width(
-                &self.ui_font,
-                &self.weapon_selection_label,
-                text_scale * 1.1,
-            );
-            append_text(
+            // CG_DrawWeaponSelect names the weapon with UI_SMALLFONT (FONT_SMALL).
+            let size = self.ui_font.height * text_scale * 1.1;
+            let (vertices, font) = self.game_fonts.target(
+                game_font::RetailFont::Small,
                 &mut self.text_vertices,
                 &self.ui_font,
+            );
+            let scale = game_font::scale_for(font, size);
+            let width = visible_text_width(font, &self.weapon_selection_label, scale);
+            append_text(
+                vertices,
+                font,
                 &self.weapon_selection_label,
                 [(viewport[0] - width) * 0.5, viewport[1] * 0.78],
-                text_scale * 1.1,
+                scale,
                 viewport,
             );
         }

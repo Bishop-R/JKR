@@ -255,7 +255,7 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             crate::game_font::CVAR,
             false,
             archive,
-            "Draw menus and chat with the game's own fonts from game data, else Inter",
+            "Draw text with the game's own fonts where retail did (menus, chat, HUD text, scoreboard, console), else Inter",
         ),
         CvarDefinition::new(
             crate::ground_hud::CVAR,

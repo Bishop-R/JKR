@@ -53,6 +53,7 @@ impl ChatOverlay {
         if self.is_typing() || (draw_feed && self.options.lifetime != 0) {
             self.build_feed(font, &g, ms);
         }
+        let center_start = self.ui.next_text_id();
         if let Some((text, received)) = &self.center {
             let age = ms.saturating_sub(*received);
             if age < self.options.center_time && !self.scoreboard_layout {
@@ -90,6 +91,7 @@ impl ChatOverlay {
                 self.combat.height = None;
             }
         }
+        self.center_text = (center_start, self.ui.next_text_id());
         if !self.scoreboard_layout {
             self.draw_plums();
         }
