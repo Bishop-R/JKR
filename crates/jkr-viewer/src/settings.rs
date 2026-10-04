@@ -11,6 +11,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 mod catalog;
 mod numeric;
 mod pointer;
+mod scroll;
 mod view;
 
 pub(crate) use catalog::RESOLUTIONS;
@@ -24,6 +25,8 @@ pub(crate) enum SettingsResult {
 pub(crate) struct SettingsMenu {
     tab: usize,
     selected: usize,
+    /// Which rows show; keeps the selection on screen.
+    scroll: scroll::RowScroll,
     values: Vec<String>,
     editing: Option<String>,
     numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
@@ -35,6 +38,7 @@ impl SettingsMenu {
         Self {
             tab: 0,
             selected: 0,
+            scroll: scroll::RowScroll::new(),
             values: Vec::with_capacity(12),
             editing: None,
             numeric: None,

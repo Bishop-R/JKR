@@ -35,9 +35,7 @@ impl SettingsMenu {
             let direction = event.delta.map_or(0, |delta| -delta.y.signum() as i32);
             let count = settings(self.tab).len() + usize::from(self.tab == KEYBINDS_TAB);
             if direction != 0 && count > 0 {
-                self.selected = (self.selected as i32 + direction)
-                    .clamp(0, count.saturating_sub(1) as i32)
-                    as usize;
+                self.selected = self.scroll.wheel(direction, count, self.selected);
             }
             return SettingsResult::None;
         }

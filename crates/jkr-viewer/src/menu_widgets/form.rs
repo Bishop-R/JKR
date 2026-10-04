@@ -67,6 +67,11 @@ impl FormLayout {
     pub(crate) fn tabs_y(&self) -> f32 {
         self.viewport[1] * 0.31
     }
+
+    /// Bottom of the row column: rows ending past it would meet the footer.
+    pub(crate) fn rows_bottom(&self) -> f32 {
+        self.viewport[1] - 80.0 * self.scale
+    }
 }
 
 impl MenuCanvas {
@@ -83,8 +88,9 @@ impl MenuCanvas {
         let theme = self.theme();
         let title_y = layout.viewport[1] * 0.17;
         // Registered before the rows so hover and clicks still hit them; the
-        // wheel falls through to this region and moves the selection.
-        let rows_bottom = layout.viewport[1] - 80.0 * s;
+        // wheel falls through to this region and the screen decides what it
+        // does (move the selection or scroll the rows).
+        let rows_bottom = layout.rows_bottom();
         self.scroll_region(
             SCROLL_TOKEN,
             Rect::new(x, layout.rows_y, width, rows_bottom - layout.rows_y),
