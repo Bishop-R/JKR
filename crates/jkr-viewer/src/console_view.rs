@@ -149,7 +149,7 @@ impl ConsolePresentation {
                             12.0 * scale + options.notify_x * viewport[0] / 640.0,
                             12.0 * scale + (options.notify_lines - i - 1) as f32 * pitch,
                             viewport[0] - 24.0 * scale,
-                            pitch,
+                            super::console_options::row_box(size, pitch),
                         ),
                         size,
                         color,
@@ -219,7 +219,10 @@ fn build_options<'a>(
     let input_y = height - 62.0 * scale;
     let line_height = 14.0 * scale * options.line_spacing;
     let top = 44.0 * scale;
-    let bottom = input_y - 10.0 * scale;
+    let rows_end = input_y - 10.0 * scale;
+    // Rows closer than their text size end the bottom row's text, not its pitch,
+    // at the separator margin, so its descenders stay inside the scroll region.
+    let bottom = rows_end - (14.0 * scale - line_height).max(0.0);
     let available = ((bottom - top) / line_height).max(0.0) as usize;
     let maximum = configured_lines.max(1).min(available);
     let EditFrame {
@@ -258,7 +261,7 @@ fn build_options<'a>(
         spacing(12.0 * scale),
     );
 
-    ui.scroll_region(0, Rect::new(margin, top, width, (bottom - top).max(0.0)));
+    ui.scroll_region(0, Rect::new(margin, top, width, (rows_end - top).max(0.0)));
     let mut rows = OutputRows::new(ui, row_text, selection, line_height, bottom);
     for (index, (kind, line, start, text)) in lines
         .rev()
@@ -283,7 +286,7 @@ fn build_options<'a>(
             margin,
             bottom - (index + 1) as f32 * line_height,
             width,
-            line_height,
+            super::console_options::row_box(row_text.size(), line_height),
         );
         rows.row(ui, index, Mark { line, byte: start }, text, rect, color);
     }

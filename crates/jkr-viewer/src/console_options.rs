@@ -48,7 +48,7 @@ pub(super) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
         (
             "con_lineSpacing",
             f64::from(LINE_SPACING_DEFAULT),
-            "Console row pitch as a multiple of the text size (1 to 2)",
+            "Console row pitch as a multiple of the text size (0.8 to 2)",
         ),
         (
             "con_height",
@@ -128,13 +128,23 @@ impl ViewerConsole {
     }
 }
 
-/// Default `con_lineSpacing`: 14 px rows 16.1 px apart at 1080p, stock's 16 px
-/// console row pitch, which leaves Inter about 1.4 em of leading.
-pub(super) const LINE_SPACING_DEFAULT: f32 = 1.15;
+/// Default `con_lineSpacing`: 14 px rows 12.6 px apart at 1080p. Inter's line box
+/// (ascent + descent) is 1.21 em; at 0.9 of it the deepest descender (`g`, 0.18 of
+/// the box) still clears the next row's ascenders and brackets (0.64 above its
+/// baseline) by 0.08 of the box, about 1 px at 1080p, and capitals fill two thirds
+/// of the pitch, near stock's dense 16 px console rows.
+pub(super) const LINE_SPACING_DEFAULT: f32 = 0.9;
 
-/// Accepted `con_lineSpacing` range. At the lower end rows touch: the line
-/// pitch equals the text's line box.
-pub(super) const LINE_SPACING_RANGE: (f32, f32) = (1.0, 2.0);
+/// Accepted `con_lineSpacing` range. At the lower end a descender meets the next
+/// row's ascenders; only accented capitals can still overlap the row above.
+pub(super) const LINE_SPACING_RANGE: (f32, f32) = (0.8, 2.0);
+
+/// Height of the rectangle a console row's text is drawn and clipped in. Rows
+/// closer than their line box overlap, so the text keeps its whole box and its
+/// 1 px glyph shadow instead of losing the descenders to the next row's pitch.
+pub(super) fn row_box(size: f32, pitch: f32) -> f32 {
+    pitch.max(size + 1.0)
+}
 
 /// Clamped `con_lineSpacing`; missing or non-finite values keep the default.
 pub(super) fn line_spacing(value: Option<f64>) -> f32 {
@@ -174,7 +184,15 @@ mod tests {
         assert_eq!(line_spacing(None), LINE_SPACING_DEFAULT);
         assert_eq!(line_spacing(Some(f64::NAN)), LINE_SPACING_DEFAULT);
         assert_eq!(line_spacing(Some(1.25)), 1.25);
+        // A value saved before the pitch became a multiple of the text size.
+        assert_eq!(line_spacing(Some(0.65)), LINE_SPACING_RANGE.0);
         assert_eq!(line_spacing(Some(0.1)), LINE_SPACING_RANGE.0);
         assert_eq!(line_spacing(Some(9.0)), LINE_SPACING_RANGE.1);
+    }
+
+    #[test]
+    fn tight_rows_keep_their_whole_text_box() {
+        assert_eq!(row_box(14.0, 12.6), 15.0);
+        assert_eq!(row_box(14.0, 28.0), 28.0);
     }
 }

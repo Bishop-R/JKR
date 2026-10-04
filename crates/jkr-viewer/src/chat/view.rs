@@ -48,7 +48,7 @@ impl ChatOverlay {
             g.top = 150.0 * layout.scale;
             g.bottom = viewport[1] - 200.0 * g.scale;
             g.font = 18.0 * g.scale;
-            g.row = 27.0 * g.scale;
+            g.row = g.font * layout::ROW_PITCH;
         }
         if self.is_typing() || (draw_feed && self.options.lifetime != 0) {
             self.build_feed(font, &g, ms);
@@ -124,8 +124,12 @@ impl ChatOverlay {
             line.wrap
                 .update(&line.body, font, g.width - 12.0 * g.scale, g.font);
             let rows = if line.muted { 1 } else { line.wrap.len };
-            let height =
-                rows as f32 * g.row + if line.name.is_empty() { 14.0 } else { 36.0 } * g.scale;
+            let header = if line.name.is_empty() {
+                0.0
+            } else {
+                layout::NAME_ADVANCE
+            };
+            let height = rows as f32 * g.row + (header + layout::MESSAGE_GAP) * g.scale;
             let top = bottom - height;
             if top < g.top || count == limit {
                 break;
@@ -218,12 +222,12 @@ impl ChatOverlay {
                     FontWeight::Semibold,
                     1.0 * g.scale,
                 );
-                body_y += 26.0 * g.scale;
+                body_y += layout::NAME_ADVANCE * g.scale;
             }
             if line.muted {
                 self.ui.text(
                     "Messages hidden on this client",
-                    Rect::new(x, body_y, g.width, g.row),
+                    Rect::new(x, body_y, g.width, row_box(g)),
                     15.0 * g.scale,
                     Color::new(0.64, 0.70, 0.76, alpha * 0.7),
                     FontWeight::Regular,
@@ -239,7 +243,7 @@ impl ChatOverlay {
                             &line.body[range.clone()],
                             if truncated { "..." } else { "" }
                         ),
-                        Rect::new(x, body_y + row as f32 * g.row, g.width, g.row),
+                        Rect::new(x, body_y + row as f32 * g.row, g.width, row_box(g)),
                         g.font,
                         color,
                         FontWeight::Regular,
@@ -250,6 +254,12 @@ impl ChatOverlay {
             }
         }
     }
+}
+
+/// Height of the rectangle a body row is drawn and clipped in: its whole line box
+/// and 1 px glyph shadow, whatever the row pitch.
+fn row_box(g: &Geometry) -> f32 {
+    g.row.max(g.font + 1.0)
 }
 
 /// CG_DrawCenterString wraps rows longer than this at whitespace ([BugFix19]).
