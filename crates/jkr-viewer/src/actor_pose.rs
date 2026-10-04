@@ -3,7 +3,7 @@
 #[path = "actor_sounds.rs"]
 pub(crate) mod sounds;
 
-use super::{ActorMesh, GpuState, GpuVertex, preview_gpu_vertex};
+use super::{ActorMesh, GpuState};
 use glam::Quat;
 use jkr_client::LegacyPlayerAngleController;
 use jkr_model::Gla;
@@ -23,6 +23,9 @@ pub(crate) mod gpu_skinning;
 
 #[path = "server_bone_angles.rs"]
 mod server_bone_angles;
+
+#[path = "actor_pose_steps.rs"]
+mod steps;
 
 #[path = "actor_evaluation.rs"]
 /// Independent presentation evaluators and persistent ownership-transferring workers.
@@ -97,148 +100,30 @@ pub(crate) fn update(gpu: &mut GpuState, presentation_time: i64) -> Result<(), B
         mesh.retained_pose.invalidate();
         mesh.animator.requested = None;
     }
+    let frame = steps::Frame {
+        world,
+        local_entity,
+        local_animation,
+        predicted,
+        snapshot,
+        game_state,
+        presentation_time,
+    };
     for mesh in &mut gpu.actor_meshes {
-        let frame_millis = mesh.angle_controller.begin_frame(presentation_time);
-        let requested = mesh
-            .entity_id
-            .and_then(|entity_id| world.entity(entity_id))
-            .map(|entity| {
-                let pose = entity.sample_pose(presentation_time);
-                if mesh.entity_id == local_entity {
-                    let animation = local_animation.or_else(|| entity.animation());
-                    (animation, super::local_actor_state::pose(pose, predicted))
-                } else {
-                    (entity.animation(), pose)
-                }
-            });
-        let Some((Some(state), pose)) = requested else {
-            continue;
-        };
-        let mut state = state;
-        if mesh.corpse_pool {
-            state.lower.forced_frame =
-                jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);
-            state.upper.forced_frame =
-                jkr_client::legacy_body_frame(&mesh.preview.config, state.upper.clip);
-            state.lower.transition = None;
-            state.upper.transition = None;
+        if let Err(error) = steps::prepare(mesh, &frame) {
+            steps::failed(mesh, error.as_ref());
         }
-        // Non-humanoids skip `CG_G2PlayerAngles` and face their entity yaw
-        // (`cg_players.c:4274`, `:4366`).
-        if !mesh.animator.humanoid() {
-            mesh.render_yaw_degrees = None;
-            if let (Some(snapshot), Some(game_state), Some(id)) =
-                (snapshot, game_state, mesh.entity_id)
-                && let Some(state) = snapshot
-                    .entities
-                    .iter()
-                    .find(|state| u64::from(state.number()) + 1 == id.get())
-            {
-                server_bone_angles::apply(mesh, state, game_state);
-            }
-        } else if let Some(pose) = pose {
-            let origin = mesh
-                .entity_id
-                .and_then(|id| world.entity(id))
-                .map_or([0.0; 3], |entity| {
-                    entity.sample(presentation_time).translation
-                });
-            let origin = if mesh.entity_id == local_entity {
-                predicted.map_or(origin, |state| state.origin)
-            } else {
-                origin
-            };
-            let mut inputs = jkr_client::LegacyPlayerAngleInputs::from_world(
-                pose,
-                origin,
-                world,
-                presentation_time,
-            );
-            inputs.frame_millis = Some(frame_millis);
-            if pose.angle.correct_animation_motion {
-                inputs.motion_angles = mesh
-                    .animator
-                    .player_motion_angles(&mesh.preview.animation, presentation_time)?;
-            }
-            let angles =
-                mesh.angle_controller
-                    .evaluate_with_inputs(pose, presentation_time, inputs);
-            mesh.animator
-                .set_player_angles(&mesh.preview.animation, angles)?;
-            mesh.render_yaw_degrees = Some(angles.legs_yaw_degrees);
-        } else {
-            mesh.animator.clear_player_angles();
-        }
-        mesh.animator.requested = Some(state);
     }
     gpu.actor_workers
         .evaluate(&mut gpu.actor_meshes, presentation_time);
     // Application is always in actor-vector order, never in worker completion order.
-    for mesh in &mut gpu.actor_meshes {
-        let Some(state) = mesh.animator.requested else {
-            continue;
-        };
-        mesh.animator.completed()?;
-        let matrices = mesh.animator.matrices();
-        if let Some(palette) = &mut mesh.gpu_palette {
-            palette.stage(&mut gpu.geometry.skinning, matrices)?;
-            mesh.force_bones.update(&mesh.preview.animation, matrices);
-            mesh.weapon_attachments =
-                super::saber::attachments_from_matrices(&mesh.preview, matrices);
-            mesh.driver_seat = crate::vehicle_pose::driver_seat(&mesh.preview, matrices);
-            mesh.current_frames = (
-                state.lower.forced_frame.unwrap_or(state.lower.clip),
-                state.upper.forced_frame.unwrap_or(state.upper.clip),
-            );
-            if !mesh.retained_pose.trace_required() {
-                continue;
-            }
-        }
-        let surfaces = mesh
-            .preview
-            .mesh
-            .skin_pose_matrices(&mesh.preview.skin, 0, matrices)?;
-        mesh.retained_pose
-            .update_trace_lod(&mesh.preview.mesh, matrices)?;
-        mesh.force_bones.update(&mesh.preview.animation, matrices);
-        mesh.weapon_attachments = super::saber::attachments_from_matrices(&mesh.preview, matrices);
-        mesh.driver_seat = crate::vehicle_pose::driver_seat(&mesh.preview, matrices);
-        for range in &mesh.vertex_ranges {
-            if mesh.gpu_palette.is_some() {
-                break;
-            }
-            let surface = surfaces
-                .get(range.surface_index)
-                .ok_or("animated actor surface disappeared")?;
-            if surface.vertices.len() != range.vertices.len() {
-                return Err("animated actor vertex count changed".into());
-            }
-            mesh.pose_vertices.clear();
-            mesh.pose_vertices.extend(
-                surface
-                    .vertices
-                    .iter()
-                    .map(|vertex| preview_gpu_vertex(&mesh.preview, vertex)),
-            );
-            let byte_offset = u64::try_from(range.vertices.start)?
-                .checked_mul(u64::try_from(std::mem::size_of::<GpuVertex>())?)
-                .ok_or("animated actor buffer offset overflow")?;
-            queue.write_buffer(
-                vertex_buffer,
-                byte_offset,
-                bytemuck::cast_slice(&mesh.pose_vertices),
-            );
-        }
-        mesh.current_frames = (
-            state.lower.forced_frame.unwrap_or(state.lower.clip),
-            state.upper.forced_frame.unwrap_or(state.upper.clip),
-        );
-        if let Some(entity) = mesh.entity_id {
-            mesh.retained_pose
-                .publish(entity, presentation_time, surfaces);
-        }
-    }
-    gpu.geometry.skinning.flush(queue);
+    steps::apply_all(
+        &mut gpu.actor_meshes,
+        &mut gpu.geometry.skinning,
+        queue,
+        vertex_buffer,
+        presentation_time,
+    );
     Ok(())
 }
 

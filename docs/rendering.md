@@ -23,6 +23,17 @@ occlusion, reflections and post processing. Feature presence does not establish
 correctness on every map or GPU. Preserve the ordinary BSP/material path when
 working on optional effects and validate shared WGSL programs on an actual GPU.
 
+## Actor animation failures
+
+Actor animation failures are isolated to the affected mesh. An invalid clip or
+pose leaves that actor's last uploaded pose in place, suppresses its animation
+audio for the failed frame, and logs once until evaluation succeeds again.
+Other actors still evaluate and upload their joint palettes. This includes
+custom NPC packs whose animation ranges exceed their skeleton's frame count;
+the renderer does not rewrite their files or relax frame bounds checks. The
+per-actor work lives in
+[actor_pose_steps.rs](../crates/jkr-viewer/src/actor_pose_steps.rs).
+
 ## Load-time texture and light preparation
 
 World installation prepares unique mipmapped texture arrays on up to four CPU
