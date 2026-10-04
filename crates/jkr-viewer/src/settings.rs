@@ -153,10 +153,9 @@ impl SettingsMenu {
         };
         let next = match (setting.kind, console.cvar(setting.cvar)) {
             (ValueKind::Bool, Some(CvarValue::Bool(value))) => (!value).to_string(),
-            (ValueKind::Integer { min, max, step }, Some(CvarValue::Integer(value))) => (*value
-                + i64::from(direction) * step)
-                .clamp(min, max)
-                .to_string(),
+            (ValueKind::Integer { min, max, step }, Some(CvarValue::Integer(value))) => {
+                step_integer(*value, direction, min, max, step).to_string()
+            }
             (ValueKind::Float { min, max, step }, Some(CvarValue::Float(value))) => {
                 ((*value + f64::from(direction) * step).clamp(min, max)).to_string()
             }
@@ -179,7 +178,7 @@ impl SettingsMenu {
         self.values.extend(
             settings(self.tab)
                 .iter()
-                .map(|setting| value_text(console, setting.cvar)),
+                .map(|setting| row_text(console, setting)),
         );
     }
 }
@@ -196,6 +195,35 @@ fn settings(tab: usize) -> &'static [Setting] {
         _ => &[],
     }
 }
+/// A negative minimum on an integer row is one special value below the range,
+/// shown as AUTO (`com_maxfps -1`). Stepping moves between it and zero, then
+/// along the row's step.
+fn step_integer(value: i64, direction: i32, min: i64, max: i64, step: i64) -> i64 {
+    if min < 0 {
+        if value < 0 {
+            return if direction > 0 { 0 } else { min };
+        }
+        if value == 0 && direction < 0 {
+            return min;
+        }
+        return (value + i64::from(direction) * step).clamp(0, max);
+    }
+    (value + i64::from(direction) * step).clamp(min, max)
+}
+
+/// The value a row shows: AUTO for the one special value below a negative
+/// minimum (`com_maxfps -1`), otherwise the cvar's text.
+fn row_text(console: &ViewerConsole, setting: &Setting) -> String {
+    match (setting.kind, console.cvar(setting.cvar)) {
+        (ValueKind::Integer { min, .. }, Some(CvarValue::Integer(value)))
+            if min < 0 && *value < 0 =>
+        {
+            "AUTO".to_owned()
+        }
+        _ => value_text(console, setting.cvar),
+    }
+}
+
 fn value_text(console: &ViewerConsole, name: &str) -> String {
     console.cvar(name).map_or_else(
         || "?".to_owned(),
@@ -210,4 +238,26 @@ fn value_text(console: &ViewerConsole, name: &str) -> String {
             _ => value.as_text(),
         },
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::step_integer;
+
+    #[test]
+    fn auto_sits_below_zero_and_steps_join_the_grid() {
+        let step = |value, direction| step_integer(value, direction, -1, 2000, 25);
+        assert_eq!(step(-1, 1), 0);
+        assert_eq!(step(-1, -1), -1);
+        assert_eq!(step(0, -1), -1);
+        assert_eq!(step(0, 1), 25);
+        assert_eq!(step(144, -1), 119);
+        assert_eq!(step(1990, 1), 2000);
+    }
+
+    #[test]
+    fn rows_without_a_special_value_step_as_before() {
+        assert_eq!(step_integer(80, 1, 80, 130, 5), 85);
+        assert_eq!(step_integer(80, -1, 80, 130, 5), 80);
+    }
 }

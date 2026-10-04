@@ -232,6 +232,18 @@ Application Support locations in [platform.rs](../crates/jkr-viewer/src/platform
 Edit settings through the client, or edit the file while the client is stopped
 so autosaving cannot overwrite your changes.
 
+`com_maxfps` defaults to `-1` (AUTO in Settings > Video): frames are capped at the
+refresh rate of the monitor holding the window, rounded to whole hertz and
+re-read once a second, or at stock's 125 when the monitor reports none. `0` is
+uncapped. The old default, 1000, saved in every existing profile, is reset to
+AUTO once on first launch (marker `jkr_maxfpsDefaultVersion`); a cap chosen
+afterwards is kept. The default is not saved to the configuration. On the slider
+AUTO is the rail's left end: arrows step AUTO, 0, 25, 50 and so on, and typing
+`-1` selects it. An uncapped
+client saturates the GPU; screen recorders and streamers sharing it then skip
+frames (OBS reported 83% skipped for encoding lag against an uncapped client at
+4K). See [runtime_settings.rs](../crates/jkr-viewer/src/runtime_settings.rs).
+
 `fs_game`, `fs_basegame` and `fs_homepath` configure content search paths; restart
 the client after changing them. Search precedence and shader protection are owned
 by [asset_search_paths.rs](../crates/jkr-viewer/src/asset_search_paths.rs).

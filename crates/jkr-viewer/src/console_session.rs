@@ -242,6 +242,24 @@ impl ViewerConsole {
             keybind_editor::migrate_missing_defaults(&mut shell.binds);
             let _ = shell.cvars.set_text("jkr_bindDefaultsVersion", "1");
         }
+        // com_maxfps defaulted to 1000 and every archived cvar was saved, so each
+        // existing profile carries that old default. Move it once to the new
+        // refresh-rate default (-1); a 1000 chosen after this stays.
+        if matches!(
+            shell
+                .cvars
+                .get("jkr_maxfpsDefaultVersion")
+                .map(|cvar| &cvar.value),
+            Some(CvarValue::Integer(0))
+        ) {
+            if matches!(
+                shell.cvars.get("com_maxfps").map(|cvar| &cvar.value),
+                Some(CvarValue::Integer(1000))
+            ) {
+                let _ = shell.cvars.reset("com_maxfps");
+            }
+            let _ = shell.cvars.set_text("jkr_maxfpsDefaultVersion", "1");
+        }
         shell.push_log("^5JKR console ready. ^7Type cmdlist for commands.");
         Ok(Self {
             shell,

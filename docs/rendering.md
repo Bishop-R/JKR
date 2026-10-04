@@ -637,7 +637,8 @@ Soft particles, per-pixel model diffuse lighting and full rendering resolution
 remain enabled. These are ordinary cvar defaults, not a config imported at launch.
 
 Saved values take precedence, including explicitly disabled effects. Existing
-profiles are not silently migrated. Resolution/window mode, input and keyboard
+profiles are not silently migrated (the one exception is the old `com_maxfps`
+default, see [client](client.md)). Resolution/window mode, input and keyboard
 layout, FPS caps, audio levels, HUD/crosshair preferences, player identity,
 server history, credentials and filesystem locations retain their independent
 defaults. Stale MSAA/light-scale entries and the parked dust experiment are not
