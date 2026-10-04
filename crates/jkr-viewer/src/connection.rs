@@ -94,7 +94,11 @@ impl crate::GpuState {
             crate::menu::MenuAction::None => {}
             crate::menu::MenuAction::Connect(address) => self.begin_address_join(address),
             crate::menu::MenuAction::CancelJoin => {
-                self.join_task = None;
+                if self.is_menu_world {
+                    self.leave_session();
+                } else {
+                    self.disconnect_to_menu();
+                }
                 if let Some(console) = &mut self.console {
                     console.download_status(None);
                 }
@@ -137,6 +141,8 @@ impl crate::GpuState {
     }
 
     pub(crate) fn leave_session(&mut self) {
+        self.resident.disconnect();
+        self.world_load_map.clear();
         self.net_timing.end_session();
         self.portal.aim(None, None);
         self.join_task = None;
@@ -169,6 +175,7 @@ impl crate::GpuState {
     }
 
     pub(crate) fn poll_client_shell(&mut self) {
+        self.poll_resident_connection();
         if let Some(menu) = &mut self.client_menu {
             if let Some(console) = &mut self.console {
                 menu.configure_browser(console);
@@ -181,9 +188,22 @@ impl crate::GpuState {
             .as_ref()
             .is_some_and(ClientSession::needs_download)
         {
-            let session = self.live_session.take().expect("checked above");
+            self.retain_world_for_connection();
+        }
+        if self
+            .resident
+            .session
+            .as_ref()
+            .is_some_and(ClientSession::needs_download)
+        {
+            let session = self.resident.session.take().expect("checked above");
+            self.world_load_task = None;
+            self.world_install_task = None;
+            self.pending_map_reload = false;
             self.join_task = Some(JoinTask::resume(session));
-            if let Some(menu) = &mut self.client_menu {
+            if self.is_menu_world
+                && let Some(menu) = &mut self.client_menu
+            {
                 menu.state_connecting("Downloading server content".into());
             }
         }
@@ -192,12 +212,20 @@ impl crate::GpuState {
         };
         match result {
             JoinPoll::Pending => {}
+            JoinPoll::Prepared(game) => {
+                self.prepare_gate_game(&game);
+            }
+            JoinPoll::Map(map) => {
+                self.world_load_map = format!("maps/{map}.bsp");
+            }
             JoinPoll::Progress(text) => {
                 let text = self.console.as_mut().map_or_else(
                     || text.clone(),
                     |console| console.download_status(Some(&text)),
                 );
-                if let Some(menu) = &mut self.client_menu {
+                if self.is_menu_world
+                    && let Some(menu) = &mut self.client_menu
+                {
                     menu.state_connecting(text);
                 }
             }
@@ -215,13 +243,14 @@ impl crate::GpuState {
                 let now = Instant::now();
                 self.server_clock.reset_connection(now);
                 self.local_prediction.clear_pending();
-                self.live_session = Some(*session);
+                self.resident.session = Some(*session);
+                self.resident.after_sequence = None;
                 // Arm the silence watch from the join, not from the first
                 // snapshot: a session that never receives one is exactly the
                 // case worth reporting.
                 self.net_timing.begin_session(now);
                 self.connect_timeline = Some(joined.timeline);
-                self.pending_map_reload = true;
+                self.pending_map_reload = !self.attach_prepared_session();
                 self.game_menu = false;
                 self.auto_opened_team_menu = false;
                 // The menu stays in its connect phase: the map load that
@@ -234,8 +263,8 @@ impl crate::GpuState {
                 if let Some(console) = &mut self.console {
                     console.download_status(None);
                 }
+                self.leave_session();
                 self.connection_error(error);
-                self.join_task = None;
             }
         }
     }
@@ -247,12 +276,21 @@ fn join_with_storage(
     userinfo: &LegacyUserInfo,
     storage: Option<Box<dyn jkr_client::download::DownloadStorage>>,
     guid: Option<crate::client_guid::Policy>,
+    prepared: mpsc::SyncSender<GameState>,
+    map_known: impl FnOnce(String),
 ) -> Result<JoinedSession, Box<dyn Error>> {
     let server = resolve_server(address)?;
     let profile = query_server_info(server, Duration::from_millis(650))
-        .map(|info| CompatProfile::from_server_info(&info))
+        .map(|info| {
+            if let Some(map) = info.get("mapname") {
+                map_known(map.to_owned());
+            }
+            CompatProfile::from_server_info(&info)
+        })
         .unwrap_or(CompatProfile::BaseJka);
-    join_socket(server, profile, game_data, userinfo, storage, guid)
+    join_socket(
+        server, profile, game_data, userinfo, storage, guid, prepared,
+    )
 }
 
 /// Stamp this client's `ja_guid` for `server` into the userinfo it connects
@@ -291,6 +329,7 @@ fn join_socket(
     userinfo: &LegacyUserInfo,
     storage: Option<Box<dyn jkr_client::download::DownloadStorage>>,
     guid: Option<crate::client_guid::Policy>,
+    prepared: mpsc::SyncSender<GameState>,
 ) -> Result<JoinedSession, Box<dyn Error>> {
     let assets = Pk3Fingerprint::open(game_data.join("base/assets3.pk3"))?;
     log::progress(format_args!("connecting to {server}"));
@@ -301,7 +340,10 @@ fn join_socket(
         userinfo,
         profile,
         Duration::from_secs(5),
-        move |game_state| base_jka_pure_command(game_state, &assets),
+        move |game_state| {
+            let _ = prepared.try_send(game_state.clone());
+            base_jka_pure_command(game_state, &assets)
+        },
         |phase| {
             let phase = match phase {
                 JoinPhase::Challenge => TimelinePhase::Challenge,

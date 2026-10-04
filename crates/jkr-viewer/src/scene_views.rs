@@ -52,6 +52,7 @@ pub(crate) struct Runtime {
     sky_visibility: sky_visibility::SkyVisibility,
 
     sky_orientation: Option<(Vec3, f32)>,
+    offline_sky: Option<Vec3>,
     pub(crate) sky_only_fog: bool,
     needs_environment: bool,
     portal_target: Option<gpu::Target>,
@@ -134,6 +135,12 @@ impl Runtime {
             });
         }
         let entities = jkr_entity::parse_entity_lump(bsp.entities()).unwrap_or_default();
+        let offline_sky = entities
+            .iter()
+            .rev()
+            .find(|e| e.classname() == Some("misc_skyportal"))
+            .and_then(|e| e.vector("origin").ok().flatten())
+            .map(Vec3::from_array);
         let sky_orientation = entities
             .iter()
             .rev()
@@ -183,6 +190,7 @@ impl Runtime {
             sky_visibility,
 
             sky_orientation,
+            offline_sky,
             sky_only_fog,
             portal_target,
             sky_target,
@@ -346,43 +354,61 @@ impl Runtime {
                 break;
             }
         }
-        if game.config_string(810).is_none_or(|value| value.is_empty())
-            || !self.sky_visibility.visible(bsp, area_mask, cluster, vp)
+        let origin = game
+            .config_string(810)
+            .and_then(|s| std::str::from_utf8(s).ok())
+            .and_then(|text| {
+                let mut tokens = text.split_whitespace();
+                Some(Vec3::new(
+                    tokens.next()?.parse().ok()?,
+                    tokens.next()?.parse().ok()?,
+                    tokens.next()?.parse().ok()?,
+                ))
+            });
+        self.select_sky(bsp, origin, view, projection, area_mask);
+    }
+
+    fn select_sky(
+        &mut self,
+        bsp: &Bsp,
+        origin: Option<Vec3>,
+        view: Mat4,
+        projection: Mat4,
+        area_mask: &[u8],
+    ) {
+        self.sky_view = None;
+        let Some(mut origin) = origin else {
+            return;
+        };
+        let parent = view.inverse();
+        let eye = parent.w_axis.truncate();
+        let cluster = usize::try_from(bsp.leaves()[bsp.leaf_at(eye.to_array())].cluster).ok();
+        if !self
+            .sky_visibility
+            .visible(bsp, area_mask, cluster, projection * view)
         {
             return;
         }
-        if let Some(text) = game
-            .config_string(810)
-            .and_then(|s| std::str::from_utf8(s).ok())
-        {
-            let mut tokens = text.split_whitespace();
-            let coords = std::array::from_fn::<_, 3, _>(|_| {
-                tokens.next().and_then(|v| v.parse::<f32>().ok())
-            });
-            if let [Some(x), Some(y), Some(z)] = coords {
-                let mut origin = Vec3::new(x, y, z);
-                if let Some((anchor, scale)) = self.sky_orientation {
-                    origin += (eye - anchor) * scale;
-                }
-                if origin.is_finite() {
-                    let parent = view.inverse();
-                    let forward = -parent.z_axis.truncate();
-                    self.sky_view = Some(math::View {
-                        matrix: glam::camera::rh::view::look_at_mat4(
-                            origin,
-                            origin + forward,
-                            parent.y_axis.truncate(),
-                        ),
-                        eye: origin,
-                        forward,
-                        pvs: origin,
-                        clip_point: Vec3::ZERO,
-                        clip_normal: Vec3::ZERO,
-                        mirror: false,
-                    });
-                }
-            }
+        if let Some((anchor, scale)) = self.sky_orientation {
+            origin += (eye - anchor) * scale;
         }
+        if !origin.is_finite() {
+            return;
+        }
+        let forward = -parent.z_axis.truncate();
+        self.sky_view = Some(math::View {
+            matrix: glam::camera::rh::view::look_at_mat4(
+                origin,
+                origin + forward,
+                parent.y_axis.truncate(),
+            ),
+            eye: origin,
+            forward,
+            pvs: origin,
+            clip_point: Vec3::ZERO,
+            clip_normal: Vec3::ZERO,
+            mirror: false,
+        });
     }
 }
 

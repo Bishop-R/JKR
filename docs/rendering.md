@@ -28,11 +28,14 @@ working on optional effects and validate shared WGSL programs on an actual GPU.
 
 | Cvar | Behavior |
 | --- | --- |
-| `jkr_dayNight` | Map-relative sun/sky atmosphere; default 0, restart required |
-| `jkr_realtime` | Lighting tier; default 2. Tier 1 retains world shadow casters between frames; tier 0 also uses available baked indirect light. Applies at map load |
+| `jkr_dayNight` | Map-relative sun/sky atmosphere; default 1, restart required |
+| `jkr_realtime` | Lighting tier; default 0. Tier 1 retains world shadow casters between frames; tier 0 also uses available baked indirect light. Applies at map load |
 | `jkr_dayHour` | Solar hour, updated live when day/night resources are installed |
 | `jkr_dayMinutes` | Minutes per simulated day; 0 holds the hour |
-| `jkr_hdr` | Scene precision: 0 display format, 1 RGBA16F; restart required |
+| `jkr_indirectBoost` | Live sky/bounce illumination multiplier, 0–4; default 1. Does not amplify direct lights or add bounce iterations |
+| `jkr_ambientFill` | Live material-lighting floor in dark areas, 0–0.2; default 0.025. Fades as existing illumination increases |
+| `jkr_ambientFillOcclusion` | Fraction of ambient occlusion applied to the readability fill, 0–1; default 1 preserves the previous response. Real indirect lighting keeps full occlusion |
+| `jkr_hdr` | Scene precision: 0 display format, 1 RGBA16F (default); restart required |
 | `jkr_hdrExposure` | Fixed exposure multiplier, 0.25–4; restart required |
 
 See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
@@ -40,6 +43,217 @@ See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 [post_hdr.rs](../crates/jkr-viewer/src/post_hdr.rs). A lighting tier alone does not
 enable the day/night system. HDR here describes the scene buffer and display
 mapping, not a claim of HDR monitor output.
+
+## Volumetric silhouette coverage
+
+The volumetric injection pass averages lighting over visible air samples within
+each cell. Samples behind the scene surface are excluded from both the sum and
+the count; visible samples in shadow still count as zero illumination. Counting
+hidden samples as darkness reduced the background's light beside a foreground
+player or geometry edge. The final composite still integrates only to the
+pixel's surface depth, and wholly hidden cells remain empty. Grid sizes, sample
+counts, shadow filtering and clarity settings are unchanged.
+
+External Linux/RADV release captures on RX 9060 XT, based on `a993436` plus local
+changes, reproduced the fringe on `mp/ffa5`. Player-present/absent and volume-on/off
+comparisons isolated a 6-level RGB loss just outside the helmet; the correction
+reduced it to zero. A nearby outside strip's mean negative difference fell from
+4.415 to 0.001 levels. The camera matches the owner's mark, but the preview actor
+placement is approximate because marks do not retain actor state.
+
+At 1280×720, 600-frame throughput measurements were 1.116 ms before and 1.112 ms
+after; at 3840×2160 they were 3.375 and 3.380 ms. Increasing the old grid to quality
+3 instead measured 1.471 ms at 720p and retained a narrower fringe. These are
+single-actor scene measurements with another client open, not GPU-isolated or
+populated-match performance certification. Paired captures also cover `mp/ffa3`,
+the marked `T2_Rancor` interior and 24 camera turns on FFA5 at 4K. The correction
+does not remove all finite-grid undersampling; broader maps, motion and owner
+playtesting remain required.
+
+## Inferring fixture light from legacy materials
+
+Prefer compiler-authored `q3map_surfacelight` power and `q3map_lightimage` masks.
+Where that information is absent, fixed, non-sky, undeformed materials can supply
+emission through view-independent additive stages. The source classifier uses the
+shader's blend, colour generation, glow flag and actual texture mask; a texture
+name containing "light" is not sufficient. Environment reflections, entity-coloured
+stages, unresolved images and ordinary opaque paint do not become inferred lamps.
+
+Explicit `glow` stages on these undeclared fixtures now use a white-radiance
+fallback of 16, compared with 4 for unmarked additive decoration. This distinguishes
+an authored luminous fixture from a generic additive effect. It is an artistic
+fallback, not a recovered physical intensity: the flag carries no wattage. Declared
+surface lights and effect-sprite extraction retain their previous gains. Both mean
+energy and the spatial emission mask use the same gain; black housing and gaps stay
+dark, and alpha covers still attenuate the source. Inference happens during loading,
+without a new per-frame classification pass or texture-name exceptions.
+
+The owner-marked `mp/ffa_mtd` view exposed insufficient inferred power rather than
+unrecognized ceiling fixtures. Its `textures/massassi/light7` shader has an explicit
+additive glow but no compiler surface-light power. The 12×12-unit faces generated
+about 298 units of patch power with a 277-unit influence radius: their contribution
+was already fading strongly around floor distance. The new inference gives the
+sampled patch about 1,191 power and a 550-unit radius. Disabling candidate importance
+filtering or static shadows in an external diagnostic barely changed that view;
+neither diagnostic change is included in production.
+
+Verification (2026-10-03, local change based on `8f692ac`): workspace build,
+all nine existing Cargo tests and doc tests, formatting, and the optimized owner
+build passed. Eight external source-policy cases checked explicit glow versus
+unmarked/declared fallback, shared mask energy, dark texels and entity/environment/
+opaque/missing-image exclusions. Linux/RADV release captures at 1280×720 covered
+the marked custom-map view and stock `ffa3`/`ffa1`; the custom view retained its
+dark atmosphere with more local illumination. In that map the inferred source
+count grew from 27,465 to 27,576, grid references from 5.79 to 5.96 million, and
+the static visibility atlas from 121.5 to 122.2 MiB. Settled sampled GPU totals
+were approximately 0.582→0.568 ms there, 0.506→0.505 ms on `ffa3`, and
+0.742→0.715 ms on `ffa1`. These sparse samples with a separate owner client still
+running show no observed regression in those views; they do not establish a
+speedup or certify populated-match performance. Windows runtime and wider
+custom-map coverage remain unverified. No test harness or assets were added to Git.
+
+The fallback cannot recover compiler-stripped point lights or confidently identify
+a lamp drawn only into ordinary diffuse paint. Improving those cases needs additional
+authored evidence or a separately validated inference method. No claims of complete
+custom-map light recovery are made.
+
+### Static model fixtures
+
+`misc_model_static` lamps now enter the same source collection as BSP fixtures.
+Previously their model materials could display glowing bulbs while none of their
+placed triangles supplied room lighting. Resolve each model once at map load,
+reuse the existing static-placement parser, and integrate the luminous surfaces
+with their placed position, rotation, inverse-transpose normal and scale. Each
+placement keeps its own emitting area. Moving/network entities, pickups and
+actors do not become permanent sources. The resulting lights use the existing
+lamp grid, static visibility, receiver cache and probe-bounce path; there is no
+new per-frame discovery or model loading.
+
+Unlit opaque replacements can hide earlier shader stages. Source inference now
+examines the surviving stage suffix, so an opaque luminous face following an
+additive stage is eligible. Bright texels qualify an otherwise unlit fixture even
+when dark housing lowers the whole-image average; power still uses the complete
+area-weighted mask. Ordinary diffuse/vertex/entity-lit paint remains excluded.
+A model surface's luminous pieces share a range calculated from their combined
+power, so texture subdivision does not give every small piece a prematurely
+short reach. Their summed energy is unchanged. This shared range is per placed
+model surface; it does not combine all instances across the map or change BSP
+surface-light range policy.
+
+Verification (2026-10-03, local change based on `8f692ac`, on top of the inferred
+glow/readability preview): release Linux/RADV captures at 1280×720 covered both
+owner marks on `t2_rancor` and stock `mp/ffa1`/`mp/ffa3`. Static models were also
+rendered in the external captures. Rancor gained 3,485 model patches (4,340 total
+lights became 7,825); grid references rose from 755,662 to 1,289,445. Both marked
+rooms gained localized illumination and remained dark. The sampled `ffa1` image
+changed by at most 1/255, and `ffa3` by at most 2/255. External policy checks
+covered hidden shader stages, unlit versus diffuse paint, bright inserts in dark
+masks, unchanged integrated flux and combined fixture reach. Workspace build,
+Cargo tests, formatting and the optimized owner build passed. A paired Rancor
+capture with day/night disabled was byte-identical before and after.
+
+Settled GPU medians, from 11–12 samples per view, were 0.893→1.036 ms and
+0.822→0.839 ms at the Rancor marks, 0.722→0.721 ms at `ffa1`, and
+0.521→0.527 ms at `ffa3`. The additional Rancor sources have a measurable cost.
+A separate owner game was running; these are fixed-view GPU samples, not
+exclusive-device total-frame or populated-match certification. Windows runtime
+and other model-heavy maps remain unverified.
+
+This repairs missing source participation, not all dark-room readability.
+`t2_rancor` also requested baked ambient light (`ambient 20`); that background
+illumination is not reconstructed by this change. Its inferred fixtures still
+lack authored physical power, unlike several strong surface lights in `ffa1`.
+Prop housing has not been added to the immutable world occluder geometry, and
+moving/triggered model lamps remain outside this static-source path. No global
+exposure, sun, ambient-fill or authored-light-power change is part of this step.
+
+### GI traversal correction
+
+The voxel GI tracer now measures a positive forward distance to the next cell
+boundary for either ray direction. Previously negative-direction rays used a
+signed coordinate difference divided by an absolute direction, producing hits
+behind the ray origin and incorrect surface/depth samples. Traversal also checks
+the maximum range before accepting an occupied cell, preventing hits beyond the
+requested distance. This changes the probe tracer, not the separate triangle
+visibility tracer used for direct lamp shadows.
+
+Verification (2026-10-03, local change based on `8f692ac`, including the preceding
+fixture preview): an external GPU harness compared the actual WGSL against an
+independent double-precision ray/AABB reference. All 8,302 cases pass, covering
+both axis directions, all diagonal octants, random oblique hits/misses, and ranges
+below/at/above intersections. The preceding shader failed 3,174 of these cases.
+Workspace build, all nine existing Cargo tests and doc tests, formatting, and an
+optimized owner build passed. No diagnostic or test code was added to production.
+
+Fixed-camera release GPU comparisons used the same 1280×720 settings, hour,
+exposure, lamp data and indirect gain before and after. Both marked `t2_rancor`
+images were byte-identical. The `ffa1` comparison changed by at most 1/255;
+`ffa3` had a small local difference (mean absolute channel difference 0.0105/255,
+maximum 10/255). Thus this is a verified correctness fix, not evidence that
+Rancor's low visibility is solved. GPU readback confirms its live probes do update
+and contain nonzero lighting; room-wide receiver coverage and effective bounce
+strength still need investigation before deciding on another brightness change.
+Rancor's 208-unit probe spacing aligns with its 16-unit voxel grid, so the old
+sign error vanishes at those ray origins. The corrected range check still changes
+some distant probe values. At the earlier `mp/ffa_mtd` mark (624-unit probe spacing,
+64-unit voxels), the correction does change local illumination: mean absolute RGB
+difference 0.0358/255, maximum 38/255. It does not broadly brighten that room.
+Paired readback on Rancor changed the L0 coefficient of 11,026 of 29,541 live
+probes above a 1e-7 threshold, while the closest probes to both marks remained
+essentially unchanged.
+
+Settled GPU medians (11–13 samples per view) were 1.038→1.038 ms and
+0.825→0.825 ms at the Rancor marks, 0.742→0.733 ms at `ffa1`, and
+0.512→0.533 ms at `ffa3`, and 0.639→0.649 ms at `mp/ffa_mtd`. A separate owner client was running. These sparse
+fixed-view GPU results do not establish a speedup, exclusive-device performance,
+31-player frame times or Windows behavior. The owner approved publication of the combined lighting/transition preview;
+this does not close the remaining dark-interior investigation.
+
+## Indirect lighting and dark-area readability
+
+These controls affect the day/night real-time material-lighting path, including
+world surfaces, actors and reflection receivers. They do not change the ordinary
+baked-lighting path, direct sunlight, lamp intensity, emissive materials or exposure.
+The indirect multiplier includes the probe sky contribution and the sky fallback;
+it is not a multiplier exclusively on secondary bounces. It is applied at the
+receiver after probe sampling, so boosted energy never feeds back into the probe
+solver. World-space probe visibility and wall rejection remain unchanged.
+
+Defaults retain the previous lighting response. Start a comparison with
+`jkr_indirectBoost 2`, leaving `jkr_ambientFill 0.025` and
+`jkr_ambientFillOcclusion 1`. For a separate, stronger readability comparison, try
+fill `0.05` and fill occlusion `0.5`. These are experimental settings, not new
+recommended defaults. Restore all three values to `1`, `0.025`, `1` respectively
+for the original response. Controls are live and archived.
+
+Fill occlusion only changes the small artificial fill: at `0.5`, fully occluded
+fill retains half its unoccluded contribution. Physical sky/bounce stays fully
+occluded. Fill remains material-modulated, so black materials stay black. A room
+with almost no indirect energy may change little under the multiplier alone;
+blindly increasing it can brighten outdoor shade before fixing that room.
+Automatic exposure, local exposure and player-specific contrast effects are not
+part of this experiment.
+
+Verification of the local change based on `8f692ac` (2026-10-03): Linux/Vulkan,
+Radeon RX 9060 XT, external release captures at 1280×720, fixed 11:00 sun.
+The outdoor `mp/ffa3` and indoor `mp/ffa1` views exercised live changes and floor
+reflections; a Kyle preview also rendered under the live controls in `ffa1`.
+Returning both controls to 1 reproduced each starting image exactly.
+Against separately compiled preceding shaders, baseline captures differed by at
+most 19/255 on `ffa3` (mean absolute channel error 0.00057/255) and 1/255 on `ffa1`
+(mean 0.0000125/255); cross-build images are not claimed bit-identical.
+An external 1,024-case GPU check passed baseline agreement, isolated indirect gain,
+bounded fill and zero-energy behavior with fill disabled. HDR/tier 0,
+SDR/tier 2 and day/night-disabled paths rendered successfully; the latter stayed
+byte-identical across the live control changes. Workspace build,
+tests and formatting, and the optimized owner client build passed.
+
+Sampled steady-state light-pass medians for old/new default shaders were
+0.212/0.214 ms on `ffa3` and 0.157/0.158 ms on `ffa1`; enabling the controls showed
+no consistent additional cost at this resolution. A separate owner game remained
+running, so these are non-exclusive GPU checks, not a performance certification.
+Populated combat visibility, broader map coverage and 31-player performance remain
+owner-playtest/benchmark work. No new shadow lights, passes or probe rays were added.
 
 Sun-shadow filtering compensates for the receiver surface's slope across the
 full texel footprint of a linear depth comparison. A half-texel allowance only
@@ -256,6 +470,112 @@ guard accordingly. Paired 3,330-frame 4K runs reduced the AO pass from 0.369 to
 differing by 12/255 and all others by at most 8/255. These are measurements on the
 same Vulkan setup, not exhaustive equivalence across all maps and backends.
 
+## Submission and lighting work reduction
+
+The renderer records uploads with their frame and hands completed batches to a
+submission thread. It finishes outstanding encoder work, applies those uploads,
+submits and presents in order while the render thread prepares the next frame.
+Only one handed-off frame can remain outstanding. With an offscreen scene target,
+swapchain acquisition happens after world recording; direct-to-surface rendering
+still acquires its image first. Resize, out-of-band submissions and teardown wait
+for the outstanding batch. `JKR_SUBMIT_THREAD=0` selects inline submission as a
+fallback. See [frame_queue.rs](../crates/jkr-viewer/src/frame_queue.rs),
+[frame_split.rs](../crates/jkr-viewer/src/frame_split.rs) and
+[frame_target.rs](../crates/jkr-viewer/src/frame_target.rs).
+
+Upload staging reuses byte and operation storage after warmup. Queue clones share
+a synchronized recording; this replaces immediate wgpu upload work on the render
+thread, rather than making all queue operations lock-free. Large load-time writes
+can bypass recording once pending submissions have completed.
+
+The in-game HUD shader is restricted to crosshair and damage-indicator regions.
+Intersecting regions become one rectangle so translucent pixels blend once.
+Menus and the shader's status-bar fallback retain full-screen coverage.
+
+Uncached deferred-light receivers are collected into a pixel list and shaded by
+four compute lanes per receiver. Cached receivers keep their existing path. The
+indirect dispatch uses bounded rows to support large light buffers; the final lamp
+sum can differ slightly in floating-point rounding from a serial sum. Receiver
+depth identifies valid texels, allowing attribute and light targets to retain data
+outside regions that will be overwritten or sampled. Floor mirrors use separate
+light images, preserving the main view without save/restore copies.
+
+Static sun-shadow bounds form an exact min/max mip hierarchy, starting at 8-texel
+tiles. A receiver chooses a level covering its filter footprint with at most four
+tiles. It skips the existing filter only when those conservative bounds determine
+the result; shadow radii, tap counts, cascades and visual settings are unchanged.
+
+
+Verification on 2026-10-02 compared this change against `f3f3db2`, using external
+release replay instrumentation on Linux, Ryzen 5 5500 and Radeon RX 9060 XT
+(RADV). Each 2560×1080 run measured 3,330 frames after replay warmup, with a
+31-player roster and unchanged graphics settings; visible/submitted actors ranged
+from 20–23 on `ffa3` and 16–27 on `ffa1`.
+
+| Route | Mean total frame | Mean GPU | Total-frame p99 |
+| --- | --- | --- | --- |
+| `mp/ffa3` | 2.464 → 1.822 ms | 1.780 → 1.697 ms | 3.517 → 3.316 ms |
+| `mp/ffa1` | 3.042 → 2.157 ms | 2.337 → 1.986 ms | 3.757 → 4.263 ms |
+
+These paired offscreen runs establish a mean improvement on the sampled routes,
+not universal sub-2 ms performance or improved tail latency. The `ffa1` p99 was
+higher despite its lower mean; longer native play and more hardware remain open.
+They exclude live networking/audio and window presentation. Comparison captures
+at 2560×1080 and 3840×2160 retained the scene appearance: maximum channel error
+was 4/255 on `ffa3`, 1/255 on `ffa1` outside its wall-clock kill-feed text, and
+3/255 in the 4K `ffa1` snapshot. This is finite image coverage.
+
+External checks covered overlapping HUD regions and viewport bounds at five
+resolutions through 8K, indirect-dispatch boundary cases and 7,308 shadow-bound
+footprints including non-power-of-two maps. Formatting, locked workspace build
+and tests, and release client/server builds passed. Verification harnesses and
+reports are kept outside the source repository.
+Two 45-second native `ffa1` replay process runs also passed without panic or GPU
+validation errors: threaded submission with HDR/FXAA, and inline submission with
+HDR/FXAA disabled to exercise direct surface acquisition. Both used isolated
+1280×720 settings; these are integration checks, not performance measurements.
+
+## Sky scenery and hillside orientation
+
+Local correction on 2026-10-03, based on `8f692ac` plus the preceding lighting
+preview, addresses the three reported `t1_danger` views.
+
+Indirect draw storage now resets during scene preparation, before either sky or
+main-view commands are recorded. Resetting in the main sun-caster pass could reuse
+an earlier sky view's buffer region: queued main-view uploads then changed the
+sky draw arguments on camera turns. The static world's identity instance also
+permits sky-portal rendering, matching the table path when drawing directly or
+falling back from indirect draws. Entity and mover visibility rules are unchanged.
+
+Lighting now orients smoothed normals using the triangle plane reconstructed from
+fragment position derivatives. Testing the smooth normal's own dot product with
+the eye incorrectly flipped visible hillside normals at grazing angles, creating
+camera-dependent dark bands. Pre-pass normals, receiver lighting, lamp-cache side
+selection and material upsampling use the same geometric-side decision. This does
+not change sun-shadow filter widths, exposure or source intensity.
+
+External release GPU captures on Linux/RADV, Radeon RX 9060 XT, at 1280×720,
+day hour 10.6 and unchanged owner graphics settings established:
+
+- The unwanted dark bands disappeared in both marked terrain views. Disabling AO,
+  contact shadows or sun maps separately did not remove the old bands.
+- A 24-view sky test captured the first frame of each alternating camera turn,
+  covering offsets through ±36 degrees. Restoring only the old buffer reset
+  reproduced missing mountains in 12 views (over 100,000 affected pixels each).
+  Corrected indirect and direct draws agreed within 11/255 maximum channel error;
+  only one pixel across the 24 comparisons exceeded 8/255.
+- The sampled `mp/ffa1` view differed by at most 1/255. The previous `mp/ffa3`
+  structure-shadow mark differed by at most 22/255, with only 28 pixels above
+  8/255. The sampled day/night-disabled `mp/ffa3` image was byte-identical.
+- Settled GPU medians for the distant and close terrain views were respectively
+  0.713 → 0.713 ms and 0.695 → 0.691 ms (11–12 samples per side). These fixed-view,
+  nonexclusive measurements are not a populated-match performance certification.
+
+Formatting, locked workspace build, all nine existing tests and doc-test targets,
+and the optimized owner client build passed. Native owner confirmation and wider
+map/hardware coverage remain open. Verification overlays and assets stay outside
+versioned source.
+
 ## UI ownership
 
 `jkr-ui` provides renderer-independent retained widgets. The viewer supplies GPU
@@ -350,3 +670,27 @@ suppression, alpha, class lookup, skip rules on synthetic scripts and the pk3
 layout. A read-only run on `mp/ffa3` and `mp/duel1` of a Windows installation
 with high-resolution texture packs took 11 s for 110 textures (160 MiB) and is
 described in the generator's pull request. No in-game image has been checked.
+
+## Default visual profile
+
+New profiles use the owner-approved rendering setup: day/night enabled at a fixed
+11:00, volumetrics quality 3, actor/world sun shadows at 2048 resolution and
+16 filter taps, and lighting tier 0 (available baked indirect light under the
+live sun). Shadow gap closure and screen-space contact shadows are off.
+The scene uses HDR with exposure 1, FXAA, SSAO at strength 4, trilinear mipmapping
+and 16× anisotropy where supported. Bloom and the optional LDR tone curve are off.
+Soft particles, per-pixel model diffuse lighting and full rendering resolution
+remain enabled. These are ordinary cvar defaults, not a config imported at launch.
+
+Saved values take precedence, including explicitly disabled effects. Existing
+profiles are not silently migrated. Resolution/window mode, input and keyboard
+layout, FPS caps, audio levels, HUD/crosshair preferences, player identity,
+server history, credentials and filesystem locations retain their independent
+defaults. Stale MSAA/light-scale entries and the parked dust experiment are not
+part of this profile; the active antialiasing path is FXAA.
+
+External release/Vulkan validation on RX 9060 XT checks 36 graphics values with
+an empty config, an explicit equivalent config and an existing override config.
+Fresh FFA5 and FFA1 scenes rendered successfully. See [status](status.md) for the
+image comparison result and validation limits. No personal config or assets are
+included in the repository.

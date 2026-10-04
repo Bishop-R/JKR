@@ -168,7 +168,11 @@ impl AmbientOcclusion {
 
 impl Runtime {
     /// Publish a live strength change without recompiling or reallocating the pass.
-    pub(crate) fn set_ssao_intensity(&self, queue: &wgpu::Queue, intensity: f32) {
+    pub(crate) fn set_ssao_intensity(
+        &self,
+        queue: &crate::frame_queue::FrameQueue,
+        intensity: f32,
+    ) {
         if let Some(strength) = &self.ssao.strength {
             strength.update(queue, intensity);
         }

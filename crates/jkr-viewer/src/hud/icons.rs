@@ -47,7 +47,7 @@ pub(crate) fn register(cvars: &mut jkr_shell::CvarRegistry) -> Result<(), jkr_sh
 /// Install map-specific image handles without a second texture loader or render pass.
 pub(crate) fn install(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    queue: &crate::frame_queue::FrameQueue,
     format: wgpu::TextureFormat,
     vfs: &jkr_vfs::VirtualFileSystem,
     shaders: &jkr_shader::ShaderCatalog,

@@ -161,7 +161,11 @@ impl ChatOverlay {
             return;
         };
         let width = 240.0 * g.scale;
-        let x = (g.left + g.width + 28.0 * g.scale).min(viewport[0] - width - 16.0 * g.scale);
+        let x = if self.scoreboard_layout {
+            g.left
+        } else {
+            (g.left + g.width + 28.0 * g.scale).min(viewport[0] - width - 16.0 * g.scale)
+        };
         let y = menu.origin[1].clamp(g.top, viewport[1] - 240.0 * g.scale);
         let end = layout::fitting_end(name, font, width, 16.0 * g.scale);
         self.ui.floating_scrim(
