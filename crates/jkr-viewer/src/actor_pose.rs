@@ -115,7 +115,7 @@ pub(crate) fn update(gpu: &mut GpuState, presentation_time: i64) -> Result<(), B
             continue;
         };
         let mut state = state;
-        if mesh.corpse_pool {
+        if mesh.corpse_pool && !mesh.body_copied {
             state.lower.forced_frame =
                 jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);
             state.upper.forced_frame =
@@ -253,8 +253,8 @@ impl GpuState {
         Ok(())
     }
 
-    pub(crate) fn assign_corpse_meshes(&mut self) {
-        self.apply_body_commands();
+    pub(crate) fn assign_corpse_meshes(&mut self, presentation_time: i64) {
+        self.apply_body_commands(presentation_time);
         for mesh in self
             .actor_meshes
             .iter_mut()

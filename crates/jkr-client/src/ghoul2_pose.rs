@@ -62,6 +62,11 @@ pub struct LegacyGhoul2Animator {
     /// The override installed for `applied_upper`, kept so the torso frame
     /// can be queried without touching the evaluated pose.
     upper_command: Option<BoneAnimationCommand>,
+    /// A body-queue copy ([`Self::body_queue_copy`]): its overrides were set once and
+    /// the body's own animation tracks are never installed.
+    body: bool,
+    /// Presentation time of the last evaluation (cgame's previous `cg.time`).
+    evaluated_at: Option<i64>,
     lower_command: Option<BoneAnimationCommand>,
 }
 
@@ -103,8 +108,45 @@ impl LegacyGhoul2Animator {
             applied_lower: None,
             applied_upper: None,
             upper_command: None,
+            body: false,
+            evaluated_at: None,
             lower_command: None,
         })
+    }
+
+    /// `CG_BodyQueueCopy` (`cg_servercmds.c:1256-1296`): duplicate this instance
+    /// (`G2API_DuplicateGhoul2Instance`) and install `command` on `upper_lumbar`,
+    /// `model_root` and `Motion`, blending from the duplicated pose. `lower_lumbar`
+    /// keeps the override it was duplicated with. The copy ignores the animation
+    /// tracks later passed to [`Self::evaluate`].
+    pub fn body_queue_copy(
+        &self,
+        animation: &Gla,
+        command: BoneAnimationCommand,
+    ) -> Result<Self, ModelError> {
+        let mut body = self.clone();
+        body.body = true;
+        body.pose
+            .set_bone_animation(animation, body.legs_root, command)?;
+        // The legs track now plays the body's command, which animation sound
+        // triggers read through `event_frames`.
+        body.lower_command = Some(command);
+        if let Some(humanoid) = body.humanoid {
+            // `angle_bones[1]` is `upper_lumbar`.
+            for bone in [humanoid.angle_bones[1], humanoid.motion] {
+                body.pose.set_bone_animation(animation, bone, command)?;
+            }
+        }
+        Ok(body)
+    }
+
+    /// The torso animation and frame last presented: `currentState.torsoAnim` as
+    /// installed, and the `lower_lumbar` frame `CG_TriggerAnimSounds` kept for it
+    /// (`ci->frame` once floored). `None` before the first evaluation.
+    pub fn presented_torso(&self, animation: &Gla) -> Option<(usize, Option<f32>)> {
+        let time = self.evaluated_at?;
+        let clip = self.applied_upper?.clip;
+        Some((clip, self.torso_frame(animation, time)))
     }
 
     /// `true` when the skeleton carries the humanoid spine cgame drives with
@@ -202,6 +244,10 @@ impl LegacyGhoul2Animator {
         state: AnimationState,
         time_millis: i64,
     ) -> Result<&'a mut [[[f32; 4]; 3]], ModelError> {
+        self.evaluated_at = Some(time_millis);
+        if self.body {
+            return self.pose.evaluate(animation, time_millis);
+        }
         if (self.applied_lower.is_none() || time_millis >= state.lower.started_at_millis)
             && self.applied_lower != Some(state.lower)
         {

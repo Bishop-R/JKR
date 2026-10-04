@@ -27,6 +27,15 @@ impl Slot {
         })
     }
 
+    /// Own an evaluator prepared elsewhere, such as a body-queue copy.
+    pub(crate) fn from_animator(animator: LegacyGhoul2Animator) -> Self {
+        Self {
+            inner: Some(animator),
+            requested: None,
+            error: None,
+        }
+    }
+
     /// Report errors in actor order, after every in-flight evaluator has been returned.
     pub(crate) fn completed(&mut self) -> Result<(), ModelError> {
         self.error.take().map_or(Ok(()), Err)
