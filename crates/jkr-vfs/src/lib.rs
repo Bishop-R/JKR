@@ -3,6 +3,7 @@
 mod cache_identity;
 mod path;
 mod pk3_directory;
+mod pk3_fingerprint;
 pub use cache_identity::AssetCacheIdentity;
 
 pub use path::{VirtualPath, VirtualPathError};
@@ -51,6 +52,7 @@ pub struct Pk3Fingerprint {
 }
 
 impl Pk3Fingerprint {
+    /// Read ordered, nonempty ZIP-entry CRCs from the validated central directory.
     pub fn open(archive_path: impl AsRef<Path>) -> Result<Self, VfsError> {
         let archive_path = archive_path.as_ref();
         let file = File::open(archive_path).map_err(|source| VfsError::Io {
@@ -58,20 +60,15 @@ impl Pk3Fingerprint {
             path: archive_path.to_owned(),
             source,
         })?;
-        let mut archive = zip::ZipArchive::new(file).map_err(|source| VfsError::Zip {
+        let archive = zip::ZipArchive::new(file).map_err(|source| VfsError::Zip {
             path: archive_path.to_owned(),
             source,
         })?;
-        let mut entry_crcs = Vec::with_capacity(archive.len());
-        for index in 0..archive.len() {
-            let entry = archive.by_index(index).map_err(|source| VfsError::Zip {
-                path: archive_path.to_owned(),
-                source,
-            })?;
-            if entry.size() != 0 {
-                entry_crcs.push(entry.crc32());
-            }
-        }
+        let entry_crcs = pk3_fingerprint::catalog(archive).map_err(|source| VfsError::Io {
+            operation: "read PK3 checksum catalogue",
+            path: archive_path.to_owned(),
+            source,
+        })?;
         Ok(Self { entry_crcs })
     }
 

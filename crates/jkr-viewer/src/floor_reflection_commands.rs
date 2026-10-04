@@ -80,7 +80,7 @@ impl Commands {
     }
     pub(in crate::scene_views::floor_reflections) fn publish(
         &self,
-        queue: &wgpu::Queue,
+        queue: &crate::frame_queue::FrameQueue,
         slot: usize,
         plane: usize,
         bytes: std::ops::Range<u64>,

@@ -149,6 +149,27 @@ fn client_name(game: &GameState, client: u16) -> &str {
 }
 
 impl GpuState {
+    /// A prepared world or local authority cannot contribute samples to a new
+    /// remote timeline, even when the numeric timestamps happen to increase.
+    pub(crate) fn reset_live_presentation(&mut self) {
+        let Some(session) = &self.live_session else {
+            return;
+        };
+        self.live_world = jkr_runtime::World::new(self.live_world.id());
+        self.legacy_world_adapter = Some(LegacyWorldAdapter::new(self.live_world.id()));
+        if let (Some(adapter), Some(console)) = (&mut self.legacy_world_adapter, &self.console) {
+            adapter.set_smooth_clients(console.smooth_clients());
+        }
+        self.presentation_clock = presentation_clock::SnapshotPresentationClock::new(
+            session.latest_snapshot().server_time,
+            Instant::now(),
+        );
+        self.local_actor_state = Default::default();
+        for mesh in &mut self.actor_meshes {
+            mesh.angle_controller = jkr_client::LegacyPlayerAngleController::new();
+        }
+    }
+
     pub(crate) fn update_demo_playback(
         &mut self,
         game_audio: &mut Option<GameAudio>,
@@ -231,6 +252,9 @@ impl GpuState {
         game_audio: &mut Option<GameAudio>,
         visual_now: Instant,
     ) {
+        if !self.live_presentation_ready() || !crate::live_session::active_snapshot(snapshot) {
+            return;
+        }
         let Some(session) = self.live_session.as_ref() else {
             return;
         };
@@ -286,14 +310,35 @@ impl GpuState {
             );
         }
         if let Some(adapter) = &mut self.legacy_world_adapter {
+            // oldServerTime disappears after the server acknowledges admission.
+            // Drop samples from that provisional epoch before applying the lower
+            // timestamp; otherwise World::upsert correctly rejects them as stale.
+            if i64::from(snapshot.server_time) < self.presentation_clock.upper_server_time() {
+                self.live_world = jkr_runtime::World::new(self.live_world.id());
+                *adapter = LegacyWorldAdapter::new(self.live_world.id());
+                if let Some(console) = &self.console {
+                    adapter.set_smooth_clients(console.smooth_clients());
+                }
+                self.local_actor_state = Default::default();
+                for mesh in &mut self.actor_meshes {
+                    mesh.angle_controller = jkr_client::LegacyPlayerAngleController::new();
+                }
+            }
             adapter.apply_snapshot(snapshot, session.game_state(), &mut self.live_world);
-            let event = self
-                .presentation_clock
-                .receive_snapshot(snapshot.server_time, Instant::now());
-            self.net_timing.adjustment(event);
+            if session.is_local() {
+                self.presentation_clock
+                    .follow_local(snapshot.server_time, Instant::now());
+            } else {
+                let event = self
+                    .presentation_clock
+                    .receive_snapshot(snapshot.server_time, Instant::now());
+                self.net_timing.adjustment(event);
+            }
         }
-        self.server_clock
-            .observe_snapshot(snapshot.server_time, Instant::now());
+        if !session.is_local() {
+            self.server_clock
+                .observe_snapshot(snapshot.server_time, Instant::now());
+        }
         if let Some(view) = intermission {
             self.local_prediction.stop(0.0);
             self.camera_position = Vec3::from_array(view.origin);
