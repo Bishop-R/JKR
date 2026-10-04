@@ -415,7 +415,7 @@ impl GpuState {
             super::pointer_input::CursorPolicy::new(),
         );
         to.cursor_position = self.cursor_position;
-        to.applied_fullscreen = self.applied_fullscreen;
+        to.applied_display = self.applied_display;
         to.applied_resolution = self.applied_resolution;
         // Preserve a remote connection's command floor across world installs.
         // A local authority has an independent timeline that must never stamp

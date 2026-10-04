@@ -13,11 +13,24 @@ pub(super) const KEYBINDS_TAB: usize = 3;
 
 #[derive(Clone, Copy)]
 pub(super) enum ValueKind {
+    /// On/off; an integer cvar reads nonzero as on and is written 0 or 1.
     Bool,
-    Integer { min: i64, max: i64, step: i64 },
-    Float { min: f64, max: f64, step: f64 },
+    Integer {
+        min: i64,
+        max: i64,
+        step: i64,
+    },
+    Float {
+        min: f64,
+        max: f64,
+        step: f64,
+    },
     Choice(&'static [&'static str]),
     Text,
+    /// `r_resolution`: steps within the aspect group, Enter opens the list.
+    Resolution,
+    /// `r_fullscreen` with `jkr_exclusiveFullscreen`, as named modes.
+    DisplayMode,
 }
 
 #[derive(Clone, Copy)]
@@ -38,12 +51,12 @@ pub(super) const VIDEO: &[Setting] = &[
     Setting {
         label: "Resolution",
         cvar: "r_resolution",
-        kind: ValueKind::Choice(RESOLUTIONS),
+        kind: ValueKind::Resolution,
     },
     Setting {
         label: "Display mode",
         cvar: "r_fullscreen",
-        kind: ValueKind::Bool,
+        kind: ValueKind::DisplayMode,
     },
     Setting {
         label: "Vertical sync",
@@ -98,13 +111,9 @@ pub(super) const VIDEO: &[Setting] = &[
         },
     },
     Setting {
-        label: "Filmic scene (0 off / 1 on)",
+        label: "Filmic tone curve",
         cvar: "jkr_tonemap",
-        kind: ValueKind::Integer {
-            min: 0,
-            max: 1,
-            step: 1,
-        },
+        kind: ValueKind::Bool,
     },
 ];
 pub(super) const AUDIO: &[Setting] = &[
@@ -120,15 +129,6 @@ pub(super) const AUDIO: &[Setting] = &[
     Setting {
         label: "Music volume",
         cvar: "s_musicVolume",
-        kind: ValueKind::Float {
-            min: 0.0,
-            max: 1.0,
-            step: 0.05,
-        },
-    },
-    Setting {
-        label: "Voice volume",
-        cvar: "s_volumeVoice",
         kind: ValueKind::Float {
             min: 0.0,
             max: 1.0,
@@ -157,22 +157,14 @@ pub(super) const HUD_OPTIONS: &[Setting] = &[
         },
     },
     Setting {
-        label: "Team status (0/1)",
+        label: "Team status",
         cvar: "cg_drawTeamOverlay",
-        kind: ValueKind::Integer {
-            min: 0,
-            max: 1,
-            step: 1,
-        },
+        kind: ValueKind::Bool,
     },
     Setting {
-        label: "Speed readout (0/1)",
+        label: "Speedometer",
         cvar: "cg_speedometer",
-        kind: ValueKind::Integer {
-            min: 0,
-            max: 1,
-            step: 1,
-        },
+        kind: ValueKind::Bool,
     },
 ];
 
@@ -253,11 +245,6 @@ pub(super) const CONTROLS: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
-        label: "Raw mouse input",
-        cvar: "in_raw",
-        kind: ValueKind::Bool,
-    },
-    Setting {
         label: "Always run",
         cvar: "cl_run",
         kind: ValueKind::Bool,
@@ -270,14 +257,14 @@ pub(super) const GAME: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
-        label: "Force my player model",
+        label: "Show everyone as my model",
         cvar: "cg_forceModel",
         kind: ValueKind::Bool,
     },
     Setting {
         label: "Saber trail",
         cvar: "cg_saberTrail",
-        kind: ValueKind::Choice(&["0", "1", "2"]),
+        kind: ValueKind::Bool,
     },
     Setting {
         label: "Force Seeing aura",
@@ -324,7 +311,7 @@ pub(super) const NETWORK: &[Setting] = &[
         kind: ValueKind::Text,
     },
     Setting {
-        label: "Rate",
+        label: "Rate (bytes/s)",
         cvar: "rate",
         kind: ValueKind::Integer {
             min: 1000,
@@ -333,7 +320,7 @@ pub(super) const NETWORK: &[Setting] = &[
         },
     },
     Setting {
-        label: "Snapshot rate",
+        label: "Snapshots per second",
         cvar: "snaps",
         kind: ValueKind::Integer {
             min: 10,

@@ -239,26 +239,7 @@ fn scroll_indicator(
         3.0 * s,
         height,
     );
-    let thumb_height = (height * page as f32 / count as f32).max(24.0 * s);
-    let travel = height - thumb_height;
-    let at = first as f32 / count.saturating_sub(page).max(1) as f32;
-    let list = ui.draw_list_mut();
-    let _ = list.push(DrawCommand::RoundedRect {
-        rect: track,
-        radius: track.width * 0.5,
-        color: Color::new(1.0, 1.0, 1.0, 0.07),
-    });
-    let thumb = Rect::new(
-        track.x,
-        track.y + travel * at.clamp(0.0, 1.0),
-        track.width,
-        thumb_height,
-    );
-    let _ = list.push(DrawCommand::RoundedRect {
-        rect: thumb,
-        radius: track.width * 0.5,
-        color: Color::new(0.62, 0.72, 0.80, 0.55),
-    });
+    ui.list_scroll_mark(track, first, page, count, s);
 }
 
 /// A map preview in `rect`: the levelshot with a hairline edge, or — while

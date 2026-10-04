@@ -322,7 +322,8 @@ struct GpuState {
     scope: scope::Zoom,
     scope_mask: Option<scope::Mask>,
     ground_hud: ground_hud::GroundHud,
-    applied_fullscreen: bool,
+    /// Display mode last applied to the window; `None` forces a reapply.
+    applied_display: Option<settings::DisplayMode>,
     applied_resolution: [u32; 2],
     frame_pacer: frame_pacing::FramePacer,
     /// Optional per-pass GPU timing printed with the frame-budget report.
@@ -1070,7 +1071,7 @@ impl GpuState {
             scope: scope::Zoom::default(),
             scope_mask,
             ground_hud,
-            applied_fullscreen: false,
+            applied_display: Some(settings::DisplayMode::Windowed),
             applied_resolution: [size.width, size.height],
             frame_pacer: frame_pacing::FramePacer::new(),
             gpu_phases,

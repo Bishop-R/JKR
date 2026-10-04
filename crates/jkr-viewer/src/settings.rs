@@ -9,12 +9,19 @@ use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 mod catalog;
+mod display;
 mod numeric;
 mod pointer;
+mod resolution;
+mod resolution_list;
 mod view;
 
 pub(crate) use catalog::RESOLUTIONS;
 use catalog::*;
+pub(crate) use display::{
+    DisplayMode, EXCLUSIVE_CVAR, MonitorModes, exclusive_supported, exclusive_video_mode,
+};
+use resolution::{PickResult, ResolutionChoice, ResolutionPicker};
 pub(crate) enum SettingsResult {
     None,
     Back,
@@ -26,6 +33,14 @@ pub(crate) struct SettingsMenu {
     selected: usize,
     values: Vec<String>,
     editing: Option<String>,
+    /// What the window's monitor offers; asked for each time the screen opens.
+    monitor: Option<MonitorModes>,
+    /// The screen opened and wants fresh [`MonitorModes`].
+    wants_monitor: bool,
+    /// Scratch list of the resolutions on offer.
+    choices: Vec<ResolutionChoice>,
+    /// The resolution list, open over the form.
+    picker: ResolutionPicker,
     numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
     ui: MenuCanvas,
 }
@@ -37,6 +52,10 @@ impl SettingsMenu {
             selected: 0,
             values: Vec::with_capacity(12),
             editing: None,
+            monitor: None,
+            wants_monitor: false,
+            choices: Vec::with_capacity(48),
+            picker: ResolutionPicker::new(),
             numeric: None,
             ui: MenuCanvas::new(),
         }
@@ -56,9 +75,29 @@ impl SettingsMenu {
         self.tab = tab.min(TABS.len() - 1);
         self.selected = 0;
         self.editing = None;
+        self.picker.close();
+        self.wants_monitor = true;
         self.numeric = None;
         self.refresh(console);
     }
+
+    /// Whether the screen wants [`Self::set_monitor_modes`] (it just opened).
+    pub(crate) fn wants_monitor_modes(&self) -> bool {
+        self.wants_monitor
+    }
+
+    /// Take the window's monitor facts, which shape the resolution and
+    /// display-mode choices.
+    pub(crate) fn set_monitor_modes(&mut self, modes: MonitorModes, console: &ViewerConsole) {
+        self.wants_monitor = false;
+        self.monitor = Some(modes);
+        if self.picker.is_open() {
+            self.build_choices(console);
+            self.picker.update_choices(&self.choices);
+        }
+        self.refresh(console);
+    }
+
     pub(crate) fn visual_selection(&self) -> (usize, bool) {
         (self.selected, false)
     }
@@ -77,6 +116,10 @@ impl SettingsMenu {
         let PhysicalKey::Code(key) = event.physical_key else {
             return SettingsResult::None;
         };
+        if self.picker.is_open() {
+            self.resolution_key(key, event.repeat, console);
+            return SettingsResult::None;
+        }
         if self.edit_numeric(key, event.text.as_deref(), console) {
             return SettingsResult::None;
         }
@@ -136,6 +179,8 @@ impl SettingsMenu {
                 if let Some(setting) = settings(self.tab).get(self.selected) {
                     if matches!(setting.kind, ValueKind::Text) {
                         self.editing = Some(value_text(console, setting.cvar));
+                    } else if matches!(setting.kind, ValueKind::Resolution) {
+                        self.open_resolutions(console);
                     } else if !self.begin_numeric(console, self.selected) {
                         self.adjust(console, 1);
                     }
@@ -153,6 +198,9 @@ impl SettingsMenu {
         };
         let next = match (setting.kind, console.cvar(setting.cvar)) {
             (ValueKind::Bool, Some(CvarValue::Bool(value))) => (!value).to_string(),
+            (ValueKind::Bool, Some(CvarValue::Integer(value))) => {
+                if *value != 0 { "0" } else { "1" }.to_owned()
+            }
             (ValueKind::Integer { min, max, step }, Some(CvarValue::Integer(value))) => (*value
                 + i64::from(direction) * step)
                 .clamp(min, max)
@@ -168,19 +216,40 @@ impl SettingsMenu {
                 values[(index as i32 + direction).rem_euclid(values.len() as i32) as usize]
                     .to_owned()
             }
+            (ValueKind::Resolution, _) => {
+                self.step_resolution(console, direction);
+                return;
+            }
+            (ValueKind::DisplayMode, _) => {
+                DisplayMode::requested(console)
+                    .step(direction, self.exclusive_available())
+                    .store(console);
+                self.refresh(console);
+                return;
+            }
             _ => return,
         };
         console.set_cvar(setting.cvar, &next);
         self.refresh(console);
     }
 
+    /// Whether exclusive fullscreen can be offered; assumed until the
+    /// monitor facts arrive, since the window falls back to borderless.
+    fn exclusive_available(&self) -> bool {
+        self.monitor
+            .as_ref()
+            .is_none_or(|monitor| monitor.exclusive)
+    }
+
     fn refresh(&mut self, console: &ViewerConsole) {
+        let display = DisplayMode::requested(console).effective(self.exclusive_available());
         self.values.clear();
-        self.values.extend(
-            settings(self.tab)
-                .iter()
-                .map(|setting| value_text(console, setting.cvar)),
-        );
+        self.values
+            .extend(settings(self.tab).iter().map(|setting| match setting.kind {
+                ValueKind::DisplayMode => display.label().to_owned(),
+                ValueKind::Bool => toggle_text(console, setting.cvar),
+                _ => value_text(console, setting.cvar),
+            }));
     }
 }
 
@@ -196,6 +265,14 @@ fn settings(tab: usize) -> &'static [Setting] {
         _ => &[],
     }
 }
+/// ON/OFF for a toggle row; an integer cvar is on when nonzero.
+fn toggle_text(console: &ViewerConsole, name: &str) -> String {
+    match console.cvar(name) {
+        Some(CvarValue::Integer(value)) => if *value != 0 { "ON" } else { "OFF" }.to_owned(),
+        _ => value_text(console, name),
+    }
+}
+
 fn value_text(console: &ViewerConsole, name: &str) -> String {
     console.cvar(name).map_or_else(
         || "?".to_owned(),

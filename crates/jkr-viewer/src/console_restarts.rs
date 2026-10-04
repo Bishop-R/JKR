@@ -102,7 +102,7 @@ impl crate::GpuState {
                     .map_err(|e| e.to_string())?;
                 console.persist();
                 self.applied_resolution = [0; 2];
-                self.applied_fullscreen = !console.bool_cvar("r_fullscreen").unwrap_or(false);
+                self.applied_display = None;
                 self.sync_runtime_cvars();
                 Ok(vec![
                     "Video settings reapplied; GPU device/resources retained.".into(),

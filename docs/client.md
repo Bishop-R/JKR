@@ -232,6 +232,24 @@ Application Support locations in [platform.rs](../crates/jkr-viewer/src/platform
 Edit settings through the client, or edit the file while the client is stopped
 so autosaving cannot overwrite your changes.
 
+The Video tab's Display mode row offers Windowed, Borderless fullscreen and,
+where the windowing system supports it, Exclusive fullscreen (Wayland does not).
+Stock `r_fullscreen` keeps its meaning, fullscreen on or off, and Alt+Enter still
+toggles it. `jkr_exclusiveFullscreen` chooses the kind: 0 (default) is a borderless
+window at the desktop size, 1 switches the monitor to the `r_resolution` video
+mode. Stock JA's fullscreen is always the exclusive kind; JKR defaults to
+borderless. Choosing Windowed leaves `jkr_exclusiveFullscreen` alone, so Alt+Enter
+returns to the last fullscreen kind. Exclusive fullscreen without a monitor mode
+of that size falls back to borderless.
+
+Enter or a click on the Resolution row opens a list of the monitor's video-mode
+sizes, grouped by aspect ratio with the monitor's own first and the size in use
+highlighted. Windowed and borderless also list the classic presets that fit the
+monitor and a custom `r_resolution`; borderless fullscreen always fills the
+desktop and uses the size only when windowed. Left and Right step the row within
+its aspect-ratio group. See [display.rs](../crates/jkr-viewer/src/settings/display.rs)
+and [resolution.rs](../crates/jkr-viewer/src/settings/resolution.rs).
+
 `fs_game`, `fs_basegame` and `fs_homepath` configure content search paths; restart
 the client after changing them. Search precedence and shader protection are owned
 by [asset_search_paths.rs](../crates/jkr-viewer/src/asset_search_paths.rs).

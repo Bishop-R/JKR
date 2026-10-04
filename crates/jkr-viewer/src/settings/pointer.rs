@@ -1,6 +1,7 @@
 //! Pointer interaction for the retained settings form.
 
 use super::*;
+use crate::menu_widgets::cycler_direction;
 use jkr_ui::{InputEvent, UiEventKind};
 
 impl SettingsMenu {
@@ -9,6 +10,10 @@ impl SettingsMenu {
         event: InputEvent,
         console: &mut ViewerConsole,
     ) -> SettingsResult {
+        if self.picker.is_open() {
+            self.resolution_pointer(event, console);
+            return SettingsResult::None;
+        }
         let Some(event) = self.ui.pointer(event) else {
             return SettingsResult::None;
         };
@@ -79,9 +84,12 @@ impl SettingsMenu {
                 if let Some(setting) = settings(self.tab).get(row) {
                     if matches!(setting.kind, ValueKind::Text) {
                         self.editing = Some(value_text(console, setting.cvar));
+                    } else if matches!(setting.kind, ValueKind::Resolution) {
+                        self.open_resolutions(console);
                     } else if let Some(position) = event.position {
                         if !self.set_numeric_from_pointer(console, row, position.x) {
-                            self.adjust(console, 1);
+                            let direction = self.click_direction(setting.kind, row, position.x);
+                            self.adjust(console, direction);
                         }
                     } else {
                         self.adjust(console, 1);
@@ -90,6 +98,17 @@ impl SettingsMenu {
             }
         }
         SettingsResult::None
+    }
+
+    /// Which way a click at `x` turns row `row`: a cycler steps the way the
+    /// clicked half points, like its `<` and `>`; anything else steps on.
+    fn click_direction(&self, kind: ValueKind, row: usize, x: f32) -> i32 {
+        match (kind, self.ui.rect_for(row as u16)) {
+            (ValueKind::Choice(_) | ValueKind::DisplayMode, Some(rect)) => {
+                cycler_direction(rect, x) as i32
+            }
+            _ => 1,
+        }
     }
 
     fn setting_row(&self, token: u16) -> Option<usize> {
