@@ -26,7 +26,7 @@ pub(crate) const DISABLED: Color = Color::new(0.5, 0.5, 0.5, 1.0);
 /// Retail page-title colour (`forecolor .695 .760 .861`).
 pub(crate) const TITLE: Color = Color::new(0.695, 0.760, 0.861, 1.0);
 /// Retail description colour (`descColor 1 .682 0 .8`).
-const HINT: Color = Color::new(1.0, 0.682, 0.0, 0.8);
+pub(crate) const HINT: Color = Color::new(1.0, 0.682, 0.0, 0.8);
 const INK: [f32; 3] = [0.004, 0.008, 0.020];
 const WHITE: Color = Color::new(1.0, 1.0, 1.0, 1.0);
 
@@ -83,13 +83,7 @@ pub(crate) fn build(
     let page = menu.page();
     canvas.begin_transparent(viewport);
     canvas.push_opacity(reveal);
-    let textured = art_set.has(ArtPiece::Background);
-    if textured {
-        backdrop_art(canvas, viewport, &place, page, art_set);
-    } else {
-        backdrop(canvas, viewport, &place);
-    }
-    logo(canvas, &place, art_set);
+    page_backdrop(canvas, viewport, &place, page, art_set);
     title(canvas, &place, page, art_set);
     if page == Page::Quit {
         canvas.text_aligned(
@@ -147,9 +141,26 @@ pub(crate) fn build(
     canvas.finish(menu.selection() as u16);
 }
 
+/// The page's backdrop and logo: the retail artwork where it is loaded,
+/// JKR's vector version otherwise.
+pub(crate) fn page_backdrop(
+    canvas: &mut MenuCanvas,
+    viewport: [f32; 2],
+    place: &Placement,
+    page: Page,
+    art_set: ArtSet,
+) {
+    if art_set.has(ArtPiece::Background) {
+        backdrop_art(canvas, viewport, place, page, art_set);
+    } else {
+        backdrop(canvas, viewport, place);
+    }
+    logo(canvas, place, art_set);
+}
+
 /// One entry's label: gold, white while focused, grey when JKR cannot open
 /// it yet.
-fn entry_label(canvas: &mut MenuCanvas, place: &Placement, slot: &Slot, active: bool) {
+pub(crate) fn entry_label(canvas: &mut MenuCanvas, place: &Placement, slot: &Slot, active: bool) {
     let s = place.scale;
     let size = slot.size.text();
     let [x, _, width, _] = slot.target();
@@ -362,7 +373,7 @@ pub(crate) fn glow(canvas: &mut MenuCanvas, target: Rect, scale: f32, art_set: A
 }
 
 /// A gold band over `rect`, brightest (`peak` alpha) in the middle.
-fn soft_band(canvas: &mut MenuCanvas, rect: Rect, peak: f32) {
+pub(crate) fn soft_band(canvas: &mut MenuCanvas, rect: Rect, peak: f32) {
     let half = Rect::new(rect.x, rect.y, rect.width * 0.5, rect.height);
     let draw = canvas.draw_list_mut();
     let _ = draw.push(DrawCommand::GradientRect {

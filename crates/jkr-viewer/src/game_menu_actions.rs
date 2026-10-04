@@ -170,6 +170,18 @@ impl GpuState {
         }
     }
 
+    /// Hand over to the classic Setup or Controls pop-up (`page`), on its
+    /// first group; it returns to the game menu when closed.
+    pub(crate) fn open_classic_panel_from_game(
+        &mut self,
+        page: crate::menu::classic::layout::Page,
+    ) {
+        if let (Some(menu), Some(console)) = (&mut self.client_menu, &self.console) {
+            menu.open_classic_panel_from_game(console, page);
+            self.game_menu = false;
+        }
+    }
+
     /// Hand over to the shell's server browser (japro's in-game entry); it
     /// returns to the game menu when closed, and a join leaves this server.
     fn open_browser_from_game(&mut self) {

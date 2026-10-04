@@ -5,23 +5,35 @@
 //! widgets in [`view`], and lead to the same screens as the modern style
 //! through [`MainDestination`].
 //!
-//! Implemented: the main menu with its Play (multiplayer), Controls, Setup
-//! and quit pages, and the in-game menu ([`crate::ingame_menu`]). The
-//! screens these pages open (server browser, Create game, Player, settings,
-//! key bindings) are still the modern ones; the follow-up plan is kept in
-//! `docs/client.md`.
+//! Implemented: the main menu with its Play (multiplayer) and quit pages,
+//! the Setup and Controls option panels ([`panel`]) on the main menu and as
+//! the in-game pop-ups, and the in-game menu ([`crate::ingame_menu`]). The
+//! other screens these pages open (server browser, Create game, Player) are
+//! still the modern ones; the follow-up plan is kept in `docs/client.md`.
 
 pub(crate) mod layout;
 pub(crate) mod loading;
 mod pages;
+pub(crate) mod panel;
 pub(crate) mod view;
 
 use super::{ClientMenu, MenuAction};
 use crate::console::ViewerConsole;
 use crate::menu::destination::MainDestination;
+use crate::player_menu::ReturnTarget;
 use crate::settings::SettingsMenu;
 use jkr_ui::AbstractAction;
-use layout::{Outcome, Page, Slot};
+use layout::{Entry, Outcome, Page, Panel, Slot};
+use panel::{Frame, PanelFrame};
+
+/// The classic option panel on show: the page whose list it belongs to,
+/// the open group, and where it is drawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ClassicPanel {
+    page: Page,
+    entry: Entry,
+    frame: Frame,
+}
 
 /// Page and focused entry of the classic main menu.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,7 +94,12 @@ impl ClassicMain {
 
     /// What activating the focused entry does.
     fn outcome(&self) -> Option<Outcome> {
-        Some(self.slots().get(self.selection)?.entry.outcome())
+        Some(self.focused()?.outcome())
+    }
+
+    /// The focused entry.
+    fn focused(&self) -> Option<Entry> {
+        Some(self.slots().get(self.selection)?.entry)
     }
 }
 
@@ -105,6 +122,18 @@ impl ClientMenu {
     /// Activate the focused classic entry: change page, or open the screen
     /// it leads to.
     pub(super) fn activate_classic(&mut self, console: &mut ViewerConsole) -> MenuAction {
+        // Setup and Controls open on their first group, as the retail pages
+        // show Video and Movement beside the list; a group opens its panel.
+        if let Some(entry) = self.classic.focused() {
+            let panel = match entry.outcome() {
+                Outcome::Page(page) => page.opening_panel().map(|first| (page, first)),
+                _ => entry.panel().map(|_| (self.classic.page(), entry)),
+            };
+            if let Some((page, entry)) = panel {
+                self.open_classic_panel(console, page, entry, Frame::Main, ReturnTarget::MainMenu);
+                return MenuAction::None;
+            }
+        }
         match self.classic.outcome() {
             Some(Outcome::Page(page)) => {
                 self.classic.show(page);
@@ -123,6 +152,125 @@ impl ClientMenu {
             ),
             Some(Outcome::Unavailable) | None => MenuAction::None,
         }
+    }
+
+    /// Show group `entry` of `page` in a classic option panel drawn in
+    /// `frame`, returning to `target` when closed. False when the entry has
+    /// no group JKR can show.
+    pub(crate) fn open_classic_panel(
+        &mut self,
+        console: &ViewerConsole,
+        page: Page,
+        entry: Entry,
+        frame: Frame,
+        target: ReturnTarget,
+    ) -> bool {
+        match entry.panel() {
+            Some(Panel::Settings { caption, span }) => {
+                let Some(tab) = SettingsMenu::tab_index(caption) else {
+                    return false;
+                };
+                self.keybinds.leave_classic();
+                self.settings.open_classic(console, tab, span, frame);
+                self.keybinds_direct = false;
+                self.state.open_settings();
+            }
+            Some(Panel::Keybinds { category, span }) => {
+                self.settings.leave_classic();
+                self.keybinds.open_classic(console, category as usize, span);
+                self.keybinds_direct = true;
+                self.state.open_keybinds();
+            }
+            None => return false,
+        }
+        self.settings_return = target;
+        self.classic_panel = Some(ClassicPanel { page, entry, frame });
+        true
+    }
+
+    /// The in-game bar's Setup or Controls: the pop-up on its first group.
+    pub(crate) fn open_classic_panel_from_game(&mut self, console: &ViewerConsole, page: Page) {
+        if let Some(entry) = page.opening_panel() {
+            self.open_classic_panel(console, page, entry, Frame::InGame, ReturnTarget::InGame);
+        }
+    }
+
+    /// The classic panel to draw this frame, while the classic style is on.
+    pub(super) fn classic_panel_frame(&self) -> Option<PanelFrame> {
+        let panel = self
+            .classic_panel
+            .filter(|_| self.menu_style == super::style::MenuStyle::Classic)?;
+        Some(PanelFrame {
+            frame: panel.frame,
+            page: panel.page,
+            active: panel.entry,
+            art: self.art,
+        })
+    }
+
+    /// Close the classic panel, leaving the settings and key-binding
+    /// screens in their modern form.
+    pub(super) fn leave_classic_panel(&mut self) -> bool {
+        self.settings.leave_classic();
+        self.keybinds.leave_classic();
+        self.classic_panel.take().is_some()
+    }
+
+    /// A button of the panel screen: another group, another page, or a
+    /// screen the main page opens.
+    pub(super) fn classic_panel_button(
+        &mut self,
+        index: usize,
+        console: &mut ViewerConsole,
+    ) -> MenuAction {
+        let Some(panel) = self.classic_panel else {
+            return MenuAction::None;
+        };
+        let Some(slot) = panel.page.slots().get(index).filter(|slot| slot.enabled()) else {
+            return MenuAction::None;
+        };
+        let target = self.settings_return;
+        if slot.entry.panel().is_some() {
+            self.open_classic_panel(console, panel.page, slot.entry, panel.frame, target);
+            return MenuAction::None;
+        }
+        match slot.entry.outcome() {
+            Outcome::Page(page) => {
+                if let Some(entry) = page.opening_panel() {
+                    self.open_classic_panel(console, page, entry, panel.frame, target);
+                } else {
+                    self.leave_classic_panel();
+                    self.state.main_menu();
+                    self.classic.show(page);
+                }
+                MenuAction::None
+            }
+            Outcome::Open(destination) => {
+                self.leave_classic_panel();
+                self.open_main_destination(destination, console)
+            }
+            _ => MenuAction::None,
+        }
+    }
+
+    /// Tab on a panel: the next (1) or previous (-1) group of its list.
+    pub(super) fn classic_panel_cycle(&mut self, direction: i32, console: &ViewerConsole) {
+        let Some(panel) = self.classic_panel else {
+            return;
+        };
+        let groups: Vec<Entry> = panel
+            .page
+            .slots()
+            .iter()
+            .map(|slot| slot.entry)
+            .filter(|entry| entry.panel().is_some())
+            .collect();
+        let Some(current) = groups.iter().position(|entry| *entry == panel.entry) else {
+            return;
+        };
+        let next = groups[(current as i32 + direction).rem_euclid(groups.len() as i32) as usize];
+        let target = self.settings_return;
+        self.open_classic_panel(console, panel.page, next, panel.frame, target);
     }
 
     /// Escape on the classic main menu: the opening page asks to quit, the

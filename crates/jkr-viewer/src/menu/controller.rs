@@ -40,10 +40,22 @@ impl ClientMenu {
                 let reveal = self.screen_reveal();
                 self.append_browser(vertices, font, viewport, reveal);
             }
-            ClientPhase::Settings => self.append_settings(vertices, font, viewport, scale),
+            ClientPhase::Settings => match self.classic_panel_frame() {
+                Some(frame) => {
+                    let reveal = self.screen_reveal();
+                    self.settings
+                        .append_classic(vertices, font, viewport, reveal, &frame);
+                }
+                None => self.append_settings(vertices, font, viewport, scale),
+            },
             ClientPhase::Keybinds => {
                 let reveal = self.screen_reveal();
-                self.keybinds.append(vertices, font, viewport, reveal);
+                match self.classic_panel_frame() {
+                    Some(frame) => self
+                        .keybinds
+                        .append_classic(vertices, font, viewport, reveal, &frame),
+                    None => self.keybinds.append(vertices, font, viewport, reveal),
+                }
             }
             ClientPhase::Player => {
                 let reveal = self.screen_reveal();

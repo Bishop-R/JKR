@@ -74,9 +74,11 @@ impl GpuState {
             // Unavailable outside Siege and inside it; kept for completeness.
             Tab::AddBot => {}
             Tab::Controls => {
-                self.open_settings_from_game(crate::settings::SettingsMenu::keybinds_tab());
+                self.open_classic_panel_from_game(crate::menu::classic::layout::Page::Controls);
             }
-            Tab::Setup => self.open_settings_from_game(0),
+            Tab::Setup => {
+                self.open_classic_panel_from_game(crate::menu::classic::layout::Page::Setup);
+            }
             Tab::Vote => self.open_game_menu_page(Page::Vote),
             Tab::CallVote => {
                 let game_state = self.live_session.as_ref().map(ClientSession::game_state);

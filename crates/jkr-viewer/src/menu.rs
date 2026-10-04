@@ -132,6 +132,9 @@ pub(crate) struct ClientMenu {
     menu_style: MenuStyle,
     /// Page and entry of the classic main menu.
     classic: classic::ClassicMain,
+    /// The classic option panel on show in the settings or key-binding
+    /// phase, if any.
+    classic_panel: Option<classic::ClassicPanel>,
     /// Retail menu artwork the classic style can draw this frame.
     art: art::ArtSet,
     /// The classic connect and loading screens' state.
@@ -200,6 +203,7 @@ impl ClientMenu {
             main_selection: 0,
             menu_style: MenuStyle::default(),
             classic: classic::ClassicMain::new(),
+            classic_panel: None,
             art: art::ArtSet::default(),
             loading: classic::loading::ClassicLoading::default(),
             world_hidden: false,
@@ -464,11 +468,57 @@ impl ClientMenu {
         self.state.open_settings();
     }
 
+    /// Act on what the settings screen asked for.
+    pub(super) fn settings_result(
+        &mut self,
+        result: SettingsResult,
+        console: &mut ViewerConsole,
+    ) -> MenuAction {
+        match result {
+            SettingsResult::Back => self.close_settings(),
+            SettingsResult::OpenKeybinds => {
+                self.keybinds.open(console);
+                self.keybinds_direct = false;
+                self.state.open_keybinds();
+                MenuAction::None
+            }
+            SettingsResult::Classic(index) => self.classic_panel_button(index, console),
+            SettingsResult::ClassicCycle(direction) => {
+                self.classic_panel_cycle(direction, console);
+                MenuAction::None
+            }
+            SettingsResult::None => MenuAction::None,
+        }
+    }
+
+    /// Act on what the key-binding editor asked for.
+    pub(super) fn keybinds_result(
+        &mut self,
+        result: EditorResult,
+        console: &mut ViewerConsole,
+    ) -> MenuAction {
+        match result {
+            EditorResult::Back => self.close_keybinds(console),
+            EditorResult::Classic(index) => self.classic_panel_button(index, console),
+            EditorResult::ClassicCycle(direction) => {
+                self.classic_panel_cycle(direction, console);
+                MenuAction::None
+            }
+            EditorResult::None => MenuAction::None,
+        }
+    }
+
     /// Close the settings screen toward wherever it was opened from.
     pub(super) fn close_settings(&mut self) -> MenuAction {
+        let classic_panel = self.leave_classic_panel();
         match self.settings_return {
             ReturnTarget::MainMenu => {
                 self.state.main_menu();
+                // Escape on a retail Setup or Controls page closes it to the
+                // main page.
+                if classic_panel {
+                    self.classic.show(classic::layout::Page::Main);
+                }
                 MenuAction::None
             }
             ReturnTarget::InGame => {
@@ -700,22 +750,13 @@ impl ClientMenu {
                 }
                 _ => MenuAction::None,
             },
-            ClientPhase::Settings => match self.settings.handle_key(event, console) {
-                SettingsResult::Back => self.close_settings(),
-                SettingsResult::OpenKeybinds => {
-                    self.keybinds.open(console);
-                    self.keybinds_direct = false;
-                    self.state.open_keybinds();
-                    MenuAction::None
-                }
-                SettingsResult::None => MenuAction::None,
-            },
+            ClientPhase::Settings => {
+                let result = self.settings.handle_key(event, console);
+                self.settings_result(result, console)
+            }
             ClientPhase::Keybinds => {
-                if matches!(self.keybinds.handle_key(event, console), EditorResult::Back) {
-                    self.close_keybinds(console)
-                } else {
-                    MenuAction::None
-                }
+                let result = self.keybinds.handle_key(event, console);
+                self.keybinds_result(result, console)
             }
             ClientPhase::Player => match self.player.handle_key(event, console) {
                 PlayerMenuResult::None => MenuAction::None,

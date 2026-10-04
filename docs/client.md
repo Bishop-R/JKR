@@ -46,25 +46,52 @@ The classic main menu has the retail pages, entries and order:
   Escape ask before quitting.
 - Play: Solo Game, Join Server, Create Server, Play Demo and Rules. Solo Game
   and Create Server both open Create game, which hosts a local match with bots.
-- Controls: Movement, Interaction, Weapons, Force Powers 1 and 2 and Other open
-  the key-binding editor on that tab (both Force pages on its one Force tab);
-  Mouse/Joystick opens Settings on the CONTROLS tab. The editor opened this way
-  closes back to the classic page.
-- Setup: Video and More Video open Settings on VIDEO, Sound on AUDIO and Game
-  Options on GAME; HUD and Network follow as JKR additions.
+- Controls and Setup are option panels, as retail's `controls.menu` and
+  `setup.menu` are (described below).
 - Every sub-page repeats the retail navigation row (Play, Profile, Controls,
   Setup) and has Back and Exit. Profile opens the Player screen.
 
 Retail entries JKR has no screen for yet (Play Demo, Rules, Mods, Defaults) are
 shown dimmed, and their description line says so.
 
+Controls and Setup keep their group list down the left and show the chosen
+group's items in the panel beside it, opening on Movement and Video as retail's
+pages do. The items are the same settings and key bindings as the modern
+screens, drawn the retail way: labels set against a column at retail `textalignx`,
+the value after them, toggles as Yes/No, numbers as the retail slider (`menu/new`
+art) with the value beside it, the focused item on the `menu_blendbox`
+highlight, and the open group's entry in white.
+
+- Setup: Video (resolution, display mode, sync, frame cap, field of view) and More
+  Video (the rest of the VIDEO settings: marks, shadows, gun, readouts, gamma)
+  split the VIDEO tab as retail splits its two video groups; Sound is AUDIO and
+  Game Options is GAME. HUD, More HUD (the HUD+ tab) and Network follow as JKR
+  additions.
+- Controls: Movement, Interaction, Weapons and Other are the key-binding
+  categories; Force Powers 1 holds the use/next/previous power and push, pull,
+  speed and seeing binds, as retail's first Force page does, and Force Powers 2
+  the rest. Mouse/Joystick shows the CONTROLS settings.
+
+Up and Down move through the items, Left and Right (or Enter) change a value,
+and typing or Enter on a number edits it exactly; clicking a slider sets it.
+Tab moves to the next group (on the key-binding groups, Left and Right do too). A key binding reads "A or B" (retail's `KEYBIND_OR`)
+or `???` when unbound; Enter or a click waits for the new key, shown in red with
+retail's "Enter new key, or ESC to cancel, BACKSPACE to clear.", and Backspace
+clears every key of the action. Escape closes the page to the main page.
+
+The classic in-game bar's Setup and Controls open the same panels as retail's
+`ingame_setup` and `ingame_controls` pop-ups: a box under the bar with the
+group list and panel at their in-game positions and no navigation row, closing
+back to the bar. Switching the Menu style (on Game Options) while a panel is
+open continues on the modern settings screen.
+
 The classic in-game menu (Escape during a match) is the retail top bar: About,
 Join, Profile, Add Bot, Controls, Setup, Vote, Call Vote and Exit. Each opens a
 pop-up under it or the matching screen. About shows the server info. Join picks
 a team, or opens the class list in Siege. Vote is Yes/No. Call Vote opens the
 call-vote lists. Exit offers Main Menu, Restart Match and Quit Program, each
-with a Yes/No confirmation. Profile, Controls and Setup open the Player screen
-and Settings. Siege swaps in Objectives and V Chat as retail does. Add Bot,
+with a Yes/No confirmation. Profile opens the Player screen; Controls and Setup
+open the option panels described above. Siege swaps in Objectives and V Chat as retail does. Add Bot,
 Objectives, V Chat and Restart Match are dimmed with a note, because the client
 cannot add bots or restart a match it does not host. Left and Right move along
 the bar; Escape closes a pop-up, then the menu. The JKR-only Server browser and
@@ -72,7 +99,8 @@ Shot controls entries are in the modern style only.
 
 With the player's retail game data mounted, the classic menus draw its own
 artwork: the backdrop, side glyph columns, ring, windows, logo, sub-page frames,
-button glow, in-game bar and pop-up boxes from `gfx/menus`. The art is decoded
+button glow, list glow (`menu_buttonback2`), slider bar and thumb
+(`menu/new`), in-game bar and pop-up boxes from `gfx/menus`. The art is decoded
 once on a worker thread the first time the classic style is used, and the UI
 renderer uploads it into one texture per image, separate from the shared UI icon
 atlas. Its bind group changes only between draw runs that need a different
@@ -118,6 +146,11 @@ The code is in [menu/classic.rs](../crates/jkr-viewer/src/menu/classic.rs): the
 page tables are in [pages.rs](../crates/jkr-viewer/src/menu/classic/pages.rs),
 types and geometry in [layout.rs](../crates/jkr-viewer/src/menu/classic/layout.rs)
 and drawing in [view.rs](../crates/jkr-viewer/src/menu/classic/view.rs). The
+option panels' frame is [panel.rs](../crates/jkr-viewer/src/menu/classic/panel.rs);
+their items are drawn by
+[settings/classic_view.rs](../crates/jkr-viewer/src/settings/classic_view.rs) and
+[keybind_editor/classic_view.rs](../crates/jkr-viewer/src/keybind_editor/classic_view.rs).
+The
 in-game version is in
 [ingame_menu/classic.rs](../crates/jkr-viewer/src/ingame_menu/classic.rs), with
 [classic_view.rs](../crates/jkr-viewer/src/ingame_menu/classic_view.rs) and
@@ -133,9 +166,11 @@ Planned follow-ups, each a new page or screen module, following the retail
 - Classic versions of the screens the classic pages still open in the modern
   style: Join Server (`joinserver`, `serverinfo`, `findplayer`, `password`,
   `createfavorite`), Create Server (`createserver`, `advancedcreateserver`),
-  Solo Game (`quickgame`), Profile (`player`, `player2`, `saber`), the
-  controls and setup option panels, and the in-game `ingame_player`,
-  `ingame_controls` and `ingame_setup`.
+  Solo Game (`quickgame`), Profile (`player`, `player2`, `saber`), and the
+  in-game `ingame_player`.
+- Retail option items JKR has no setting for (video quality presets, colour
+  depth, geometric and texture detail, EAX, languages) are left out of the
+  panels, and the video restart confirmation is not needed.
 - The screens with no JKR equivalent yet: Play Demo (`demo`), Rules
   (`rules*`), Mods, Defaults, Add Bot (`ingame_addbot`), Siege objectives and
   voice chat, and the error page (`error`).

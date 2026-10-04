@@ -9,6 +9,7 @@ use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{KeyCode, PhysicalKey};
 
 mod catalog;
+mod classic_view;
 mod numeric;
 mod pointer;
 mod view;
@@ -19,6 +20,18 @@ pub(crate) enum SettingsResult {
     None,
     Back,
     OpenKeybinds,
+    /// A button of the classic panel screen around the options: index into
+    /// its page's slots.
+    Classic(usize),
+    /// Move the classic panel to the next (1) or previous (-1) group.
+    ClassicCycle(i32),
+}
+
+/// The rows a classic option panel shows: a span of the tab, and where its
+/// slider bars sit across a row.
+struct ClassicRows {
+    rows: std::ops::Range<usize>,
+    slider_span: (f32, f32),
 }
 
 pub(crate) struct SettingsMenu {
@@ -27,6 +40,8 @@ pub(crate) struct SettingsMenu {
     values: Vec<String>,
     editing: Option<String>,
     numeric: Option<crate::menu_widgets::numeric::NumericEdit>,
+    /// Set while the screen is a classic option panel.
+    classic: Option<ClassicRows>,
     ui: MenuCanvas,
 }
 
@@ -38,6 +53,7 @@ impl SettingsMenu {
             values: Vec::with_capacity(12),
             editing: None,
             numeric: None,
+            classic: None,
             ui: MenuCanvas::new(),
         }
     }
@@ -45,6 +61,12 @@ impl SettingsMenu {
     /// Index of the tab that carries the "Key bindings" row.
     pub(crate) fn keybinds_tab() -> usize {
         KEYBINDS_TAB
+    }
+
+    /// Rows of tab `tab` (without the key-bindings row).
+    #[cfg(test)]
+    pub(crate) fn tab_len(tab: usize) -> usize {
+        settings(tab).len()
     }
 
     /// Index of the tab captioned `caption` (`"AUDIO"`), if there is one.
@@ -62,7 +84,17 @@ impl SettingsMenu {
         self.selected = 0;
         self.editing = None;
         self.numeric = None;
+        self.classic = None;
         self.refresh(console);
+    }
+
+    /// Rows keyboard focus moves through: the classic panel's span, or the
+    /// whole tab (with its key-bindings row).
+    fn row_span(&self) -> std::ops::Range<usize> {
+        match &self.classic {
+            Some(classic) => classic.rows.clone(),
+            None => 0..settings(self.tab).len() + usize::from(self.tab == KEYBINDS_TAB),
+        }
     }
     pub(crate) fn visual_selection(&self) -> (usize, bool) {
         (self.selected, false)
@@ -114,8 +146,19 @@ impl SettingsMenu {
         if event.repeat {
             return SettingsResult::None;
         }
-        let count = settings(self.tab).len() + usize::from(self.tab == KEYBINDS_TAB);
+        let span = self.row_span();
+        if span.is_empty() {
+            return match key {
+                KeyCode::Escape => SettingsResult::Back,
+                _ => SettingsResult::None,
+            };
+        }
+        let classic = self.classic.is_some();
         match key {
+            KeyCode::Tab | KeyCode::BracketRight if classic => {
+                return SettingsResult::ClassicCycle(1);
+            }
+            KeyCode::BracketLeft if classic => return SettingsResult::ClassicCycle(-1),
             KeyCode::Tab | KeyCode::BracketRight => {
                 self.tab = (self.tab + 1) % TABS.len();
                 self.selected = 0;
@@ -127,9 +170,19 @@ impl SettingsMenu {
                 self.refresh(console);
             }
             KeyCode::ArrowUp | KeyCode::KeyW => {
-                self.selected = self.selected.checked_sub(1).unwrap_or(count - 1)
+                self.selected = if self.selected <= span.start {
+                    span.end - 1
+                } else {
+                    (self.selected - 1).min(span.end - 1)
+                };
             }
-            KeyCode::ArrowDown | KeyCode::KeyS => self.selected = (self.selected + 1) % count,
+            KeyCode::ArrowDown | KeyCode::KeyS => {
+                self.selected = if self.selected + 1 >= span.end || self.selected < span.start {
+                    span.start
+                } else {
+                    self.selected + 1
+                };
+            }
             KeyCode::ArrowLeft | KeyCode::KeyA => self.adjust(console, -1),
             KeyCode::ArrowRight | KeyCode::KeyD => self.adjust(console, 1),
             KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space

@@ -47,6 +47,9 @@ impl ClientMenu {
             self.menu_style = style;
             self.main_selection = 0;
             self.classic.reset();
+            // An open option panel carries on as the modern screen (the
+            // Menu style row itself sits on the Game Options panel).
+            self.leave_classic_panel();
         }
     }
 

@@ -4,10 +4,13 @@ use super::{TextVertex, UiFont};
 use crate::console::ViewerConsole;
 use crate::menu_widgets::{BACK_TOKEN, FormLayout, MenuCanvas, Scrim, TAB_BASE};
 mod catalog;
+mod classic_view;
 mod pointer;
 
-pub(crate) use catalog::{ACTIONS, Category, default_bindings, migrate_missing_defaults};
-use catalog::{CATEGORIES, category_range};
+use catalog::CATEGORIES;
+pub(crate) use catalog::{
+    ACTIONS, Category, category_range, default_bindings, migrate_missing_defaults,
+};
 use jkr_ui::{DrawList, Rect};
 use std::ops::Range;
 use winit::event::{ElementState, KeyEvent, MouseButton};
@@ -29,6 +32,11 @@ const SECONDARY_BASE: u16 = 600;
 pub(crate) enum EditorResult {
     None,
     Back,
+    /// A button of the classic panel screen around the bindings: index into
+    /// its page's slots.
+    Classic(usize),
+    /// Move the classic panel to the next (1) or previous (-1) group.
+    ClassicCycle(i32),
 }
 
 pub(crate) struct KeybindEditor {
@@ -42,6 +50,8 @@ pub(crate) struct KeybindEditor {
     capture: bool,
     binding_slot: usize,
     keys: Vec<[String; 2]>,
+    /// `ACTIONS` rows of a classic option panel, while the screen is one.
+    classic: Option<Range<usize>>,
     ui: MenuCanvas,
 }
 
@@ -55,18 +65,23 @@ impl KeybindEditor {
             capture: false,
             binding_slot: 0,
             keys: Vec::with_capacity(ACTIONS.len()),
+            classic: None,
             ui: MenuCanvas::new(),
         }
     }
 
     pub(crate) fn open(&mut self, console: &ViewerConsole) {
         self.capture = false;
+        if self.classic.take().is_some() {
+            self.set_tab(self.tab);
+        }
         self.refresh(console);
     }
 
     /// Open on category tab `category` (retail's controls pages, in
     /// [`catalog::Category`] order), clamped to the last tab.
     pub(crate) fn open_category(&mut self, console: &ViewerConsole, category: usize) {
+        self.classic = None;
         self.set_tab(category.min(CATEGORIES.len() - 1));
         self.refresh(console);
     }
@@ -95,6 +110,13 @@ impl KeybindEditor {
                 self.capture = false;
                 return EditorResult::None;
             }
+            // Retail's prompt: "Enter new key, or ESC to cancel, BACKSPACE
+            // to clear."
+            if self.classic.is_some() && key == KeyCode::Backspace {
+                self.clear_both(console);
+                self.capture = false;
+                return EditorResult::None;
+            }
             let Some(key) = crate::input::keys::name(crate::input::keys::Source::Key(key)) else {
                 return EditorResult::None;
             };
@@ -102,6 +124,19 @@ impl KeybindEditor {
             self.capture = false;
             self.refresh(console);
             return EditorResult::None;
+        }
+        if self.classic.is_some() {
+            match key {
+                KeyCode::Tab | KeyCode::ArrowRight | KeyCode::KeyD => {
+                    return EditorResult::ClassicCycle(1);
+                }
+                KeyCode::ArrowLeft | KeyCode::KeyA => return EditorResult::ClassicCycle(-1),
+                KeyCode::Delete | KeyCode::Backspace => {
+                    self.clear_both(console);
+                    return EditorResult::None;
+                }
+                _ => {}
+            }
         }
         match key {
             KeyCode::ArrowUp | KeyCode::KeyW => self.move_selection(-1),
@@ -140,9 +175,22 @@ impl KeybindEditor {
         true
     }
 
-    /// `ACTIONS` range of the current tab.
+    /// `ACTIONS` range of the current tab, or of the classic panel.
     fn rows(&self) -> Range<usize> {
-        category_range(self.tab)
+        match &self.classic {
+            Some(rows) => rows.clone(),
+            None => category_range(self.tab),
+        }
+    }
+
+    /// Clear every key bound to the selected action, as retail's Backspace
+    /// does.
+    fn clear_both(&mut self, console: &mut ViewerConsole) {
+        let command = ACTIONS[self.selected].command;
+        for _ in 0..console.keys_for_command(command).len() {
+            console.clear_action(command, 0);
+        }
+        self.refresh(console);
     }
 
     fn set_tab(&mut self, tab: usize) {

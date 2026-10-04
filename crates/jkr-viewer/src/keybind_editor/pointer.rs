@@ -15,6 +15,12 @@ impl KeybindEditor {
         let Some(token) = event.token else {
             return EditorResult::None;
         };
+        if let Some(slot) = crate::menu::classic::panel::chrome_slot(token) {
+            return match event.kind {
+                UiEventKind::Activate if self.classic.is_some() => EditorResult::Classic(slot),
+                _ => EditorResult::None,
+            };
+        }
         let row = usize::from(token);
         if self.rows().contains(&row)
             && !self.capture

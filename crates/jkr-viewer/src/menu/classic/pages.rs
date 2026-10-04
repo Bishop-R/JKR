@@ -272,7 +272,7 @@ const CONTROLS: [Slot; 13] = {
 
 /// Retail `setup.menu`: the option pages down the left, then the settings
 /// JKR adds (HUD, network) after them.
-const SETUP: [Slot; 14] = {
+const SETUP: [Slot; 15] = {
     let [play, profile, controls, setup] = nav_row();
     let [back, exit] = back_exit();
     [
@@ -323,10 +323,16 @@ const SETUP: [Slot; 14] = {
             329.0,
         ),
         list_row(
+            Entry::MoreHud,
+            "MORE HUD",
+            "Crosshair size, team status and speed readout",
+            353.0,
+        ),
+        list_row(
             Entry::Network,
             "NETWORK",
             "Master server and connection rates",
-            353.0,
+            377.0,
         ),
         back,
         exit,

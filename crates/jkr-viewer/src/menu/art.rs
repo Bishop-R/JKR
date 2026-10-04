@@ -82,11 +82,18 @@ pub(crate) enum ArtPiece {
     /// The same cap mirrored, for the fill's left end, which retail draws
     /// with a negative width.
     LoadCapLeft,
+    /// `menu_buttonback2` (shader `menu_blendbox2`): the glow behind the
+    /// focused entry of a Setup or Controls list.
+    BlendBox2,
+    /// `menu/new/slider`: the option panels' slider bar.
+    Slider,
+    /// `menu/new/sliderthumb`: the option panels' slider thumb.
+    SliderThumb,
 }
 
 impl ArtPiece {
     /// Every piece, in [`ArtPiece`] order.
-    pub(crate) const ALL: [Self; 20] = [
+    pub(crate) const ALL: [Self; 23] = [
         Self::Background,
         Self::SideLeft,
         Self::SideRight,
@@ -107,6 +114,9 @@ impl ArtPiece {
         Self::LoadTick,
         Self::LoadCap,
         Self::LoadCapLeft,
+        Self::BlendBox2,
+        Self::Slider,
+        Self::SliderThumb,
     ];
     pub(crate) const COUNT: usize = Self::ALL.len();
 
@@ -132,6 +142,9 @@ impl ArtPiece {
             Self::LoadFrame => "gfx/hud/mp_levelload",
             Self::LoadTick => "gfx/hud/load_tick2",
             Self::LoadCap | Self::LoadCapLeft => "gfx/hud/load_tick_cap",
+            Self::BlendBox2 => "gfx/menus/menu_buttonback2",
+            Self::Slider => "menu/new/slider",
+            Self::SliderThumb => "menu/new/sliderthumb",
         }
     }
 
@@ -144,7 +157,10 @@ impl ArtPiece {
             | Self::LoadFrame
             | Self::LoadTick
             | Self::LoadCap
-            | Self::LoadCapLeft => Blend::Additive,
+            | Self::LoadCapLeft
+            | Self::BlendBox2
+            | Self::Slider
+            | Self::SliderThumb => Blend::Additive,
             _ => Blend::Alpha,
         }
     }

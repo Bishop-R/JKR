@@ -15,6 +15,12 @@ impl SettingsMenu {
         let Some(token) = event.token else {
             return SettingsResult::None;
         };
+        if let Some(slot) = crate::menu::classic::panel::chrome_slot(token) {
+            return match event.kind {
+                UiEventKind::Activate if self.classic.is_some() => SettingsResult::Classic(slot),
+                _ => SettingsResult::None,
+            };
+        }
         if event.kind == UiEventKind::Press
             && crate::menu_widgets::numeric::value_row(token).is_none()
         {
@@ -33,10 +39,10 @@ impl SettingsMenu {
         }
         if event.kind == UiEventKind::Wheel {
             let direction = event.delta.map_or(0, |delta| -delta.y.signum() as i32);
-            let count = settings(self.tab).len() + usize::from(self.tab == KEYBINDS_TAB);
-            if direction != 0 && count > 0 {
+            let span = self.row_span();
+            if direction != 0 && !span.is_empty() {
                 self.selected = (self.selected as i32 + direction)
-                    .clamp(0, count.saturating_sub(1) as i32)
+                    .clamp(span.start as i32, span.end as i32 - 1)
                     as usize;
             }
             return SettingsResult::None;
@@ -94,7 +100,11 @@ impl SettingsMenu {
 
     fn setting_row(&self, token: u16) -> Option<usize> {
         let row = crate::menu_widgets::numeric::value_row(token).unwrap_or(usize::from(token));
-        (row < settings(self.tab).len()).then_some(row)
+        let shown = match &self.classic {
+            Some(classic) => classic.rows.contains(&row),
+            None => true,
+        };
+        (row < settings(self.tab).len() && shown).then_some(row)
     }
 
     fn set_numeric_from_pointer(
@@ -109,7 +119,12 @@ impl SettingsMenu {
         let Some(rect) = self.ui.rect_for(row as u16) else {
             return false;
         };
-        let ratio = self.ui.slider_ratio(rect, pointer_x);
+        let ratio = match &self.classic {
+            Some(classic) => {
+                crate::menu::classic::panel::slider_ratio(rect, pointer_x, classic.slider_span)
+            }
+            None => self.ui.slider_ratio(rect, pointer_x),
+        };
         let value = match setting.kind {
             ValueKind::Integer { min, max, step } => {
                 let raw = min as f32 + (max - min) as f32 * ratio;

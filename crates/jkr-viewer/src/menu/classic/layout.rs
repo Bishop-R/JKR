@@ -61,6 +61,7 @@ pub(crate) enum Entry {
     Mods,
     Defaults,
     Hud,
+    MoreHud,
     Network,
     Back,
     No,
@@ -212,8 +213,112 @@ impl Entry {
             Self::Sound => Outcome::Settings("AUDIO"),
             Self::GameOptions => Outcome::Settings("GAME"),
             Self::Hud => Outcome::Settings("HUD"),
+            Self::MoreHud => Outcome::Settings("HUD+"),
             Self::Network => Outcome::Settings("NETWORK"),
             Self::PlayDemo | Self::Rules | Self::Mods | Self::Defaults => Outcome::Unavailable,
+        }
+    }
+}
+
+/// Rows of an option group, as offsets into its settings tab or key-binding
+/// category: `start..end`, with `end` clamped to the group's length.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Span {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+}
+
+impl Span {
+    /// Every row of the group.
+    pub(crate) const ALL: Self = Self {
+        start: 0,
+        end: usize::MAX,
+    };
+
+    const fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    /// The absolute rows of this span inside a group of `len` rows that
+    /// starts at row `base`.
+    pub(crate) fn within(self, base: usize, len: usize) -> std::ops::Range<usize> {
+        let start = self.start.min(len);
+        base + start..base + self.end.clamp(start, len)
+    }
+}
+
+/// The option group a Setup or Controls entry shows in the classic option
+/// panel, as retail's `setup.menu` and `controls.menu` show a group of items
+/// beside their list.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Panel {
+    /// Rows of the settings tab with this caption.
+    Settings { caption: &'static str, span: Span },
+    /// Rows of a key-binding category.
+    Keybinds { category: Category, span: Span },
+}
+
+/// Rows of the settings VIDEO tab that retail's Video group covers
+/// (resolution, display mode, sync, frame cap, field of view); More Video
+/// holds the rest (marks, shadows, gamma), as retail's second video group
+/// holds brightness and wall marks.
+const VIDEO_ROWS: usize = 5;
+/// Retail's Force Powers 1 page binds push, pull, speed and seeing and the
+/// use/next/previous power commands: the first seven Force actions.
+const FORCE_PAGE_ONE: usize = 7;
+
+impl Entry {
+    /// The option group this entry shows in the classic panel; `None` for
+    /// entries that are not option groups, or that JKR cannot show yet.
+    pub(crate) fn panel(self) -> Option<Panel> {
+        let settings = |caption| Panel::Settings {
+            caption,
+            span: Span::ALL,
+        };
+        let keybinds = |category| Panel::Keybinds {
+            category,
+            span: Span::ALL,
+        };
+        Some(match self {
+            Self::Video => Panel::Settings {
+                caption: "VIDEO",
+                span: Span::new(0, VIDEO_ROWS),
+            },
+            Self::MoreVideo => Panel::Settings {
+                caption: "VIDEO",
+                span: Span::new(VIDEO_ROWS, usize::MAX),
+            },
+            Self::Sound => settings("AUDIO"),
+            Self::GameOptions => settings("GAME"),
+            Self::Hud => settings("HUD"),
+            Self::MoreHud => settings("HUD+"),
+            Self::Network => settings("NETWORK"),
+            Self::MouseJoystick => settings("CONTROLS"),
+            Self::Movement => keybinds(Category::Movement),
+            Self::Interaction => keybinds(Category::Interaction),
+            Self::Weapons => keybinds(Category::Weapons),
+            Self::ForcePowers1 => Panel::Keybinds {
+                category: Category::Force,
+                span: Span::new(0, FORCE_PAGE_ONE),
+            },
+            Self::ForcePowers2 => Panel::Keybinds {
+                category: Category::Force,
+                span: Span::new(FORCE_PAGE_ONE, usize::MAX),
+            },
+            Self::OtherControls => keybinds(Category::Other),
+            _ => return None,
+        })
+    }
+}
+
+impl Page {
+    /// The group a panel page shows when it opens, as retail's `onOpen`
+    /// shows Video and Movement; `None` for pages without a panel.
+    pub(crate) fn opening_panel(self) -> Option<Entry> {
+        match self {
+            Self::Setup => Some(Entry::Video),
+            Self::Controls => Some(Entry::Movement),
+            _ => None,
         }
     }
 }
@@ -432,6 +537,88 @@ mod tests {
         for page in [Page::Play, Page::Controls, Page::Setup, Page::Quit] {
             assert!(pages.contains(&page), "{page:?}");
         }
+    }
+
+    #[test]
+    fn every_group_has_a_panel_or_says_why_not() {
+        for page in [Page::Setup, Page::Controls] {
+            assert!(
+                page.opening_panel().and_then(Entry::panel).is_some(),
+                "{page:?}"
+            );
+            for slot in page.slots().iter().filter(|slot| slot.size == Size::List) {
+                assert_eq!(
+                    slot.entry.panel().is_some(),
+                    slot.enabled(),
+                    "{:?}",
+                    slot.entry
+                );
+                if let Some(Panel::Settings { caption, .. }) = slot.entry.panel() {
+                    assert!(SettingsMenu::tab_index(caption).is_some(), "{caption}");
+                }
+            }
+        }
+        for page in [Page::Main, Page::Play, Page::Quit] {
+            assert_eq!(page.opening_panel(), None);
+        }
+    }
+
+    #[test]
+    fn video_groups_split_the_video_tab() {
+        let tab = SettingsMenu::tab_index("VIDEO").unwrap();
+        let len = SettingsMenu::tab_len(tab);
+        let rows = |entry: Entry| match entry.panel() {
+            Some(Panel::Settings { span, .. }) => span.within(0, len),
+            other => panic!("{other:?}"),
+        };
+        let video = rows(Entry::Video);
+        let more = rows(Entry::MoreVideo);
+        assert_eq!(video.start, 0);
+        assert_eq!(video.end, more.start);
+        assert_eq!(more.end, len);
+        assert!(!video.is_empty() && !more.is_empty());
+    }
+
+    #[test]
+    fn force_pages_bind_retail_commands() {
+        let rows = |entry: Entry| match entry.panel() {
+            Some(Panel::Keybinds { category, span }) => {
+                let all = crate::keybind_editor::category_range(category as usize);
+                span.within(all.start, all.len())
+            }
+            other => panic!("{other:?}"),
+        };
+        let commands = |entry| -> Vec<&str> {
+            rows(entry)
+                .map(|row| crate::keybind_editor::ACTIONS[row].command)
+                .collect()
+        };
+        let mut first = commands(Entry::ForcePowers1);
+        first.sort_unstable();
+        assert_eq!(
+            first,
+            [
+                "+useforce",
+                "force_pull",
+                "force_seeing",
+                "force_speed",
+                "force_throw",
+                "forcenext",
+                "forceprev"
+            ]
+        );
+        let all = crate::keybind_editor::category_range(Category::Force as usize);
+        assert_eq!(
+            rows(Entry::ForcePowers1).len() + rows(Entry::ForcePowers2).len(),
+            all.len()
+        );
+    }
+
+    #[test]
+    fn spans_clamp_to_their_group() {
+        assert_eq!(Span::ALL.within(10, 4), 10..14);
+        assert_eq!(Span { start: 2, end: 9 }.within(10, 4), 12..14);
+        assert_eq!(Span { start: 6, end: 9 }.within(10, 4), 14..14);
     }
 
     #[test]

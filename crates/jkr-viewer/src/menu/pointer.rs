@@ -28,22 +28,13 @@ impl ClientMenu {
             return MenuAction::None;
         }
         match self.state.phase() {
-            ClientPhase::Settings => match self.settings.handle_pointer(event, console) {
-                SettingsResult::Back => self.close_settings(),
-                SettingsResult::OpenKeybinds => {
-                    self.keybinds.open(console);
-                    self.keybinds_direct = false;
-                    self.state.open_keybinds();
-                    MenuAction::None
-                }
-                SettingsResult::None => MenuAction::None,
-            },
+            ClientPhase::Settings => {
+                let result = self.settings.handle_pointer(event, console);
+                self.settings_result(result, console)
+            }
             ClientPhase::Keybinds => {
-                if self.keybinds.handle_pointer(event, console) == EditorResult::Back {
-                    self.close_keybinds(console)
-                } else {
-                    MenuAction::None
-                }
+                let result = self.keybinds.handle_pointer(event, console);
+                self.keybinds_result(result, console)
             }
             ClientPhase::Player => match self.player.handle_pointer(event, console) {
                 PlayerMenuResult::None => MenuAction::None,
