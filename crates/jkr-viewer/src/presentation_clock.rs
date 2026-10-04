@@ -65,9 +65,24 @@ pub(crate) struct SnapshotPresentationClock {
     time_nudge_millis: i64,
     last_presented_micros: i64,
     extrapolated_snapshot: bool,
+    local: bool,
 }
 
 impl SnapshotPresentationClock {
+    /// Follow an in-process authority without network interpolation or drift.
+    /// Its command clock already advances at wall-clock speed.
+    pub(crate) fn follow_local(&mut self, server_time: i32, now: Instant) {
+        self.upper_server_time = i64::from(server_time);
+        if self.local {
+            return;
+        }
+        self.anchor_server_micros = i64::from(server_time) * 1_000;
+        self.anchor_instant = now;
+        self.last_presented_micros = self.anchor_server_micros;
+        self.local = true;
+        self.extrapolated_snapshot = false;
+    }
+
     /// Start one default snapshot interval behind the initial authoritative time.
     pub(crate) fn new(server_time: i32, now: Instant) -> Self {
         let server_time = i64::from(server_time);
@@ -79,6 +94,7 @@ impl SnapshotPresentationClock {
             time_nudge_millis: 0,
             last_presented_micros: i64::MIN,
             extrapolated_snapshot: false,
+            local: false,
         }
     }
 
@@ -136,8 +152,13 @@ impl SnapshotPresentationClock {
     fn sample_micros(&mut self, now: Instant) -> i64 {
         let raw = self.raw_micros(now);
         self.observe_extrapolation(raw);
+        let nudge = if self.local {
+            0
+        } else {
+            self.time_nudge_millis
+        };
         self.last_presented_micros = raw
-            .saturating_sub(self.time_nudge_millis * 1_000)
+            .saturating_sub(nudge * 1_000)
             .max(self.last_presented_micros);
         self.last_presented_micros
     }

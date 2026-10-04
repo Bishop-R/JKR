@@ -333,6 +333,7 @@ pub(super) fn new(
         light_scale: std::cell::Cell::new(1.),
         debug: std::cell::Cell::new(0),
         ambient_fill: std::cell::Cell::new(0.025),
+        indirect_readability: std::cell::Cell::new([1., 1.]),
         gap_close: super::gap_close::Runtime::new(device, settings.resolution),
         gap_width: std::cell::Cell::new(4.),
         depth,

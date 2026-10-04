@@ -48,6 +48,10 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "Compose last-attacker chat when tracking is available",
     ),
     ("toggleconsole", "Toggle the console"),
+    (
+        "consolebrowser",
+        "Search commands and cvars and edit cvar values (F3 in the console)",
+    ),
     ("togglemenu", "Toggle the in-game menu"),
     ("cmd", "Forward arguments as a reliable server command"),
     ("clientinfo", "Print client state and userinfo"),
@@ -212,7 +216,13 @@ impl crate::GpuState {
                     .then(|| u16::try_from(snapshot.player.persistent[6]).ok())
                     .flatten()
             };
-            self.chat.update_roster(session.game_state());
+            self.chat.update_roster(
+                self.resident
+                    .session
+                    .as_ref()
+                    .unwrap_or(session)
+                    .game_state(),
+            );
             if self.chat.whisper_to(slot) {
                 self.gameplay_input.clear();
                 if let Some(console) = &mut self.console {
@@ -224,6 +234,13 @@ impl crate::GpuState {
     }
     /// Consume explicit service requests and nonblocking query replies each frame.
     pub(crate) fn run_client_commands(&mut self, audio: &mut Option<crate::GameAudio>) {
+        while let Some(command) = self
+            .console
+            .as_mut()
+            .and_then(|c| c.pending_chat.pop_front())
+        {
+            self.send_chat_command(&command);
+        }
         if self.live_presentation_ready()
             && self
                 .console
@@ -235,7 +252,13 @@ impl crate::GpuState {
         if let (Some(audio), Some(console)) = (audio.as_mut(), self.console.as_mut()) {
             audio.print_sound_starts(console);
         }
-        if let (Some(session), Some(console)) = (&mut self.live_session, &mut self.console) {
+        if let (Some(session), Some(console)) = (
+            self.resident
+                .session
+                .as_mut()
+                .or(self.live_session.as_mut()),
+            &mut self.console,
+        ) {
             while let Some(text) = session.pop_server_print() {
                 console.push_log(text);
             }
@@ -327,6 +350,12 @@ impl crate::GpuState {
             "toggleconsole" => {
                 if let Some(console) = &mut self.console {
                     console.set_open(!console.is_open());
+                }
+                self.sync_cursor_policy();
+            }
+            "consolebrowser" => {
+                if let Some(console) = &mut self.console {
+                    console.open_browser();
                 }
                 self.sync_cursor_policy();
             }

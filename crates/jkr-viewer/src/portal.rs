@@ -1,12 +1,9 @@
 //! The world beyond the menu's gate: the map the client is joining.
 //!
-//! As soon as the target map is known (from the browser row, or from the
-//! server's gamestate for an address join) it is loaded on the workers as a
-//! static preview — geometry and sky only, no session — while the connection
-//! proceeds. Once the preview is ready the gate is allowed to open, and every
-//! frame the preview is drawn first from a camera that mirrors the menu
-//! camera through the doorway; the menu world then draws over it without
-//! its own sky, so the destination shows wherever the menu world is open.
+//! Destination construction overlaps the connection. The gate draws a lightweight
+//! view of that world while opening, then hands the actual prepared world to the
+//! client for local exploration or live play. A verified gamestate supersedes
+//! speculative browser content; there is no second live-world build when it matches.
 
 pub(crate) mod clip;
 #[path = "portal_render.rs"]
@@ -163,6 +160,7 @@ pub(crate) enum View {
 /// load is in.
 pub(crate) struct Destination {
     session_feed: Option<i32>,
+    build: Option<(jkr_protocol::GameState, Option<jkr_protocol::Snapshot>)>,
     /// `maps/<map>.bsp` of the preview in flight or ready.
     map: Option<String>,
     load: Option<WorldLoadTask>,
@@ -170,13 +168,14 @@ pub(crate) struct Destination {
     world: Option<Box<GpuState>>,
     /// The doorway in the destination: its intermission vantage.
     frame: Frame,
-    failed: bool,
+    error: Option<String>,
 }
 
 impl Destination {
     pub(crate) const fn new() -> Self {
         Self {
             session_feed: None,
+            build: None,
             map: None,
             load: None,
             install: None,
@@ -185,7 +184,7 @@ impl Destination {
                 origin: Vec3::ZERO,
                 yaw: 0.0,
             },
-            failed: false,
+            error: None,
         }
     }
 
@@ -207,13 +206,20 @@ impl Destination {
     }
 
     /// Replace the pre-join preview when the actual session identifies its content.
-    pub(crate) fn aim_session(&mut self, map: &str, root: &Path, game: &jkr_protocol::GameState) {
+    pub(crate) fn aim_session(
+        &mut self,
+        map: &str,
+        root: &Path,
+        game: &jkr_protocol::GameState,
+        snapshot: Option<&jkr_protocol::Snapshot>,
+    ) {
         if self.map.as_deref() == Some(map) && self.session_feed == Some(game.checksum_feed) {
             return;
         }
         *self = Self::new();
         self.map = Some(map.to_owned());
         self.session_feed = Some(game.checksum_feed);
+        self.build = Some((game.clone(), snapshot.cloned()));
         match crate::assets::session_content::Selection::from_game(game) {
             Ok(selection) => {
                 self.load = Some(WorldLoadTask::start_session(
@@ -250,8 +256,11 @@ impl Destination {
                         player_preview: None,
                         live_session: None,
                         demo_session: None,
-                        build_game_state: None,
-                        build_snapshot: None,
+                        build_game_state: self.build.as_ref().map(|(game, _)| game.clone()),
+                        build_snapshot: self
+                            .build
+                            .as_ref()
+                            .and_then(|(_, snapshot)| snapshot.clone()),
                         console: None,
                         client_menu: None,
                         game_data: game_data.to_path_buf(),
@@ -290,12 +299,29 @@ impl Destination {
         crate::log::progress(format_args!("portal: preview failed: {error}"));
         self.load = None;
         self.install = None;
-        self.failed = true;
+        self.error = Some(error.to_owned());
     }
 
-    /// Whether the gate may open: the preview is drawable, or it will never
-    /// be and the connection should not wait for it.
+    /// The gate only opens onto a fully prepared world.
     pub(crate) fn ready(&self) -> bool {
-        self.world.is_some() || self.failed
+        self.world.is_some()
+    }
+}
+
+impl Destination {
+    pub(crate) fn take_world(&mut self) -> Option<GpuState> {
+        self.world.take().map(|world| *world)
+    }
+
+    pub(crate) fn session_error(&mut self) -> Option<String> {
+        self.session_feed.and_then(|_| self.error.take())
+    }
+
+    pub(crate) fn map(&self) -> Option<&str> {
+        self.map.as_deref()
+    }
+
+    pub(crate) fn entry_camera(&self, camera: Camera, doorway: Frame) -> Camera {
+        camera.through(doorway, self.frame)
     }
 }

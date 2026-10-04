@@ -10,6 +10,7 @@ pub(crate) struct Settings {
     pub(crate) exposure: f32,
 }
 
+// Neutral policy for the display-only resolve; scene defaults are sampled below.
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -25,7 +26,7 @@ impl Settings {
         Self {
             mode: console
                 .and_then(|c| c.integer_cvar("jkr_hdr"))
-                .unwrap_or(0)
+                .unwrap_or(1)
                 .clamp(0, 1) as u32,
             exposure: exposure(
                 console
@@ -56,7 +57,7 @@ fn exposure(value: f64) -> f32 {
 pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), CvarError> {
     cvars.register(CvarDefinition::new(
         "jkr_hdr",
-        0_i64,
+        1_i64,
         CvarFlags::ARCHIVE,
         "Scene HDR: 0 off, 1 RGBA16F; restart required",
     ))?;

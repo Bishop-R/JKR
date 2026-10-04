@@ -4,6 +4,9 @@
 
 use super::local_server::{self, HostSettings, LocalServer};
 
+#[path = "local_devmap.rs"]
+mod devmap;
+
 impl crate::GpuState {
     /// Start `jkr-dedicated` for `settings`; the menu follows its start-up.
     pub(crate) fn start_local_game(&mut self, settings: HostSettings) {
@@ -42,7 +45,21 @@ impl crate::GpuState {
                 .join(" ")
         ));
         match LocalServer::start(&program, &arguments, settings.console_lines(), &log) {
-            Ok(server) => menu.local_server_started(server, &settings.map),
+            Ok(server) => {
+                // Detach before replacing the old owned child, so its disconnect
+                // cannot be mistaken for a failure of the new local game.
+                self.leave_session();
+                self.game_menu = false;
+                self.gameplay_input.clear();
+                self.release_pointer();
+                if let Some(console) = &mut self.console {
+                    console.close_for_connection();
+                }
+                if let Some(menu) = &mut self.client_menu {
+                    menu.local_server_started(server, &settings.map);
+                    menu.state_loading(&settings.map);
+                }
+            }
             Err(error) => {
                 menu.local_server_failed(&format!("Could not start {}: {error}", program.display()))
             }

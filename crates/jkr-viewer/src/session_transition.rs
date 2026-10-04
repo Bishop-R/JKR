@@ -3,6 +3,9 @@
 //! Protocol parsing remains in `jkr-client`; this module owns the expensive,
 //! one-shot world teardown/reload and has no steady-state frame cost.
 
+#[path = "resident_world.rs"]
+pub(crate) mod resident;
+
 use super::{GpuState, GpuWorldInput, assets};
 use jkr_client::{ServerClock, SessionTransition, SessionTransitionKind};
 use jkr_protocol::InfoString;
@@ -33,6 +36,7 @@ pub(crate) fn reaction(transition: &SessionTransition) -> Reaction {
 pub(crate) struct Reactions {
     /// A map transition needs the existing world reload path.
     pub(crate) reload_world: bool,
+    pub(crate) gamestate_sequence: Option<i32>,
     /// A disconnection needs the connection-failed screen with this reason.
     pub(crate) disconnect_reason: Option<String>,
 }
@@ -55,7 +59,10 @@ pub(crate) fn consume<'a>(transitions: impl Iterator<Item = SessionTransition> +
             transition.reason,
         ));
         match reaction(&transition) {
-            Reaction::ReloadWorld => result.reload_world = true,
+            Reaction::ReloadWorld => {
+                result.reload_world = true;
+                result.gamestate_sequence = transition.gamestate_message_sequence;
+            }
             Reaction::ReturnToMenu => {
                 result.disconnect_reason = Some(disconnect_reason(transition.reason));
             }
@@ -90,6 +97,7 @@ pub(crate) use load::{WorldLoadPoll, WorldLoadTask};
 /// One complete replacement world built against the retained GPU context.
 pub(crate) struct WorldInstallTask {
     receiver: Receiver<Result<GpuState, String>>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
     /// The worker's answer once it has arrived, until `poll` hands it out.
     result: Option<Result<Box<GpuState>, String>>,
     pub(crate) map_path: String,
@@ -158,6 +166,8 @@ impl WorldInstallTask {
         map_path: String,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let worker_cancel = Arc::clone(&cancelled);
         let started = Instant::now();
         thread::Builder::new()
             .name("jkr-world-install".into())
@@ -171,13 +181,19 @@ impl WorldInstallTask {
             // to need this month; untouched pages cost nothing.
             .stack_size(WORLD_INSTALL_STACK_BYTES)
             .spawn(move || {
-                let result = pollster::block_on(GpuState::new_with_context(context, size, input))
-                    .map_err(|error| error.to_string());
+                let result = pollster::block_on(GpuState::new_with_context(
+                    context,
+                    size,
+                    input,
+                    Some(&worker_cancel),
+                ))
+                .map_err(|error| error.to_string());
                 let _ = sender.send(result);
             })
             .expect("world install thread creation failed");
         Self {
             receiver,
+            cancelled,
             result: None,
             map_path,
             started,
@@ -211,21 +227,32 @@ impl WorldInstallTask {
     }
 }
 
+impl Drop for WorldInstallTask {
+    fn drop(&mut self) {
+        self.cancelled
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 impl GpuState {
-    /// Whether nothing of a join is still in flight: no connection, parse or
-    /// GPU install pending, and any install's answer already in hand. The
-    /// gate glide waits for this so the cut can follow the crossing at once.
+    /// Open the gate once its destination is playable, independently of joining.
     pub(crate) fn world_settled(&mut self) -> bool {
-        self.join_task.is_none()
-            && !self.pending_map_reload
-            && self.world_load_task.is_none()
-            && self
-                .world_install_task
-                .as_mut()
-                .is_none_or(WorldInstallTask::settled)
+        self.portal.ready()
     }
 
     pub(crate) fn poll_world_install(&mut self) -> Result<Option<GpuState>, Box<dyn Error>> {
+        if self.is_menu_world {
+            return self.poll_gate_destination();
+        }
+        if self.join_task.is_some()
+            || self
+                .resident
+                .session
+                .as_ref()
+                .is_some_and(jkr_client::ClientSession::needs_download)
+        {
+            return Ok(None);
+        }
         if self.pending_map_reload {
             self.world_load_state.begin();
             self.load_event_gap.start(Instant::now());
@@ -238,15 +265,17 @@ impl GpuState {
             crate::log::progress(format_args!(
                 "session transition: loading {map_path} on worker"
             ));
+            // The old world is a backdrop beneath the loading notice.
             if let Some(menu) = &mut self.client_menu {
-                menu.loading_map(
+                menu.state_loading(
                     map_path
                         .trim_start_matches("maps/")
                         .trim_end_matches(".bsp"),
                 );
             }
             let game = self
-                .live_session
+                .resident
+                .session
                 .as_ref()
                 .map(jkr_client::ClientSession::game_state)
                 .or_else(|| self.demo_session.as_ref().map(|s| s.game_state()))
@@ -258,6 +287,9 @@ impl GpuState {
                 selection,
             ));
             self.pending_map_reload = false;
+        }
+        if !self.resident.snapshot_ready() {
+            return Ok(None);
         }
         if self.world_install_task.is_some() {
             if self.holds_world_install(Instant::now()) {
@@ -298,7 +330,8 @@ impl GpuState {
             loaded.elapsed.as_secs_f64() * 1_000.0
         ));
         let game_state = self
-            .live_session
+            .resident
+            .session
             .as_ref()
             .map(jkr_client::ClientSession::game_state)
             .or_else(|| {
@@ -308,7 +341,8 @@ impl GpuState {
             })
             .ok_or("map transition lost its session")?;
         let snapshot = self
-            .live_session
+            .resident
+            .session
             .as_ref()
             .map(jkr_client::ClientSession::latest_snapshot)
             .or_else(|| {
@@ -362,12 +396,19 @@ impl GpuState {
     pub(crate) fn hand_shell_to(&mut self, to: &mut GpuState) {
         debug_assert_eq!(self.context.id, to.context.id);
         let now = Instant::now();
+        let was_local = self
+            .live_session
+            .as_ref()
+            .is_some_and(jkr_client::ClientSession::is_local);
         to.live_session = self.live_session.take();
+        to.resident.session = self.resident.session.take();
+        to.resident.map_change_pending = std::mem::take(&mut self.resident.map_change_pending);
         to.demo_session = self.demo_session.take();
         to.console = self.console.take();
         to.net_timing = std::mem::take(&mut self.net_timing);
         to.client_menu = self.client_menu.take();
         to.join_task = self.join_task.take();
+        to.connect_timeline = self.connect_timeline.take().or(to.connect_timeline.take());
         to.last_connect_address = self.last_connect_address.take();
         to.pointer_captured = self.pointer_captured;
         to.cursor_policy = std::mem::replace(
@@ -377,28 +418,52 @@ impl GpuState {
         to.cursor_position = self.cursor_position;
         to.applied_fullscreen = self.applied_fullscreen;
         to.applied_resolution = self.applied_resolution;
-        // The clock belongs to the connection, not to the world: a fresh one
-        // per map would forget the highest stamp already sent and could
-        // re-anchor behind it (`ServerClock`). It arrives restarted, so the
-        // new world's first snapshot anchors it.
+        // Preserve a remote connection's command floor across world installs.
+        // A local authority has an independent timeline that must never stamp
+        // the destination server's commands.
         to.server_clock = std::mem::replace(&mut self.server_clock, ServerClock::unanchored(now));
-        to.server_clock.activate();
+        if was_local {
+            to.server_clock.reset_connection(now);
+            to.network_command_due = now;
+        }
+        if to.resident.bound {
+            to.server_clock.activate();
+        }
         to.load_event_gap = self.load_event_gap.clone();
         to.completed_map_changes = self.completed_map_changes;
         to.gameplay_input.clear();
+        to.gameplay_input.inherit_focus(&self.gameplay_input);
     }
 
     pub(crate) fn adopt_world(&mut self, mut loaded: GpuState) -> GpuState {
         self.hand_shell_to(&mut loaded);
-        loaded.transition_report_pending = self.connect_timeline.is_none();
-        loaded.completed_map_changes = self
-            .completed_map_changes
-            .saturating_add(u32::from(self.live_map_installed));
-        loaded.live_map_installed = true;
+        loaded.transition_report_pending = loaded.connect_timeline.is_none();
+        loaded.completed_map_changes = self.completed_map_changes.saturating_add(u32::from(
+            self.live_map_installed || std::mem::take(&mut loaded.resident.map_change_pending),
+        ));
+        loaded.live_map_installed = loaded.resident.bound
+            && (loaded.resident.session.is_some() || loaded.demo_session.is_some());
+        if loaded.live_map_installed {
+            loaded.live_session = loaded
+                .resident
+                .session
+                .take()
+                .or(loaded.live_session.take());
+        } else {
+            loaded.pending_map_reload = loaded.resident.session.is_some();
+            loaded.start_exploring();
+        }
+        if let Some(session) = &mut loaded.live_session {
+            session.take_retired_world();
+        }
+        if loaded.live_map_installed && loaded.live_session.is_some() {
+            loaded.reset_live_presentation();
+        }
         loaded.world_load_state = self.world_load_state;
         loaded.world_load_started = self.world_load_started;
         loaded.world_load_map.clear();
         loaded.world_load_map.push_str(&self.world_load_map);
+        loaded.resident.map.clone_from(&loaded.world_load_map);
         loaded
     }
 
@@ -407,17 +472,17 @@ impl GpuState {
         debug_assert_eq!(reaction, Reaction::ReturnToMenu);
         self.world_load_task = None;
         self.world_install_task = None;
-        self.live_session = None;
-        self.demo_session = None;
+        self.leave_session();
         self.gameplay_input.clear();
         if let Some(menu) = &mut self.client_menu {
             menu.join_failed(error);
         }
     }
 
-    fn pending_map_path(&self) -> Result<String, Box<dyn Error>> {
+    pub(crate) fn pending_map_path(&self) -> Result<String, Box<dyn Error>> {
         let game_state = self
-            .live_session
+            .resident
+            .session
             .as_ref()
             .map(jkr_client::ClientSession::game_state)
             .or_else(|| {

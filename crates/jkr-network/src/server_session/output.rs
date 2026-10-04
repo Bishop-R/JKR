@@ -126,7 +126,7 @@ impl<G: LegacyGameHost> View<'_, G> {
         // "send a heartbeat now so the master will get up to date info".
         *self.heartbeat_due = true;
         *self.server_bit ^= SNAPFLAG_SERVERCOUNT;
-        for slot in self.slots.iter_mut() {
+        for (client, slot) in self.slots.iter_mut().enumerate() {
             if !matches!(
                 slot.phase,
                 LegacyClientPhase::Primed | LegacyClientPhase::Active
@@ -139,6 +139,16 @@ impl<G: LegacyGameHost> View<'_, G> {
             slot.marks = LegacyConfigStringMarks::default();
             // The next snapshot must wait for the new gamestate to be acknowledged.
             slot.next_snapshot_time = server_time;
+            // SV_SpawnServer begins bots immediately: they have no transport to
+            // acknowledge a gamestate (codemp/server/sv_init.cpp).
+            if slot.peer.address == Some(crate::LegacyPeerAddress::Bot) {
+                slot.phase = LegacyClientPhase::Active;
+                slot.old_server_time = 0;
+                slot.gamestate_due = false;
+                slot.wire.movement.reenter();
+                self.game
+                    .enter_world(client, &jkr_protocol::UserCommand::default(), server_time);
+            }
         }
         // `sv.realMapTimeStarted`, `sv.demosPruned`; nobody is in the new world yet, so
         // this only prunes.

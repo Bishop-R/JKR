@@ -144,8 +144,14 @@ pub(crate) fn crosshair_color(console: Option<&ViewerConsole>) -> [f32; 4] {
 
 impl crate::GpuState {
     /// Synchronize retained chat policy and append the existing overlay.
-    pub(crate) fn append_configured_chat(&mut self, viewport: [f32; 2], scale: f32) {
+    pub(crate) fn append_configured_chat(
+        &mut self,
+        viewport: [f32; 2],
+        scale: f32,
+        scoreboard: bool,
+    ) {
         self.chat.configure(self.console.as_ref());
+        self.chat.set_scoreboard_layout(scoreboard);
         let visible = self
             .console
             .as_ref()

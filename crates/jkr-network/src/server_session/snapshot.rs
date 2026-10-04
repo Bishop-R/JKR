@@ -228,3 +228,7 @@ impl SnapshotHistory {
         Ok(delta)
     }
 }
+
+#[path = "local_snapshot.rs"]
+mod local;
+pub use local::LocalSnapshotBuffer;

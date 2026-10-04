@@ -41,8 +41,15 @@ impl PlayerMenu {
                     };
                     let value = self.saber.channel(row.second(), channel);
                     let ratio = f32::from(value) / 255.0;
-                    self.canvas
-                        .form_slider(zone, &value.to_string(), ratio, color, s);
+                    self.canvas.form_slider(
+                        zone,
+                        index,
+                        self.numeric.as_ref(),
+                        &value.to_string(),
+                        ratio,
+                        color,
+                        s,
+                    );
                 }
             }
         }

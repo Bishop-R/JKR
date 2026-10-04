@@ -95,7 +95,8 @@ impl ActorInstance {
     /// The identity instance world statics bind: flagged as world geometry.
     pub(crate) fn world_identity() -> Self {
         Self {
-            view_flags: Self::WORLD,
+            // Static BSP geometry participates in sky views as well as the main view.
+            view_flags: Self::WORLD | 2,
             ..Self::new([0.; 3], [0., 0., 0., 1.], [1.; 3])
         }
     }
