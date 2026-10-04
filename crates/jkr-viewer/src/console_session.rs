@@ -73,7 +73,7 @@ impl ViewerConsole {
             ),
             CvarDefinition::new(
                 "con_maxLines",
-                18_i64,
+                32_i64,
                 CvarFlags::ARCHIVE,
                 "Maximum visible console lines",
             ),

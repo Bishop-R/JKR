@@ -16,6 +16,10 @@ impl GpuState {
         if let Some(menu) = &mut self.client_menu {
             menu.set_accent(ui_accent(console));
         }
+        self.ui_font.set_style(crate::text::TextStyle::from_cvars(
+            console.float_cvar(crate::text::style::SCALE_CVAR),
+            console.float_cvar(crate::text::style::TRACKING_CVAR),
+        ));
         self.mouse_look = MouseLook {
             sensitivity: console.float_cvar("sensitivity").unwrap_or(5.0) as f32,
             yaw_scale: console.float_cvar("m_yaw").unwrap_or(0.022) as f32,

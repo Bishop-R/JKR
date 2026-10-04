@@ -43,6 +43,7 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
     super::client_options::register(cvars)?;
     super::ui_options::register(cvars)?;
     crate::hud::icons::register(cvars)?;
+    crate::text::style::register(cvars)?;
     let archive = CvarFlags::ARCHIVE;
     let definitions = [
         CvarDefinition::new(

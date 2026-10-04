@@ -369,3 +369,51 @@ counter are suppressed, including both font batches. See
 [console_browser.rs](../crates/jkr-viewer/src/console_browser.rs).
 
 For graphics controls and diagnostics, see [rendering.md](rendering.md).
+
+## Text size and spacing
+
+The Settings screen's TEXT tab holds four archived cvars. Menu text draws as
+before at the defaults; the console's rows are closer together than before.
+
+| Cvar | Default | Range | Effect |
+| --- | --- | --- | --- |
+| `ui_textScale` | 1 | 0.8 to 1.2 | Text size on menu screens and the in-game menu |
+| `ui_letterSpacing` | 0 | -0.05 to 0.15 | Extra space after each letter in menus and the console, as a fraction of the text size |
+| `con_scale` | 1 | above 0 (menu: 0.5 to 2) | Size of the whole console: text, margins and rows |
+| `con_lineSpacing` | 0.9 | 0.8 to 2 | Console history and notify row pitch as a multiple of the text size; at 0.8 descenders meet the next row's ascenders |
+
+Menu text grows or shrinks about the centre of its line without moving the
+layout, so the range is limited to what menu rows can hold; that style is
+applied where retained text commands become glyph quads, see
+[text/style.rs](../crates/jkr-viewer/src/text/style.rs). The console sizes its
+own text with `con_scale` and puts the letter spacing into its layout
+([console_view.rs](../crates/jkr-viewer/src/console_view.rs)), so anything that
+measures console text, such as a caret, sees the spacing it is drawn with.
+These settings do not affect chat, the scoreboard or the HUD.
+
+Console defaults, compared with stock at 1080p: stock draws 8 x 16 px cells
+whose capitals are 14 px tall, so its rows are 16 px apart and nearly touch.
+JKR's console text is 14 px Inter: the size is its line box (ascent plus
+descent, 1.21 em), with 8.4 px capitals. A pitch of 0.9 times the text size
+gives 12.6 px rows at 1080p, where capitals fill two thirds of the pitch and the
+deepest descender (`g`) still clears the next row's ascenders and brackets by
+about 1 px. Below 0.82 they touch, so the range stops at 0.8; only accented
+capitals can overlap the row above there. Rows closer than their line box
+overlap: each row keeps its whole text box (and glyph shadow) for drawing, and
+the bottom row's text ends at the input separator's margin. Selection bands and
+pointer rows stay one pitch tall and centred on the text. Earlier builds read
+`con_lineSpacing` as a multiple of a fixed 22 px pitch; such a saved value below
+0.8 now clamps to 0.8, the tightest setting. `con_maxLines` defaults to 32 so
+the default-height console fills with rows instead of stopping at the old 18.
+Letter spacing stays 0: Inter's average advance relative to its x-height (0.89)
+is already close to stock's cells (0.8), Inter's own size-specific tracking at
+this size is +0.002 em, and tighter text would run digits and `il1` together.
+See [console_options.rs](../crates/jkr-viewer/src/console_options.rs).
+
+The chat box's wrapped body rows are one line box apart (18 px at 1080p and
+`cg_chatBoxFontSize` 1; they were 27 px). Inter's capitals are 0.60 of that box,
+the stock chat box's ratio (`ocr_a` capitals at scale 0.65 in rows 13 virtual
+pixels apart, `CG_ChatBox_DrawStrings`), and descenders clear the next row by
+0.18 of the box. A sender's name line advances 20 px to the body (was 26) and
+messages are 8 px apart (were 10 after a named message, 14 otherwise); see
+[chat/layout.rs](../crates/jkr-viewer/src/chat/layout.rs).

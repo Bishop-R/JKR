@@ -193,6 +193,7 @@ fn settings(tab: usize) -> &'static [Setting] {
         4 => GAME,
         5 => NETWORK,
         6 => HUD_OPTIONS,
+        7 => TEXT,
         _ => &[],
     }
 }

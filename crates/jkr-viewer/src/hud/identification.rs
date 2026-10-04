@@ -260,6 +260,7 @@ impl State {
             vertices,
             font,
             viewport,
+            crate::text::TextStyle::NEUTRAL,
         );
     }
 }

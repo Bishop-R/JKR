@@ -5,8 +5,8 @@
 //! not offered. Player identity
 //! (name, model, sabers) lives in the Player menu, not here.
 
-pub(super) const TABS: [&str; 7] = [
-    "VIDEO", "AUDIO", "HUD", "CONTROLS", "GAME", "NETWORK", "HUD+",
+pub(super) const TABS: [&str; 8] = [
+    "VIDEO", "AUDIO", "HUD", "CONTROLS", "GAME", "NETWORK", "HUD+", "TEXT",
 ];
 /// The tab whose last row opens the key-binding editor.
 pub(super) const KEYBINDS_TAB: usize = 3;
@@ -339,6 +339,46 @@ pub(super) const NETWORK: &[Setting] = &[
             min: 10,
             max: 60,
             step: 5,
+        },
+    },
+];
+/// Text size and spacing. Menu rows keep their layout; console rows follow
+/// `con_lineSpacing`.
+pub(super) const TEXT: &[Setting] = &[
+    Setting {
+        label: "Menu text size",
+        cvar: crate::text::style::SCALE_CVAR,
+        kind: ValueKind::Float {
+            min: 0.8,
+            max: 1.2,
+            step: 0.05,
+        },
+    },
+    Setting {
+        label: "Letter spacing (menus, console)",
+        cvar: crate::text::style::TRACKING_CVAR,
+        kind: ValueKind::Float {
+            min: -0.05,
+            max: 0.15,
+            step: 0.01,
+        },
+    },
+    Setting {
+        label: "Console text size",
+        cvar: "con_scale",
+        kind: ValueKind::Float {
+            min: 0.5,
+            max: 2.0,
+            step: 0.05,
+        },
+    },
+    Setting {
+        label: "Console line spacing",
+        cvar: "con_lineSpacing",
+        kind: ValueKind::Float {
+            min: 0.8,
+            max: 2.0,
+            step: 0.05,
         },
     },
 ];

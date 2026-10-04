@@ -5,6 +5,18 @@ use std::ops::Range;
 
 pub(super) const WRAP_LINES: usize = 4;
 
+/// Pitch of a message's wrapped body rows as a multiple of the body text size.
+/// Inter's capitals are 0.60 of its line box, so rows one line box apart give the
+/// same capital-to-pitch ratio as the stock chat box (`ocr_a` capitals 12 px at
+/// scale 0.65, rows `CHATBOX_FONT_HEIGHT` 20 x 0.65 apart in `CG_ChatBox_DrawStrings`),
+/// and a descender still clears the next row's ascenders by 0.18 of the box.
+pub(super) const ROW_PITCH: f32 = 1.0;
+/// Advance from a sender's name line to the first body row, in 1080p pixels:
+/// the 16 px name line box and a 4 px gap.
+pub(super) const NAME_ADVANCE: f32 = 20.0;
+/// Space between consecutive messages, in 1080p pixels.
+pub(super) const MESSAGE_GAP: f32 = 8.0;
+
 pub(super) struct Geometry {
     pub(super) scale: f32,
     pub(super) left: f32,
@@ -25,7 +37,7 @@ impl Geometry {
             top: 150.0 * scale,
             bottom: (viewport[1] * 0.64).min(viewport[1] - 210.0 * scale),
             width: (620.0 * scale).min(viewport[0] - left * 2.0).max(1.0),
-            row: 27.0 * scale,
+            row: 18.0 * scale * ROW_PITCH,
             font: 18.0 * scale,
         }
     }
