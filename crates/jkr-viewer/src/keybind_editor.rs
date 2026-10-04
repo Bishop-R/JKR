@@ -23,6 +23,18 @@ const SCROLLBAR_TOKEN: u16 = 910;
 const WHEEL_ROWS: usize = 3;
 /// Secondary-slot hit targets, separate from the action row.
 const SECONDARY_BASE: u16 = 600;
+/// Keys the editor never binds, clears or moves: the menu's own pointer
+/// buttons and its cancel key. A stray click or Escape while a capture is
+/// pending must not take `+attack` off the mouse or bind the menu key; the
+/// console's `bind` and `unbind` still change them.
+const LOCKED_KEYS: [&str; 3] = ["MOUSE1", "MOUSE2", "ESCAPE"];
+
+/// Whether `key` is one of the [`LOCKED_KEYS`] (any case, as binds match).
+pub(crate) fn is_locked_key(key: &str) -> bool {
+    LOCKED_KEYS
+        .iter()
+        .any(|locked| locked.eq_ignore_ascii_case(key))
+}
 
 /// Outcome of one key or pointer event on the editor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -101,11 +113,8 @@ impl KeybindEditor {
             KeyCode::ArrowDown | KeyCode::KeyS => self.move_selection(1),
             KeyCode::Tab | KeyCode::ArrowRight | KeyCode::KeyD => self.cycle_tab(1),
             KeyCode::ArrowLeft | KeyCode::KeyA => self.cycle_tab(-1),
-            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => self.capture = true,
-            KeyCode::Delete | KeyCode::Backspace => {
-                console.clear_action(ACTIONS[self.selected].command, self.binding_slot);
-                self.refresh(console);
-            }
+            KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Space => self.begin_capture(),
+            KeyCode::Delete | KeyCode::Backspace => self.clear_selected_slot(console),
             KeyCode::KeyR => {
                 console.reset_default_binds();
                 self.refresh(console);
@@ -127,10 +136,37 @@ impl KeybindEditor {
         let Some(key) = crate::input::keys::name(crate::input::keys::Source::Mouse(button)) else {
             return true;
         };
+        // A click on a locked button is the player clicking away, not a key to
+        // bind: it cancels, as Escape does, and is consumed so it activates
+        // nothing under the pointer.
+        if is_locked_key(key) {
+            self.capture = false;
+            return true;
+        }
         console.rebind_action(ACTIONS[self.selected].command, self.binding_slot, key);
         self.capture = false;
         self.refresh(console);
         true
+    }
+
+    /// Whether the selected action's chosen slot holds a locked key.
+    fn selected_slot_locked(&self) -> bool {
+        self.keys
+            .get(self.selected)
+            .is_some_and(|keys| is_locked_key(&keys[self.binding_slot]))
+    }
+
+    /// Await a key for the selected slot, unless that slot is locked.
+    fn begin_capture(&mut self) {
+        self.capture = !self.selected_slot_locked();
+    }
+
+    /// Unbind the selected slot, unless it holds a locked key.
+    fn clear_selected_slot(&mut self, console: &mut ViewerConsole) {
+        if !self.selected_slot_locked() {
+            console.clear_action(ACTIONS[self.selected].command, self.binding_slot);
+            self.refresh(console);
+        }
     }
 
     /// `ACTIONS` range of the current tab.
@@ -194,7 +230,9 @@ impl KeybindEditor {
             "JKR   /   SETTINGS",
             "KEY BINDINGS",
             if self.capture {
-                "Press a key or mouse button.  Escape cancels; a conflicting bind moves here."
+                "Press a key or mouse button.  Escape or a click cancels; a conflicting bind moves here."
+            } else if self.selected_slot_locked() {
+                "MOUSE1, MOUSE2 and ESCAPE are locked here; the console's bind command can still change them."
             } else {
                 "Click either key slot to bind it. Delete clears the selected slot."
             },
@@ -268,11 +306,11 @@ impl KeybindEditor {
             Some(keys) => [keys[0].as_str(), keys[1].as_str()],
             None => ["UNBOUND", "-"],
         };
-        self.ui.form_value(first, primary, color, s);
-        {
-            let muted = self.ui.theme().muted;
-            self.ui.form_value(second, secondary, muted, s);
-        }
+        // Locked keys read as fixed: muted, like the secondary slot.
+        let muted = self.ui.theme().muted;
+        let first_color = if is_locked_key(first) { muted } else { color };
+        self.ui.form_value(first, primary, first_color, s);
+        self.ui.form_value(second, secondary, muted, s);
     }
 
     fn refresh(&mut self, console: &ViewerConsole) {
@@ -286,5 +324,93 @@ impl KeybindEditor {
                 keys.get(1).cloned().unwrap_or_else(|| "-".to_owned()),
             ]);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn console() -> (tempfile::TempDir, ViewerConsole) {
+        let directory = tempfile::tempdir().unwrap();
+        let console = ViewerConsole::new(directory.path().join("config.cfg")).unwrap();
+        (directory, console)
+    }
+
+    fn action(command: &str) -> usize {
+        ACTIONS
+            .iter()
+            .position(|action| action.command == command)
+            .unwrap()
+    }
+
+    #[test]
+    fn mouse_buttons_one_two_and_escape_are_locked_in_any_case() {
+        for key in ["MOUSE1", "mouse2", "Escape"] {
+            assert!(is_locked_key(key), "{key}");
+        }
+        for key in ["MOUSE3", "a", "SPACE", "ESC"] {
+            assert!(!is_locked_key(key), "{key}");
+        }
+    }
+
+    #[test]
+    fn the_editor_never_unbinds_or_moves_a_locked_key() {
+        let (_directory, mut console) = console();
+        console.clear_action("+attack", 0);
+        assert_eq!(console.keys_for_command("+attack"), ["MOUSE1"]);
+        console.rebind_action("+use", 0, "MOUSE1");
+        console.rebind_action("+attack", 0, "k");
+        assert_eq!(console.keys_for_command("+attack"), ["MOUSE1"]);
+        assert!(
+            !console
+                .keys_for_command("+use")
+                .iter()
+                .any(|key| key == "MOUSE1")
+        );
+    }
+
+    #[test]
+    fn a_locked_slot_does_not_start_a_capture() {
+        let (_directory, console) = console();
+        let mut editor = KeybindEditor::new();
+        editor.open(&console);
+        editor.selected = action("+altattack");
+        editor.binding_slot = 0;
+        editor.begin_capture();
+        assert!(!editor.capture);
+        // The empty second slot is free.
+        editor.binding_slot = 1;
+        editor.begin_capture();
+        assert!(editor.capture);
+    }
+
+    #[test]
+    fn a_click_cancels_a_capture_without_binding_it() {
+        let (_directory, mut console) = console();
+        let mut editor = KeybindEditor::new();
+        editor.open(&console);
+        let jump = action("+moveup");
+        editor.selected = jump;
+        editor.binding_slot = 0;
+        editor.begin_capture();
+        let before = console.keys_for_command("+moveup");
+        for button in [MouseButton::Left, MouseButton::Right] {
+            editor.begin_capture();
+            assert!(editor.capture);
+            assert!(editor.capture_mouse(button, &mut console));
+            assert!(!editor.capture);
+        }
+        assert_eq!(console.keys_for_command("+moveup"), before);
+        assert_eq!(console.keys_for_command("+attack"), ["MOUSE1"]);
+        // Other mouse buttons still bind.
+        editor.begin_capture();
+        assert!(editor.capture_mouse(MouseButton::Middle, &mut console));
+        assert!(
+            console
+                .keys_for_command("+moveup")
+                .iter()
+                .any(|key| key == "MOUSE3")
+        );
     }
 }

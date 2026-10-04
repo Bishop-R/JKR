@@ -355,17 +355,25 @@ impl ViewerConsole {
         }
     }
 
-    /// Replace one displayed binding without removing the other slot.
+    /// Replace one displayed binding without removing the other slot. Locked
+    /// keys ([`keybind_editor::is_locked_key`]) are never bound or replaced
+    /// here; the `bind` command is unrestricted.
     pub(crate) fn rebind_action(&mut self, command: &str, slot: usize, key: &str) {
         let Some(key) = jkr_shell::key_names::canonical_key(key) else {
             self.shell.push_log(format!("^1Unsupported key: {key}"));
             return;
         };
-        if slot > 1 {
+        if slot > 1 || keybind_editor::is_locked_key(key) {
             return;
         }
         let keys = self.keys_for_command(command);
         if keys.iter().any(|old| old.eq_ignore_ascii_case(key)) {
+            return;
+        }
+        if keys
+            .get(slot)
+            .is_some_and(|old| keybind_editor::is_locked_key(old))
+        {
             return;
         }
         if let Some(old) = keys.get(slot) {
@@ -377,9 +385,12 @@ impl ViewerConsole {
         self.persist();
     }
 
-    /// Clear only the selected displayed binding.
+    /// Clear only the selected displayed binding, unless it is a locked key
+    /// ([`keybind_editor::is_locked_key`]).
     pub(crate) fn clear_action(&mut self, command: &str, slot: usize) {
-        if let Some(key) = self.keys_for_command(command).get(slot) {
+        if let Some(key) = self.keys_for_command(command).get(slot)
+            && !keybind_editor::is_locked_key(key)
+        {
             self.shell.binds.unbind(key);
         }
         self.persist();
