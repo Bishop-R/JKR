@@ -15,6 +15,7 @@ pub(crate) struct Slot {
     /// Serially prepared animation request; `None` leaves an inactive actor unevaluated.
     pub(crate) requested: Option<AnimationState>,
     error: Option<ModelError>,
+    reported_error: bool,
 }
 
 impl Slot {
@@ -24,12 +25,24 @@ impl Slot {
             inner: Some(LegacyGhoul2Animator::new(animation)?),
             requested: None,
             error: None,
+            reported_error: false,
         })
     }
 
     /// Report errors in actor order, after every in-flight evaluator has been returned.
     pub(crate) fn completed(&mut self) -> Result<(), ModelError> {
         self.error.take().map_or(Ok(()), Err)
+    }
+
+    /// Drop this frame's request (including audio cues); return true for its first failure.
+    pub(crate) fn suppress_failed_frame(&mut self) -> bool {
+        self.requested = None;
+        !std::mem::replace(&mut self.reported_error, true)
+    }
+
+    /// A successful pose allows a future independent failure to be reported.
+    pub(crate) fn clear_error_report(&mut self) {
+        self.reported_error = false;
     }
 
     fn serial(&mut self, animation: &Gla, config: &AnimationConfig, time: i64) {

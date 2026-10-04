@@ -28,6 +28,17 @@ endings. Code that patches a program by text with a pattern spanning a line brea
 normalises it first with [wgsl_source.rs](../crates/jkr-viewer/src/wgsl_source.rs);
 `.gitattributes` keeps `*.wgsl` LF in new checkouts.
 
+## Actor animation failures
+
+Actor animation failures are isolated to the affected mesh. An invalid clip or
+pose leaves that actor's last uploaded pose in place, suppresses its animation
+audio for the failed frame, and logs once until evaluation succeeds again.
+Other actors still evaluate and upload their joint palettes. This includes
+custom NPC packs whose animation ranges exceed their skeleton's frame count;
+the renderer does not rewrite their files or relax frame bounds checks. The
+per-actor work lives in
+[actor_pose_steps.rs](../crates/jkr-viewer/src/actor_pose_steps.rs).
+
 ## Load-time texture and light preparation
 
 World installation prepares unique mipmapped texture arrays on up to four CPU
