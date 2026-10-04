@@ -82,7 +82,7 @@ impl Portrait {
         if !self.ready {
             return;
         }
-        let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let s = crate::ui_scale::height_scale(viewport[1]);
         let _ = list.push(DrawCommand::TexturedQuad {
             rect: Rect::new(viewport[0] - 128.0 * s, top * s, 88.0 * s, 88.0 * s),
             texture: TEXTURE,

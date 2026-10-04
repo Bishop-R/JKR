@@ -63,7 +63,7 @@ impl ChatOverlay {
                 let fade = self.options.center_time.saturating_sub(age).min(200) as f32 / 200.0;
                 let color = Color::new(base.r, base.g, base.b, base.a * fade);
                 let size = self.options.center_size;
-                let center_scale = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+                let center_scale = crate::ui_scale::height_scale(viewport[1]);
                 let row = 30.0 * center_scale * size;
                 let rows = center_rows(text).count() as f32;
                 let height = if self.options.center_height == 0.0 {

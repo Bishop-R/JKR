@@ -8,7 +8,10 @@ struct Layout {
 }
 impl Layout {
     fn new(viewport: [f32; 2]) -> Self {
-        let s = (viewport[1] / 740.).min(viewport[0] / 440.).clamp(0.6, 1.5);
+        let s = (viewport[1] / 740.).min(viewport[0] / 440.).clamp(
+            0.6,
+            crate::ui_scale::MAX * crate::ui_scale::REFERENCE_HEIGHT / 740.,
+        );
         Self {
             s,
             x: viewport[0] - 412. * s,

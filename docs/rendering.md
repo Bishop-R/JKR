@@ -606,6 +606,18 @@ and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
 
+2D layouts are authored in pixels of a 1080-line screen and scale with the
+window height ([ui_scale.rs](../crates/jkr-viewer/src/ui_scale.rs)), as retail's
+640×480 virtual screen did: 1440 lines draw them at 1.33× and 2160 lines at 2×.
+The scale is clamped to 0.6–2.5 (648–2700 lines); the console keeps a 0.75
+floor, the HUD 2/3 and the frame-rate and weapon labels 0.85. `cg_hudScale` and
+`con_scale` multiply it. The operating system's display
+scale (Windows scaling) is not applied: a fullscreen window already covers
+the display, so it would count the density twice, and in a small window on a
+scaled desktop it would push 1080-line layouts past the window edges. It only
+sets the resolution the bundled Inter font is rasterized at, and text sized in
+that font's own units is converted from line heights so it does not depend on it.
+
 ## Billboard icons
 
 Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0

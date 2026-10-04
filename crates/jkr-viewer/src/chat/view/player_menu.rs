@@ -6,8 +6,7 @@ use crate::chat::player_actions::{ACTIONS, COPY_NAME, FRIEND, IGNORE, MENU_BACK,
 /// Prefer the free left margin. At an edge, stay inside the chat lane rather
 /// than covering the scoreboard; both placements end above the composer.
 pub(in crate::chat) fn placement(g: &Geometry, viewport: [f32; 2], anchor_y: f32) -> (Rect, f32) {
-    let scale = (viewport[1] / 1080.0)
-        .clamp(0.6, 2.5)
+    let scale = crate::ui_scale::height_scale(viewport[1])
         .min(viewport[0] / 96.0)
         .min(viewport[1] / 104.0)
         .max(0.001);

@@ -9,7 +9,9 @@ pub(crate) struct Layout {
 
 impl Layout {
     pub(crate) fn new(viewport: [f32; 2]) -> Self {
-        let scale = (viewport[1] / 1080.0).min(viewport[0] / 1400.0).min(2.5);
+        let scale = (viewport[1] / crate::ui_scale::REFERENCE_HEIGHT)
+            .min(viewport[0] / 1400.0)
+            .min(crate::ui_scale::MAX);
         let margin = 40.0 * scale;
         let chat_width = (viewport[0] * 0.32).min(600.0 * scale);
         let table_left = (margin + chat_width + 60.0 * scale).max(viewport[0] * 0.38);

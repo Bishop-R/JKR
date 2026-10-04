@@ -17,7 +17,7 @@ pub(super) struct Geometry {
 
 impl Geometry {
     pub(super) fn new(viewport: [f32; 2]) -> Self {
-        let scale = (viewport[1] / 1_080.0).clamp(0.6, 2.5);
+        let scale = crate::ui_scale::height_scale(viewport[1]);
         let left = 40.0 * scale;
         Self {
             scale,

@@ -257,7 +257,7 @@ impl State {
             return;
         }
         self.portrait.emit(list, viewport, TOP);
-        let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let s = crate::ui_scale::height_scale(viewport[1]);
         // The portrait heads the block; the text keeps its place when no image resolved.
         let text_top = TOP
             + if self.portrait.drawn() {

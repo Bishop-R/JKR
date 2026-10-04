@@ -216,7 +216,7 @@ impl State {
         if !self.policy.showpos {
             return;
         }
-        let scale = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let scale = crate::ui_scale::height_scale(viewport[1]);
         let _ = list.push(DrawCommand::Text {
             rect: Rect::new(
                 32.0 * scale,
