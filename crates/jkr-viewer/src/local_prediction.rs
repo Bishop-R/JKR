@@ -189,6 +189,8 @@ impl LocalPrediction {
         for predictor in self.predictor.iter_mut().chain(self.preview.iter_mut()) {
             predictor.set_config(self.movement_config);
         }
+        self.physics_movers.set_duel_isolation(Some(game_state));
+        self.render_movers.set_duel_isolation(Some(game_state));
     }
 
     /// Reload local equipment policy when CS_PLAYERS changes, never per frame.

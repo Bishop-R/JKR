@@ -167,6 +167,9 @@ pub(crate) struct Movers {
     snapshot_time: i32,
     smooth_clients: bool,
     permanents: Box<[EntityState]>,
+    /// The server isolates private duels (JA+, jaPRO): duellers and everyone
+    /// else pass through each other ([`jkr_client::duel_passes_through`]).
+    duel_isolation: bool,
 }
 
 impl Movers {
@@ -179,6 +182,7 @@ impl Movers {
             snapshot_time: 0,
             smooth_clients: false,
             permanents: Box::default(),
+            duel_isolation: false,
         }
     }
 
@@ -216,6 +220,9 @@ impl Movers {
             if state.number() == local || (state.number() > 32 && owner == i32::from(local)) {
                 continue;
             }
+            if self.duel_isolation && jkr_client::duel_passes_through(&snapshot.player, state) {
+                continue;
+            }
             if let Some(collider) =
                 Collider::from_entity(state, snapshot.server_time, angle_time, self.smooth_clients)
             {
@@ -238,6 +245,13 @@ impl Movers {
             .filter(|state| state.e_flags() & (1 << 7) != 0)
             .cloned()
             .collect();
+        self.set_duel_isolation(game);
+    }
+
+    /// Follow the server's private-duel policy from its serverinfo.
+    pub(crate) fn set_duel_isolation(&mut self, game: Option<&jkr_protocol::GameState>) {
+        self.duel_isolation = game
+            .is_some_and(|game| jkr_client::CompatProfile::from_game_state(game).isolates_duels());
         self.sequence = None;
     }
 
