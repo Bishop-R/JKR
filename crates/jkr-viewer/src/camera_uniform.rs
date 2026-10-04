@@ -55,7 +55,12 @@ impl crate::GpuState {
         if let Some(console) = &mut self.console
             && console.wants_pose()
         {
-            console.answer_pose(&camera.viewpos(), &self.world_load_map);
+            let map = if self.resident.exploring() {
+                &self.resident.map
+            } else {
+                &self.world_load_map
+            };
+            console.answer_pose(&camera.viewpos(), map);
         }
     }
 }

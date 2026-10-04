@@ -11,7 +11,7 @@ use crate::portal::Frame;
 use jkr_ui::{Easing, Tween};
 
 /// How long the glide from the browser vantage to beyond the doorway takes.
-const PASSAGE_MILLIS: u32 = 2_200;
+const PASSAGE_MILLIS: u32 = 900;
 /// How far past the doorway plane the glide ends, so the crossing is
 /// unambiguous and the menu world is fully behind the camera.
 const PASSAGE_BEYOND: f32 = 48.0;

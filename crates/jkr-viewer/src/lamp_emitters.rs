@@ -24,7 +24,8 @@ fn uv(c: Corner) -> Vec2 {
     Vec2::from_array(c.2)
 }
 
-pub(super) fn collect(vertices: &[Corner], indices: &[u32], emitters: &[Emitter<'_>]) -> Vec<Lamp> {
+/// Integrate source textures over placed geometry, without building a lookup grid.
+pub(crate) fn collect(vertices: &[Corner], indices: &[u32], emitters: &[Emitter<'_>]) -> Vec<Lamp> {
     let mut geometry_work = 0f64;
     for emitter in emitters {
         for range in &emitter.ranges {
@@ -193,7 +194,7 @@ fn cook_emitter(
             }
         }
     }
-    let result = patches
+    let mut result: Vec<Lamp> = patches
         .into_iter()
         .map(|patch| {
             let mut lamp = patch.finish();
@@ -203,6 +204,15 @@ fn cook_emitter(
             lamp
         })
         .collect();
+    if emitter.shared_reach {
+        // Cutting a fixture into texture patches must not shorten its useful reach:
+        // the individual faint pieces can still add up to visible room illumination.
+        let power: f32 = result.iter().map(|lamp| lamp.power).sum();
+        let reach = (power / FLOOR).sqrt().clamp(32., 1024.);
+        for lamp in &mut result {
+            lamp.radius = reach + lamp.axis_u.length().max(lamp.axis_v.length());
+        }
+    }
     (result, max_lod)
 }
 

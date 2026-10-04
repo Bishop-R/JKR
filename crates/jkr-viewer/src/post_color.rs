@@ -49,13 +49,11 @@ impl Settings {
             CvarFlags::ARCHIVE,
             "Optional LDR filmic scene curve (0 off, 1 on); applies immediately",
         ))?;
-        // Default on: emissive surfaces should read as emissive. Threshold 0.8 linear is
-        // selective enough that ordinary geometry is untouched, and it measured 0.033 ms at
-        // 2560x1080 on an RX 9060 XT (0.556/0.559 off against 0.587/0.594 on). `jkr_bloom 0`
-        // restores the untouched base image exactly.
+        // The default look keeps authored glow without adding scene-wide bloom.
+        // The optional pass remains available through jkr_bloom 1.
         cvars.register(CvarDefinition::new(
             "jkr_bloom",
-            1_i64,
+            0_i64,
             CvarFlags::ARCHIVE,
             "Scene bloom (0 off, 1 on); applies immediately, never blooms HUD",
         ))?;

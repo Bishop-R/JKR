@@ -62,6 +62,7 @@ pub(super) struct Runtime {
     /// Live `jkr_dayBrightness` for the real-time lighting mode.
     light_scale: std::cell::Cell<f32>,
     ambient_fill: std::cell::Cell<f32>,
+    indirect_readability: std::cell::Cell<[f32; 2]>,
     /// Live `jkr_dayDebug` bitmask, handed to the shaders in `Parameters.realtime.w`.
     pub(in crate::world_materials) debug: std::cell::Cell<u32>,
     filter_reference: std::cell::Cell<bool>,
@@ -207,6 +208,8 @@ pub(super) struct Parameters {
     realtime: [f32; 4],
     /// Readability fill tint and strength, independent of the sky environment.
     fill: [f32; 4],
+    /// Indirect gain, fill occlusion fraction, two reserved lanes.
+    readability: [f32; 4],
 }
 
 impl crate::GpuState {
@@ -306,6 +309,17 @@ impl super::Runtime {
             }
         }
     }
+    /// Live indirect gain and fill occlusion, shared by world, actors and reflections.
+    pub(crate) fn set_indirect_readability(&self, values: [f32; 2]) {
+        if let Some(shadow) = &self.shadows {
+            if values.iter().all(|v| v.is_finite()) {
+                shadow
+                    .indirect_readability
+                    .set([values[0].clamp(0., 4.), values[1].clamp(0., 1.)]);
+            }
+        }
+    }
+
     /// Live `jkr_shadowGapClose` width in world units.
     pub(crate) fn set_gap_close(&self, width: f32) {
         if let Some(shadow) = &self.shadows {
@@ -547,10 +561,6 @@ impl super::Runtime {
         actor_end: u32,
         phases: Option<&crate::gpu_phases::Profiler>,
     ) -> bool {
-        // The main view's shadow pass opens every frame's world rendering.
-        if let Some(indirect) = &self.indirect {
-            indirect.begin_frame();
-        }
         if let Some(sun) = &self.forge.model_sun {
             sun.ready.set(false);
         }
@@ -723,6 +733,10 @@ impl super::Runtime {
                     }) as f32,
             ],
             fill: [0.95, 0.97, 1., shadow.ambient_fill.get()],
+            readability: {
+                let [gain, occlusion] = shadow.indirect_readability.get();
+                [gain, occlusion, 0., 0.]
+            },
         };
         queue.write_buffer(&shadow.receiver_buffer, 0, bytemuck::bytes_of(&parameters));
         let main = Cascade {

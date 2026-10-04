@@ -7,4 +7,5 @@ struct Shadow {
     close_vp: mat4x4<f32>, close_quality: vec4<f32>,
     realtime: vec4<f32>,
     fill: vec4<f32>,
+    readability: vec4<f32>, // indirect gain, fill occlusion fraction, reserved
 };
