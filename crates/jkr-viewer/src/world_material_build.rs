@@ -272,6 +272,7 @@ fn build(
             applied: None,
         })
         .collect();
+    result.0.remaps.map = super::map_remaps::MapRemaps::load(bsp, vfs, shaders);
     result.0.lamps = lamps;
     // The static lamp cache covers lightmapped, light-buffered surfaces of the static world.
     if !result.0.lamps.lamps.is_empty() {

@@ -443,7 +443,10 @@ protects other actors from malformed custom clips, but does not repair the clip.
 Server map recolors and material replacements are enabled by default. Use
 `cg_remaps 0` to disable them, `cg_remaps 1` for Tayst's default policy excluding
 player-texture configstring remaps, or `cg_remaps 2` to include those textures.
-`listRemaps` lists enabled server replacements and temporary local overrides.
+A map's own worldspawn remaps always apply. `listRemaps` lists the map's, the
+enabled server and the temporary local remaps in the order they were applied, each
+labelled `map:`, `server:` or `local:`, and marks those a later remap overrides.
 `remapShader <old> <new>` replaces a shader locally for the loaded map; remapping
-it to itself restores the original. See [rendering](rendering.md#server-shader-remaps)
+it to itself restores the original. The latest remap of a shader wins, so a later
+server remap replaces a local one. See [rendering](rendering.md#server-shader-remaps)
 for scope and remaining limitations. These controls do not edit map geometry.

@@ -36,16 +36,34 @@ use the shared world/model material compiler: stage images, blending, alpha test
 texture animation, scrolling, waves and deforms are replaced together. Shader
 names are case-insensitive and extension-independent. Aliases resolve one hop;
 remapping a shader to itself restores it. The destination's time offset is shared
-by its users and subtracted from shader time. Removing an entry from the server's
-configstring alone does not undo it, matching stock cgame.
+by its users and subtracted from shader time; server offsets are parsed like C
+`atof`. Removing an entry from the server's configstring alone does not undo it,
+matching stock cgame.
+
+The map's own worldspawn remaps apply when its world loads, as rd-vanilla
+`R_LoadEntities` applies them: every key starting with `remapshader` (case-sensitive,
+so `remapshader2` too) whose value is `old;new`, split at the first `;`. A value
+without `;`, or an empty key or value, ends the scan as in C. Both shaders must
+exist. These remaps are not gated by `cg_remaps` and last as long as the loaded
+map. `vertexremapshader` keys are skipped: they apply only under `r_vertexLight`,
+which JKR does not have.
+
+Map, server and local remaps of one shader follow rd-vanilla, where every source
+writes the same remapped-shader slot: the latest remap wins. Worldspawn remaps come
+first; a later server remap replaces a local one, including a local restore, and
+each `CS_SHADERSTATE` update applies all its entries again, as `CG_ShaderStateChanged`
+does. The session keeps the server state and stamps each entry; the displayed map
+keeps its worldspawn and local remaps and picks the latest of the three.
 
 `cg_remaps` follows Tayst's policy: **0** disables server remaps, **1** (default)
-accepts map remaps while excluding player-texture configstring entries, and **2**
+accepts them while excluding player-texture configstring entries, and **2**
 includes those entries. Like Tayst, a reliable `remapShader` command is accepted
 in either nonzero mode. JKR applies this preference live rather than requiring a
-map reload. `listRemaps` lists the currently enabled server entries and local
-overrides; `remapShader <old> <new>` sets a temporary local override for the loaded
-map, without sending anything to the server or saving it to config.
+map reload; a server remap it excludes reveals the earlier remap it had replaced.
+`listRemaps` lists the map's, the enabled server and the local remaps in the order
+they were applied, with their source, and marks those a later remap overrides.
+`remapShader <old> <new>` sets a temporary local remap for the loaded map, without
+sending anything to the server or saving it to config.
 
 Material recompilation and draw/fog/table invalidation happen on changes, not
 per frame. Late-loaded entity materials also receive the current remaps. Map
@@ -55,13 +73,15 @@ the sky images while retaining the existing day/night policy.
 This is shader replacement, not BSP editing. Existing server entity and sub-BSP
 presentation use their separate paths. Collision and baked lightmaps are unchanged;
 the modern renderer's extracted lamps, GI and sealed BSP shadow boundaries are
-not rebuilt by a live remap.
+not rebuilt by a live remap. Worldspawn remaps use the same replacement path after
+the world loads, so that extraction also sees the map's original shaders.
 Particle/HUD texture atlases, generated surface sprites, detached menu previews
 and mirror/portal classification do not yet follow arbitrary shader remaps.
 Sky remaps do not turn ordinary geometry into new sky portals. Broad community-map
 and multi-lightmap registration parity remain to be verified.
 
 Implementation: [compatibility state](../crates/jkr-client/src/shader_remaps.rs),
+[map and local remaps](../crates/jkr-viewer/src/world_map_remaps.rs),
 [event-time material updates](../crates/jkr-viewer/src/world_shader_remaps.rs),
 [replacement compilation](../crates/jkr-viewer/src/world_remap_material.rs).
 

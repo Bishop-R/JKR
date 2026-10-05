@@ -7,6 +7,23 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Worldspawn shader remaps and remap order
+
+Local change against `af65396` (2026-10-05, Windows 11): a map's worldspawn
+`remapshader` keys now apply when its world loads, as rd-vanilla `R_LoadEntities`
+does, and the latest of a shader's map, server and local remaps wins, as in
+rd-vanilla. A local restore no longer blocks later server remaps, each shader-state
+update re-applies its entries, and a server remap that a live `cg_remaps` change
+excludes reveals the remap it had replaced. Server time offsets are parsed like C
+`atof`; `listRemaps` shows map remaps and marks overridden entries. See
+[rendering](rendering.md#server-shader-remaps).
+
+Unit tests cover worldspawn key parsing (prefix, first `;`, the C scan stops),
+ordering across sources, self-restore, `cg_remaps` gating and `atof`. Workspace
+formatting, the locked build of all targets and the locked tests passed on
+Windows 11. Not run in the client: no map with worldspawn remaps, server or demo
+has exercised this change, and `vertexremapshader` keys stay unsupported.
+
 ## Server shader remaps
 
 Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and

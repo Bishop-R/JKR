@@ -9,7 +9,9 @@ mod animation_selection;
 mod asset_catalog;
 mod base_server_commands;
 mod shader_remaps;
-pub use shader_remaps::{SHADER_STATE_CONFIG, ShaderRemapTable, ShaderRemaps, shader_name};
+pub use shader_remaps::{
+    SHADER_STATE_CONFIG, ShaderRemapTable, ShaderRemaps, next_remap_order, shader_name,
+};
 mod catalog_tokens;
 mod character_catalog;
 mod chat;

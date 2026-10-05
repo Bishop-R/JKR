@@ -8,22 +8,16 @@ impl Runtime {
         vfs: &VirtualFileSystem,
         shaders: &ShaderCatalog,
         remaps: Option<&jkr_client::ShaderRemapTable>,
-        local: &std::collections::BTreeMap<String, String>,
+        map: &crate::world_materials::map_remaps::MapRemaps,
     ) -> Result<(), Box<dyn Error>> {
         for material in &mut self.materials {
             let Some(name) = jkr_client::shader_name(&material.name) else {
                 continue;
             };
-            if !remaps.is_some_and(|r| r.affects(&name))
-                && !local.contains_key(&name)
-                && material.remapped.is_none()
-            {
+            if !map.affects(&name, remaps) && material.remapped.is_none() {
                 continue;
             }
-            let target = local
-                .get(&name)
-                .map(String::as_str)
-                .unwrap_or_else(|| remaps.map_or(name.as_str(), |r| r.destination(&name)));
+            let target = map.target(&name, remaps);
             if material.remapped.as_deref() == Some(target) {
                 continue;
             }

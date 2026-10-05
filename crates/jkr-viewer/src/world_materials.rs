@@ -43,6 +43,8 @@ pub(crate) mod ssao;
 #[path = "world_texture_prepare.rs"]
 mod texture_prepare;
 
+#[path = "world_map_remaps.rs"]
+pub(crate) mod map_remaps;
 #[path = "world_shader_remaps.rs"]
 mod remaps;
 use fog_draws::FogDraw;

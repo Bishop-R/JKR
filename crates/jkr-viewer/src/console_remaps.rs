@@ -20,25 +20,15 @@ impl crate::GpuState {
         if !args.is_empty() {
             return Err("usage: listRemaps".into());
         }
-        let mut lines = Vec::new();
         let mode = self.console.as_ref().map_or(1, |c| c.remap_mode());
         let state = self
             .live_session
             .as_ref()
             .map(|s| s.shader_remaps())
             .or_else(|| self.demo_session.as_ref().map(|s| s.shader_remaps()));
-        if let Some(table) = state.and_then(|s| s.table(mode)) {
-            lines.extend(
-                table
-                    .entries()
-                    .map(|(a, b)| format!("server: {a} -> {b} (time {})", table.time_offset(b))),
-            );
-        }
-        lines.extend(
-            self.world_materials
-                .local_remaps()
-                .map(|(a, b)| format!("local: {a} -> {b}")),
-        );
+        let mut lines = self
+            .world_materials
+            .remap_listing(state.and_then(|s| s.table(mode)));
         if lines.is_empty() {
             lines.push("No active shader remaps".into());
         }
