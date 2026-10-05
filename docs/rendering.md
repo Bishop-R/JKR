@@ -52,18 +52,30 @@ per frame. Late-loaded entity materials also receive the current remaps. Map
 replacement/reconnection isolates server state. Authored sky-box remaps replace
 the sky images while retaining the existing day/night policy.
 
+Effects drawn from the effect atlas (EFX particles, missile trails, muzzle
+flashes, beams, impact marks and blob shadows) follow the same remaps and local
+overrides, as rd-vanilla `RB_BeginSurface` swaps the shader for every surface.
+A remapped atlas entry samples a copy of its target's original stages, with the
+destination's time offset subtracted from the effect's shader time; a target
+missing from the atlas is loaded first, and one that cannot be loaded leaves the
+effect unchanged. This runs after the world applies a remap change, never per
+frame. Removing or self-remapping an entry, or `cg_remaps 0`, restores the
+original stages; aliases do not chain.
+
 This is shader replacement, not BSP editing. Existing server entity and sub-BSP
 presentation use their separate paths. Collision and baked lightmaps are unchanged;
 the modern renderer's extracted lamps, GI and sealed BSP shadow boundaries are
 not rebuilt by a live remap.
-Particle/HUD texture atlases, generated surface sprites, detached menu previews
-and mirror/portal classification do not yet follow arbitrary shader remaps.
+HUD and 2D pictures, saber blades and trails, generated surface sprites,
+detached menu previews and mirror/portal classification do not yet follow
+arbitrary shader remaps.
 Sky remaps do not turn ordinary geometry into new sky portals. Broad community-map
 and multi-lightmap registration parity remain to be verified.
 
 Implementation: [compatibility state](../crates/jkr-client/src/shader_remaps.rs),
 [event-time material updates](../crates/jkr-viewer/src/world_shader_remaps.rs),
-[replacement compilation](../crates/jkr-viewer/src/world_remap_material.rs).
+[replacement compilation](../crates/jkr-viewer/src/world_remap_material.rs),
+[effect atlas entries](../crates/jkr-viewer/src/effect_remaps.rs).
 
 ## Actor animation failures
 

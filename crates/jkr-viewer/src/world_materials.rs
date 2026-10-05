@@ -49,6 +49,7 @@ use fog_draws::FogDraw;
 pub(crate) use fog_draws::FrameDraw;
 use fog_gpu::FogGpu;
 use jkr_shader::{FogPass, ShaderCull};
+pub(crate) use remaps::remap_target;
 
 use super::{DrawBatch, ViewerMaterial, create_rgba8_texture};
 #[path = "world_area_visibility.rs"]

@@ -23,6 +23,7 @@ impl ParticleAtlas {
         animation: &ParticleAtlasAnimation,
         age_seconds: f32,
     ) -> ParticleLayerSample {
+        let age_seconds = age_seconds - animation.time_offset;
         if animation.frames.len() == 1 || animation.frequency <= 0.0 {
             return ParticleLayerSample {
                 uv_rect: animation.frames.first().copied().unwrap_or(self.fallback),

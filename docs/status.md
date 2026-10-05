@@ -7,6 +7,25 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Effect shader remaps
+
+Local change on `af65396` (2026-10-05, Windows 11): effects drawn from the effect
+atlas (EFX particles, missile trails, muzzle flashes, beams, impact marks and blob
+shadows) follow server shader remaps and local `remapShader` overrides, with the
+world materials' precedence. A remapped entry samples a copy of its target's
+original stages and time offset, loading a missing target into the atlas first;
+removal, a self-remap or `cg_remaps 0` restores it. This runs after the world
+applies a remap change, never per frame; sampling adds one subtraction per stage.
+No wire code changed. See [rendering scope and limitations](rendering.md#server-shader-remaps).
+
+Workspace formatting, the locked build of all targets and locked tests passed.
+New unit tests cover remap planning through the shared world lookup (aliases,
+extensions, destination clocks, local overrides, self-remaps, `cg_remaps 0`) and
+copying/restoring atlas stages. Unverified: nothing was run in the client, so no
+server, demo or visual check exercised remapped effects, atlas growth or the time
+offset, and the rebuild time of a grown atlas was not measured. HUD pictures,
+saber blades and trails, surface sprites and menu previews still ignore remaps.
+
 ## Server shader remaps
 
 Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and
@@ -37,9 +56,10 @@ pipeline compilation. No wire, movement or combat rules changed. Workspace
 formatting, locked build/tests and the optimized Linux viewer build passed.
 
 Shader replacement does not imply geometry editing. Existing server entity and
-sub-BSP paths were inspected but not changed. Arbitrary particle/HUD and generated
-sprite remaps, full lighting reconstruction and broad custom-map parity remain
-outside this implementation; these limitations are recorded on the rendering page.
+sub-BSP paths were inspected but not changed. Arbitrary HUD and generated sprite
+remaps, full lighting reconstruction and broad custom-map parity remain outside
+this implementation (effects: see above); these limitations are recorded on the
+rendering page.
 
 ## Third-person camera collision and vehicle framing
 
