@@ -180,6 +180,7 @@ pub(crate) fn create(
                     alpha_wave: animation.alpha_wave,
                     tc_scale: animation.tc_scale,
                     tc_scroll: animation.tc_scroll,
+                    time_offset: 0.,
                 });
         }
     }
@@ -225,6 +226,7 @@ pub(crate) fn create(
         bind_group,
         animations,
         fallback,
+        remaps: Default::default(),
     })
 }
 

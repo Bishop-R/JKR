@@ -1893,8 +1893,10 @@ struct ParticleAtlas {
     bind_group: wgpu::BindGroup,
     animations: HashMap<String, Vec<ParticleAtlasAnimation>>,
     fallback: [f32; 4],
+    remaps: effect_remaps::State,
 }
 
+#[derive(Clone)]
 struct ParticleAtlasAnimation {
     frames: Vec<[f32; 4]>,
     frequency: f32,
@@ -1904,6 +1906,8 @@ struct ParticleAtlasAnimation {
     alpha_wave: Option<WaveForm>,
     tc_scale: [f32; 2],
     tc_scroll: [f32; 2],
+    /// Remap destination clock, subtracted from the sampled shader time.
+    time_offset: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -1915,6 +1919,7 @@ struct ParticleLayerSample {
     uv_transform: [f32; 4],
 }
 
+mod effect_remaps;
 mod particle_atlas_sampling;
 
 mod depth_target;

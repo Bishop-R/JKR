@@ -20,10 +20,7 @@ impl Runtime {
             {
                 continue;
             }
-            let target = local
-                .get(&name)
-                .map(String::as_str)
-                .unwrap_or_else(|| remaps.map_or(name.as_str(), |r| r.destination(&name)));
+            let (target, _) = crate::world_materials::remap_target(remaps, local, &name);
             if material.remapped.as_deref() == Some(target) {
                 continue;
             }

@@ -16,6 +16,20 @@ pub(super) struct State {
     pub sources: Vec<Source>,
     pub local: std::collections::BTreeMap<String, String>,
     pub applied: Option<(u64, u64, i64)>,
+    pub generation: u64,
+}
+
+/// Visible shader and destination clock offset for an original shader name.
+pub(crate) fn remap_target<'a>(
+    server: Option<&'a jkr_client::ShaderRemapTable>,
+    local: &'a std::collections::BTreeMap<String, String>,
+    name: &'a str,
+) -> (&'a str, f32) {
+    let target = local
+        .get(name)
+        .map(String::as_str)
+        .unwrap_or_else(|| server.map_or(name, |r| r.destination(name)));
+    (target, server.map_or(0., |r| r.time_offset(target)))
 }
 
 impl Runtime {
@@ -56,13 +70,7 @@ impl Runtime {
             {
                 continue;
             }
-            let target = self
-                .remaps
-                .local
-                .get(&name)
-                .map(String::as_str)
-                .unwrap_or_else(|| remaps.map_or(name.as_str(), |r| r.destination(&name)));
-            let offset = remaps.map_or(0., |r| r.time_offset(target));
+            let (target, offset) = remap_target(remaps, &self.remaps.local, &name);
             if original
                 .applied
                 .as_ref()
@@ -116,7 +124,21 @@ impl Runtime {
             self.sky
                 .refresh_remaps(device, queue, vfs, shaders, remaps, &self.remaps.local);
         self.remaps.applied = Some(stamp);
+        self.remaps.generation = self.remaps.generation.wrapping_add(1);
         sky_result
+    }
+
+    /// Counts applied remap states, including local edits and late materials.
+    pub(crate) fn remap_generation(&self) -> u64 {
+        self.remaps.generation
+    }
+    /// This world's remap target for a shader name, shared by effects.
+    pub(crate) fn remap_target<'a>(
+        &'a self,
+        server: Option<&'a jkr_client::ShaderRemapTable>,
+        name: &'a str,
+    ) -> (&'a str, f32) {
+        remap_target(server, &self.remaps.local, name)
     }
 
     fn rebuild_remapped_fog(&mut self, visibility: Option<&Visibility>) {

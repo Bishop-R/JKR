@@ -203,16 +203,31 @@ impl GpuState {
             })
             .unwrap_or(&self.config_string_refresh.initial_remaps);
         if let Some(vfs) = self.vfs.as_ref() {
+            let mode = self.console.as_ref().map_or(1, |c| c.remap_mode());
             if let Err(error) = self.world_materials.refresh_remaps(
                 &self.device,
                 &self.queue,
                 vfs,
                 &self.shaders,
                 remaps,
-                self.console.as_ref().map_or(1, |c| c.remap_mode()),
+                mode,
                 self.bsp.render().visibility(),
             ) {
                 log::progress(format_args!("shader remap failed: {error}"));
+            }
+            let (world, table) = (&self.world_materials, remaps.table(mode));
+            if let Err(error) = self.particle_atlas.refresh_remaps(
+                &self.device,
+                &self.queue,
+                vfs,
+                &self.shaders,
+                world.remap_generation(),
+                |name| {
+                    let (target, offset) = world.remap_target(table, name);
+                    (target.to_owned(), offset)
+                },
+            ) {
+                log::progress(format_args!("effect shader remap failed: {error}"));
             }
         }
     }
