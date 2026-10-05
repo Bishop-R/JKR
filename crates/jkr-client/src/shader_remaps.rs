@@ -7,6 +7,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub const SHADER_STATE_CONFIG: usize = 24;
 const MAX_REMAPS: usize = 1024;
 
+/// Next stamp of the process-wide remap order. Every rd-vanilla remap source
+/// writes the same `shader_t::remappedShader`, so the latest call wins; server
+/// and local remaps take their stamps from this one counter. Worldspawn remaps
+/// use 0: the renderer applies them while loading the world, before cgame.
+pub fn next_remap_order() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
 /// Persistent, one-hop renderer aliases. Removing an entry from a configstring
 /// does not undo it: stock cgame applies entries, and self-remaps undo aliases.
 #[derive(Clone, Debug, PartialEq)]
@@ -52,6 +61,8 @@ impl ShaderRemaps {
         (mode != 0).then(|| &self.tables[usize::from(mode != 1)])
     }
     /// Apply complete `old=new:offset@` entries; a truncated tail is ignored.
+    /// Every entry is applied again and becomes the latest remap of its shader,
+    /// as `CG_ShaderStateChanged` calls `R_RemapShader` for each one.
     pub fn apply_config(&mut self, bytes: &[u8]) {
         let Ok(mut rest) = std::str::from_utf8(bytes) else {
             return;
@@ -90,15 +101,11 @@ impl ShaderRemaps {
         let (Some(original), Some(target)) = (shader_name(original), shader_name(target)) else {
             return;
         };
-        let offset = offset
-            .trim()
-            .parse::<f32>()
-            .ok()
-            .filter(|v| v.is_finite())
-            .unwrap_or(0.);
-        let mut changed = self.tables[1].apply(&original, &target, offset);
+        let offset = Some(atof(offset)).filter(|v| v.is_finite()).unwrap_or(0.);
+        let order = next_remap_order();
+        let mut changed = self.tables[1].apply(&original, &target, offset, order);
         if command || !original.starts_with("models/players/") {
-            changed |= self.tables[0].apply(&original, &target, offset);
+            changed |= self.tables[0].apply(&original, &target, offset, order);
         }
         self.revision = self.revision.wrapping_add(u64::from(changed));
     }
@@ -107,13 +114,18 @@ impl ShaderRemaps {
 /// Resolved remaps for one client policy. This is material data, not wire state.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ShaderRemapTable {
-    aliases: BTreeMap<String, String>,
+    aliases: BTreeMap<String, (String, u64)>,
     offsets: BTreeMap<String, f32>,
 }
 impl ShaderRemapTable {
     /// Shader used for this original name. Aliases deliberately do not chain.
     pub fn destination<'a>(&'a self, original: &'a str) -> &'a str {
-        self.aliases.get(original).map_or(original, String::as_str)
+        self.alias(original).map_or(original, |(target, _)| target)
+    }
+    /// Latest server remap of a name and its [`next_remap_order`] stamp.
+    pub fn alias(&self, original: &str) -> Option<(&str, u64)> {
+        let (target, order) = self.aliases.get(original)?;
+        Some((target, *order))
     }
     /// Stock stores timeOffset on the destination shader, shared by its users.
     pub fn time_offset(&self, destination: &str) -> f32 {
@@ -123,22 +135,21 @@ impl ShaderRemapTable {
     pub fn affects(&self, original: &str) -> bool {
         self.aliases.contains_key(original) || self.offsets.contains_key(original)
     }
-    /// Original and replacement names, for the console's listRemaps command.
-    pub fn entries(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.aliases.iter().map(|(a, b)| (a.as_str(), b.as_str()))
+    /// Original and replacement names with their order stamps, for listRemaps.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &str, u64)> {
+        self.aliases
+            .iter()
+            .map(|(a, (b, order))| (a.as_str(), b.as_str(), *order))
     }
-    fn apply(&mut self, original: &str, target: &str, offset: f32) -> bool {
+    /// A repeated remap still changes the table: it becomes the latest one.
+    fn apply(&mut self, original: &str, target: &str, offset: f32, order: u64) -> bool {
         if (!self.aliases.contains_key(original) && self.aliases.len() >= MAX_REMAPS)
             || (!self.offsets.contains_key(target) && self.offsets.len() >= MAX_REMAPS * 2)
         {
             return false;
         }
-        if self.aliases.get(original).is_some_and(|v| v == target)
-            && self.time_offset(target) == offset
-        {
-            return false;
-        }
-        self.aliases.insert(original.to_owned(), target.to_owned());
+        self.aliases
+            .insert(original.to_owned(), (target.to_owned(), order));
         self.offsets.insert(target.to_owned(), offset);
         true
     }
@@ -160,4 +171,111 @@ pub fn shader_name(name: &str) -> Option<String> {
         name.truncate(start + dot);
     }
     (!name.is_empty() && !name.split('/').any(|part| part == "..")).then_some(name)
+}
+
+/// C `atof` for decimal text: leading whitespace, then the longest decimal
+/// prefix with an optional exponent; 0 when there is none.
+fn atof(text: &str) -> f32 {
+    let text = text.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']);
+    let bytes = text.as_bytes();
+    let digits = |from: usize| {
+        from + bytes
+            .get(from..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|b| b.is_ascii_digit())
+            .count()
+    };
+    let sign = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let mut end = digits(sign);
+    let mut mantissa = end - sign;
+    if bytes.get(end) == Some(&b'.') {
+        let fraction = digits(end + 1);
+        mantissa += fraction - end - 1;
+        end = fraction;
+    }
+    if mantissa == 0 {
+        return 0.;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let sign = end + 1 + usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+        let exponent = digits(sign);
+        if exponent > sign {
+            end = exponent;
+        }
+    }
+    text[..end].parse().unwrap_or(0.)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn table(state: &ShaderRemaps, mode: i64) -> &ShaderRemapTable {
+        state.table(mode).unwrap()
+    }
+
+    #[test]
+    fn atof_matches_the_c_library() {
+        for (text, value) in [
+            (" 5.20", 5.2),
+            ("\t-3", -3.),
+            ("1.5x", 1.5),
+            ("1e2x", 100.),
+            ("1e", 1.),
+            ("1e+", 1.),
+            ("2E-1", 0.2),
+            (".5", 0.5),
+            ("7.", 7.),
+            ("+.", 0.),
+            (".", 0.),
+            ("abc", 0.),
+            ("", 0.),
+        ] {
+            assert_eq!(atof(text), value, "{text:?}");
+        }
+    }
+
+    #[test]
+    fn offsets_parse_like_atof_and_reject_nonfinite_values() {
+        let mut state = ShaderRemaps::default();
+        state.apply_config(b"a=b: 1.5x@c=d:1e999@e=f:junk@");
+        let table = table(&state, 2);
+        assert_eq!(table.time_offset("b"), 1.5);
+        assert_eq!(table.time_offset("d"), 0.);
+        assert_eq!(table.time_offset("f"), 0.);
+    }
+
+    #[test]
+    fn reapplied_entries_become_the_latest_remaps() {
+        let mut state = ShaderRemaps::default();
+        state.apply_config(b"textures/a=textures/b:0@");
+        let (_, first) = table(&state, 1).alias("textures/a").unwrap();
+        let revision = state.revision();
+        // An unchanged configstring still re-asserts its entries over later
+        // remaps from other sources, as CG_ShaderStateChanged does.
+        let between = next_remap_order();
+        state.apply_config(b"textures/a=textures/b:0@");
+        let (target, again) = table(&state, 1).alias("textures/a").unwrap();
+        assert_eq!(target, "textures/b");
+        assert!(first < between && between < again);
+        assert_ne!(state.revision(), revision);
+    }
+
+    #[test]
+    fn player_entries_stay_out_of_the_default_table_but_commands_do_not() {
+        let mut state = ShaderRemaps::default();
+        state.apply_config(b"models/players/kyle/body=textures/x:0@");
+        assert!(table(&state, 1).alias("models/players/kyle/body").is_none());
+        assert!(table(&state, 2).alias("models/players/kyle/body").is_some());
+        let command = ["remapShader", "models/players/kyle/head", "textures/y", "2"]
+            .map(|a| a.as_bytes().to_vec());
+        assert!(state.command(&command));
+        assert_eq!(
+            table(&state, 1).destination("models/players/kyle/head"),
+            "textures/y"
+        );
+        assert_eq!(table(&state, 1).time_offset("textures/y"), 2.);
+        assert!(state.table(0).is_none());
+    }
 }

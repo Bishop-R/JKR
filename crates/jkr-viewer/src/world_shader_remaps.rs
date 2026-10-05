@@ -1,4 +1,5 @@
 //! Event-time replacement of compiled materials; draw-time indices stay stable.
+use super::map_remaps::{MapRemaps, checked};
 use super::*;
 #[path = "world_remap_material.rs"]
 mod material;
@@ -14,12 +15,12 @@ pub(super) struct Source {
 #[derive(Default)]
 pub(super) struct State {
     pub sources: Vec<Source>,
-    pub local: std::collections::BTreeMap<String, String>,
+    pub map: MapRemaps,
     pub applied: Option<(u64, u64, i64)>,
 }
 
 impl Runtime {
-    /// Apply only on a server change or after registering new entity materials.
+    /// Apply only on a remap change or after registering new entity materials.
     pub(crate) fn refresh_remaps(
         &mut self,
         device: &wgpu::Device,
@@ -36,7 +37,7 @@ impl Runtime {
             .applied
             .is_some_and(|previous| previous.0 != stamp.0)
         {
-            self.remaps.local.clear();
+            self.remaps.map.clear_local();
         }
         let remaps = remaps.table(mode);
         if self.remaps.applied == Some(stamp) {
@@ -50,18 +51,10 @@ impl Runtime {
             let Some(name) = original.name.clone() else {
                 continue;
             };
-            if !remaps.is_some_and(|r| r.affects(&name))
-                && !self.remaps.local.contains_key(&name)
-                && original.applied.is_none()
-            {
+            if !self.remaps.map.affects(&name, remaps) && original.applied.is_none() {
                 continue;
             }
-            let target = self
-                .remaps
-                .local
-                .get(&name)
-                .map(String::as_str)
-                .unwrap_or_else(|| remaps.map_or(name.as_str(), |r| r.destination(&name)));
+            let target = self.remaps.map.target(&name, remaps);
             let offset = remaps.map_or(0., |r| r.time_offset(target));
             if original
                 .applied
@@ -114,7 +107,7 @@ impl Runtime {
         }
         let sky_result =
             self.sky
-                .refresh_remaps(device, queue, vfs, shaders, remaps, &self.remaps.local);
+                .refresh_remaps(device, queue, vfs, shaders, remaps, &self.remaps.map);
         self.remaps.applied = Some(stamp);
         sky_result
     }
@@ -151,29 +144,16 @@ impl Runtime {
         old: &str,
         new: &str,
     ) -> Result<(), String> {
-        let old = jkr_client::shader_name(old).ok_or("Invalid source shader name")?;
-        let new = jkr_client::shader_name(new).ok_or("Invalid destination shader name")?;
-        for name in [&old, &new] {
-            if shaders.get(name).is_none()
-                && shaders
-                    .resolve_image(vfs, name)
-                    .map_err(|e| e.to_string())?
-                    .is_none()
-            {
-                return Err(format!("Shader not found: {name}"));
-            }
-        }
-        if self.remaps.local.len() >= 1024 && !self.remaps.local.contains_key(&old) {
-            return Err("Local remap limit reached".into());
-        }
-        self.remaps.local.insert(old, new);
+        let (old, new) = checked(vfs, shaders, old, new)?;
+        self.remaps.map.remap_local(old, new)?;
         self.remaps.applied = None;
         Ok(())
     }
-    pub(crate) fn local_remaps(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.remaps
-            .local
-            .iter()
-            .map(|(a, b)| (a.as_str(), b.as_str()))
+    /// Map, server and local remaps for listRemaps, in application order.
+    pub(crate) fn remap_listing(
+        &self,
+        server: Option<&jkr_client::ShaderRemapTable>,
+    ) -> Vec<String> {
+        self.remaps.map.listing(server)
     }
 }
