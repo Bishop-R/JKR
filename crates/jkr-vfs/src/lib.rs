@@ -173,8 +173,10 @@ impl VirtualFileSystem {
         self.add_mount(source.name.clone(), Arc::new(source))
     }
 
+    /// Read `path` from the highest-priority mount that has it. Like
+    /// `FS_FOpenFileRead`, one leading slash is ignored ([`VirtualPath::for_read`]).
     pub fn read(&self, path: &str) -> Result<Option<Asset>, VfsError> {
-        let path = VirtualPath::new(path)?;
+        let path = VirtualPath::for_read(path)?;
 
         for mount in self.mounts.iter().rev() {
             if let Some(bytes) = mount.source.read(&path, self.max_asset_bytes)? {
@@ -202,7 +204,7 @@ impl VirtualFileSystem {
     }
 
     pub fn contains(&self, path: &str) -> Result<bool, VfsError> {
-        let path = VirtualPath::new(path)?;
+        let path = VirtualPath::for_read(path)?;
         Ok(self
             .mounts
             .iter()
@@ -213,7 +215,7 @@ impl VirtualFileSystem {
     /// Reads from one explicitly selected mount, without changing normal search precedence.
     /// Missing mounts or paths return `None`; normal asset size limits still apply.
     pub fn read_from_mount(&self, id: MountId, path: &str) -> Result<Option<Asset>, VfsError> {
-        let path = VirtualPath::new(path)?;
+        let path = VirtualPath::for_read(path)?;
         let Some(mount) = self.mounts.iter().find(|mount| mount.id == id) else {
             return Ok(None);
         };
@@ -701,5 +703,30 @@ impl Error for VfsError {
 impl From<VirtualPathError> for VfsError {
     fn from(value: VirtualPathError) -> Self {
         Self::VirtualPath(value)
+    }
+}
+
+#[cfg(test)]
+mod read_path_tests {
+    use super::*;
+
+    #[test]
+    fn a_leading_slash_reads_the_mounted_asset() {
+        let mut vfs = VirtualFileSystem::new();
+        vfs.mount_memory("test", [("models/items/a.md3", b"md3".to_vec())])
+            .unwrap();
+        let asset = vfs.read("/models/items/a.md3").unwrap().unwrap();
+        assert_eq!(asset.bytes, b"md3");
+        assert!(vfs.contains("\\models\\items\\a.md3").unwrap());
+        assert!(vfs.read("//models/items/a.md3").is_err());
+    }
+
+    #[test]
+    fn a_mounted_name_with_a_leading_slash_is_still_refused() {
+        let mut vfs = VirtualFileSystem::new();
+        assert!(
+            vfs.mount_memory("test", [("/models/a.md3", Vec::new())])
+                .is_err()
+        );
     }
 }
