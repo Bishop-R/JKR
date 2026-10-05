@@ -17,6 +17,21 @@ impl crate::GpuState {
             )?;
             return Ok(vec![format!("{old} -> {new}")]);
         }
+        if name == "clearremaps" {
+            if !args.is_empty() {
+                return Err("usage: clearRemaps".into());
+            }
+            // EternalJK's renderer command: local only, nothing reaches the server.
+            if let Some(session) = &mut self.live_session {
+                session.clear_shader_remaps();
+            } else if let Some(session) = &mut self.demo_session {
+                session.clear_shader_remaps();
+            } else {
+                self.config_string_refresh.clear_remaps();
+            }
+            self.world_materials.clear_local_remaps();
+            return Ok(vec!["Shader remaps cleared".into()]);
+        }
         if !args.is_empty() {
             return Err("usage: listRemaps".into());
         }

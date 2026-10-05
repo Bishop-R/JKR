@@ -7,6 +7,21 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Shader remap clearing and setting
+
+Local change against `af65396` (2026-10-05, Windows 11) adds EternalJK's
+`clearRemaps` console command and a Settings > GAME row for `cg_remaps`
+(0 off / 1 map / 2 all; the default stays 1). EternalJK's `R_ClearRemaps_f`
+(`codemp/rd-vanilla/tr_init.cpp`) resets every renderer shader's remap and keeps
+destination time offsets. JKR clears the live or demo session's server remaps and
+local overrides the same way, sends nothing to the server, and lets a later
+shader-state change, reliable `remapShader` command or new gamestate apply again.
+See [shader remap controls](client.md#shader-remap-controls).
+
+Workspace formatting, locked build of all targets and tests passed on Windows 11,
+including a unit test for the clear logic. Not run in the client: material
+restoration after `clearRemaps` and the Settings row were not checked in game.
+
 ## Server shader remaps
 
 Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and
