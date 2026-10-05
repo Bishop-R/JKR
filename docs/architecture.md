@@ -16,6 +16,8 @@ rules itself rather than hosting the original game DLLs.
    and maps those handles to the legacy endpoint.
 4. Content paths are normalized, case-insensitive virtual paths. Asset ownership
    is explicit; loading another map must not silently replace global asset state.
+   A read ignores one leading `/` or `\`, as `FS_FOpenFileRead` does; mounted
+   names, archive entries and writes still refuse it.
 5. Platform code and GPU resources stay at application/integration boundaries.
    UI layout and audio mixing have independent engine interfaces.
 6. Downloaded content is handled through bounded storage operations. Remote paths

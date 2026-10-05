@@ -40,6 +40,15 @@ impl VirtualPath {
         Ok(Self(components.join("/")))
     }
 
+    /// The path a read looks up for `input`: [`Self::new`] after dropping one
+    /// leading `/` or `\`, as `FS_FOpenFileRead` does (`codemp/qcommon/files.cpp`,
+    /// "qpaths are not supposed to have a leading slash"). Game data names some
+    /// assets that way, such as a map's `/models/items/...` item model. Mounts,
+    /// archive entries and writes keep [`Self::new`]'s rejection.
+    pub fn for_read(input: &str) -> Result<Self, VirtualPathError> {
+        Self::new(input.strip_prefix(['/', '\\']).unwrap_or(input))
+    }
+
     pub(crate) fn from_host_relative(path: &Path) -> Result<Self, VirtualPathError> {
         let mut components = Vec::new();
         for component in path.components() {
@@ -95,3 +104,35 @@ impl fmt::Display for VirtualPathError {
 }
 
 impl Error for VirtualPathError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_drop_one_leading_slash_like_fs_fopen_file_read() {
+        for input in ["/models/items/A.md3", "\\models\\items\\a.md3"] {
+            assert_eq!(
+                VirtualPath::for_read(input).unwrap().as_str(),
+                "models/items/a.md3"
+            );
+        }
+        // Only one: a second slash still makes the qpath absolute.
+        assert_eq!(
+            VirtualPath::for_read("//models/a.md3"),
+            Err(VirtualPathError::Absolute)
+        );
+        assert_eq!(
+            VirtualPath::for_read("/../a.md3"),
+            Err(VirtualPathError::ParentTraversal)
+        );
+    }
+
+    #[test]
+    fn mounted_names_keep_rejecting_a_leading_slash() {
+        assert_eq!(
+            VirtualPath::new("/models/a.md3"),
+            Err(VirtualPathError::Absolute)
+        );
+    }
+}

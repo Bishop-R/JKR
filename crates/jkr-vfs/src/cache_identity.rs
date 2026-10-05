@@ -23,7 +23,7 @@ impl VirtualFileSystem {
     /// `None` means missing or mutable, not permission to use an older mount's cache.
     /// This is a cache hint only; ordinary reads still validate size and decode errors.
     pub fn asset_cache_identity(&self, path: &str) -> Result<Option<AssetCacheIdentity>, VfsError> {
-        let path = VirtualPath::new(path)?;
+        let path = VirtualPath::for_read(path)?;
         Ok(self
             .mounts
             .iter()
