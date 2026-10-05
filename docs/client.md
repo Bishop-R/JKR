@@ -71,6 +71,13 @@ mounting/dismounting reset the presentation history. The ordinary range, height,
 angle and damping cvars remain available; `cg_thirdPersonHorzOffset` controls the
 stock sideways offset.
 
+The decaying prediction error (`cg_errorDecay`) moves the third-person camera's
+focus before its collision and damping traces, as `CG_CalcViewValues`
+(`cg_view.c`) adds it to the view origin before `CG_OffsetThirdPersonView`. A
+correction next to a wall is therefore traced like any other focus movement
+instead of shifting the finished camera into the wall. First-person and other
+views still add it to the finished view origin.
+
 Vehicle appearances cache their `.veh` camera settings when loaded. Mounted
 views use the authored range, height, pitch and sideways offsets, including the
 pitch-dependent and fighter-strafe adjustments. Vehicle targets follow immediately

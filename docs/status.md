@@ -41,6 +41,17 @@ sub-BSP paths were inspected but not changed. Arbitrary particle/HUD and generat
 sprite remaps, full lighting reconstruction and broad custom-map parity remain
 outside this implementation; these limitations are recorded on the rendering page.
 
+## Third-person prediction-error focus
+
+Local change on `af65396` (2026-10-05, Windows 11): the third-person camera adds
+the decaying prediction error to its focus before the collision and damping traces,
+following `CG_CalcViewValues` (OpenJK `codemp/cgame/cg_view.c:1597-1608`), instead
+of adding it to the finished camera position. First-person, intermission and free
+views are unchanged. This is the part of Sol's camera PR #38 that #125 did not
+include; SJK has carried it on top of #125. Workspace formatting, the locked build
+and tests passed. No client was run here and no harness compared it with the C
+camera; SJK's builds have used it since #125 was merged into SJK.
+
 ## Third-person camera collision and vehicle framing
 
 Local change against `dc36792` (2026-10-04): restore the multiplayer camera's

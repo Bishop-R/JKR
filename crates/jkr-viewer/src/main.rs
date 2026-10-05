@@ -1233,6 +1233,9 @@ impl GpuState {
         let first_person = (!backdrop_view)
             .then(|| first_person_view::camera(self, presentation_time as i32))
             .flatten();
+        // cg_view.c:1597-1608: the decaying prediction error shifts only the
+        // view origin; the model root keeps the predicted origin.
+        let error_offset = self.local_prediction.view_offset();
         let mut view_up = Vec3::Z;
         let (branch, (view_position, view_target)) = if let Some(view) = intermission_view {
             self.third_person_camera = camera::State::default();
@@ -1252,7 +1255,7 @@ impl GpuState {
         {
             (
                 "third-person",
-                camera::damped_third_person(self, delta_seconds, presentation_time),
+                camera::damped_third_person(self, error_offset, delta_seconds, presentation_time),
             )
         } else if let Some(camera) = first_person {
             self.third_person_camera = camera::State::default();
@@ -1265,9 +1268,12 @@ impl GpuState {
             (if backdrop_view { "backdrop" } else { "free" }, free)
         };
         cut_trace::tick(self, branch, (view_position, view_target), visual_now);
-        // cg_view.c:1597-1608: the decaying prediction error shifts only the
-        // view origin; the model root keeps the predicted origin.
-        let error_offset = self.local_prediction.view_offset();
+        // The third-person camera already traced from the shifted origin.
+        let error_offset = if branch == "third-person" {
+            Vec3::ZERO
+        } else {
+            error_offset
+        };
         let (view_position, view_target) = effect_aux::apply_camera_offset(
             view_position + error_offset,
             view_target + error_offset,
