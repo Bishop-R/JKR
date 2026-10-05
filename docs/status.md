@@ -7,6 +7,23 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Shader remap restore
+
+Change on `af65396` (2026-10-05, Windows 11): undoing a remap (self-remap,
+`cg_remaps 0`, gamestate reset, cleared local override) recompiled the slot through
+the replacement path, which treats every slot as a map material. Late entity
+materials came back with world gloss, view bounds and light-pass classification,
+and sky or colourless shaders lost their loaded stages. The first replacement now
+keeps the slot's stages, sort and draw/fog classification aside, with their bind
+groups and pipeline indices; restoring swaps them back, followed by the existing
+order, fog, range, stage-table, SSAO and caster rebuilds. Native users of a
+destination at offset zero are no longer recompiled; a nonzero offset still is.
+Replacements and stamps are unchanged, and slots never replaced keep no copy.
+
+Formatting, the locked workspace build (all targets) and tests passed on Windows 11,
+including a unit test of the keep/restore/replace decision. Not run in the client:
+restores on a live server and their visual result remain unverified.
+
 ## Server shader remaps
 
 Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and
