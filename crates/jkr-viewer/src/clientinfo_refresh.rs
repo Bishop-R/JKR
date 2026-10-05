@@ -90,6 +90,7 @@ impl GpuState {
                     .as_ref()
                     .map(demo_playback::Session::latest_snapshot)
             });
+        let has_game = game.is_some();
         let local = game.map_or((-1, -1), |game| {
             (
                 game.client_num,
@@ -116,6 +117,11 @@ impl GpuState {
             stored.push_str(value);
         }
         self.clientinfo_watch.local_identity = local;
+        // Without a game state there is no player to rebuild; the first one
+        // changes `local` and comes back here.
+        if !has_game {
+            return;
+        }
         for client in 0..32 {
             if let Err(error) = self.apply_clientinfo(client) {
                 log::progress(format_args!("force-model client {client}: {error}"));
