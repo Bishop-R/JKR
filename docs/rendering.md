@@ -48,7 +48,11 @@ overrides; `remapShader <old> <new>` sets a temporary local override for the loa
 map, without sending anything to the server or saving it to config.
 
 Material recompilation and draw/fog/table invalidation happen on changes, not
-per frame. Late-loaded entity materials also receive the current remaps. Map
+per frame. Late-loaded entity materials also receive the current remaps.
+A slot's first replacement keeps its loaded stages and classification aside. When
+the slot maps to its own shader again at time offset zero they are put back, not
+recompiled, so it matches its load state; only replaced slots keep a copy. A
+nonzero offset on a slot's own shader compiles a replacement. Map
 replacement/reconnection isolates server state. Authored sky-box remaps replace
 the sky images while retaining the existing day/night policy.
 

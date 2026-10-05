@@ -1,6 +1,63 @@
 //! Compile a replacement without touching the material until its uploads succeed.
 use super::*;
+
+/// The fields of a [`Material`] that its shader decides. Stages keep their bind groups
+/// and append-only pipeline indices, so a kept look is drawable again as it was.
+pub(super) struct Look {
+    stages: Vec<StagePass>,
+    sort: f32,
+    blended: bool,
+    view_bounded: bool,
+    light_buffered: Option<u8>,
+    light_cutout: bool,
+    fog_pass: FogPass,
+    fog_pipeline: Option<usize>,
+}
+
+impl Look {
+    fn swap(&mut self, material: &mut Material) {
+        let Self {
+            stages,
+            sort,
+            blended,
+            view_bounded,
+            light_buffered,
+            light_cutout,
+            fog_pass,
+            fog_pipeline,
+        } = self;
+        std::mem::swap(stages, &mut material.stages);
+        std::mem::swap(sort, &mut material.sort);
+        std::mem::swap(blended, &mut material.blended);
+        std::mem::swap(view_bounded, &mut material.view_bounded);
+        std::mem::swap(light_buffered, &mut material.light_buffered);
+        std::mem::swap(light_cutout, &mut material.light_cutout);
+        std::mem::swap(fog_pass, &mut material.fog_pass);
+        std::mem::swap(fog_pipeline, &mut material.fog_pipeline);
+    }
+}
+
 impl Runtime {
+    /// Draw `look` in `source`'s slot; `look` receives what the slot drew before.
+    fn show(&mut self, source: usize, look: &mut Look) {
+        let material = &mut self.materials[self.source_to_runtime[source]];
+        look.swap(material);
+        material.camera_ranges = Default::default();
+        self.source_order[source] = (
+            material.sort,
+            material.stages.first().map_or(0, |s| s.pipeline),
+        );
+    }
+
+    /// Put back the slot's own compiled state as loaded, without recompiling it.
+    pub(super) fn restore_remapped_material(&mut self, source: usize) -> bool {
+        let Some(mut applied) = self.remaps.sources[source].applied.take() else {
+            return false;
+        };
+        self.show(source, &mut applied.own);
+        true
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn replace_remapped_material(
         &mut self,
@@ -92,28 +149,35 @@ impl Runtime {
             definition.map_or(ShaderCull::Front, |d| d.cull),
             u8::from(deform),
         );
-        let material = &mut self.materials[index];
-        material.view_bounded = !deform;
-        material.camera_ranges = Default::default();
-        material.blended = compiled.sort > SORT_OPAQUE;
-        material.sort = compiled.sort;
-        material.light_buffered = (!material.blended
-            && !material.flare
-            && stages.first().is_some_and(|s| s.shadow_caster))
-        .then(|| match self.forge.pipeline_keys[stages[0].pipeline].cull {
-            Some(wgpu::Face::Front) => 0,
-            Some(wgpu::Face::Back) => 1,
-            None => 2,
-        });
-        material.light_cutout = !material.blended && stages.first().is_some_and(|s| s.light_cutout);
-        material.fog_pass = fog_pass;
-        material.fog_pipeline = fog_pipeline;
-        material.stages = stages;
-        self.source_order[source] = (
-            material.sort,
-            material.stages.first().map_or(0, |s| s.pipeline),
-        );
-        self.remaps.sources[source].applied = Some((target.to_owned(), offset));
+        let blended = compiled.sort > SORT_OPAQUE;
+        let mut look = Look {
+            view_bounded: !deform,
+            blended,
+            sort: compiled.sort,
+            light_buffered: (!blended
+                && !self.materials[index].flare
+                && stages.first().is_some_and(|s| s.shadow_caster))
+            .then(|| match self.forge.pipeline_keys[stages[0].pipeline].cull {
+                Some(wgpu::Face::Front) => 0,
+                Some(wgpu::Face::Back) => 1,
+                None => 2,
+            }),
+            light_cutout: !blended && stages.first().is_some_and(|s| s.light_cutout),
+            fog_pass,
+            fog_pipeline,
+            stages,
+        };
+        self.show(source, &mut look);
+        // Keep the slot's own state from its first replacement; drop later ones.
+        let own = match self.remaps.sources[source].applied.take() {
+            Some(previous) => previous.own,
+            None => look,
+        };
+        self.remaps.sources[source].applied = Some(Box::new(Applied {
+            target: target.to_owned(),
+            offset,
+            own,
+        }));
         Ok(true)
     }
 }
