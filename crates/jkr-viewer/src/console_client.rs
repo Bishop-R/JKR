@@ -32,6 +32,10 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "Replace a local shader: remapShader <old> <new>",
     ),
     ("listRemaps", "List server and local shader replacements"),
+    (
+        "clearRemaps",
+        "Clear server and local shader replacements until new ones arrive",
+    ),
     ("speedometer", "Configure supported speedometer flags"),
     ("strafehelper", "Configure supported airborne CGAZ flags"),
     ("play", "Play local sound files"),
@@ -328,7 +332,9 @@ impl crate::GpuState {
         let name = tokens[0].to_ascii_lowercase();
         let args = &tokens[1..];
         match name.as_str() {
-            "remapshader" | "listremaps" => return self.remap_command(&name, args),
+            "remapshader" | "listremaps" | "clearremaps" => {
+                return self.remap_command(&name, args);
+            }
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,

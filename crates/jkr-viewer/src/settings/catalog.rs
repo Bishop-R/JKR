@@ -285,6 +285,16 @@ pub(super) const GAME: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
+        // 1 (default) excludes player-texture configstring remaps.
+        label: "Shader remaps (0 off / 1 map / 2 all)",
+        cvar: "cg_remaps",
+        kind: ValueKind::Integer {
+            min: 0,
+            max: 2,
+            step: 1,
+        },
+    },
+    Setting {
         label: "Third-person camera damping",
         cvar: "cg_thirdPersonCameraDamp",
         kind: ValueKind::Float {

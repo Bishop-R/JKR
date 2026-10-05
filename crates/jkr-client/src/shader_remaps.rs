@@ -67,6 +67,15 @@ impl ShaderRemaps {
             rest = tail;
         }
     }
+    /// EternalJK's `clearRemaps` drops every alias until later entries arrive.
+    /// Like its renderer, destination time offsets stay with their shaders.
+    pub fn clear(&mut self) {
+        let changed = self.tables.iter().any(|table| !table.aliases.is_empty());
+        for table in &mut self.tables {
+            table.aliases.clear();
+        }
+        self.revision = self.revision.wrapping_add(u64::from(changed));
+    }
     /// Consume the already tokenized reliable cgame command (no wire changes).
     pub(crate) fn command(&mut self, arguments: &[Vec<u8>]) -> bool {
         if arguments
@@ -160,4 +169,32 @@ pub fn shader_name(name: &str) -> Option<String> {
         name.truncate(start + dot);
     }
     (!name.is_empty() && !name.split('/').any(|part| part == "..")).then_some(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clear_drops_aliases_until_the_server_sends_them_again() {
+        let mut remaps = ShaderRemaps::default();
+        let state = b"textures/a=textures/b:1.5@models/players/x/y=textures/c:0@";
+        remaps.apply_config(state);
+        let (identity, revision) = remaps.stamp();
+        remaps.clear();
+        assert_eq!(remaps.stamp(), (identity, revision + 1));
+        for mode in [1, 2] {
+            let table = remaps.table(mode).unwrap();
+            assert_eq!(table.entries().count(), 0);
+            assert_eq!(table.destination("textures/a"), "textures/a");
+            assert_eq!(table.time_offset("textures/b"), 1.5);
+        }
+        remaps.clear();
+        assert_eq!(remaps.revision(), revision + 1);
+        remaps.apply_config(state);
+        let all = remaps.table(2).unwrap();
+        assert_eq!(all.destination("textures/a"), "textures/b");
+        assert_eq!(all.entries().count(), 2);
+        assert_eq!(remaps.table(1).unwrap().entries().count(), 1);
+    }
 }

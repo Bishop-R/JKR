@@ -1423,4 +1423,8 @@ impl ClientSession {
     pub fn shader_remaps(&self) -> &ShaderRemaps {
         &self.shader_remaps
     }
+    /// Local `clearRemaps`; nothing is sent to the server.
+    pub fn clear_shader_remaps(&mut self) {
+        self.shader_remaps.clear();
+    }
 }

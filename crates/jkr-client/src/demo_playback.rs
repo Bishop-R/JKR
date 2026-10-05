@@ -365,4 +365,8 @@ impl<R: Read> DemoPlayback<R> {
     pub fn shader_remaps(&self) -> &crate::ShaderRemaps {
         &self.shader_remaps
     }
+    /// Local `clearRemaps`; a restart or later remap command applies again.
+    pub fn clear_shader_remaps(&mut self) {
+        self.shader_remaps.clear();
+    }
 }

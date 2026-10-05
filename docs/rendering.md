@@ -45,7 +45,8 @@ includes those entries. Like Tayst, a reliable `remapShader` command is accepted
 in either nonzero mode. JKR applies this preference live rather than requiring a
 map reload. `listRemaps` lists the currently enabled server entries and local
 overrides; `remapShader <old> <new>` sets a temporary local override for the loaded
-map, without sending anything to the server or saving it to config.
+map, without sending anything to the server or saving it to config. `clearRemaps`
+drops every active remap until the server sends new entries.
 
 Material recompilation and draw/fog/table invalidation happen on changes, not
 per frame. Late-loaded entity materials also receive the current remaps. Map

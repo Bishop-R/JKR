@@ -170,6 +170,11 @@ impl Runtime {
         self.remaps.applied = None;
         Ok(())
     }
+    /// Drop every local override for `clearRemaps`.
+    pub(crate) fn clear_local_remaps(&mut self) {
+        self.remaps.local.clear();
+        self.remaps.applied = None;
+    }
     pub(crate) fn local_remaps(&self) -> impl Iterator<Item = (&str, &str)> {
         self.remaps
             .local

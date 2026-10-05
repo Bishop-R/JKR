@@ -51,6 +51,11 @@ impl ConfigStringRefresh {
         }
     }
 
+    /// `clearRemaps` without a session clears the remaps this world was built with.
+    pub(crate) fn clear_remaps(&mut self) {
+        self.initial_remaps.clear();
+    }
+
     /// Remember changed bytes; untouched and already-built slots require no work.
     pub(crate) fn accept(&mut self, index: usize, bytes: &[u8]) -> bool {
         if self.values[index] == bytes {

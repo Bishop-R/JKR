@@ -443,7 +443,12 @@ protects other actors from malformed custom clips, but does not repair the clip.
 Server map recolors and material replacements are enabled by default. Use
 `cg_remaps 0` to disable them, `cg_remaps 1` for Tayst's default policy excluding
 player-texture configstring remaps, or `cg_remaps 2` to include those textures.
+Settings > GAME > "Shader remaps" sets the same cvar and applies at once.
 `listRemaps` lists enabled server replacements and temporary local overrides.
 `remapShader <old> <new>` replaces a shader locally for the loaded map; remapping
-it to itself restores the original. See [rendering](rendering.md#server-shader-remaps)
+it to itself restores the original. `clearRemaps`, EternalJK's renderer command,
+drops every active remap whatever its origin, without telling the server; the
+world draws its own shaders until the server sends new remaps (a shader-state
+change or a `remapShader` command) or a new map loads. As in EternalJK,
+destination time offsets are kept. See [rendering](rendering.md#server-shader-remaps)
 for scope and remaining limitations. These controls do not edit map geometry.
