@@ -25,8 +25,13 @@ pub(crate) fn local_actor_root(
 }
 
 /// `CG_OffsetThirdPersonView` and its two collision/damping stages, from OpenJK codemp.
+///
+/// `focus_offset` is the decaying prediction error. Stock adds it to the view
+/// origin before `CG_OffsetThirdPersonView` (`CG_CalcViewValues`), so it moves the
+/// focus and is traced with it rather than shifting the finished camera into a wall.
 pub(crate) fn damped_third_person(
     state: &mut GpuState,
+    focus_offset: Vec3,
     _delta_seconds: f32,
     presentation_time: i64,
 ) -> (Vec3, Vec3) {
@@ -130,7 +135,7 @@ pub(crate) fn damped_third_person(
             start != 0 && presentation_time - i64::from(start) < 4000
         });
     let frame = motion::Frame {
-        focus: state.camera_position,
+        focus: state.camera_position + focus_offset,
         yaw,
         pitch,
         range: framing[2],
