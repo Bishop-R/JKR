@@ -301,6 +301,8 @@ struct GpuState {
     text_bind_group: wgpu::BindGroup,
     text_layout: wgpu::BindGroupLayout,
     text_sampler: wgpu::Sampler,
+    /// The retail `¬` logo spliced into the Inter atlas, kept for DPI rebuilds.
+    logo_glyph: Option<text::LogoGlyph>,
     classic_text_bind_group: Option<wgpu::BindGroup>,
     ui_font: UiFont,
     classic_hud_font: Option<UiFont>,
@@ -677,8 +679,11 @@ impl GpuState {
                 resource: hud_buffer.as_entire_binding(),
             }],
         });
-        let modern_atlas =
-            text::load_modern(window.as_ref().map_or(1.0, |window| window.scale_factor()))?;
+        let logo_glyph = text::LogoGlyph::read(&vfs);
+        let modern_atlas = text::load_modern(
+            window.as_ref().map_or(1.0, |window| window.scale_factor()),
+            logo_glyph.as_ref(),
+        )?;
         let ui_font = modern_atlas.font;
         let font_view = gpu_texture::create_rgba8_texture_mipmapped(
             &device,
@@ -1042,6 +1047,7 @@ impl GpuState {
             text_bind_group,
             text_layout,
             text_sampler,
+            logo_glyph,
             classic_text_bind_group,
             ui_font,
             classic_hud_font,
@@ -1147,7 +1153,7 @@ impl GpuState {
     }
 
     fn rebuild_modern_text(&mut self, dpi_scale: f64) -> Result<(), Box<dyn Error>> {
-        let atlas = text::load_modern(dpi_scale)?;
+        let atlas = text::load_modern(dpi_scale, self.logo_glyph.as_ref())?;
         let view = gpu_texture::create_rgba8_texture_mipmapped(
             &self.device,
             &self.queue,
