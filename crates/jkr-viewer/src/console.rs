@@ -134,6 +134,8 @@ pub(crate) struct ViewerConsole {
     control: bool,
     /// Caret and selection of `input`.
     edit: line_edit::LineEdit,
+    /// Dead key shown at the input caret until its composition arrives.
+    dead_key: crate::input::dead_key::DeadKey,
     /// Scrollback selection and the pointer gesture editing it or the caret.
     selection: selection::Selection,
 }
@@ -482,6 +484,7 @@ impl ViewerConsole {
     /// Change the console catcher and its existing animated presentation state.
     pub(crate) fn set_open(&mut self, open: bool) {
         self.selection.clear();
+        self.dead_key.settle();
         if self.bool_cvar("con_autoclear").unwrap_or(true) {
             self.input.clear();
             self.rebuild_prompt();
@@ -518,8 +521,10 @@ impl ViewerConsole {
         }
     }
 
-    /// The input line was replaced as a whole: put the caret at its end.
+    /// The input line was replaced as a whole: put the caret at its end. A dead key
+    /// shown on the old line is no longer pending.
     fn rebuild_prompt(&mut self) {
+        self.dead_key.settle();
         self.edit.to_end(&self.input);
     }
 

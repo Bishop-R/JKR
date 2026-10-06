@@ -10,9 +10,15 @@ impl GpuState {
             .console
             .as_ref()
             .is_some_and(console::ViewerConsole::is_open);
-        // In an open console, ^ is a literal colour-code prefix, including on
-        // layouts where it is a dead key. Normalize it before browser/input routing.
+        // The browser's search field takes a dead ^ as a literal colour-code
+        // prefix. The input line composes dead keys itself (`input::dead_key`):
+        // ^ then e types ê there, and ^ then a digit a colour code.
+        let browsing = self
+            .console
+            .as_ref()
+            .is_some_and(console::ViewerConsole::covers_frame);
         let literal_caret = was_open
+            && browsing
             && event.state == ElementState::Pressed
             && matches!(event.logical_key, winit::keyboard::Key::Dead(Some('^')));
         let mut literal_event;

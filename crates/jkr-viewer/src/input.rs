@@ -1,6 +1,7 @@
 //! Bind-command interpretation for gameplay input.
 
 use jkr_protocol::UserCommand;
+pub(crate) mod dead_key;
 pub(crate) mod motion;
 
 mod selection_commands;
