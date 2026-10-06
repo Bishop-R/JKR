@@ -285,6 +285,15 @@ pub(super) const GAME: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
+        label: "Sunbeam dust (0 off)",
+        cvar: crate::dust_motes::CVAR,
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 1.0,
+            step: 0.1,
+        },
+    },
+    Setting {
         label: "Third-person camera damping",
         cvar: "cg_thirdPersonCameraDamp",
         kind: ValueKind::Float {

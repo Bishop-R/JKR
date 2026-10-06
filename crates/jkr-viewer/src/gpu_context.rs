@@ -33,6 +33,8 @@ pub(crate) struct Context {
     pub(crate) dynamic_light_settings: crate::dynamic_lights::Settings,
     /// Live soft-particle policy, independent of a particular map.
     pub(crate) soft_particles: crate::particle_draw::settings::Settings,
+    /// Live default-off dust-mote intensity, independent of a particular map.
+    pub(crate) dust_motes: crate::dust_motes::Settings,
     /// Retained default-off main-world SSAO policy.
     pub(crate) ssao: crate::world_materials::ssao::settings::Settings,
     /// Startup filtering survives map installs, whose inputs deliberately contain no console.
@@ -171,6 +173,7 @@ impl Context {
             soft_particles: console
                 .map(|c| c.soft_particles.clone())
                 .unwrap_or_default(),
+            dust_motes: console.map(|c| c.dust_motes.clone()).unwrap_or_default(),
             ssao: console.map(|c| c.ssao.clone()).unwrap_or_default(),
             filtering: crate::world_materials::filtering::Policy::sample(console, maximum),
             id: NEXT_CONTEXT_ID.fetch_add(1, Ordering::Relaxed),

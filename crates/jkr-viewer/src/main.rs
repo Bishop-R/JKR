@@ -37,6 +37,7 @@ mod decal_marks;
 mod decal_store;
 mod decoded_image_cache;
 mod demo_playback;
+mod dust_motes;
 mod dynamic_lights;
 mod effect_assets;
 mod effect_aux;
@@ -241,6 +242,7 @@ struct GpuState {
     ui_shapes: ShapeRenderer,
     text_pipeline: wgpu::RenderPipeline,
     saber_gpu: saber_gpu::Runtime,
+    dust_motes: dust_motes::Runtime,
     geometry: SharedGeometry,
     entity_instance_buffer: wgpu::Buffer,
     actor_instance_buffer: wgpu::Buffer,
@@ -822,6 +824,7 @@ impl GpuState {
             &camera_layout,
             frame_target::aa::effects::FORMAT,
         )?;
+        let dust_motes = dust_motes::Runtime::new(&device, &camera_layout, context.scene_format());
         let hud_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("JKR HUD shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("hud.wgsl").into()),
@@ -983,6 +986,7 @@ impl GpuState {
             ui_shapes,
             text_pipeline,
             saber_gpu,
+            dust_motes,
             geometry,
             entity_instance_buffer,
             actor_instance_buffer,

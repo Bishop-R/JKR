@@ -250,6 +250,7 @@ impl GpuState {
                 target_view,
                 &self.depth.sample_bind_group,
             );
+            self.draw_dust_motes(encoder, target_view);
         }
         if let Some(phases) = &self.gpu_phases {
             phases.mark(encoder, "volumetrics");

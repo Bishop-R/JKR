@@ -108,6 +108,7 @@ impl ViewerConsole {
         let post_color = crate::frame_target::aa::color::Settings::bind(&mut cvars)?;
         let dynamic_light_settings = crate::dynamic_lights::Settings::bind(&mut cvars)?;
         let soft_particles = crate::particle_draw::settings::Settings::bind(&mut cvars)?;
+        let dust_motes = crate::dust_motes::Settings::bind(&mut cvars)?;
         let ssao = crate::world_materials::ssao::settings::Settings::bind(&mut cvars)?;
         crate::world_materials::shadows::settings::register(&mut cvars)?;
         let window_options = window_options::Options::register(&mut cvars)?;
@@ -265,6 +266,7 @@ impl ViewerConsole {
             post_color,
             dynamic_light_settings,
             soft_particles,
+            dust_motes,
             ssao,
             geometry_controls,
             director: director::Director::default(),

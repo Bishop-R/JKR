@@ -113,12 +113,54 @@ work without reducing source count, texture resolution or lighting quality.
 | `jkr_ambientFillOcclusion` | Fraction of ambient occlusion applied to the readability fill, 0–1; default 1 preserves the previous response. Real indirect lighting keeps full occlusion |
 | `jkr_hdr` | Scene precision: 0 display format, 1 RGBA16F (default); restart required |
 | `jkr_hdrExposure` | Fixed exposure multiplier, 0.25–4; restart required |
+| `jkr_dust` | Dust in godrays, 0 (off, default) to 1; live; Game settings tab; requires `jkr_volumetrics` |
 
 See [day_night.rs](../crates/jkr-viewer/src/day_night.rs),
 [sun_shadow_settings.rs](../crates/jkr-viewer/src/sun_shadow_settings.rs) and
 [post_hdr.rs](../crates/jkr-viewer/src/post_hdr.rs). A lighting tier alone does not
 enable the day/night system. HDR here describes the scene buffer and display
 mapping, not a claim of HDR monitor output.
+
+Dust motes ([dust_motes.rs](../crates/jkr-viewer/src/dust_motes.rs)) appear only
+in the current main-view godray volume. Each mote samples local sunlit scattering
+and subtracts the same wide slice mean used by volumetric clarity. This is a
+sample at the mote's depth, not accumulated brightness along the whole screen
+ray: a beam farther away cannot light dust in dark air in front of it. Shadowed
+cells and uniformly lit air at clarity 1 produce no dust. Beam radiance supplies
+both colour and a smooth visibility weight, so the camera's light-grid sample
+no longer controls dust brightness. No active volume, no sunlight, or a hidden
+volumetric pass means no dust. Secondary views remain excluded.
+
+The shader still generates up to 2048 world-space motes in a wrapping 640-unit
+cube, with distance and near-eye fades, depth testing and peak opacity 0.35.
+`jkr_dust` controls density and opacity; it does not enable volumetrics implicitly.
+The Game tab calls it **Sunbeam dust**. Shared froxel parameters and depth mapping
+keep the sampling coordinates aligned with godrays. The pass reuses existing
+volume textures and slice means after their current-frame computation, with no
+extra volume, readback or per-frame CPU light-grid sample. Uniform writes use
+`FrameQueue`. Dust work is included in the `volumetrics` GPU phase, so compare
+that phase with dust off/on at the same view and settings.
+
+Per-map tuning remains unimplemented. Motes behind glass do not inherit its
+tint, and their beam boundaries have the resolution of the selected volumetric
+grid. Owner visual acceptance and populated-match readability remain open.
+
+Beam-dust verification on 2026-10-02 used Linux / Rust 1.96.1, Ryzen 5 5500
+and Radeon RX 9060 XT (RADV). Formatting, locked workspace build/tests and the
+release viewer build passed. An external GPU probe executing the production
+sampling function checked dark cells, uniform haze, a coloured beam isolated to
+a distant depth, out-of-volume coordinates and points behind the eye. Dark/haze
+and excluded samples returned zero; the distant beam did not light the nearer
+sample. The godray shader's existing calculations are unchanged; only its
+parameter ABI and depth mapping moved to a shared include.
+
+External native 1280×720 captures covered dust off/on on `ffa3` and `ffa1`,
+volumetrics disabled, and SDR output. With volumetrics disabled, off/on captures
+differed by at most 3/255 per channel; the missing volume bypasses the dust draw.
+The sampled combined volumetric/dust GPU phase was 0.133 → 0.138 ms on `ffa3`
+and 0.136 → 0.140 ms on `ffa1`. These short fixed-view runs used a frozen shader
+clock for capture, omit populated-match workload, and establish integration and
+indicative GPU cost only. No verification hooks or fixtures are shipped.
 
 ## Volumetric silhouette coverage
 
