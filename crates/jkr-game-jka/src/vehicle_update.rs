@@ -234,6 +234,7 @@ impl VehicleThink<'_, '_> {
             bounds: (self.parent_mins, self.parent_maxs),
             contents: self.parent_contents,
             model: None,
+            linked_box: None,
         });
         let riders = self
             .rider
@@ -250,6 +251,7 @@ impl VehicleThink<'_, '_> {
                 ),
                 contents: rider.body.contents,
                 model: None,
+                linked_box: None,
             });
         }
         boxes

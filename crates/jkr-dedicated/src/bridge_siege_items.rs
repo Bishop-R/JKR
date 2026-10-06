@@ -231,6 +231,7 @@ impl NativeGame {
                     bounds: (placed.item.mins, placed.item.maxs),
                     contents: placed.item.contents,
                     model: None,
+                    linked_box: None,
                 }),
         );
         solids
@@ -575,6 +576,7 @@ impl NativeGame {
                 bounds: (placed.item.mins, placed.item.maxs),
                 contents: placed.item.contents,
                 model: None,
+                linked_box: None,
             })
             .collect()
     }

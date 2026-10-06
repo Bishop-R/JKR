@@ -21,6 +21,7 @@ pub(super) fn obstacle(id: EntityId, placed: &Sentry) -> BoxObstacle {
         bounds: sentry::BOUNDS,
         contents: placed.contents,
         model: None,
+        linked_box: None,
     }
 }
 

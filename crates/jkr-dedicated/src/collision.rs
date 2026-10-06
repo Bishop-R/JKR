@@ -163,6 +163,7 @@ pub fn brush_obstacles<'a>(
             bounds: brush.bounds,
             contents: brush.contents,
             model: Some(brush.model),
+            linked_box: None,
         });
     let doors = doors
         .iter()
@@ -173,6 +174,7 @@ pub fn brush_obstacles<'a>(
             bounds: door.bounds,
             contents: door.contents,
             model: Some(door.model),
+            linked_box: None,
         });
     breakables.chain(doors)
 }

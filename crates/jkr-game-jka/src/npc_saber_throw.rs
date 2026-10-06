@@ -111,6 +111,7 @@ impl<H: NpcHost> NpcFlight<'_, '_, H> {
                 bounds: (entity.mins, entity.maxs),
                 contents: CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
         host.player_saber_boxes(bodies);

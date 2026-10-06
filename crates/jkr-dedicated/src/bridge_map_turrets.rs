@@ -19,6 +19,7 @@ use bridge_map_turret_host::{Blast, ServerTurretHost, TurretWork};
 use jkr_game_jka::map_turret::{MiscTurret, Part};
 use jkr_game_jka::map_turret_g2::TurretG2;
 use jkr_game_jka::map_turret_world::{BlowAttacker, FL_NOTARGET, ObjectBlow, Sighted};
+use jkr_game_jka::eweb::EWeb;
 use jkr_game_jka::sentry::Sentry;
 
 #[path = "bridge_map_turret_host.rs"]
@@ -38,6 +39,8 @@ pub(super) struct MapTurrets {
     misc: Vec<(EntityId, EntityId, MiscTurret)>,
     /// The players' portable sentries, in the order they were set down ([`bridge_sentries`]).
     sentries: Vec<(EntityId, Sentry)>,
+    /// The players' E-Webs, in the order they were set down ([`bridge_ewebs`]).
+    ewebs: Vec<(EntityId, EWeb)>,
     work: TurretWork,
     /// The level as the turrets read it, kept between frames.
     sighted: Vec<Sighted>,
@@ -56,6 +59,7 @@ impl MapTurrets {
         self.g2.clear();
         self.misc.clear();
         self.sentries.clear();
+        self.ewebs.clear();
         self.work.instances.clear();
     }
 
@@ -69,6 +73,7 @@ impl MapTurrets {
                 .sentries
                 .iter()
                 .any(|(id, _)| id.legacy_number() == number)
+            || self.ewebs.iter().any(|(id, _)| id.legacy_number() == number)
     }
 
     /// The turrets' boxes for a trace of entity `pass`: not its own, nor what it owns — a
@@ -84,6 +89,7 @@ impl MapTurrets {
                     bounds: (turret.mins, turret.maxs),
                     contents: turret.contents,
                     model: None,
+                    linked_box: None,
                 });
             }
         }
@@ -96,6 +102,7 @@ impl MapTurrets {
                         bounds: (half.mins, half.maxs),
                         contents: half.contents,
                         model: None,
+                        linked_box: None,
                     });
                 }
             }
@@ -103,6 +110,12 @@ impl MapTurrets {
         for (id, sentry) in &self.sentries {
             if !skipped(id.legacy_number(), ENTITYNUM_NONE) {
                 obstacles.push(bridge_sentries::obstacle(*id, sentry));
+            }
+        }
+        // An E-Web is its owner's: their own traces pass it.
+        for (id, placed) in &self.ewebs {
+            if !skipped(id.legacy_number(), placed.owner) {
+                obstacles.push(placed.obstacle());
             }
         }
     }
@@ -195,7 +208,20 @@ impl MapTurrets {
                 0,
             )
         });
-        g2.chain(misc).chain(sentries)
+        // An E-Web is found by the box it was last linked with.
+        let ewebs = self.ewebs.iter().map(move |(id, placed)| Sighted {
+            bounds: placed.linked,
+            ..thing(
+                id.legacy_number(),
+                placed.origin,
+                jkr_game_jka::eweb::BOUNDS,
+                placed.takes_damage,
+                placed.health,
+                0,
+                0,
+            )
+        });
+        g2.chain(misc).chain(sentries).chain(ewebs)
     }
 }
 
@@ -215,6 +241,9 @@ impl NativeGame {
             self.pool.free(top, level_time);
         }
         for (id, _) in std::mem::take(&mut self.map_turrets.sentries) {
+            self.pool.free(id, level_time);
+        }
+        for (id, _) in std::mem::take(&mut self.map_turrets.ewebs) {
             self.pool.free(id, level_time);
         }
         self.map_turrets.work.instances.clear();
@@ -659,5 +688,7 @@ impl NativeGame {
 
 #[path = "bridge_sentries.rs"]
 mod bridge_sentries;
+#[path = "bridge_ewebs.rs"]
+mod bridge_ewebs;
 #[path = "bridge_map_turret_damage.rs"]
 mod damage;

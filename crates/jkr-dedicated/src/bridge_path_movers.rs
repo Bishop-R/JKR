@@ -43,6 +43,7 @@ impl PathMovers {
             bounds: placed.mover.bounds,
             contents: jkr_game_jka::movers::CONTENTS_SOLID,
             model: Some(placed.mover.model),
+            linked_box: None,
         })
     }
 

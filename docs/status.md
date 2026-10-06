@@ -80,8 +80,7 @@ Players can now set down the portable assault sentry (audit row N4). Like stock'
 it hovers where it was placed, winds up, fires at the nearest visible enemy and
 blows up when spent or after a minute. Five reference scenarios match unchanged
 OpenJK line for line, and on `ffa3` a sentry killed a stormtrooper for its owner.
-The JKR client does not turn the sentry's gun yet; the E-Web and the jetpack's
-flight are still unported.
+The JKR client does not turn the sentry's gun yet.
 
 The client now draws the seeker drone over its owner as stock does. The server
 already ran it, but no client drew it.
@@ -94,6 +93,14 @@ flames and its sounds as stock does, checked against TaystJK on the same server.
 Rotating doors, pendulums and turning turrets now move smoothly on the client.
 It read their angular duration from the wrong wire field, so community maps' rotating
 doors held still and then snapped open.
+
+Players can now set down the E-Web (audit row N4, its last item). As in stock, it
+unfolds, turns with its user's view, fires, keeps its health between deployments and
+blows up when shot to death or when its user dies or leaves. Eight reference scenarios
+match unchanged OpenJK, run with the server's Ghoul2, except for a last-place
+difference in the muzzle flash's direction. Live, the JKR client used it on `ffa3`
+while a TaystJK client on the same server watched the cannon turn and pitch. The JKR
+client still draws it unposed and without its health meter.
 
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked

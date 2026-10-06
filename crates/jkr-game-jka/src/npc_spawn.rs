@@ -224,6 +224,7 @@ impl NpcActor {
             bounds: (self.mins, self.maxs),
             contents: self.contents,
             model: None,
+            linked_box: None,
         }
     }
 }

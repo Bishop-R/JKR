@@ -695,6 +695,7 @@ fn obstacle(fighter: &LockFighter) -> crate::entity_clip::BoxObstacle {
         bounds: fighter.bounds,
         contents: 0x100,
         model: None,
+        linked_box: None,
     }
 }
 

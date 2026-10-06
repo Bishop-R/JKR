@@ -24,6 +24,7 @@ impl Shields {
                 bounds: (shield.mins, shield.maxs),
                 contents: shield.contents,
                 model: None,
+                linked_box: None,
             })
     }
 

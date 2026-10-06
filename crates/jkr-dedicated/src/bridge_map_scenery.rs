@@ -63,6 +63,7 @@ impl Scenery {
             bounds: pane.bounds,
             contents: CONTENTS_SOLID,
             model: Some(pane.model),
+            linked_box: None,
         })
     }
 

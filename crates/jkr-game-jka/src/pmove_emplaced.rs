@@ -4,14 +4,16 @@
 //! pose (`BOTH_GUNSIT1`) and fires every `fireTime` (100 ms) while an attack button is
 //! down — `EV_FIRE_WEAPON` or `EV_ALT_FIRE`, which the game turns into the gun's shot
 //! ([`crate::emplaced::fire`]). No ammunition is counted and the weapon never enters its
-//! firing state. A player whose gun was taken from it (`emplacedIndex` cleared, the
-//! weapon still the gun's) is handed the first weapon it holds.
+//! firing state. The use key uses the selected holdable as with any weapon
+//! ([`crate::pmove_holdable`]): on an E-Web ([`crate::eweb`]) it puts the E-Web away. A
+//! player whose gun was taken from it (`emplacedIndex` cleared, the weapon still the
+//! gun's) is handed the first weapon it holds.
 //!
 //! Getting onto and off a gun, and every shot, are the game's; the movement's own rule
 //! that backing off or leaving the ground lets go of the gun is
 //! [`crate::pmove_input_freeze`]'s.
 
-use crate::pmove::MovementState;
+use crate::pmove::{MovementCollision, MovementState};
 use crate::pmove_anim::{AnimationLengths, start_torso};
 use crate::predicted_events::PredictedEvents;
 use jkr_protocol::UserCommand;
@@ -23,13 +25,11 @@ pub(crate) const WP_EMPLACED_GUN: u8 = 17;
 const WP_ROCKET_LAUNCHER: u8 = 11;
 /// `WP_NUM_WEAPONS`.
 const WP_NUM_WEAPONS: u8 = 19;
-/// `BUTTON_ATTACK`, `BUTTON_USE_HOLDABLE`, `BUTTON_ALT_ATTACK`.
+/// `BUTTON_ATTACK`, `BUTTON_ALT_ATTACK`.
 const BUTTON_ATTACK: u16 = 1;
-const BUTTON_USE_HOLDABLE: u16 = 4;
 const BUTTON_ALT_ATTACK: u16 = 128;
-/// `PMF_RESPAWNED`, `PMF_USE_ITEM_HELD`.
+/// `PMF_RESPAWNED`.
 const PMF_RESPAWNED: u16 = 512;
-const PMF_USE_ITEM_HELD: u16 = 1_024;
 /// `weaponstate_t`.
 const WEAPON_READY: u8 = 0;
 const WEAPON_RAISING: u8 = 1;
@@ -74,6 +74,7 @@ pub(crate) fn weapon(
     millis: i32,
     lengths: Option<&dyn AnimationLengths>,
     events: &mut PredictedEvents,
+    collision: Option<&dyn MovementCollision>,
 ) {
     // "oh no!" (`:6685-6711`): the gun was taken away; the first weapon it holds instead.
     if state.emplaced_index == 0 {
@@ -117,24 +118,9 @@ pub(crate) fn weapon(
         state.weapon = WP_NONE;
         return;
     }
-    // The holdable (`:7065-7126`): a gunner has no use for one on a gun; the rocket lock
-    // goes all the same.
-    if command.buttons & BUTTON_USE_HOLDABLE != 0 {
-        (
-            state.rocket_lock_index,
-            state.rocket_lock_time,
-            state.rocket_target_time,
-        ) = (jkr_protocol::ENTITY_NUMBER_NONE, -1.0, 0.0);
-        if state.movement_flags & PMF_USE_ITEM_HELD == 0 {
-            if state.holdable_item == 0 {
-                return;
-            }
-            // Using an item is not ported (no gun holds one): held until let go.
-            state.movement_flags |= PMF_USE_ITEM_HELD;
-            return;
-        }
-    } else {
-        state.movement_flags &= !PMF_USE_ITEM_HELD;
+    // The use key (`:7061-7120`), as for any weapon: on an E-Web it puts it away.
+    if crate::pmove_holdable::use_key(state, command, events, collision) {
+        return;
     }
     if state.weapon_time > 0 {
         state.weapon_time -= millis;

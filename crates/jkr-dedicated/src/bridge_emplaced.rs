@@ -63,6 +63,7 @@ impl Mounted {
                 bounds: emplaced::BOUNDS,
                 contents: emplaced::CONTENTS_SOLID,
                 model: None,
+                linked_box: None,
             })
     }
 

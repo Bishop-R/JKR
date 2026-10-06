@@ -283,6 +283,7 @@ impl ThrowWorld for ServerThrow<'_> {
                 bounds,
                 contents,
                 model: None,
+                linked_box: None,
             });
         }
         players.extend(

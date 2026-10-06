@@ -508,6 +508,7 @@ impl NativeGame {
                     bounds: (mins, maxs),
                     contents: CONTENTS_LIGHTSABER,
                     model: None,
+                    linked_box: None,
                 });
             }
         }
@@ -526,6 +527,7 @@ impl NativeGame {
                 bounds: (saber.mins, saber.maxs),
                 contents: CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
     }

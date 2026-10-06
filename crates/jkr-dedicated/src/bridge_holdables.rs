@@ -4,9 +4,9 @@
 //! jetpack and cloak batteries and the seeker drone. The rules are
 //! `jkr_game_jka::holdables` and `seeker_drone`, held to `holdables.c`.
 //!
-//! Not yet: the E-Web; used, it says so once. The sentry is set down by `bridge_sentries`;
-//! the jetpack's flight is the movement's (`jkr_game_jka::pmove::jetpack`), switched each
-//! think by `holdables::jetpack_think`.
+//! The sentry is set down by `bridge_sentries`, the E-Web by `bridge_ewebs`; the jetpack's
+//! flight is the movement's (`jkr_game_jka::pmove::jetpack`), switched each think by
+//! `holdables::jetpack_think`.
 
 use super::*;
 use jkr_game_jka::holdables::{
@@ -50,8 +50,6 @@ const GENERIC_TAGS: [i32; 12] = [
     HI_EWEB,
     HI_CLOAK,
 ];
-/// The holdables this server cannot use yet.
-const UNPORTED: [i32; 1] = [HI_EWEB];
 /// `EV_PLAY_EFFECT`, `EFFECT_SPARK_EXPLOSION`, `s.angles`, `s.origin`.
 const EV_PLAY_EFFECT: u32 = 68;
 const EFFECT_SPARK_EXPLOSION: u32 = 4;
@@ -129,7 +127,6 @@ impl NativeGame {
                     level_time,
                 );
             }
-            Ok(()) if UNPORTED.contains(&tag) => self.told_unported_holdable(tag),
             Ok(()) => {
                 // The dispensers' `ItemUse_UseDisp` is commented out: only the event.
                 if !matches!(tag, HI_HEALTHDISP | holdables::HI_AMMODISP) {
@@ -242,30 +239,8 @@ impl NativeGame {
                     self.general_sound(b"sound/boba/JETON", origin, CHAN_AUTO, level_time);
                 }
             }
-            HI_EWEB => self.told_unported_holdable(tag),
+            HI_EWEB => self.use_eweb(client, level_time),
             _ => {}
-        }
-    }
-
-    /// A holdable this server cannot use yet, said once per process.
-    fn told_unported_holdable(&mut self, tag: i32) {
-        static TOLD: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-        let name = [
-            "",
-            "seeker",
-            "shield",
-            "medpac",
-            "medpac_big",
-            "binoculars",
-            "sentry",
-            "jetpack",
-            "healthdisp",
-            "ammodisp",
-            "eweb",
-            "cloak",
-        ][tag as usize];
-        if TOLD.fetch_or(1 << tag, std::sync::atomic::Ordering::Relaxed) & (1 << tag) == 0 {
-            eprintln!("holdable {name} used: not ported yet, given back");
         }
     }
 

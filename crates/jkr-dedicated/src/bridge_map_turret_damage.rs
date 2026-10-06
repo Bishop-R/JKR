@@ -203,6 +203,15 @@ impl NativeGame {
             self.damage_sentry(target, &blow, level_time);
             return;
         }
+        if self
+            .map_turrets
+            .ewebs
+            .iter()
+            .any(|(id, _)| id.legacy_number() == target)
+        {
+            self.damage_eweb(target, &blow, level_time);
+            return;
+        }
         self.gather_turret_sights();
         let targets = std::mem::take(&mut self.map_turrets.sighted);
         let known = attacker

@@ -79,6 +79,7 @@ impl<'w, 'a, H: NpcHost> BladeWorld<'w, 'a, H> {
                 bounds: (entity.mins, entity.maxs),
                 contents: CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
         host.player_saber_boxes(bodies);

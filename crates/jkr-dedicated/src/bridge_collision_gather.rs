@@ -60,6 +60,7 @@ impl NativeGame {
                     bounds,
                     contents,
                     model: None,
+                    linked_box: None,
                 });
             }
         }
@@ -74,6 +75,7 @@ impl NativeGame {
                     bounds: missile.bounds,
                     contents: missile.contents,
                     model: None,
+                    linked_box: None,
                 });
             }
         }
@@ -105,6 +107,7 @@ impl NativeGame {
                     bounds: charge.missile.bounds,
                     contents: charge.missile.contents,
                     model: None,
+                    linked_box: None,
                 }),
         );
         Self::add_npc_bodies(npcs, obstacles, body_legs, client);

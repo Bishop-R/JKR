@@ -380,6 +380,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 bounds: (entity.mins, entity.maxs),
                 contents: crate::npc_saber::CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
         let start = bodies.len();

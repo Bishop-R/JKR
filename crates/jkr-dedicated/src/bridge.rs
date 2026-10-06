@@ -315,10 +315,7 @@ const ES_WEAPON: usize = 14;
 
 /// `r.absmin`, `r.absmax`: a linked box grown by a unit.
 fn grown(obstacle: &BoxObstacle) -> ([f32; 3], [f32; 3]) {
-    (
-        std::array::from_fn(|axis| obstacle.origin[axis] + obstacle.bounds.0[axis] - 1.0),
-        std::array::from_fn(|axis| obstacle.origin[axis] + obstacle.bounds.1[axis] + 1.0),
-    )
+    obstacle.absolute_box()
 }
 
 impl NativeGame {
@@ -2085,6 +2082,7 @@ impl NativeGame {
                         bounds: other_charge.missile.bounds,
                         contents: other_charge.missile.contents,
                         model: None,
+                        linked_box: None,
                     }),
             );
             let (number, charge) = &mut charges[index];
@@ -2543,6 +2541,7 @@ impl NativeGame {
         self.run_doors(server_time);
         self.run_map_turrets(server_time);
         self.run_sentries(server_time);
+        self.run_ewebs(server_time);
         self.run_scripts(server_time);
 
         self.run_npcs(server_time);
@@ -2638,6 +2637,7 @@ impl NativeGame {
             bounds: (bottom, top),
             contents: CONTENTS_BODY,
             model: None,
+            linked_box: None,
         };
         everyone.push(own);
         let mut watcher = Watcher {
@@ -2807,6 +2807,7 @@ impl NativeGame {
                                 bounds: missile.bounds,
                                 contents: missile.contents,
                                 model: None,
+                                linked_box: None,
                             },
                             missile.owner,
                             *number,

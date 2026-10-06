@@ -507,6 +507,7 @@ fn check_in_solid(npc: &mut NpcActor, others: &[&NpcActor], host: &mut impl NpcH
             bounds: (other.mins, other.maxs),
             contents: other.contents,
             model: None,
+            linked_box: None,
         })
         .collect();
     let trace = host.trace(

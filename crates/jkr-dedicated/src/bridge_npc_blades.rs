@@ -179,6 +179,7 @@ impl ServerHost<'_> {
                     bounds: (mins, maxs),
                     contents: CONTENTS_LIGHTSABER,
                     model: None,
+                    linked_box: None,
                 });
             }
         }

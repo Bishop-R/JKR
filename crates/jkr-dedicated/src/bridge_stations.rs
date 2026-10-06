@@ -24,6 +24,7 @@ impl Stations {
             bounds: placed.station.bounds(),
             contents: 1,
             model: None,
+            linked_box: None,
         })
     }
 

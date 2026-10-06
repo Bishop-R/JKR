@@ -55,6 +55,7 @@ impl SaberFlight for ServerFlight<'_> {
                 bounds: peer.movement.box_bounds(),
                 contents: CONTENTS_BODY,
                 model: None,
+                linked_box: None,
             });
         let NativeGame {
             map,

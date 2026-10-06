@@ -64,7 +64,7 @@ pub(super) struct ServerTurretHost<'a> {
     pub(super) map: Option<&'a LoadedMap>,
     /// The level's boxes but the turret's own and what it owns ([`NativeGame::gather_obstacles`]);
     /// a sentry's own box among them while it moves, which its sight passes.
-    pub(super) obstacles: &'a [BoxObstacle],
+    pub(super) obstacles: &'a mut [BoxObstacle],
     pub(super) pool: &'a mut EntityPool,
     pub(super) missiles: &'a mut Vec<(EntityId, Missile)>,
     pub(super) work: &'a mut TurretWork,
@@ -166,7 +166,7 @@ impl TurretHost for ServerTurretHost<'_> {
         pass: u16,
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
-        let players = self.obstacles;
+        let players = &*self.obstacles;
         match self.map {
             Some(map) => WithPlayers {
                 world: WorldCollision {
@@ -181,6 +181,13 @@ impl TurretHost for ServerTurretHost<'_> {
                 players,
             }
             .trace_from(pass, start, mins, maxs, end, mask),
+        }
+    }
+
+    fn move_entity(&mut self, number: u16, origin: [f32; 3]) {
+        if let Some(moved) = self.obstacles.iter_mut().find(|known| known.entity == number) {
+            moved.linked_box = Some(moved.absolute_box());
+            moved.origin = origin;
         }
     }
 
@@ -203,6 +210,8 @@ impl TurretHost for ServerTurretHost<'_> {
         self.work.instances.retain(|instance| instance.number != me);
         let path = if model.ends_with(b"laser_cannon_model.glm") {
             "models/map_objects/wedge/laser_cannon_model.glm"
+        } else if model == jkr_game_jka::eweb::MODEL {
+            "models/map_objects/hoth/eweb_model.glm"
         } else {
             "models/map_objects/imp_mine/turret_canon.glm"
         };
@@ -281,9 +290,14 @@ impl TurretHost for ServerTurretHost<'_> {
         }
     }
 
-    /// The turbolaser's firing and resting animations are the clients' to play: the server
-    /// does not pose its barrels by them (its muzzles stay where its pitch puts them).
-    fn set_bone_anim(&mut self, _: u16, _: i32, _: i32) {}
+    fn set_bone_anim(&mut self, me: u16, start: i32, end: i32) {
+        let time = self.level_time;
+        if let Some(instance) = self.instance(me) {
+            let _ = instance
+                .pose
+                .set_root_animation(&instance.model, start, end, time);
+        }
+    }
 
     fn raise(&mut self, event: EventEntity) {
         let _ = self

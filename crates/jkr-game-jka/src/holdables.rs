@@ -276,13 +276,15 @@ pub struct Packs {
     pub cloak_recharge_at: i32,
 }
 
-/// What a player's holdables keep on the server beyond its player state: the packs, and
-/// the seeker drone's two clocks (`droneExistTime`, `droneFireTime`, which are not sent).
+/// What a player's holdables keep on the server beyond its player state: the packs, the
+/// seeker drone's two clocks (`droneExistTime`, `droneFireTime`, which are not sent) and the
+/// E-Web's ([`crate::eweb::Kit`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Gear {
     pub packs: Packs,
     pub drone_exist: f32,
     pub drone_fire: f32,
+    pub eweb: crate::eweb::Kit,
 }
 
 /// What a toggle did, for the server to sound.

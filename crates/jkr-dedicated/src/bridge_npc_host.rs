@@ -1287,6 +1287,7 @@ impl Everyone<'_> {
                 bounds: ([0.0; 3], [0.0; 3]),
                 contents: 0,
                 model: None,
+                linked_box: None,
             }; ON_STACK];
             let mut used = 0;
             for body in all {

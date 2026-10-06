@@ -1466,6 +1466,7 @@ impl Predictor {
                 millis,
                 self.animation_lengths.as_deref(),
                 &mut self.events,
+                Some(collision),
             );
         } else if predict_weapon {
             let buttons = crate::pmove_weapon::advance_events_in(

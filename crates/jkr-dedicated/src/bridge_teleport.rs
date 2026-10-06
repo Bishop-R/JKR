@@ -48,11 +48,10 @@ impl NativeGame {
             let victims: Vec<u16> = obstacles
                 .iter()
                 .filter(|other| {
+                    let (absmin, absmax) = other.absolute_box();
                     (0..3).all(|axis| {
-                        arrived[axis] + bottom[axis]
-                            <= other.origin[axis] + other.bounds.1[axis] + 1.0
-                            && arrived[axis] + top[axis]
-                                >= other.origin[axis] + other.bounds.0[axis] - 1.0
+                        arrived[axis] + bottom[axis] <= absmax[axis]
+                            && arrived[axis] + top[axis] >= absmin[axis]
                     })
                 })
                 .map(|other| other.entity)

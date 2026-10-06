@@ -183,6 +183,7 @@ impl Scripts {
                 bounds: (slot.entity.mins, slot.entity.maxs),
                 contents: slot.entity.contents,
                 model: Some(slot.model),
+                linked_box: None,
             })
     }
 

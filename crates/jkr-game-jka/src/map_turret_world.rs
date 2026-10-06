@@ -57,9 +57,9 @@ pub const TR_LINEAR_STOP: u32 = 3;
 /// The wire fields of `entityState_t` a turret writes (`msg.cpp`'s table).
 pub(crate) mod es {
     pub use crate::npc_spawn::es::{
-        ANGLES, APOS_BASE, APOS_TIME, APOS_TYPE, EFLAGS, G2_RADIUS, HEALTH, MAX_HEALTH,
-        MODEL_GHOUL2, MODEL_INDEX, ORIGIN, POS_BASE, POS_TIME, POS_TYPE, SHOULD_TARGET, TEAM_OWNER,
-        TYPE, WEAPON,
+        ANGLES, APOS_BASE, APOS_TIME, APOS_TYPE, EFLAGS, G2_RADIUS, GROUND_ENTITY, HEALTH,
+        MAX_HEALTH, MODEL_GHOUL2, MODEL_INDEX, ORIGIN, POS_BASE, POS_TIME, POS_TYPE,
+        SHOULD_TARGET, TEAM_OWNER, TYPE, WEAPON,
     };
     pub const SOLID: usize = 26;
     pub const FIREFLAG: usize = 27;
@@ -154,6 +154,9 @@ pub trait TurretHost {
         pass: u16,
         mask: u32,
     ) -> MovementTrace;
+    /// `G_SetOrigin` on another entity (an E-Web's user): its box stands at `origin` for the
+    /// traces that follow, still found by the box it was last linked with.
+    fn move_entity(&mut self, number: u16, origin: [f32; 3]);
     /// `trap->InPVS`.
     fn in_pvs(&mut self, from: [f32; 3], to: [f32; 3]) -> bool;
     /// `trap->PointContents(point, pass)`.

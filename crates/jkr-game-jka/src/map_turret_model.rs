@@ -1,16 +1,19 @@
-//! A `misc_turretG2`'s Ghoul2 instance on the server (`turretG2_set_models`): the cannon
-//! (`turret_canon.glm`) or the turbolaser on its own skeleton, the pitch bone the game
-//! turns (`G2Tur_SetBoneAngles`: `BONE_ANGLES_POSTMULT`, +Y up, -Z right, -X forward,
-//! blended over 100 ms), and the muzzle bolts read where the turret points
-//! (`G2API_GetBoltMatrix` with its yaw, its origin and its scale). The turret's aim is the
-//! game's ([`crate::map_turret_g2`]); this is only where its shots leave the model.
+//! A `misc_turretG2`'s or an E-Web's Ghoul2 instance on the server (`turretG2_set_models`,
+//! `EWeb_Create`): the cannon (`turret_canon.glm`), the turbolaser or the E-Web on its own
+//! skeleton, the bones the game turns (`G2Tur_SetBoneAngles`, `EWeb_SetBoneAngles`:
+//! `BONE_ANGLES_POSTMULT`, +Y up, -Z right, -X forward, blended over 100 ms), the frames it
+//! plays on its root (`TurboLaser_SetBoneAnim`, `EWeb_SetBoneAnim`), and the bolts read where
+//! it points (`G2API_GetBoltMatrix` with its angles, its origin and its scale). The aim is
+//! the game's ([`crate::map_turret_g2`], [`crate::eweb`]); this is only where its shots leave
+//! the model, and where an E-Web's user stands.
 //!
-//! [`TurretModel`] is a model's files, shared by every turret wearing it; [`TurretPose`]
-//! is one turret's pitch.
+//! [`TurretModel`] is a model's files, shared by every instance wearing it; [`TurretPose`]
+//! is one instance's turned bones and played frames.
 
 use crate::ghoul2_bolt::{model_bolt, world_bolt};
 use jkr_model::{
-    BoneAngleCommand, BoneAngleMode, BoneAxis, BoneOverridePose, Gla, Glm, ModelError,
+    BoneAngleCommand, BoneAngleMode, BoneAnimationCommand, BoneAxis, BoneOverridePose, Gla, Glm,
+    ModelError, OverrideEndBehavior,
 };
 
 /// `G2Tur_SetBoneAngles`' blend time; the dedicated server's evaluator honours the angles
@@ -90,6 +93,40 @@ impl TurretPose {
         };
         self.angles.retain(|(known, ..)| *known != index);
         self.angles.push((index, command, time));
+    }
+
+    /// `G2API_SetBoneAnim(ghoul2, 0, "model_root", start, end, BONE_ANIM_OVERRIDE_FREEZE |
+    /// BONE_ANIM_BLEND, 1.0, time, -1, 100)`: frames `start` to `end` played at twenty a second
+    /// from `time` (the caller's level time, which the call takes as it is) and held at the
+    /// last, cross-faded over 100 ms from the pose they replace. Nothing for a model without
+    /// a root.
+    pub fn set_root_animation(
+        &mut self,
+        model: &TurretModel,
+        start: i32,
+        end: i32,
+        time: i32,
+    ) -> Result<(), ModelError> {
+        let Some(root) = model
+            .gla
+            .bones
+            .iter()
+            .position(|bone| bone.name.eq_ignore_ascii_case("model_root"))
+        else {
+            return Ok(());
+        };
+        let command = BoneAnimationCommand {
+            clip: usize::MAX,
+            start_frame: start,
+            end_frame: end,
+            speed: 1.0,
+            time_millis: i64::from(time),
+            set_frame: None,
+            end_behavior: OverrideEndBehavior::Freeze,
+            blend: true,
+            blend_millis: TURRET_BONE_BLEND as u16,
+        };
+        self.pose.set_bone_animation(&model.gla, root, command)
     }
 
     /// `G2API_GetBoltMatrix` of bolt `name` posed at the Ghoul2 `clock`, the model at

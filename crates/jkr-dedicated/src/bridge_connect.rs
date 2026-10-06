@@ -163,6 +163,7 @@ impl NativeGame {
             });
         }
         self.leave_vehicle(client, level_time, true);
+        self.eweb_owner_left(client, level_time);
         self.jedi_master_left(client);
         self.scripts_client_left(client);
         self.siege_carrier_left(client);

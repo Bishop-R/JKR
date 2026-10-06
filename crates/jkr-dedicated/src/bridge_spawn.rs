@@ -26,11 +26,10 @@ pub(super) fn spawn_place(
     let points = map.map_or(&[][..], |map| &map.spawn_points);
     let occupied = |point: &jkr_game_jka::map::SpawnPoint| {
         obstacles.iter().any(|other| {
+            let (absmin, absmax) = other.absolute_box();
             (0..3).all(|axis| {
-                point.origin[axis] + PLAYER_BOX.0[axis]
-                    <= other.origin[axis] + other.bounds.1[axis] + 1.0
-                    && point.origin[axis] + PLAYER_BOX.1[axis]
-                        >= other.origin[axis] + other.bounds.0[axis] - 1.0
+                point.origin[axis] + PLAYER_BOX.0[axis] <= absmax[axis]
+                    && point.origin[axis] + PLAYER_BOX.1[axis] >= absmin[axis]
             })
         })
     };
