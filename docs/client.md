@@ -372,7 +372,8 @@ accent composition. Other dead keys retain normal accent composition.
 
 `connect host:port`, `disconnect` and `reconnect` control the session.
 `record`, `stoprecord`, `demo` and `playdemo` control demos.
-`screenshot` and `screenshotJPEG` request captures; `condump filename` saves
+`screenshot` and `screenshotJPEG` request captures (one asked for while the
+previous is still being saved waits for it); `condump filename` saves
 console output. See [console registration](../crates/jkr-viewer/src/console_session.rs)
 and [file commands](../crates/jkr-viewer/src/console_files.rs) for argument handling.
 

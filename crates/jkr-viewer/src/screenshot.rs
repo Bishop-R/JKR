@@ -93,10 +93,14 @@ pub(crate) fn parse_request(tokens: &[String]) -> Result<Option<Request>, String
     }))
 }
 
+/// Map results arrive on a channel of the readback's own, so a map that failed can
+/// never be taken for a later screenshot's.
+type MapResult = Receiver<Result<(), wgpu::BufferAsyncError>>;
+
 enum State {
     Idle,
     Encoded(Readback),
-    Mapping(Readback),
+    Mapping(Readback, MapResult),
 }
 
 struct Readback {
@@ -113,8 +117,6 @@ pub(crate) struct Manager {
     directory: PathBuf,
     request: Option<Request>,
     state: State,
-    map_sender: SyncSender<Result<(), wgpu::BufferAsyncError>>,
-    map_receiver: Receiver<Result<(), wgpu::BufferAsyncError>>,
     write_sender: SyncSender<String>,
     write_receiver: Receiver<String>,
     write_pending: bool,
@@ -128,14 +130,11 @@ impl Manager {
         texture_format: wgpu::TextureFormat,
         copy_supported: bool,
     ) -> Self {
-        let (map_sender, map_receiver) = sync_channel(1);
         let (write_sender, write_receiver) = sync_channel(1);
         Self {
             directory: config_directory.join("screenshots"),
             request: None,
             state: State::Idle,
-            map_sender,
-            map_receiver,
             write_sender,
             write_receiver,
             write_pending: false,
@@ -144,8 +143,10 @@ impl Manager {
         }
     }
 
+    /// Keep `request` until the previous screenshot is written; one asked for while
+    /// another still waits is dropped.
     pub(crate) fn request(&mut self, request: Request) {
-        if self.request.is_none() && matches!(self.state, State::Idle) && !self.write_pending {
+        if self.request.is_none() {
             self.request = Some(request);
         }
     }
@@ -157,6 +158,9 @@ impl Manager {
         texture: &wgpu::Texture,
         size: [u32; 2],
     ) -> Result<bool, String> {
+        if !matches!(self.state, State::Idle) || self.write_pending {
+            return Ok(false);
+        }
         let Some(request) = self.request.take() else {
             return Ok(false);
         };
@@ -201,18 +205,24 @@ impl Manager {
         Ok(true)
     }
 
+    /// Start mapping the readback encoded into the frame just submitted. One already
+    /// mapping is left as it is: dropping its buffer would abort the map.
     pub(crate) fn after_submit(&mut self) {
-        let State::Encoded(readback) = std::mem::replace(&mut self.state, State::Idle) else {
-            return;
+        let readback = match std::mem::replace(&mut self.state, State::Idle) {
+            State::Encoded(readback) => readback,
+            other => {
+                self.state = other;
+                return;
+            }
         };
-        let sender = self.map_sender.clone();
+        let (sender, result) = sync_channel(1);
         readback
             .buffer
             .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender.send(result);
+            .map_async(wgpu::MapMode::Read, move |mapped| {
+                let _ = sender.send(mapped);
             });
-        self.state = State::Mapping(readback);
+        self.state = State::Mapping(readback, result);
     }
 
     pub(crate) fn poll(&mut self, device: &wgpu::Device) -> Option<String> {
@@ -220,11 +230,11 @@ impl Manager {
             self.write_pending = false;
             return Some(message);
         }
-        if !matches!(self.state, State::Mapping(_)) {
+        let State::Mapping(_, result) = &self.state else {
             return None;
-        }
+        };
         let _ = device.poll(wgpu::PollType::Poll);
-        match self.map_receiver.try_recv() {
+        match result.try_recv() {
             Ok(Ok(())) => self.finish_mapping(),
             Ok(Err(error)) => {
                 self.state = State::Idle;
@@ -239,7 +249,7 @@ impl Manager {
     }
 
     fn finish_mapping(&mut self) -> Option<String> {
-        let State::Mapping(readback) = std::mem::replace(&mut self.state, State::Idle) else {
+        let State::Mapping(readback, _) = std::mem::replace(&mut self.state, State::Idle) else {
             return None;
         };
         let slice = readback.buffer.slice(..);
