@@ -155,9 +155,20 @@ pub(crate) fn update_and_spawn(
     vfs: &VirtualFileSystem,
     audio: &mut Option<GameAudio>,
     now: Instant,
+    view_forward: Vec3,
     bsp: &Bsp,
     scratch: &mut TraceScratch,
 ) {
+    auxiliary.breakage.update(
+        now,
+        view_forward,
+        bsp,
+        scratch,
+        particles,
+        effects,
+        vfs,
+        audio,
+    );
     auxiliary.emitters.update(now, bsp, scratch, pending);
     while let Some((effect, origin, rotation, seed, depth)) = auxiliary.emitters.pop_emission() {
         crate::effect_runtime::spawn_effect(

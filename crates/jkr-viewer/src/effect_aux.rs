@@ -18,6 +18,9 @@ pub(crate) mod saber_contacts;
 #[path = "effect_cadence.rs"]
 pub(crate) mod cadence;
 
+#[path = "breakage.rs"]
+pub(crate) mod breakage;
+
 const MAX_EFFECT_PRIMITIVES: usize = 1_800;
 const MAX_PENDING_SHAKES: usize = 64;
 
@@ -74,6 +77,8 @@ pub(crate) struct Runtime {
     pub(crate) saber_contacts: saber_contacts::Runtime,
     /// Paces effects that stock re-plays every rendered frame (`effect_cadence.rs`).
     pub(crate) continuous: cadence::Cadence,
+    /// Glass shards, debris and model explosions (`breakage.rs`).
+    pub(crate) breakage: breakage::Runtime,
 }
 
 impl Default for Runtime {
@@ -89,6 +94,7 @@ impl Default for Runtime {
             decals: crate::decal_store::DecalStore::default(),
             saber_contacts: saber_contacts::Runtime::default(),
             continuous: cadence::Cadence::default(),
+            breakage: breakage::Runtime::default(),
         }
     }
 }

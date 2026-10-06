@@ -115,6 +115,9 @@ impl SoundPrefetch {
             }
         }
         paths.extend(crate::effect_aux::saber_contacts::SOUNDS.map(str::to_owned));
+        if crate::effect_aux::breakage::map_has_breakables(bsp) {
+            paths.extend(crate::effect_aux::breakage::SOUNDS.map(str::to_owned));
+        }
         if let Some(music) = music {
             paths.push(default_music_extension(&music.intro));
             paths.push(default_music_extension(&music.repeating));

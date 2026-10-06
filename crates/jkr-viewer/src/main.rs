@@ -1716,11 +1716,12 @@ impl GpuState {
                 .expect("particle effects retain their VFS"),
             game_audio,
             particle_now,
+            forward,
             &self.bsp,
             &mut self.trace_scratch,
         );
         effect_emitter::append_model_instances(
-            &mut self.effect_aux.emitters,
+            &mut self.effect_aux,
             &self.emitter_model_catalog,
             object_groups,
         );
@@ -1783,7 +1784,6 @@ impl GpuState {
                 field_of_view: self.field_of_view,
                 bsp: &self.bsp,
                 trace_scratch: &mut self.trace_scratch,
-
                 entity_instances,
                 blended: particle_groups,
             },

@@ -41,6 +41,13 @@ three map target actions and player ICARUS actions. See the [implementation ledg
 for exact coverage, reference evidence and remaining verification. The backlog
 is not complete; no owner build or publication is implied by these changes.
 
+Breakable glass, debris and model explosions (audit row C7) now present on the
+client. Their rules match unchanged OpenJK functions bit for bit on synthetic
+inputs; a live `ctf5` break was compared against a TaystJK client on the same
+JKR server, and debris was captured on `duel8`. Resting chunks vanish rather
+than fade, and fragments ignore movers; see the ledger row for the remaining
+limits.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

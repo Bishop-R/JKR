@@ -40,6 +40,7 @@ pub(crate) fn spawn_snapshot_particles(
     now: Instant,
 ) {
     for entity in &snapshot.entities {
+        auxiliary.breakage.observe(entity);
         if entity.entity_type() == 17 {
             // ET_FX, bg_public.h:1262
             // Persistent map runners are scheduled by jkr-client's fixed
@@ -60,6 +61,25 @@ pub(crate) fn spawn_snapshot_particles(
             continue;
         }
         previous_events.insert(entity.number(), latch);
+        if crate::effect_aux::breakage::handles(raw_event) {
+            crate::effect_aux::breakage::present(
+                auxiliary,
+                raw_event,
+                entity,
+                game_state,
+                vfs,
+                audio,
+                now,
+                |auxiliary, name, origin, rotation, audio| {
+                    let seed = u32::from(entity.number()) ^ origin.x.to_bits();
+                    spawn_effect(
+                        particles, auxiliary, effects, vfs, name, origin, now, seed, 0, audio,
+                        rotation,
+                    );
+                },
+            );
+            continue;
+        }
         if raw_event == 84 {
             concussion::spawn(
                 entity,

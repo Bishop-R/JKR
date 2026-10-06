@@ -54,6 +54,7 @@ pub(super) fn load<'a>(
         variant: String::new(),
     });
     static_models::extend_appearances(bsp, &mut appearances);
+    crate::effect_aux::breakage::extend_appearances(bsp, &mut appearances);
     first_person_weapon::Catalog::extend_appearances(&mut appearances);
     appearances.extend(
         (1..=16)

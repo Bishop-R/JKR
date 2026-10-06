@@ -49,6 +49,14 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "thermal/shockwave",
     "concussion/explosion",
     "concussion/alt_ring",
+    // `CG_MiscModelExplosion` (`jkr_client::breakage::EXPLOSION_EFFECTS`).
+    "chunks/glassbreak",
+    "chunks/metalexplode",
+    "chunks/sparkexplode",
+    "chunks/grateexplode",
+    "chunks/ropebreak",
+    "chunks/rockbreaklg",
+    "chunks/rockbreakmed",
     "sparks/spark_nosnd",
     "bryar/shot",
     "blaster/shot",
@@ -87,6 +95,7 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
 /// flare (`cg_draw.c`), the disruptor beam lines (`fx_disruptor.c`) and the
 /// sprites floated over players (`cg_players.c`).
 pub(crate) const CODE_SHADERS: &[&str] = &[
+    jkr_client::breakage::SHARD_SHADER,
     "gfx/misc/blue_portashield",
     "gfx/misc/blue_dmgshield",
     "gfx/misc/red_portashield",

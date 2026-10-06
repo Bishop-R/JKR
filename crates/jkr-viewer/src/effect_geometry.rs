@@ -251,6 +251,16 @@ impl Mesh {
                         false,
                     );
                 }
+                PrimitiveShape::Shard(shard) => {
+                    let moving = age.saturating_sub(shard.moves_after()).as_secs_f32();
+                    self.line_quad(
+                        shard.corners(particle.motion.sample().origin, moving),
+                        layer.uv_rect,
+                        layer.uv_transform,
+                        layer_color,
+                        false,
+                    );
+                }
                 PrimitiveShape::Cylinder {
                     axis,
                     size2,

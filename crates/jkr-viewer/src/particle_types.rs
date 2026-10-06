@@ -45,6 +45,8 @@ pub(crate) enum PrimitiveShape {
     FrameQuad {
         points: [Vec3; 4],
     },
+    /// A falling glass shard (`CPoly` from `CG_DoGlassQuad`).
+    Shard(ShardShape),
     Cylinder {
         axis: Vec3,
         size2: crate::effect_envelope::Envelope,
@@ -61,6 +63,60 @@ pub(crate) enum PrimitiveShape {
         trace_end: bool,
         depth_hack: bool,
     },
+}
+
+/// A glass shard packed into the size of [`PrimitiveShape::FrameQuad`], so adding it
+/// leaves every particle's size unchanged.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ShardShape {
+    /// Corner offsets from the motion origin, in 1/8 units.
+    corners: [[i16; 3]; 4],
+    /// Pane coordinates in 1/32767 steps over `0..2`.
+    st: [[u16; 2]; 4],
+    /// Pitch and yaw spin in hundredths of a degree per 100 ms of movement.
+    spin: [i16; 2],
+    /// Milliseconds after spawning before the shard starts to fall and spin.
+    moves_after: u16,
+}
+
+impl ShardShape {
+    /// `corners` are cyclic offsets from the shard's midpoint (`CPoly::PolyInit`);
+    /// `spin` is `rotationDelta`'s pitch and yaw.
+    pub(crate) fn new(
+        corners: [Vec3; 4],
+        st: [[f32; 2]; 4],
+        spin: [f32; 2],
+        moves_after_ms: i32,
+    ) -> Self {
+        let fixed = |v: f32, scale: f32| (v * scale).round().clamp(-32_768.0, 32_767.0) as i16;
+        Self {
+            corners: corners.map(|c| c.to_array().map(|v| fixed(v, 8.0))),
+            st: st.map(|p| p.map(|v| (v.clamp(0.0, 2.0) * 32_767.0).round() as u16)),
+            spin: spin.map(|v| fixed(v, 100.0)),
+            moves_after: moves_after_ms.clamp(0, i32::from(u16::MAX)) as u16,
+        }
+    }
+
+    /// How long the shard stays stuck in the pane.
+    pub(crate) fn moves_after(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(u64::from(self.moves_after))
+    }
+
+    /// World corners in strip order with their pane coordinates. Stock rotates the
+    /// offsets a little every frame while the shard moves (`CPoly::Rotate`); this is
+    /// the same rotation integrated over `moving_seconds`, independent of frame rate.
+    pub(crate) fn corners(&self, origin: Vec3, moving_seconds: f32) -> [(Vec3, [f32; 2]); 4] {
+        // `rotDelta * frameTime * 0.01` degrees per frame: ten times `rotDelta` per second.
+        let rate = |v: i16| f32::from(v) * 0.01 * 10.0_f32.to_radians();
+        let spin = Vec3::new(-rate(self.spin[0]), 0.0, -rate(self.spin[1]));
+        let rotation = Quat::from_scaled_axis(spin * moving_seconds);
+        let corner = |i: usize| {
+            let offset = Vec3::from_array(self.corners[i].map(|v| f32::from(v) / 8.0));
+            let st = self.st[i].map(|v| f32::from(v) / 32_767.0);
+            (origin + rotation * offset, st)
+        };
+        [corner(0), corner(1), corner(3), corner(2)]
+    }
 }
 
 impl PrimitiveShape {
