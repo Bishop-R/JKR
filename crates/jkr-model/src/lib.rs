@@ -10,6 +10,9 @@ mod reskin;
 mod skeleton_pose;
 mod skin;
 
+#[cfg(test)]
+mod glm_tolerance_tests;
+
 pub use bone_angles::{BoneAngleCommand, BoneAngleMode, BoneAxis};
 pub use bone_override::{
     BoneAnimationCommand, BoneFrameSample, BoneOverridePose, OverrideEndBehavior,
@@ -1318,6 +1321,8 @@ fn parse_glm_surface(
                         "vertex weight references absent surface bone",
                     ));
                 }
+                // The last weight is whatever the others leave, below zero when
+                // they add up to more than one; G2_GetVertBoneWeight uses it as is.
                 let weight = if weight_index + 1 == weight_count {
                     1.0 - accumulated
                 } else {
@@ -1332,9 +1337,6 @@ fn parse_glm_surface(
                     bone_reference,
                     weight,
                 });
-            }
-            if weights.iter().any(|weight| weight.weight < -0.001) {
-                return Err(ModelError::invalid(offset + 28, "GLM weights exceed one"));
             }
             Ok(GlmVertex {
                 normal: reader.f32x3(offset, "GLM vertex normal")?,
