@@ -52,6 +52,8 @@ impl MovementConfig {
             })
             .and_then(|digits| digits.parse().ok())
             .unwrap_or(0);
+        // `cgs.debugMelee` (`cg_servercmds.c:137`), read by the dialect.
+        self.debug_melee = crate::pmove_debug_melee::DebugMelee::from_game_state(game);
         let no_rolls = self.roll_rules.saber_forbids_rolls;
         self.roll_rules = crate::RollRules::from_game_state(game);
         self.roll_rules.saber_forbids_rolls = no_rolls;
