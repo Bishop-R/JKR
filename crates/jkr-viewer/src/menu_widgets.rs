@@ -1,10 +1,12 @@
 //! Shared modern menu widgets built on renderer-neutral `jkr-ui` primitives.
 
+mod contrast;
 mod hero;
 mod input;
 mod layout;
 mod text;
 mod vote;
+pub(crate) use contrast::MenuContrast;
 pub(crate) use hero::{HeroColumn, Scrim};
 pub(crate) use vote::VoteLayout;
 mod controls;
@@ -66,6 +68,9 @@ pub(crate) struct MenuCanvas {
     hovered_token: Option<MenuToken>,
     pressed_token: Option<MenuToken>,
     viewport: [f32; 2],
+    contrast: MenuContrast,
+    /// Luminance behind text once this frame has drawn a readability backing.
+    backing: Option<f32>,
 }
 
 impl MenuCanvas {
@@ -88,6 +93,8 @@ impl MenuCanvas {
             hovered_token: None,
             pressed_token: None,
             viewport: [1.0, 1.0],
+            contrast: MenuContrast::Off,
+            backing: None,
         }
     }
 
@@ -108,6 +115,8 @@ impl MenuCanvas {
             .pressed()
             .and_then(|id| self.tokens.get(id.0 as usize).copied());
         self.viewport = viewport;
+        self.contrast = MenuContrast::current();
+        self.backing = None;
         self.draw.clear();
         self.tree.clear();
         self.rects.clear();
@@ -115,13 +124,16 @@ impl MenuCanvas {
         self.text_len = 0;
     }
 
-    /// Draw a modern backplate with the same contrast treatment as the HUD.
+    /// Draw a modern backplate with the same contrast treatment as the HUD,
+    /// darkened to the `ui_menuContrast` floor when that is higher.
     pub(crate) fn panel(&mut self, rect: Rect) {
+        let alpha = self.readability_coverage().max(0.55);
         let _ = self.draw.push(DrawCommand::RoundedRect {
             rect,
             radius: self.theme.radii.lg,
-            color: Color::new(0.0, 0.0, 0.0, 0.55),
+            color: Color::new(0.0, 0.0, 0.0, alpha),
         });
+        self.mark_backing(self.readability_coverage());
         let _ = self.draw.push(DrawCommand::Border {
             rect,
             radius: self.theme.radii.lg,
