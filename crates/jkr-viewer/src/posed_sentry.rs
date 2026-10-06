@@ -5,8 +5,8 @@
 //! Seen for the first time, a sentry plays its root's frames 0 to 11 at 0.8 and holds the
 //! last. Every frame after, its hinge turns: a quarter turn at a time toward its enemy, or
 //! round at 30 degrees a second while it has none, or not at all while it is about to blow.
-//! The turn is absolute (`BONE_ANGLES_REPLACE`). Left out: the muzzle flash stock clients
-//! play when `fireflag` changes.
+//! The turn is absolute (`BONE_ANGLES_REPLACE`). A shot, which the server marks by changing
+//! `fireflag`, flashes at the gun's muzzle.
 
 use super::*;
 use crate::saber_trail::tilt::vector_to_angles;
@@ -19,6 +19,15 @@ const UNFOLD: (i32, i32, f32) = (0, 11, 0.8);
 const CREEP_STEP: f32 = 90.0;
 /// The idle sweep, degrees a millisecond.
 const SWEEP_SPEED: f32 = 0.03;
+/// The gun's muzzle (`cg_turret.c:162`'s `torsoBolt`).
+const FLASH_BOLT: &str = "*flash02";
+
+/// A muzzle flash: where it plays and which way.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Flash {
+    pub(crate) origin: [f32; 3],
+    pub(crate) direction: [f32; 3],
+}
 
 /// What the client keeps for one sentry (`turAngles`, `dustTrailTime`,
 /// `frame_minus1_refreshed`).
@@ -28,11 +37,13 @@ pub(super) struct Sentry {
     /// When the idle sweep last turned; `None` before it first has.
     swept_at: Option<i64>,
     refreshed_at: i64,
+    /// The `fireflag` last flashed for (`bolt4`), zero for none.
+    flashed: u8,
 }
 
 /// One frame of `TurretClientRun` for the sentry `state` names, posed by `pose`: it stands at
 /// `origin`, and its enemy, if it has one this client knows of, at `enemy` (that entity's
-/// `pos.trBase`).
+/// `pos.trBase`). Its muzzle flash, when it has just fired.
 pub(super) fn run(
     sentry: &mut Option<Sentry>,
     pose: &mut BoneOverridePose,
@@ -41,7 +52,7 @@ pub(super) fn run(
     origin: [f32; 3],
     enemy: Option<[f32; 3]>,
     time: i64,
-) {
+) -> Option<Flash> {
     let animation = &model.animation;
     let sentry = sentry.get_or_insert_with(|| {
         // First sight. The zero postmultiplied turns stock also sets change nothing.
@@ -65,16 +76,26 @@ pub(super) fn run(
             angles: [90.0, 0.0, 0.0],
             swept_at: None,
             refreshed_at: 0,
+            flashed: 0,
         }
     });
-    let Some(hinge) = model.hinge else {
-        return;
-    };
+    let hinge = model.hinge?;
     // "I'm about to blow": held where it is.
     if state.fire_flag() == 2 {
         let _ = pose.set_bone_angles(animation, hinge, hinge_turn(sentry.angles));
-        return;
+        return None;
     }
+    let flash = match state.fire_flag() {
+        0 => {
+            sentry.flashed = 0;
+            None
+        }
+        flag if flag != sentry.flashed => {
+            sentry.flashed = flag;
+            muzzle(pose, model, origin, time)
+        }
+        _ => None,
+    };
     if state.bolt2() != NO_ENEMY {
         if let Some(enemy) = enemy {
             let toward = Vec3::from_array(enemy) - Vec3::from_array(origin);
@@ -94,10 +115,34 @@ pub(super) fn run(
     }
     if time < sentry.refreshed_at {
         sentry.refreshed_at = time;
-        return;
+        return flash;
     }
     sentry.refreshed_at = time;
     let _ = pose.set_bone_angles(animation, hinge, hinge_turn(sentry.angles));
+    flash
+}
+
+/// The muzzle flash at the gun's `*flash02` bolt as the skeleton stands before this frame's
+/// turn (`cg_turret.c:184-197`): the bolt's origin and its `NEGATIVE_X` after
+/// `G2API_GetBoltMatrix`'s column swap, which is the bolt's own Y. Stock reads the bolt with
+/// no angles (`vec3_origin`), so the sentry's own yaw is left out here too.
+fn muzzle(
+    pose: &mut BoneOverridePose,
+    model: &PosedModel,
+    origin: [f32; 3],
+    time: i64,
+) -> Option<Flash> {
+    let matrices = pose.evaluate(&model.animation, time).ok()?;
+    let bolt = model
+        .glm
+        .surface_bolt_matrix(FLASH_BOLT, 0, matrices)
+        .ok()??;
+    // `G2API_GetBoltMatrix` normalizes the rows before its world matrix.
+    let rows = bolt.map(|row| Vec3::new(row[0], row[1], row[2]).normalize_or_zero());
+    Some(Flash {
+        origin: std::array::from_fn(|axis| origin[axis] + bolt[axis][3]),
+        direction: std::array::from_fn(|axis| rows[axis].y),
+    })
 }
 
 /// The hinge's absolute turn (`BONE_ANGLES_REPLACE` about -Y up, -Z left, -X forward).

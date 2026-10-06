@@ -26,6 +26,7 @@ use jkr_protocol::EntityState;
 
 #[path = "posed_sentry.rs"]
 mod sentry;
+pub(crate) use sentry::Flash;
 
 /// The weights a Ghoul2 vertex carries at most (`iMAX_G2_BONEWEIGHTS_PER_VERT`).
 const MAX_WEIGHTS: usize = 4;
@@ -63,6 +64,8 @@ const GHOUL2_ROOT: [[f32; 4]; 3] = [
 /// A Ghoul2 model split into rigid parts: its skeleton and, for each part, the bones its
 /// vertices follow. Part `i` is drawn as the object mesh `i + 1` after the model's own.
 pub(crate) struct PosedModel {
+    /// The model itself, for its surface bolts.
+    glm: Glm,
     animation: Gla,
     /// `model_root`, where `EF_G2ANIMATING` plays; `None` for a skeleton without one.
     root: Option<usize>,
@@ -253,6 +256,7 @@ fn cut(
     let (root, aim, hinge) = (find(ROOT_BONE), find(AIM_BONE), find(HINGE_BONE));
     Some((
         PosedModel {
+            glm: model.clone(),
             animation,
             root,
             aim,
@@ -332,6 +336,12 @@ struct Slot {
     sentry: Option<sentry::Sentry>,
 }
 
+/// What a posed entity's draw asks of its caller besides its instances.
+pub(crate) struct Drawn {
+    /// A sentry's muzzle flash, played once for a shot.
+    pub(crate) flash: Option<Flash>,
+}
+
 /// One part instance: the object mesh's group, its place there, its entity's origin.
 #[derive(Clone, Copy)]
 struct Lit {
@@ -348,12 +358,16 @@ impl Poses {
     }
 
     /// Pose `draw`'s entity as its state asks and push an instance of every part into
-    /// `groups`; `false` when no skeleton is free for it (it is drawn unposed then).
-    pub(crate) fn submit(&mut self, draw: Draw<'_>, groups: &mut [Vec<ActorInstance>]) -> bool {
+    /// `groups`; what else the draw asks of the caller, or `None` when no skeleton is free for
+    /// it (it is drawn unposed then).
+    pub(crate) fn submit(
+        &mut self,
+        draw: Draw<'_>,
+        groups: &mut [Vec<ActorInstance>],
+    ) -> Option<Drawn> {
         let frame = self.frame;
-        let Some(slot) = slot(&mut self.slots, frame, draw.entity, draw.mesh, draw.model) else {
-            return false;
-        };
+        let slot = slot(&mut self.slots, frame, draw.entity, draw.mesh, draw.model)?;
+        let mut flash = None;
         slot.seen = frame;
         let model = draw.model;
         let animation = &model.animation;
@@ -376,7 +390,7 @@ impl Poses {
             if state.bolt1() {
                 let origin = draw.transform.translation;
                 let (pose, enemy) = (&mut slot.pose, draw.sentry_enemy);
-                sentry::run(
+                flash = sentry::run(
                     &mut slot.sentry,
                     pose,
                     model,
@@ -387,9 +401,7 @@ impl Poses {
                 );
             }
         }
-        let Ok(matrices) = slot.pose.evaluate(animation, draw.time) else {
-            return false;
-        };
+        let matrices = slot.pose.evaluate(animation, draw.time).ok()?;
         for (index, weights) in model.parts.iter().enumerate() {
             let (position, rotation) = place(&draw.transform, weights.matrix(matrices));
             let mut instance = ActorInstance::new(position, rotation, draw.transform.scale);
@@ -405,7 +417,7 @@ impl Poses {
             });
             instances.push(instance);
         }
-        true
+        Some(Drawn { flash })
     }
 
     /// Light and fog this frame's parts at their entity's origin, replacing what the entity

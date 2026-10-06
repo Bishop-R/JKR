@@ -219,30 +219,14 @@ pub(crate) fn submit(
                 .iter()
                 .position(|mesh| &mesh.appearance == appearance)
         }) {
-            // A Ghoul2 model drawn posed, part by part (`CG_General`'s skeleton).
-            let model = sinks.object_meshes[mesh].posed.as_deref();
-            let state = object_meshes::posed::entity_state(snapshot, entity.id.get());
-            let gunner_view = state
-                .and_then(object_meshes::posed::gunner)
-                .and_then(|gunner| gunner_view(&sinks, snapshot, gunner, presentation_time));
-            let sentry_enemy = state
-                .filter(|state| state.bolt1())
-                .and_then(|state| enemy_origin(&sinks, snapshot, state.bolt2(), presentation_time));
-            let posed = model.is_some_and(|model| {
-                let draw = object_meshes::posed::Draw {
-                    mesh,
-                    model,
-                    entity: entity.id.get(),
-                    state,
-                    game_state,
-                    transform,
-                    view_flags: sinks.entity_view_flags,
-                    time: presentation_time,
-                    gunner_view,
-                    sentry_enemy,
-                };
-                sinks.poses.submit(draw, sinks.object_groups)
-            });
+            let posed = submit_posed(
+                &mut sinks,
+                mesh,
+                entity.id.get(),
+                transform,
+                (snapshot, game_state),
+                visual_now,
+            );
             if !posed {
                 let rotation = if sinks.object_meshes[mesh].ghoul2 {
                     weapon_view::actor_world_rotation(transform.rotation).to_array()
@@ -257,6 +241,62 @@ pub(crate) fn submit(
         }
     }
     overlay_count
+}
+
+/// The Ghoul2 model of `entity` (object mesh `mesh`) drawn posed, part by part
+/// (`CG_General`'s skeleton), and a sentry's muzzle flash played; `false` when the model is
+/// not posed or no skeleton is free for it.
+fn submit_posed(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    entity: u64,
+    transform: jkr_runtime::Transform,
+    (snapshot, game_state): (Option<&Snapshot>, Option<&GameState>),
+    now: Instant,
+) -> bool {
+    let Some(model) = sinks.object_meshes[mesh].posed.as_deref() else {
+        return false;
+    };
+    let time = sinks.presentation_time;
+    let state = object_meshes::posed::entity_state(snapshot, entity);
+    let gunner_view = state
+        .and_then(object_meshes::posed::gunner)
+        .and_then(|gunner| gunner_view(sinks, snapshot, gunner, time));
+    let sentry_enemy = state
+        .filter(|state| state.bolt1())
+        .and_then(|state| enemy_origin(sinks, snapshot, state.bolt2(), time));
+    let draw = object_meshes::posed::Draw {
+        mesh,
+        model,
+        entity,
+        state,
+        game_state,
+        transform,
+        view_flags: sinks.entity_view_flags,
+        time,
+        gunner_view,
+        sentry_enemy,
+    };
+    let Some(drawn) = sinks.poses.submit(draw, sinks.object_groups) else {
+        return false;
+    };
+    if let Some(flash) = drawn.flash {
+        // `cgs.effects.mTurretMuzzleFlash`.
+        effect_runtime::spawn_effect(
+            sinks.particles,
+            sinks.effect_aux,
+            sinks.effects,
+            sinks.vfs,
+            "turret/muzzle_flash",
+            Vec3::from_array(flash.origin),
+            now,
+            (entity as u32) | (time as u32).rotate_left(11),
+            0,
+            sinks.game_audio,
+            combat_effects::rotation_from_direction(flash.direction),
+        );
+    }
+    true
 }
 
 /// Where an emplaced gun's `gunner` looks (`cg_ents.c:1323-1334`): this client's own view
