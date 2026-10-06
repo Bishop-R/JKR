@@ -443,6 +443,22 @@ no windows were opened and the owner's running game was untouched. Visual
 transition playtesting remains open. Formatting, locked workspace build/tests and
 the optimized build passed.
 
+## First-person melee draws no view weapon
+
+Local fix based on `af65396` (2026-10-06): `legacy_view_model` mapped `WP_MELEE` to
+the stun baton's hand rig, so first-person melee drew a baton. `CG_RegisterWeapon`
+registers no hand model for `WP_MELEE` or the saber (`cg_weaponinit.c`, read in
+EternalJK's copy of codemp); the item's view model (`weapon_melee` in `bg_misc.c`) is
+the baton, which `CG_AddPlayerWeapon` then positions on handle 0, an identity tag,
+not on a hand rig. Melee now has no view model; the stun baton keeps its model and
+three barrels.
+
+One unit test checks that melee has no view model and that the stun baton keeps its
+model and barrels. Formatting (`cargo fmt --all --check`), `cargo build --locked --workspace` and `cargo test --locked --workspace` passed on Windows 11 with Rust 1.96.0 (28 tests, 1 of them new). `cargo clippy --locked --workspace --all-targets` stops at four deny-level lints that `main` already has (`jkr-game-jka` `concussion.rs:118` and `weapon_fire.rs:593/614/655`) before it reaches the crates changed here; with `-A clippy::erasing_op -A clippy::redundant_comparisons` it passes, with no warning on the changed lines.
+
+Limits: no game was started, so what stock shows in first-person melee was derived
+from the reference source and the baton's geometry, not seen on screen.
+
 ## Noclip and talk balloons preview
 
 Local `playfeatures1` preview (2026-10-04, based on `7155455`) integrates
