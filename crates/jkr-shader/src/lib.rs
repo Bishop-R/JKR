@@ -14,8 +14,13 @@ mod recovery;
 pub use parse::parse_shader_script;
 use parse::*;
 mod deforms;
+mod material;
 mod stage_parse;
 pub use deforms::Deform;
+pub use material::{
+    DEFAULT_NORMAL_SCALE, INITIAL_SPECULAR_SCALE, SPEC_GLOSS_SCALE, SpecularLayout, StageMaterial,
+    packed_specular_scale,
+};
 mod surface_sprites;
 use stage_parse::parse_stage;
 pub use surface_sprites::{SpriteFacing, SpriteKind, SurfaceSprites};
@@ -121,6 +126,8 @@ pub struct ShaderStage {
     pub texture_generator: TextureGenerator,
     pub depth_write: bool,
     pub depth_function: DepthFunction,
+    /// Optional rend2 material-map keywords; ignored unless material maps are enabled.
+    pub material: StageMaterial,
 }
 
 /// Texture-coordinate source selected by a Q3 stage.

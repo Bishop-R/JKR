@@ -48,7 +48,16 @@ pub(super) fn extract(
             {
                 continue;
             }
-            let material = compile_material(vfs, shaders, key, lightmap, true, &mut cache, true)?;
+            let material = compile_material(
+                vfs,
+                shaders,
+                key,
+                lightmap,
+                true,
+                Default::default(),
+                &mut cache,
+                true,
+            )?;
             if !material.emission.iter().any(|c| *c > 0.) {
                 continue;
             }

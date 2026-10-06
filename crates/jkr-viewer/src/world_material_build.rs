@@ -23,6 +23,7 @@ pub(crate) fn create_filtered_runtime(
     mover_meshes: &[super::super::movers::Mesh],
     filtering: super::filtering::Policy,
     realtime: bool,
+    material_maps: super::material_maps::Settings,
 ) -> Result<(Runtime, usize), Box<dyn Error>> {
     build(
         device,
@@ -39,6 +40,7 @@ pub(crate) fn create_filtered_runtime(
         true,
         filtering,
         realtime,
+        material_maps,
     )
 }
 
@@ -58,6 +60,7 @@ fn build(
     collapse: bool,
     filtering: super::filtering::Policy,
     realtime: bool,
+    material_maps: super::material_maps::Settings,
 ) -> Result<(Runtime, usize), Box<dyn Error>> {
     let started = Instant::now();
     let mut forge = Forge::new(device, queue, camera_layout, format);
@@ -98,8 +101,45 @@ fn build(
         &lightmaps,
         &forge.fallback_lightmap,
         collapse,
+        material_maps,
     )?;
     let compile_done = Instant::now();
+    // Material maps: the extended layout and the world's vertex frames, only when some
+    // stage of this map found maps.
+    let found = super::material_maps::Counts::of(
+        compiled_materials
+            .iter()
+            .flatten()
+            .flat_map(|material| &material.stages)
+            .filter_map(|stage| stage.maps.as_ref()),
+    );
+    if material_maps.enabled() && found.stages == 0 {
+        crate::log::progress(format_args!(
+            "material maps ({material_maps}): no stage of this map has maps"
+        ));
+    }
+    if found.stages > 0 {
+        let frames_started = Instant::now();
+        let mut gpu = super::material_maps::gpu::Gpu::new(device, queue);
+        let grid = crate::entity_lighting::EntityLighting::from_world(bsp).layout();
+        let tangents = super::material_maps::frames::tangents(geometry.0, geometry.1);
+        let frames = super::material_maps::frames::pack(geometry.0, &tangents, |point| {
+            grid.map(|grid| grid.sample(bsp.render(), point, |_| [255.0; 3]).direction)
+        });
+        drop(tangents);
+        gpu.set_frames(device, &frames);
+        forge.material_maps = Some(gpu);
+        crate::log::progress(format_args!(
+            "material maps ({material_maps}): {} stages, {} normal, {} parallax, {} specular; \
+             frames for {} vertices in {:.1} ms",
+            found.stages,
+            found.normal,
+            found.parallax,
+            found.specular,
+            geometry.0.len(),
+            frames_started.elapsed().as_secs_f64() * 1e3
+        ));
+    }
     let (mut fog_ms, mut surface_ms, mut draws_ms) = (0f64, 0f64, 0f64);
     // Every entry is referenced either by a world batch, an actor/model mesh,
     // or a cgame custom-shader override. Compiling one shared table prevents
@@ -356,6 +396,7 @@ fn compile_all(
     lightmaps: &std::collections::HashMap<i32, wgpu::TextureView>,
     fallback: &wgpu::TextureView,
     collapse: bool,
+    material_maps: super::material_maps::Settings,
 ) -> Result<Vec<Option<super::forge::CompiledMaterial>>, Box<dyn Error>> {
     let workers = std::thread::available_parallelism()
         .map_or(4, |n| n.get())
@@ -372,7 +413,14 @@ fn compile_all(
                             .map(|key| {
                                 let lightmap = lightmaps.get(&key.lightmap).unwrap_or(fallback);
                                 compile_material(
-                                    vfs, shaders, key, lightmap, collapse, &mut cache, false,
+                                    vfs,
+                                    shaders,
+                                    key,
+                                    lightmap,
+                                    collapse,
+                                    material_maps,
+                                    &mut cache,
+                                    false,
                                 )
                                 .map_err(|error| error.to_string())
                             })

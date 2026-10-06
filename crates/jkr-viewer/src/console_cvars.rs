@@ -39,6 +39,7 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
     crate::frame_target::aa::register(cvars)?;
     crate::frame_target::scale::register(cvars)?;
     crate::world_materials::filtering::register(cvars)?;
+    crate::world_materials::material_maps::register(cvars)?;
     crate::assets::search_paths::register(cvars)?;
     super::client_options::register(cvars)?;
     super::ui_options::register(cvars)?;
