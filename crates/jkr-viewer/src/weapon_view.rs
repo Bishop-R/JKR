@@ -6,6 +6,9 @@
 
 use glam::Quat;
 
+/// `rotation` (an entity's) with Ghoul2's root turn under it: the renderer starts every
+/// Ghoul2 skeleton from its `identityMatrix`, which is +90 degrees about Z
+/// (`tr_ghoul2.cpp:130-137`), so a GLM's -Y faces the entity's +X.
 pub(crate) fn actor_world_rotation(rotation: [f32; 4]) -> Quat {
     Quat::from_array(rotation) * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)
 }

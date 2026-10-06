@@ -44,6 +44,8 @@ struct Sinks<'a> {
     object_meshes: &'a [StaticModelMesh],
     actor_groups: &'a mut [Vec<ActorInstance>],
     object_groups: &'a mut [Vec<ActorInstance>],
+    /// The skeletons of general Ghoul2 entities drawn posed.
+    poses: &'a mut object_meshes::posed::Poses,
     overrides: &'a mut Vec<entity_materials::OverrideInstance>,
     entity_instances: &'a mut Vec<EntityInstance>,
     saber_hilts: Option<&'a saber::HiltCatalog>,
@@ -112,6 +114,7 @@ pub(crate) fn submit(
         .and_then(|console| console.integer_cvar("cg_saberTrail"))
         .unwrap_or(1)
         != 0;
+    gpu.posed_objects.begin_frame();
     let mut sinks = Sinks {
         flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(
             game_state
@@ -130,6 +133,7 @@ pub(crate) fn submit(
         object_meshes: &gpu.object_meshes,
         actor_groups: &mut gpu.actor_groups,
         object_groups: &mut gpu.object_groups,
+        poses: &mut gpu.posed_objects,
         overrides: &mut gpu.pickup_override_instances,
         entity_instances: &mut gpu.entity_instances,
         saber_hilts: gpu.saber_hilts.as_ref(),
@@ -212,10 +216,32 @@ pub(crate) fn submit(
                 .iter()
                 .position(|mesh| &mesh.appearance == appearance)
         }) {
-            let mut instance =
-                ActorInstance::new(transform.translation, transform.rotation, transform.scale);
-            instance.view_flags = sinks.entity_view_flags;
-            sinks.object_groups[mesh].push(instance);
+            // A Ghoul2 model drawn posed, part by part (`CG_General`'s skeleton).
+            let model = sinks.object_meshes[mesh].posed.as_deref();
+            let posed = model.is_some_and(|model| {
+                let draw = object_meshes::posed::Draw {
+                    mesh,
+                    model,
+                    entity: entity.id.get(),
+                    state: object_meshes::posed::entity_state(snapshot, entity.id.get()),
+                    game_state,
+                    transform,
+                    view_flags: sinks.entity_view_flags,
+                    time: presentation_time,
+                };
+                sinks.poses.submit(draw, sinks.object_groups)
+            });
+            if !posed {
+                let rotation = if sinks.object_meshes[mesh].ghoul2 {
+                    weapon_view::actor_world_rotation(transform.rotation).to_array()
+                } else {
+                    transform.rotation
+                };
+                let mut instance =
+                    ActorInstance::new(transform.translation, rotation, transform.scale);
+                instance.view_flags = sinks.entity_view_flags;
+                sinks.object_groups[mesh].push(instance);
+            }
         }
     }
     overlay_count

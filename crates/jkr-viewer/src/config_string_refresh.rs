@@ -229,7 +229,9 @@ impl GpuState {
         }
         let vfs = self.vfs.as_ref().ok_or("no VFS")?;
         let mut scene = FlattenedScene::default();
-        let mut mesh = object_meshes::load_one(vfs, appearance, &mut scene)?;
+        // The model and, for a posed Ghoul2 one, its rigid parts after it.
+        let mut loaded = Vec::new();
+        object_meshes::load_posable(vfs, appearance, &mut scene, &mut loaded)?;
         let materials = self.world_materials.append_entity_materials(
             &self.device,
             &self.queue,
@@ -240,12 +242,15 @@ impl GpuState {
         let placement =
             self.geometry
                 .append(&self.device, &self.queue, &scene.vertices, &scene.indices)?;
-        shared_geometry::relocate(&mut mesh.draws, &mut [], placement, materials);
+        for mesh in &mut loaded {
+            shared_geometry::relocate(&mut mesh.draws, &mut [], placement, materials);
+        }
         self.world_materials.bind_geometry(&self.geometry);
         self.emitter_model_catalog
             .insert(&appearance.model, self.object_meshes.len());
-        self.object_meshes.push(mesh);
-        self.object_groups.push(Vec::with_capacity(32));
+        self.object_groups
+            .extend(loaded.iter().map(|_| Vec::with_capacity(32)));
+        self.object_meshes.extend(loaded);
         log::progress(format_args!(
             "loaded configstring model {} mid-match",
             appearance.model

@@ -100,7 +100,13 @@ blows up when shot to death or when its user dies or leaves. Eight reference sce
 match unchanged OpenJK, run with the server's Ghoul2, except for a last-place
 difference in the muzzle flash's direction. Live, the JKR client used it on `ffa3`
 while a TaystJK client on the same server watched the cannon turn and pitch. The JKR
-client still draws it unposed and without its health meter.
+client shows no health meter for it yet.
+
+The JKR client now poses Ghoul2 machines as stock does: an E-Web unfolds, turns and
+pitches, and a turret turns by the bones its server sends; seen from the same spot,
+the JKR and TaystJK clients draw the same E-Web alike. They had been drawn in their
+bind pose and turned 90° away from stock's. The emplaced gun's aim and the sentry's
+turning are still to come; stock clients compute those themselves.
 
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked

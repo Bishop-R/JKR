@@ -265,6 +265,7 @@ struct GpuState {
     force_overlays_last: usize,
     actor_groups: Vec<Vec<ActorInstance>>,
     object_groups: Vec<Vec<ActorInstance>>,
+    posed_objects: object_meshes::posed::Poses,
     static_models: static_models::StaticModels,
     pickup_override_instances: Vec<entity_materials::OverrideInstance>,
     mover_groups: Vec<Vec<ActorInstance>>,
@@ -1008,6 +1009,7 @@ impl GpuState {
             force_overlays_last: 0,
             actor_groups,
             object_groups,
+            posed_objects: object_meshes::posed::Poses::default(),
             static_models,
             pickup_override_instances: Vec::with_capacity(force_overlay_submission::CAPACITY),
             mover_groups,
@@ -1732,6 +1734,7 @@ impl GpuState {
             actor_groups,
             object_groups,
             &mut self.pickup_override_instances,
+            &self.posed_objects,
             self.world_materials.fogs(),
         );
         let global_particle_seconds = presentation_time as f32 * 0.001;

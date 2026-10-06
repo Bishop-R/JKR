@@ -4,6 +4,9 @@
 
 use super::*;
 
+#[path = "posed_objects.rs"]
+pub(crate) mod posed;
+
 /// Reserve carrier instances in addition to ordinary pickups before the first frame.
 pub(super) fn instance_groups(meshes: &[StaticModelMesh]) -> Vec<Vec<ActorInstance>> {
     meshes
@@ -29,6 +32,12 @@ pub(super) struct StaticModelMesh {
     pub(super) draws: Vec<ActorDraw>,
     pub(super) center: [f32; 3],
     pub(super) flash_bolt: Option<bolt::BoltMatrix>,
+    /// A Ghoul2 model (`.glm`): an entity draws it under Ghoul2's root turn
+    /// ([`weapon_view::actor_world_rotation`]).
+    pub(super) ghoul2: bool,
+    /// For a Ghoul2 model an entity is drawn posed by, its skeleton and rigid parts: the
+    /// meshes right after this one ([`posed`]).
+    pub(super) posed: Option<Box<posed::PosedModel>>,
 }
 
 /// Gather every rigid model appearance the session may reference and append
@@ -82,11 +91,8 @@ pub(super) fn load<'a>(
         {
             continue;
         }
-        match load_one(vfs, &appearance, flattened) {
-            Ok(mesh) => meshes.push(mesh),
-            Err(error) => {
-                eprintln!("could not load network model {}: {error}", appearance.model)
-            }
+        if let Err(error) = load_posable(vfs, &appearance, flattened, &mut meshes) {
+            eprintln!("could not load network model {}: {error}", appearance.model)
         }
     }
     // The jetpack a carrier wears: a `model.glm` like an NPC's body, but drawn rigid.
@@ -107,11 +113,45 @@ pub(super) fn load_one(
     appearance: &Appearance,
     flattened: &mut FlattenedScene,
 ) -> Result<StaticModelMesh, Box<dyn Error>> {
+    load_parsed(vfs, appearance, flattened).map(|(mesh, _)| mesh)
+}
+
+/// [`load_one`] into `meshes`, a Ghoul2 model's rigid parts after it when it can be drawn
+/// posed ([`posed::split`]); the model's index.
+pub(super) fn load_posable(
+    vfs: &VirtualFileSystem,
+    appearance: &Appearance,
+    flattened: &mut FlattenedScene,
+    meshes: &mut Vec<StaticModelMesh>,
+) -> Result<usize, Box<dyn Error>> {
+    let (mut mesh, ghoul2) = load_parsed(vfs, appearance, flattened)?;
+    let index = meshes.len();
+    let split = match ghoul2 {
+        Some(model) => posed::split(vfs, &model, appearance, &mesh.draws, flattened),
+        None => None,
+    };
+    match split {
+        Some((posed, parts)) => {
+            mesh.posed = Some(Box::new(posed));
+            meshes.push(mesh);
+            meshes.extend(parts);
+        }
+        None => meshes.push(mesh),
+    }
+    Ok(index)
+}
+
+/// [`load_one`], and the parsed model when it is a Ghoul2 one.
+fn load_parsed(
+    vfs: &VirtualFileSystem,
+    appearance: &Appearance,
+    flattened: &mut FlattenedScene,
+) -> Result<(StaticModelMesh, Option<Glm>), Box<dyn Error>> {
     let asset = vfs
         .read(&appearance.model)?
         .ok_or("network model asset was not found")?;
     let vertex_start = flattened.vertices.len();
-    let (draws, flash_bolt) = if appearance.model.to_ascii_lowercase().ends_with(".glm") {
+    let (draws, flash_bolt, ghoul2) = if appearance.model.to_ascii_lowercase().ends_with(".glm") {
         let model = Glm::parse(&asset.bytes)?;
         let identity = [
             [1.0, 0.0, 0.0, 0.0],
@@ -120,15 +160,18 @@ pub(super) fn load_one(
         ];
         let pose = vec![identity; model.bone_count];
         let flash = model.surface_bolt_matrix(muzzle_flash::FLASH_BOLT, 0, &pose)?;
-        (append_static_glm_mesh(flattened, &model)?, flash)
+        (append_static_glm_mesh(flattened, &model)?, flash, Some(model))
     } else {
         let model = Md3::parse(&asset.bytes)?;
-        (append_md3_mesh(flattened, &model)?, None)
+        (append_md3_mesh(flattened, &model)?, None, None)
     };
-    Ok(StaticModelMesh {
+    let mesh = StaticModelMesh {
         appearance: appearance.clone(),
         draws,
         center: mesh_center(&flattened.vertices[vertex_start..]),
         flash_bolt,
-    })
+        ghoul2: ghoul2.is_some(),
+        posed: None,
+    };
+    Ok((mesh, ghoul2))
 }

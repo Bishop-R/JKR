@@ -105,8 +105,10 @@ impl EntityLighting {
 }
 
 /// Light everything the entity stage pipeline draws this frame: skinned
-/// actors, rigid objects (weapons, projectiles, emitter models, pickups) and
-/// the pickup shader-override instances. Returns the fogged count; allocation-free.
+/// actors, rigid objects (weapons, projectiles, emitter models, pickups, the
+/// parts of posed Ghoul2 entities, lit at their entity's origin) and the pickup
+/// shader-override instances. Returns the fogged count; allocation-free.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_frame(
     lighting: &EntityLighting,
     bsp: &Bsp,
@@ -114,11 +116,18 @@ pub(crate) fn apply_frame(
     actor_groups: &mut [Vec<ActorInstance>],
     object_groups: &mut [Vec<ActorInstance>],
     overrides: &mut [OverrideInstance],
+    posed: &crate::object_meshes::posed::Poses,
     fogs: &crate::fog_volumes::Table,
 ) -> usize {
     let lights = lights.as_slice();
     let mut fogged = lighting.apply(bsp, lights, actor_groups, fogs);
     fogged += lighting.apply(bsp, lights, object_groups, fogs);
+    let relit = posed.relight(
+        object_groups,
+        |origin| lighting.sample(bsp, origin, lights),
+        |origin| fogs.at_sphere(origin, 0.0),
+    );
+    fogged = fogged.saturating_add_signed(relit);
     for entry in overrides.iter_mut() {
         let light = lighting.sample(bsp, entry.instance.position, lights);
         entry.instance.set_light(light);

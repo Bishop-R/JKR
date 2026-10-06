@@ -22,7 +22,7 @@ pub(crate) use retained::RetainedPose;
 pub(crate) mod gpu_skinning;
 
 #[path = "server_bone_angles.rs"]
-mod server_bone_angles;
+pub(crate) mod server_bone_angles;
 
 #[path = "actor_pose_steps.rs"]
 mod steps;

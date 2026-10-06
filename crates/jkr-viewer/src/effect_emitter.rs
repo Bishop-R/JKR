@@ -68,6 +68,7 @@ impl ModelCatalog {
         let by_path = meshes
             .iter()
             .enumerate()
+            .filter(|(_, mesh)| !crate::object_meshes::posed::is_part(mesh))
             .map(|(index, mesh)| (mesh.appearance.model.to_ascii_lowercase(), index))
             .collect();
         Self { by_path }
