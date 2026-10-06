@@ -22,6 +22,8 @@ mod demo_playback;
 mod demo_recorder;
 pub mod download;
 mod download_session;
+mod duel_isolation;
+pub use duel_isolation::duel_passes_through;
 mod force_overlay_events;
 mod force_overlays;
 mod force_profile;

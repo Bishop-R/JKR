@@ -476,6 +476,26 @@ confirmation remains with the owner. Formatting, locked workspace build/tests
 and the optimized client build passed.
 
 
+## JA+ private-duel pass-through
+
+Local change based on `da8adc9` (2026-10-04): on JA+ and TaystJK/jaPRO profiles,
+prediction lets a bystander pass through duelling players and a dueller pass
+through every player and NPC but its opponent
+([networking](networking.md)). Windows 11 check, no client window: a local JA+
+Mod v2.4 Build 7 server (EternalJK x86 dedicated, loopback, `devmap mp/ffa3`,
+scratch home) with three windowless clients, two in a private duel. The server
+let a bystander walk through a dueller (closest approach 0.2–2.4 units) and a
+dueller walk through the bystander. For a client sending no plugin identity the
+dueller arrived with `solid 0` and bystanders were never sent to duellers, so
+prediction already matched. With the JA+ plugin identity (sent by #108) the
+dueller arrived as a solid box with `bolt1`: replaying the bystander's commands
+through the predictor with player boxes, the stock rule mispredicted 30–33 of
+about 88 intervals around the crossing at 8/7/4/3 ms steps, the duel rule none.
+Bystanders were not sent to duellers with "Duel see others" on or off, so no
+drawing change was needed on this server. jaPRO was not exercised live, and
+the harness models world collision and player boxes only. Not run in the
+client. Formatting, locked workspace build/tests passed.
+
 ## Implemented scope
 
 - PK3/loose-file content, BSP maps/collision, legacy models and shader scripts.

@@ -23,6 +23,15 @@ explicitly distinguish BaseJKA, JA+, TaystJK/jaPRO and unknown modules from
 serverinfo. Profile detection and implemented adapter behavior are not a promise
 that every feature of those servers is reproduced by JKR's dedicated server.
 
+JA+ and TaystJK/jaPRO isolate private duels: the two duellers and everyone else
+pass through each other. A JA+ 2.4 server leaves part of that to client-plugin
+users, sending them a dueller as a solid player box flagged with `bolt1`, so on
+those profiles prediction skips duelling players for a bystander and every player
+or NPC but the opponent for a dueller
+([duel_isolation.rs](../crates/jkr-client/src/duel_isolation.rs), applied where
+[prediction_movers.rs](../crates/jkr-viewer/src/prediction_movers.rs) builds the
+entity solids). Stock and unknown servers keep duellers solid.
+
 ## Parity requirements
 
 Movement includes integer-millisecond user-command quantization. Validate common
