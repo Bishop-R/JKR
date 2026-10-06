@@ -28,4 +28,13 @@ impl ActorInstance {
         self.entity_control = [1.0; 2];
         self
     }
+
+    /// Apply rd-vanilla's `RF_FORCE_ENT_ALPHA` vertex alpha (`ForceAlpha`,
+    /// `tr_shade.cpp:1546-1556`), keeping the entity's RGB and RGB generators.
+    /// The draw must also select the forced-alpha pipeline.
+    pub(super) fn with_forced_alpha(mut self, alpha: u8) -> Self {
+        self.entity_color[3] = f32::from(alpha) / 255.0;
+        self.entity_control[1] = 1.0;
+        self
+    }
 }
