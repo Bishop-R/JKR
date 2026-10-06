@@ -14,6 +14,7 @@ mod view;
 
 pub(crate) mod combat;
 
+use crate::game_font::{GameFonts, RetailFont};
 use crate::menu_widgets::MenuCanvas;
 use crate::text::{TextVertex, UiFont};
 use editor::Editor;
@@ -57,6 +58,9 @@ struct PlayerMenu {
 pub(crate) struct ChatOverlay {
     lines: VecDeque<ChatLine>,
     center: Option<(String, u64)>,
+    /// Text ids of this frame's centre-print rows, which retail drew with the
+    /// medium font rather than the chat box's small one.
+    center_text: (u32, u32),
     combat: combat::Combat,
     input: Option<Editor>,
     modifiers: winit::keyboard::ModifiersState,
@@ -89,6 +93,7 @@ impl ChatOverlay {
         Self {
             lines: VecDeque::with_capacity(HISTORY_LIMIT),
             center: None,
+            center_text: (0, 0),
             combat: combat::Combat::default(),
             input: None,
             modifiers: winit::keyboard::ModifiersState::empty(),
@@ -242,17 +247,40 @@ impl ChatOverlay {
         }
     }
 
+    /// Lay out and append chat text: the chat box in the small game font and
+    /// centre prints in the medium one when `ui_gameFont` has them loaded
+    /// (`CG_ChatBox_DrawStrings` paints with `FONT_SMALL`, `CG_DrawCenterString`
+    /// with `FONT_MEDIUM`), otherwise in `font`.
     pub(crate) fn append(
         &mut self,
         draw_feed: bool,
+        fonts: &mut GameFonts,
         vertices: &mut Vec<TextVertex>,
         font: &UiFont,
         viewport: [f32; 2],
         _scale: f32,
     ) {
         let ms = self.millis(Instant::now());
-        self.build(draw_feed, font, viewport, ms);
-        self.ui.append_text(vertices, font, viewport);
+        self.build(
+            draw_feed,
+            fonts.font(RetailFont::Small).unwrap_or(font),
+            viewport,
+            ms,
+        );
+        let (start, end) = self.center_text;
+        self.ui.append_text_routed(
+            fonts,
+            |id, _| {
+                Some(if (start..end).contains(&id.0) {
+                    RetailFont::Medium
+                } else {
+                    RetailFont::Small
+                })
+            },
+            vertices,
+            font,
+            viewport,
+        );
     }
 }
 

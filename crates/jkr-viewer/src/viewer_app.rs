@@ -80,6 +80,7 @@ impl ApplicationHandler for ViewerApplication {
                     client_menu: self.client_menu.take(),
                     game_data: self.game_data.clone(),
                     connect_timeline: self.connect_timeline.take(),
+                    game_fonts: false,
 
                     completed_map_changes: self.completed_map_changes,
                 },

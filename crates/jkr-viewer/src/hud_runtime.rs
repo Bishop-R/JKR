@@ -7,9 +7,9 @@ use bytemuck::{Pod, Zeroable};
 pub(crate) fn append(
     gpu: &mut GpuState,
     classic: bool,
-    visibility: hud::HudVisibility,
-    layout: hud::HudLayout,
-    scale: f32,
+    _visibility: hud::HudVisibility,
+    _layout: hud::HudLayout,
+    _scale: f32,
     viewport: [f32; 2],
 ) {
     gpu.hud
@@ -17,20 +17,16 @@ pub(crate) fn append(
         .append(&gpu.chat, &mut gpu.text_vertices, &gpu.ui_font, viewport);
     if classic && let Some(font) = &gpu.classic_hud_font {
         gpu.hud.append(
-            visibility,
+            &mut gpu.game_fonts,
             &mut gpu.classic_text_vertices,
             font,
-            layout,
-            scale,
             viewport,
         );
     } else {
         gpu.hud.append(
-            visibility,
+            &mut gpu.game_fonts,
             &mut gpu.text_vertices,
             &gpu.ui_font,
-            layout,
-            scale,
             viewport,
         );
     }

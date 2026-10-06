@@ -394,6 +394,20 @@ pub(crate) fn append_text_commands<'a>(
     font: &UiFont,
     viewport: [f32; 2],
 ) {
+    append_text_commands_where(draw_list, resolve, |_, _| true, vertices, font, viewport);
+}
+
+/// Append the text commands `keep` accepts (given each command's id and text),
+/// so one draw list can be split between fonts. Opacity and clip scopes apply
+/// to every pass alike.
+pub(crate) fn append_text_commands_where<'a>(
+    draw_list: &DrawList,
+    resolve: impl Fn(TextId) -> &'a str,
+    keep: impl Fn(TextId, &str) -> bool,
+    vertices: &mut Vec<TextVertex>,
+    font: &UiFont,
+    viewport: [f32; 2],
+) {
     let mut opacity = [1.0_f32; 8];
     let mut opacity_depth = 0_usize;
     let mut clips = [Rect::new(0.0, 0.0, viewport[0], viewport[1]); 8];
@@ -426,6 +440,9 @@ pub(crate) fn append_text_commands<'a>(
             continue;
         };
         let value = resolve(*id);
+        if !keep(*id, value) {
+            continue;
+        }
         let scale = *size / font.height.max(1.0);
         let face = match weight {
             FontWeight::Regular => text::TextFace::Regular,

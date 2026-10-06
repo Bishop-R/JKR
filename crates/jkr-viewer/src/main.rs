@@ -68,6 +68,7 @@ mod frame_queue;
 mod frame_split;
 
 mod frame_target;
+mod game_font;
 mod game_menu_actions;
 mod gpu_context;
 mod gpu_phases;
@@ -240,6 +241,8 @@ struct GpuState {
     hud_pipeline: wgpu::RenderPipeline,
     ui_shapes: ShapeRenderer,
     text_pipeline: wgpu::RenderPipeline,
+    /// Text pipeline for the retail fonts' distance-field atlases.
+    sdf_text_pipeline: wgpu::RenderPipeline,
     saber_gpu: saber_gpu::Runtime,
     geometry: SharedGeometry,
     entity_instance_buffer: wgpu::Buffer,
@@ -302,8 +305,11 @@ struct GpuState {
     text_layout: wgpu::BindGroupLayout,
     text_sampler: wgpu::Sampler,
     classic_text_bind_group: Option<wgpu::BindGroup>,
+    /// The classic HUD atlas is a distance field (see `text::sdf::for_atlas`).
+    classic_text_sdf: bool,
     ui_font: UiFont,
     classic_hud_font: Option<UiFont>,
+    game_fonts: game_font::GameFonts,
     text_vertices: Vec<TextVertex>,
     classic_text_vertices: Vec<TextVertex>,
     hud: hud::HudOverlay,
@@ -448,6 +454,7 @@ impl GpuState {
             mut client_menu,
             game_data,
             mut connect_timeline,
+            game_fonts: preload_game_fonts,
             completed_map_changes,
         } = input;
         let mut load_profile = load_profile::LoadProfile::start(cancelled);
@@ -725,16 +732,18 @@ impl GpuState {
             ],
         });
         let classic_atlas = text::load_classic(&vfs).ok();
+        let classic_text_sdf = classic_atlas
+            .as_ref()
+            .is_some_and(|atlas| atlas.distance_field);
         let (classic_hud_font, classic_text_bind_group) =
             classic_atlas.map_or((None, None), |atlas| {
-                let view = create_rgba8_texture(
+                let view = gpu_texture::create_rgba8_texture_mipmapped(
                     &device,
                     &queue,
                     "JKR classic HUD font atlas",
-                    atlas.image.width(),
-                    atlas.image.height(),
-                    atlas.image.as_raw(),
+                    &atlas.image,
                     true,
+                    game_font::mip_levels(atlas.image.width(), atlas.image.height()),
                 );
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("JKR classic HUD text bind group"),
@@ -752,6 +761,16 @@ impl GpuState {
                 });
                 (Some(atlas.font), Some(bind_group))
             });
+        let game_fonts = game_font::GameFonts::preload(
+            preload_game_fonts || game_font::enabled(console.as_ref()),
+            &vfs,
+            &game_font::Device {
+                device: &device,
+                queue: &queue,
+                layout: &text_layout,
+                sampler: &text_sampler,
+            },
+        );
         let (mut world_materials, resolved_world_stages) =
             world_materials::create_filtered_runtime(
                 &device,
@@ -871,37 +890,44 @@ impl GpuState {
             bind_group_layouts: &[Some(&text_layout)],
             immediate_size: 0,
         });
-        let text_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("JKR text pipeline"),
-            layout: Some(&text_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &text_shader,
-                entry_point: Some("vertex_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Some(TextVertex::layout())],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &text_shader,
-                entry_point: Some("fragment_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DepthTarget::FORMAT,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        // Inter's coverage atlas and the retail fonts' distance fields share one
+        // layout and vertex format; only the fragment entry differs.
+        let create_text_pipeline = |label, fragment_entry| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&text_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &text_shader,
+                    entry_point: Some("vertex_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[Some(TextVertex::layout())],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &text_shader,
+                    entry_point: Some(fragment_entry),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DepthTarget::FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let text_pipeline = create_text_pipeline("JKR text pipeline", "fragment_main");
+        let sdf_text_pipeline =
+            create_text_pipeline("JKR distance-field text pipeline", "fragment_sdf");
         let text_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("JKR dynamic text vertices"),
             size: (MAX_TEXT_VERTICES * std::mem::size_of::<TextVertex>()) as u64,
@@ -982,6 +1008,7 @@ impl GpuState {
             hud_pipeline,
             ui_shapes,
             text_pipeline,
+            sdf_text_pipeline,
             saber_gpu,
             geometry,
             entity_instance_buffer,
@@ -1043,8 +1070,10 @@ impl GpuState {
             text_layout,
             text_sampler,
             classic_text_bind_group,
+            classic_text_sdf,
             ui_font,
             classic_hud_font,
+            game_fonts,
             text_vertices: Vec::with_capacity(MAX_TEXT_VERTICES),
             classic_text_vertices: Vec::with_capacity(4_096),
             hud,
@@ -1373,6 +1402,7 @@ impl GpuState {
         let console_covers_frame = self.console_covers_frame();
         self.text_vertices.clear();
         self.classic_text_vertices.clear();
+        game_font::prepare(self);
         let information_visible = (self.live_session.is_some() || self.demo_session.is_some())
             && self
                 .console
@@ -1418,17 +1448,21 @@ impl GpuState {
             .is_some_and(|selected| selected.elapsed() < Duration::from_secs(2))
             && !self.weapon_selection_label.is_empty()
         {
-            let width = visible_text_width(
-                &self.ui_font,
-                &self.weapon_selection_label,
-                text_scale * 1.1,
-            );
-            append_text(
+            // CG_DrawWeaponSelect names the weapon with UI_SMALLFONT (FONT_SMALL).
+            let size = self.ui_font.height * text_scale * 1.1;
+            let (vertices, font) = self.game_fonts.target(
+                game_font::RetailFont::Small,
                 &mut self.text_vertices,
                 &self.ui_font,
+            );
+            let scale = game_font::scale_for(font, size);
+            let width = visible_text_width(font, &self.weapon_selection_label, scale);
+            append_text(
+                vertices,
+                font,
                 &self.weapon_selection_label,
                 [(viewport[0] - width) * 0.5, viewport[1] * 0.78],
-                text_scale * 1.1,
+                scale,
                 viewport,
             );
         }
@@ -1436,30 +1470,28 @@ impl GpuState {
             let team_sizes = self.live_session.as_ref().map_or([0, 0], |session| {
                 ingame_menu::team_sizes(session.game_state())
             });
-            self.in_game_menu.append(
-                ingame_menu::View {
-                    page: self.game_menu_page,
-                    selected_row: self.game_menu_row,
-                    team: self
-                        .live_session
-                        .as_ref()
-                        .map_or(3, |session| session.latest_snapshot().player.team()),
-                    team_game: self.is_team_game(),
-                    red_players: team_sizes[0],
-                    blue_players: team_sizes[1],
-                    vote_active: self.vote_active(),
-                    _frame: std::marker::PhantomData,
-                },
-                &mut self.text_vertices,
-                &self.ui_font,
-                viewport,
-            );
+            let view = ingame_menu::View {
+                page: self.game_menu_page,
+                selected_row: self.game_menu_row,
+                team: self
+                    .live_session
+                    .as_ref()
+                    .map_or(3, |session| session.latest_snapshot().player.team()),
+                team_game: self.is_team_game(),
+                red_players: team_sizes[0],
+                blue_players: team_sizes[1],
+                vote_active: self.vote_active(),
+                _frame: std::marker::PhantomData,
+            };
+            let (vertices, font) = self.game_fonts.menu(&mut self.text_vertices, &self.ui_font);
+            self.in_game_menu.append(view, vertices, font, viewport);
         }
         if scoreboard_visible {
             scoreboard::append_overlay(self, viewport, text_scale * 1.05);
         }
         if let Some(menu) = self.client_menu.as_mut().filter(|_| !console_covers_frame) {
-            menu.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
+            let (vertices, font) = self.game_fonts.menu(&mut self.text_vertices, &self.ui_font);
+            menu.append_overlay(vertices, font, viewport, text_scale);
         }
         self.append_console_overlay(viewport, text_scale);
         let layers = [
@@ -1484,6 +1516,7 @@ impl GpuState {
                 bytemuck::cast_slice(&self.text_vertices),
             );
         }
+        self.game_fonts.upload(&self.queue);
         let classic_text_vertex_count =
             u32::try_from(self.classic_text_vertices.len()).unwrap_or(0);
         if !self.classic_text_vertices.is_empty() {

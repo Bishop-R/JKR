@@ -15,16 +15,30 @@ impl GpuState {
             self.text_vertices.clear();
             self.classic_text_vertices.clear();
         }
-        if let Some(console) = &mut self.console {
-            console.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
-        }
-        if !covers_frame && hud::family::fps(self.console.as_ref()) {
-            append_text(
+        // The console and its notify lines draw with the retail console character
+        // set when `ui_gameFont` has it; the full-frame browser keeps Inter.
+        let (vertices, font) = if covers_frame {
+            (&mut self.text_vertices, &self.ui_font)
+        } else {
+            self.game_fonts.target(
+                game_font::RetailFont::Console,
                 &mut self.text_vertices,
                 &self.ui_font,
+            )
+        };
+        if let Some(console) = &mut self.console {
+            console.append_overlay(vertices, font, viewport, text_scale);
+        }
+        if !covers_frame && hud::family::fps(self.console.as_ref()) {
+            // CG_DrawFPS draws console characters (CG_DrawBigString).
+            let size = self.ui_font.height * text_scale * 0.8;
+            let scale = game_font::scale_for(font, size);
+            append_text(
+                vertices,
+                font,
                 self.frame_pacer.label(),
                 [(viewport[0] - 780.0).max(8.0), 18.0],
-                text_scale * 0.8,
+                scale,
                 viewport,
             );
         }

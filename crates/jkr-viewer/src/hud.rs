@@ -19,6 +19,7 @@ mod vote;
 mod widgets;
 
 use super::{Localization, TextVertex, UiFont};
+use crate::game_font::RetailFont;
 use crate::{console::ViewerConsole, ui_renderer};
 use jkr_client::pmove::MovementState;
 use jkr_client::{
@@ -423,20 +424,21 @@ impl HudOverlay {
         self.displayed_ratios
     }
 
+    /// Append HUD text: what retail drew with a game font goes to that font when
+    /// `ui_gameFont` has it loaded ([`text_values::retail_font`]), the rest to
+    /// `vertices` with `font`.
     pub(crate) fn append(
         &self,
-        _visibility: HudVisibility,
+        fonts: &mut crate::game_font::GameFonts,
         vertices: &mut Vec<TextVertex>,
         font: &UiFont,
-        _layout: HudLayout,
-        _scale: f32,
         viewport: [f32; 2],
     ) {
-        ui_renderer::append_text_commands(
+        fonts.append_routed(
             &self.draw_list,
             |id| self.resolve_text(id),
-            vertices,
-            font,
+            |id, _| text_values::retail_font(id),
+            (vertices, font),
             viewport,
         );
     }

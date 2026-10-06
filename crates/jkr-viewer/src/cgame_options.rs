@@ -159,6 +159,7 @@ impl crate::GpuState {
             .unwrap_or(true);
         self.chat.append(
             visible,
+            &mut self.game_fonts,
             &mut self.text_vertices,
             &self.ui_font,
             viewport,

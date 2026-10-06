@@ -232,6 +232,11 @@ pub(super) const HUD: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
+        label: "Classic game fonts",
+        cvar: crate::game_font::CVAR,
+        kind: ValueKind::Bool,
+    },
+    Setting {
         label: "Ground HUD (third person)",
         cvar: crate::ground_hud::CVAR,
         kind: ValueKind::Bool,

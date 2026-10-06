@@ -378,6 +378,7 @@ impl GpuState {
             client_menu: None,
             game_data: self.game_data.clone(),
             connect_timeline: self.connect_timeline.clone(),
+            game_fonts: crate::game_font::enabled(self.console.as_ref()),
 
             completed_map_changes: self.completed_map_changes,
         };

@@ -42,3 +42,37 @@ impl HudOverlay {
         }
     }
 }
+
+/// The retail font the cgame drew a HUD text with, for `ui_gameFont`; `None`
+/// keeps the HUD's own font (Inter, or `arialnb` with `cg_classicHudFont`).
+///
+/// OpenJK `codemp` `cg_draw.c`: `CG_DrawCrosshairNames`, `CG_DrawWarmup`,
+/// `CG_DrawTimer` and `CG_DrawEnemyInfo` paint with `FONT_MEDIUM`; the Force and
+/// inventory selection names use `UI_SMALLFONT` (`FONT_SMALL`); vote, team
+/// overlay, snapshot and `CG_DrawDisconnect` draw console characters
+/// (`CG_DrawSmallString`, `CG_DrawStringExt`, `CG_DrawBigString`), and
+/// obituaries are console prints (`CG_Obituary`).
+pub(super) fn retail_font(id: TextId) -> Option<RetailFont> {
+    match id.0 {
+        310..=312 | 318 | 319 => Some(RetailFont::Medium),
+        1000..=1017 | 1100..=1111 => Some(RetailFont::Small),
+        101..=138 | 200..=204 | 300..=307 | 313 | 316 => Some(RetailFont::Console),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod retail_font_tests {
+    use super::*;
+
+    #[test]
+    fn crosshair_name_uses_the_medium_font_and_status_values_their_own() {
+        assert_eq!(retail_font(TextId(310)), Some(RetailFont::Medium));
+        assert_eq!(retail_font(TextId(1003)), Some(RetailFont::Small));
+        assert_eq!(retail_font(TextId(302)), Some(RetailFont::Console));
+        // Health, ammo and the selector headings stay on the HUD font.
+        for id in [0, 6, 14, 100, 1200, 1201] {
+            assert_eq!(retail_font(TextId(id)), None);
+        }
+    }
+}

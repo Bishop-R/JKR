@@ -264,6 +264,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Use the retail bitmap font for the in-game status HUD only",
         ),
         CvarDefinition::new(
+            crate::game_font::CVAR,
+            false,
+            archive,
+            "Draw text with the game's own fonts where retail did (menus, chat, HUD text, scoreboard, console), else Inter",
+        ),
+        CvarDefinition::new(
             crate::ground_hud::CVAR,
             false,
             archive,
