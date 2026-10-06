@@ -590,7 +590,12 @@ fn fire_repeater(
         let up = f32::from_bits(missile.state.raw_field(ES_POS_DELTA[2]).unwrap_or(0)) + 40.0;
         missile.state.set_raw_field(ES_POS_DELTA[2], up.to_bits());
         missile.damage = REPEATER_ALT_DAMAGE;
-        missile.damage_flags = DAMAGE_DEATH_KNOCKBACK & 0;
+        #[expect(
+            clippy::erasing_op,
+            reason = "masked to nothing, see DAMAGE_DEATH_KNOCKBACK"
+        )]
+        let damage_flags = DAMAGE_DEATH_KNOCKBACK & 0;
+        missile.damage_flags = damage_flags;
         missile.method_of_death = MOD_REPEATER_ALT;
         missile.splash_method_of_death = MOD_REPEATER_ALT_SPLASH;
         missile.splash_damage = REPEATER_ALT_SPLASH_DAMAGE;
@@ -611,7 +616,12 @@ fn fire_repeater(
     );
     missile.state.set_raw_field(ES_WEAPON, WP_REPEATER);
     missile.damage = REPEATER_DAMAGE;
-    missile.damage_flags = DAMAGE_DEATH_KNOCKBACK & 0;
+    #[expect(
+        clippy::erasing_op,
+        reason = "masked to nothing, see DAMAGE_DEATH_KNOCKBACK"
+    )]
+    let damage_flags = DAMAGE_DEATH_KNOCKBACK & 0;
+    missile.damage_flags = damage_flags;
     missile.method_of_death = MOD_REPEATER;
     missile.bounce_count = 8;
     missile
@@ -652,7 +662,12 @@ fn fire_demp2(
     missile.state.set_raw_field(ES_WEAPON, WP_DEMP2);
     missile.bounds = ([-DEMP2_SIZE; 3], [DEMP2_SIZE; 3]);
     missile.damage = DEMP2_DAMAGE;
-    missile.damage_flags = DAMAGE_DEATH_KNOCKBACK & 0;
+    #[expect(
+        clippy::erasing_op,
+        reason = "masked to nothing, see DAMAGE_DEATH_KNOCKBACK"
+    )]
+    let damage_flags = DAMAGE_DEATH_KNOCKBACK & 0;
+    missile.damage_flags = damage_flags;
     missile.method_of_death = MOD_DEMP2;
     missile.clip_mask = MASK_SHOT;
     missile.bounce_count = 0;

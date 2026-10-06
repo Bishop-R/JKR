@@ -45,6 +45,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             cmake pkg-config libasound2-dev libwayland-dev libxkbcommon-dev
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --workspace
       - run: cargo test --locked --workspace
+      - run: cargo clippy --locked --workspace --all-targets
