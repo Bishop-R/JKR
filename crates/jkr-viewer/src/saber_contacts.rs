@@ -127,14 +127,15 @@ impl Runtime {
                     slots,
                 );
             }
-            let spark = state.seen == 0
-                || state.seen.wrapping_add(1) != self.frame
-                || time - state.spark >= 40;
+            let touching = state.seen != 0 && state.seen.wrapping_add(1) == self.frame;
+            let spark = !touching || time - state.spark >= 40;
             if spark {
                 state.spark = time;
             }
             // Independent of frame rate and spark cadence; never replay paused frames.
-            let sound = markable && sound_due(state.sound, time);
+            // Stock sounds only once the blade was already in the wall the frame
+            // before (`trail.haveOldPos`), never on the first touch.
+            let sound = markable && sound_due(touching, state.sound, time);
             if sound {
                 state.sound = Some(time);
             }
@@ -187,13 +188,13 @@ pub(crate) fn frame(
         slots,
         |point, normal, color, no_light, spark, sound, seed| {
             if sound {
-                if let (Some(audio), Some(vfs)) = (audio.as_mut(), gpu.vfs.as_ref()) {
-                    audio.play(
-                        vfs,
+                if let Some(audio) = audio.as_mut() {
+                    audio.play_on_channel(
                         SOUNDS[(seed ^ time as u32) as usize % SOUNDS.len()],
                         1.,
                         point.to_array(),
-                        jkr_audio::SourceId(0x6000_0000 + seed),
+                        WALL_SOUND_SOURCE,
+                        WALL_SOUND_CHANNEL,
                     );
                 }
             }
@@ -225,9 +226,37 @@ pub(crate) const SOUNDS: [&str; 3] = [
     "sound/weapons/saber/saberhitwall2",
     "sound/weapons/saber/saberhitwall3",
 ];
-fn sound_due(previous: Option<i64>, time: i64) -> bool {
-    previous.is_none_or(|last| time.saturating_sub(last) >= 100)
+/// Stock starts every wall hit on entity `-1`, `CHAN_WEAPON`
+/// (`S_StartSound(trace.endpos, -1, CHAN_WEAPON, ...)`). The software mixer's
+/// `S_PickChannel` then always replaces the previous sound of that entity and
+/// channel, so all blades share one wall-hit voice and each new hit cuts the
+/// last one off instead of stacking another copy every 100 ms.
+const WALL_SOUND_SOURCE: jkr_audio::SourceId = jkr_audio::SourceId(0x6000_0000);
+/// `CHAN_WEAPON`.
+const WALL_SOUND_CHANNEL: jkr_audio::ChannelId = jkr_audio::ChannelId(2);
+
+/// A wall hit sounds once the blade stayed in the wall since the previous
+/// frame, at most every 100 ms per blade (`hitWallDebounceTime`).
+fn sound_due(touching: bool, previous: Option<i64>, time: i64) -> bool {
+    touching && previous.is_none_or(|last| time.saturating_sub(last) >= 100)
 }
 #[path = "saber_contact_sparks.rs"]
 mod sparks;
 use sparks::spawn_sparks;
+
+#[cfg(test)]
+mod tests {
+    use super::sound_due;
+
+    #[test]
+    fn first_touch_is_silent() {
+        assert!(!sound_due(false, None, 1_000));
+        assert!(sound_due(true, None, 1_008));
+    }
+
+    #[test]
+    fn sustained_contact_sounds_every_100_ms() {
+        assert!(!sound_due(true, Some(1_000), 1_099));
+        assert!(sound_due(true, Some(1_000), 1_100));
+    }
+}

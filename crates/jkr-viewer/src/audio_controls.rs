@@ -121,6 +121,19 @@ impl GameAudio {
         origin: [f32; 3],
         source: SourceId,
     ) {
+        self.play_on_channel(path, volume, origin, source, ChannelId(0));
+    }
+
+    /// Positional playback on a legacy channel. A non-zero channel replaces
+    /// the sound `source` is still playing on it, like `S_PickChannel`.
+    pub(crate) fn play_on_channel(
+        &mut self,
+        path: &str,
+        volume: f32,
+        origin: [f32; 3],
+        source: SourceId,
+        channel: ChannelId,
+    ) {
         let Some(handle) = self.find_handle(path) else {
             return;
         };
@@ -129,9 +142,9 @@ impl GameAudio {
             PlayRequest {
                 origin: Some(origin),
                 source,
-                channel: ChannelId(0),
+                channel,
                 volume,
-                attenuation: jkr_client::legacy_sound_attenuation(0),
+                attenuation: jkr_client::legacy_sound_attenuation(channel.0),
             },
         ));
     }

@@ -1,9 +1,8 @@
 //! Fixed-capacity stock saber motion trails.
 
-use crate::saber::{Blade, Extension};
+use crate::saber::Extension;
 use crate::saber_rgb::BladeColor;
 use bytemuck::{Pod, Zeroable};
-use glam::Vec3;
 
 const MAX_ENTITIES: usize = 1_024;
 const SABERS_PER_ENTITY: usize = 2;
@@ -12,6 +11,10 @@ pub(crate) const MAX_SEGMENTS: usize = 4_096;
 
 #[path = "thrown_saber_tilt.rs"]
 pub(crate) mod tilt;
+
+#[path = "saber_trail_edge.rs"]
+mod edge;
+pub(crate) use edge::{Edge, Edges};
 
 /// One stock trail vertex in the order passed to `FX_AddPrimitive`.
 #[repr(C)]
@@ -58,11 +61,12 @@ pub(crate) struct Trail {
 impl Trail {
     /// Add a slice and then retain the current endpoints exactly like
     /// `CG_AddSaberBlade` (`codemp/cgame/cg_players.c:6297-6319,6400-6470,
-    /// 6504-6507`). `cg_saberTrail 2` deliberately follows mode 1 because
-    /// the disabled stencil experiment is outside this renderer.
+    /// 6504-6507`). `edge` is this frame's muzzle and wall-clipped tip
+    /// ([`Edges::edge`]). `cg_saberTrail 2` deliberately follows mode 1
+    /// because the disabled stencil experiment is outside this renderer.
     pub(crate) fn update(
         &mut self,
-        blade: Blade,
+        edge: Edge,
         now: i64,
         authored_duration: u16,
         style: u8,
@@ -72,10 +76,7 @@ impl Trail {
         if style > 1 || now <= self.last_time + 2 {
             return None;
         }
-        let direction = Vec3::from_array(blade.direction);
-        let base = blade.base;
-        // `end` already receives +1 at cg_players.c:6110; line 6403 adds 3.
-        let tip = (Vec3::from_array(base) + direction * (blade.length + 4.0)).to_array();
+        let Edge { base, tip } = edge;
         let diff = now.saturating_sub(self.last_time);
         let quad = (enabled && self.initialized && now < self.last_time + 2_000)
             .then(|| {
@@ -228,17 +229,22 @@ impl SegmentPool {
                 vertex.color[3] = fade;
                 vertex
             });
-            output.extend([
-                vertices[0],
-                vertices[1],
-                vertices[2],
-                vertices[0],
-                vertices[2],
-                vertices[3],
-            ]);
+            output.extend(triangles(vertices));
         }
         (output.len() - start) / 6
     }
+}
+
+/// `CTrail::Draw` (`codemp/client/FxPrimitives.cpp`) splits the slice along
+/// new tip to old muzzle: (new muzzle, new tip, old muzzle) and (old muzzle,
+/// old tip, new tip). The texture coordinates are interpolated per triangle,
+/// so the other diagonal smears the fade differently across a slice whose
+/// tip moves much further than its muzzle, which is every swing.
+fn triangles(vertices: [Vertex; 4]) -> [Vertex; 6] {
+    let [new_muzzle, new_tip, old_tip, old_muzzle] = vertices;
+    [
+        new_muzzle, new_tip, old_muzzle, old_muzzle, old_tip, new_tip,
+    ]
 }
 
 pub(crate) fn trail_duration(authored_duration: u16) -> u16 {
@@ -286,4 +292,106 @@ fn build_quad(
             lifetime_millis
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::saber::Color;
+
+    fn edge(x: f32) -> Edge {
+        Edge {
+            base: [x, 0.0, 0.0],
+            tip: [x, 0.0, 44.0],
+        }
+    }
+
+    fn color() -> BladeColor {
+        BladeColor::Retail(Color::Yellow)
+    }
+
+    #[test]
+    fn slice_spans_the_frame_in_texture_space() {
+        let mut trail = Trail::default();
+        assert!(
+            trail
+                .update(edge(0.0), 1_000, 200, 0, color(), true)
+                .is_none()
+        );
+        // Within 2 ms nothing moves, as in stock.
+        assert!(
+            trail
+                .update(edge(1.0), 1_002, 200, 0, color(), true)
+                .is_none()
+        );
+        let quad = trail
+            .update(edge(2.0), 1_008, 200, 0, color(), true)
+            .expect("a fresh slice");
+        assert_eq!(quad.lifetime_millis, 40);
+        let [new_muzzle, new_tip, old_tip, old_muzzle] = quad.vertices;
+        assert_eq!(new_muzzle.position, [2.0, 0.0, 0.0]);
+        assert_eq!(new_tip.position, [2.0, 0.0, 44.0]);
+        assert_eq!(old_tip.position, [0.0, 0.0, 44.0]);
+        assert_eq!(old_muzzle.position, [0.0, 0.0, 0.0]);
+        // ST[0] of the old edge is diff / trailDur = 8 / 40.
+        assert!((old_tip.uv[0] - 0.2).abs() < 1e-6);
+        assert_eq!(new_muzzle.uv, [0.0, 1.0]);
+        assert_eq!(new_tip.uv, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn idle_moves_keep_the_edge_without_drawing() {
+        let mut trail = Trail::default();
+        assert!(
+            trail
+                .update(edge(0.0), 1_000, 0, 0, color(), false)
+                .is_none()
+        );
+        assert!(
+            trail
+                .update(edge(1.0), 1_010, 0, 0, color(), false)
+                .is_none()
+        );
+        let quad = trail
+            .update(edge(2.0), 1_020, 150, 0, color(), true)
+            .expect("the first attack frame bridges from the remembered edge");
+        assert_eq!(quad.vertices[3].position, [1.0, 0.0, 0.0]);
+        assert_eq!(quad.lifetime_millis, 30);
+    }
+
+    #[test]
+    fn slices_split_along_new_tip_to_old_muzzle() {
+        let mut trail = Trail::default();
+        trail.update(edge(0.0), 1_000, 200, 0, color(), true);
+        let quad = trail
+            .update(edge(2.0), 1_008, 200, 0, color(), true)
+            .expect("a fresh slice");
+        let mut pool = SegmentPool::default();
+        assert!(pool.insert(quad, 1_008));
+        let mut output = Vec::new();
+        assert_eq!(pool.append_vertices(1_008, &mut output), 1);
+        let positions: Vec<_> = output.iter().map(|vertex| vertex.position).collect();
+        let [new_muzzle, new_tip, old_tip, old_muzzle] = quad.vertices.map(|v| v.position);
+        assert_eq!(
+            positions,
+            [
+                new_muzzle, new_tip, old_muzzle, old_muzzle, old_tip, new_tip
+            ]
+        );
+    }
+
+    #[test]
+    fn slices_expire_after_their_lifetime() {
+        let mut trail = Trail::default();
+        trail.update(edge(0.0), 1_000, 200, 0, color(), true);
+        let quad = trail
+            .update(edge(2.0), 1_008, 200, 0, color(), true)
+            .expect("a fresh slice");
+        let mut pool = SegmentPool::default();
+        pool.insert(quad, 1_008);
+        let mut output = Vec::new();
+        assert_eq!(pool.append_vertices(1_047, &mut output), 1);
+        output.clear();
+        assert_eq!(pool.append_vertices(1_048, &mut output), 0);
+    }
 }

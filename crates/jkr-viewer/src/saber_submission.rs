@@ -4,14 +4,15 @@ use crate::actor_instance::ActorInstance;
 use crate::saber::{self, Instance};
 use crate::saber_hilts::HiltCatalog;
 use crate::saber_rgb::BladeColor;
-use crate::saber_trail::{SegmentPool, StateSlab};
+use crate::saber_trail::{Edges, SegmentPool, StateSlab};
 use glam::{Quat, Vec3};
 use jkr_runtime::{HeldEquipment, HeldItemKind};
 
 #[path = "saber_lights.rs"]
 pub(crate) mod lights;
 
-/// Submit both hilts and every numbered blade for one actor.
+/// Submit both hilts and every numbered blade for one actor. `trails` is
+/// `None` with `cg_saberTrail 0`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn submit(
     entity_id: u64,
@@ -25,7 +26,7 @@ pub(crate) fn submit(
     object_groups: &mut [Vec<ActorInstance>],
     saber_instances: &mut Vec<Instance>,
     presentation_time: i64,
-    trails_enabled: bool,
+    mut trails: Option<&mut Edges<'_>>,
     lights: &mut crate::dynamic_lights::PointLightList,
 ) -> bool {
     if equipment.kind != HeldItemKind::EnergyBlade {
@@ -43,12 +44,9 @@ pub(crate) fn submit(
     }
     for (saber_index, hand) in hands.into_iter().enumerate() {
         if saber_index == 0 && equipment.primary_in_flight {
-            // Returning to the hand must not bridge a trail across the flight.
-            for blade in 0..8 {
-                if let Some(state) = states.blade_mut(entity_id, 0, blade) {
-                    state.trail = Default::default();
-                }
-            }
+            // The flying hilt carries this saber's blades and trail state
+            // (`thrown_saber.rs`), as `CG_AddSaberBlade` shares
+            // `client->saber[0].blade[n].trail` between hand and flight.
             continue;
         }
         let Some((name, attachment)) = hand else {
@@ -105,9 +103,9 @@ pub(crate) fn submit(
                 }),
             );
             light_blades[blade_index] = Some(blade);
-            if trails_enabled
+            if let Some(edges) = trails.as_deref_mut()
                 && let Some(quad) = state.trail.update(
-                    blade,
+                    edges.edge(blade),
                     presentation_time,
                     equipment.trail_duration_millis,
                     hilt_blade.trail_style,
