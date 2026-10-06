@@ -137,6 +137,22 @@ and arrow adjustment outside editing retain their existing behavior.
 Values they write are rounded to the step's decimals, so a 0.05-step slider
 stores 0.35 rather than 0.35000000000000003.
 
+## Key bindings
+
+Settings > Key bindings binds two keys per action: click a slot (or select it
+and press Enter), then press a key or mouse button. A key already bound
+elsewhere moves to the new action. Escape, or a click with the left or right
+mouse button, cancels a pending capture without binding anything; the click is
+consumed, so it activates nothing under the pointer. Retail
+(`Item_Bind_HandleKey`) bound any key pressed while waiting, so a stray click
+could take `+attack` off `MOUSE1`.
+
+`MOUSE1`, `MOUSE2` and `ESCAPE` are locked in the editor: they cannot be
+captured, a slot holding one cannot be rebound or cleared there, and locked
+keys are drawn muted. Reset defaults restores them. The console's `bind` and
+`unbind` commands are unrestricted. See
+[keybind_editor.rs](../crates/jkr-viewer/src/keybind_editor.rs).
+
 ## Development maps
 
 Run `devmap mp/ffa3` in the client console to start and join an owned local
