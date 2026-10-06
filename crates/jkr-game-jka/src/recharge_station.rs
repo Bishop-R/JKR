@@ -261,7 +261,7 @@ impl Station {
     }
 
     fn refill_ammo(&mut self, state: &mut PlayerState, siege: bool) -> bool {
-        let doubled = state.entity_flags() & (1 << 20) != 0;
+        let doubled = state.entity_flags() & crate::siege_class::EF_DOUBLE_AMMO != 0;
         let mut stop = true;
         // Stock retains gaveSome across ammo kinds, including kinds already full.
         let mut gave_some = false;

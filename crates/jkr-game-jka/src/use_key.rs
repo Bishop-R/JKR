@@ -69,7 +69,7 @@ const USABLE_START_OFF: u32 = 1;
 pub const USABLE_ALWAYS_ON: u32 = 8;
 /// `SVF_NOCLIENT` and `EF_NODRAW`, which a hidden one wears.
 const SVF_NOCLIENT: u32 = 0x0001;
-const EF_NODRAW: u32 = 1 << 7;
+const EF_NODRAW: u32 = 1 << 8;
 /// `CONTENTS_SOLID`.
 const CONTENTS_SOLID: u32 = 1;
 

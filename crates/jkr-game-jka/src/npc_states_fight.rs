@@ -19,7 +19,7 @@ use jkr_protocol::UserCommand;
 /// `ps.weaponTime`.
 pub(crate) const PS_WEAPON_TIME: usize = 10;
 /// `SCF_DONT_FIRE`, `SCF_FIRE_WEAPON`.
-const SCF_DONT_FIRE: u32 = 0x100;
+const SCF_DONT_FIRE: u32 = 0x4000;
 const SCF_FIRE_WEAPON: u32 = 0x4_0000;
 /// `FL_NOTARGET`.
 const FL_NOTARGET: u32 = 0x20;

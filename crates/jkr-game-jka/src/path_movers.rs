@@ -64,8 +64,8 @@ pub const TR_SINE: u32 = 5;
 pub const ET_MOVER: u32 = 6;
 /// `EF_SHADER_ANIM` and `EF_RADAROBJECT`, `EF2_HYPERSPACE`.
 pub const EF_SHADER_ANIM: u32 = 1 << 4;
-pub const EF_RADAROBJECT: u32 = 1 << 26;
-pub const EF2_HYPERSPACE: u32 = 1 << 3;
+pub const EF_RADAROBJECT: u32 = 1 << 2;
+pub const EF2_HYPERSPACE: u32 = 1 << 5;
 /// `BMS_START`, `BMS_MID`, `BMS_END`: a mover's soundset sounds.
 pub const BMS_START: u32 = 0;
 pub const BMS_MID: u32 = 1;

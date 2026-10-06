@@ -67,7 +67,7 @@ const AMMO_POWERCELL: i32 = 3;
 const AMMO_METAL_BOLTS: i32 = 4;
 const WP_BOWCASTER: i32 = 7;
 const WP_ROCKET_LAUNCHER: i32 = 11;
-const WP_BRYAR_PISTOL: i32 = 16;
+const WP_BRYAR_PISTOL: i32 = 4;
 
 /// The classes' precaches (`NPC_AI_*.c`), each as its function registers.
 const SHADOWTROOPER: &[Registration] = &[

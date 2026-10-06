@@ -30,7 +30,7 @@ const FP_LIGHTNING: usize = 7;
 const FP_DRAIN: usize = 13;
 const FP_SABER_DEFENSE: usize = 16;
 /// `CLASS_BOBAFETT`; `EF2_FLYING`; `MOD_ROCKET_HOMING`.
-const CLASS_BOBAFETT: i32 = 5;
+const CLASS_BOBAFETT: i32 = 52;
 const EF2_FLYING: u32 = 1 << 4;
 const MOD_ROCKET_HOMING: u32 = 21;
 /// `ENTITYNUM_NONE`.

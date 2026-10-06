@@ -93,7 +93,7 @@ const PS_LEGS_TIMER: usize = 21;
 const PS_WEAPON_STATE: usize = 33;
 const PS_WEAPON: usize = 47;
 /// `EF_DEAD`.
-const EF_DEAD: u32 = 1;
+const EF_DEAD: u32 = 1 << 1;
 const ES_ANGLES_YAW: usize = 9;
 /// `CONTENTS_BODY`, `CONTENTS_BOTCLIP`.
 const CONTENTS_BODY: u32 = 0x100;

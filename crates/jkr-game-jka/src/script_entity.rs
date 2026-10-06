@@ -92,7 +92,7 @@ pub const SVF_USE_CURRENT_ORIGIN: u32 = 0x0000_0080;
 pub const SVF_ICARUS_FREEZE: u32 = 0x0000_8000;
 /// `s.eFlags` a script sets.
 pub const EF_NODRAW: u32 = 1 << 8;
-pub const EF_SHADER_ANIM: u32 = 1 << 30;
+pub const EF_SHADER_ANIM: u32 = 1 << 4;
 /// `r.contents` a script sets.
 pub const CONTENTS_SOLID: u32 = 1;
 pub const CONTENTS_BODY: u32 = 0x100;

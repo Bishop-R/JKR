@@ -14,7 +14,7 @@ use jkr_game_jka::map_turret_world::object_take;
 
 /// `stats[STAT_HOLDABLE_ITEMS]`, `stats[STAT_HOLDABLE_ITEM]`, `stats[STAT_WEAPONS]`.
 const STAT_HOLDABLE_ITEMS: usize = 2;
-const STAT_HOLDABLE_ITEM: usize = 3;
+const STAT_HOLDABLE_ITEM: usize = 1;
 const STAT_WEAPONS: usize = 4;
 /// Player-state fields: `weapon`, `legsAnim`, `legsTimer`, `emplacedIndex`.
 const PS_WEAPON: usize = 47;

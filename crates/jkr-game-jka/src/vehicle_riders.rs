@@ -33,7 +33,7 @@ const JUMP_VELOCITY: f32 = 225.0;
 const WP_NONE: u8 = 0;
 const WP_MELEE: u8 = 2;
 const WP_SABER: u8 = 3;
-const WP_BLASTER: u8 = 4;
+const WP_BLASTER: u8 = 5;
 /// `HYPERSPACE_TIME`, `HYPERSPACE_TELEPORT_FRAC`, `EF2_HYPERSPACE`.
 pub const HYPERSPACE_TIME: i32 = 4_000;
 const HYPERSPACE_TELEPORT_FRAC: f32 = 0.75;

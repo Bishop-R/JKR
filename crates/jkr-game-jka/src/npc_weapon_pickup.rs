@@ -26,7 +26,7 @@ const BS_DEFAULT: i32 = 0;
 const SCF_FORCED_MARCH: u32 = crate::npc_world::SCF_FORCED_MARCH;
 /// `EF_NODRAW`, `EF_ITEMPLACEHOLDER`.
 const EF_NODRAW: u32 = 0x100;
-const EF_ITEMPLACEHOLDER: u32 = 1 << 26;
+const EF_ITEMPLACEHOLDER: u32 = 1 << 23;
 /// `CONTENTS_TRIGGER`.
 const CONTENTS_TRIGGER: u32 = 0x400;
 /// The classes that pick nothing up (`Touch_Item`, `g_items.c:2456-2475`): the AT-ST, the

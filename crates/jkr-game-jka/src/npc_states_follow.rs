@@ -19,7 +19,7 @@ use jkr_protocol::UserCommand;
 const SCF_IGNORE_ALERTS: u32 = 0x2000;
 const SCF_LOOK_FOR_ENEMIES: u32 = 0x800;
 /// `AEL_SUSPICIOUS`.
-const AEL_SUSPICIOUS: u32 = 2;
+const AEL_SUSPICIOUS: u32 = 1;
 /// `FL_NOTARGET`.
 const FL_NOTARGET: u32 = 0x20;
 /// `WP_SABER`.

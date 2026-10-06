@@ -17,7 +17,7 @@ use jkr_game_jka::power_duel::{
 const CS_CLIENT_DUELISTS: usize = 30;
 const CS_CLIENT_DUELWINNER: usize = 29;
 /// `EV_GLOBAL_DUEL`: every client is told who duels whom.
-const EV_GLOBAL_DUEL: u32 = 23;
+const EV_GLOBAL_DUEL: u32 = 14;
 /// Entity fields the duel event carries its three in.
 const ES_OTHER_ENTITY: usize = 59;
 const ES_OTHER_ENTITY2: usize = 39;

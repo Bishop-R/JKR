@@ -8,13 +8,11 @@
 
 use super::*;
 use jkr_game_jka::client_begin::{SPECTATOR_FREE, SPECTATOR_NOT, team_for_word};
-use jkr_game_jka::siege_class::{SiegeClass, loadout};
+use jkr_game_jka::siege_class::{EF_DOUBLE_AMMO, SiegeClass, loadout};
 use std::sync::Arc;
 
 /// `STAT_HOLDABLE_ITEM`: the holdable selected.
 const STAT_HOLDABLE_ITEM: usize = 1;
-/// `EF_DOUBLE_AMMO`.
-const EF_DOUBLE_AMMO: u32 = 0x0100_0000;
 /// `Q3_INFINITE`, a class's powerups' end.
 const Q3_INFINITE: u32 = 16_777_216;
 /// `MOD_TEAM_CHANGE`.

@@ -626,7 +626,7 @@ pub fn body_left_behind(
     const EF_DEAD: u32 = 1 << 1;
     const ET_BODY: u32 = 15;
     const TR_STATIONARY: u32 = 0;
-    const TR_GRAVITY: u32 = 5;
+    const TR_GRAVITY: u32 = 6;
     const WP_BLASTER: u32 = 5;
     const ENTITY_NONE: u32 = 1_023;
     const FORCE_LIGHTSIDE: u32 = 1;

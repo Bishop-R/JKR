@@ -5,7 +5,7 @@ use jkr_protocol::{EntityState, GameState, Snapshot};
 const ET_EVENTS: u8 = 18;
 const EVENT_MASK: u16 = 0xff;
 const MAX_ENTITIES: usize = 1_024;
-const MAX_CLIENTS: u16 = 64;
+const MAX_CLIENTS: u16 = 32;
 const CS_PLAYERS: usize = 1_131;
 
 /// `EV_OBITUARY` in `codemp/game/bg_public.h:927`.

@@ -24,7 +24,7 @@ const ES_EVENT: usize = 28;
 /// `EVENT_VALID_MSEC`.
 const EVENT_VALID_MSEC: i32 = 300;
 /// `SETANIM_TORSO`, `SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD`.
-const SETANIM_TORSO: u8 = 2;
+const SETANIM_TORSO: u8 = 1;
 const OVERRIDE_HOLD: u8 = 1 | 2;
 
 /// The level's guns and what their shots are credited to.

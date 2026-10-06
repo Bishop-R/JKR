@@ -408,11 +408,13 @@ pub fn can_be_grabbed(item: usize, state: &PlayerState, dropped: bool) -> bool {
 
 /// `ps.duelInProgress`; `FP_RAGE`'s bit in `fd.forcePowersActive`.
 const PS_DUEL_IN_PROGRESS: usize = 119;
-const FP_RAGE: u32 = 1 << 6;
+const FP_RAGE: u32 = 1 << 8;
 
-/// `Add_Ammo`: up to the kind's maximum, never taking any away.
+/// `Add_Ammo` (`g_items.c:2214-2231`): up to the kind's maximum, twice it for a class with
+/// `EF_DOUBLE_AMMO`, never taking any away.
 fn add_ammo(state: &mut PlayerState, kind: usize, count: i32) {
-    let maximum = AMMO_MAX[kind];
+    let doubled = state.entity_flags() & crate::siege_class::EF_DOUBLE_AMMO != 0;
+    let maximum = AMMO_MAX[kind] * if doubled { 2 } else { 1 };
     let held = state.ammo[kind] as i32;
     if held < maximum {
         state.ammo[kind] = (held + count).min(maximum) as u32;
@@ -608,5 +610,26 @@ pub fn respawn(pickup: &mut Pickup, level_time: i32) -> EventEntity {
         client: None,
         broadcast: false,
         extra: [(0, 0); 12],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `eFlags` in the player state, which `Add_Ammo` reads `EF_DOUBLE_AMMO` from.
+    const PS_EFLAGS: usize = 17;
+
+    #[test]
+    fn a_double_ammo_class_fills_to_twice_the_maximum() {
+        let mut state = PlayerState::zero();
+        state.ammo[2] = 290;
+        add_ammo(&mut state, 2, 100);
+        assert_eq!(state.ammo[2], 300);
+        state.set_raw_field(PS_EFLAGS, crate::siege_class::EF_DOUBLE_AMMO);
+        add_ammo(&mut state, 2, 100);
+        assert_eq!(state.ammo[2], 400);
+        add_ammo(&mut state, 2, 500);
+        assert_eq!(state.ammo[2], 600);
     }
 }

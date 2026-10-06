@@ -29,7 +29,7 @@ const BODIES: usize = 8;
 const BODY_SINK_MS: i32 = 30_000;
 const BODY_FADE_THINK_MS: i32 = 18_000;
 /// `EV_BODYFADE`, with `G_AddEvent`'s stepped sequence bits.
-const EV_BODYFADE: u32 = 125;
+const EV_BODYFADE: u32 = 100;
 const ES_EVENT: usize = 28;
 /// `s.eFlags`, `s.eventParm`, `s.eType`.
 const ES_EFLAGS: usize = 19;

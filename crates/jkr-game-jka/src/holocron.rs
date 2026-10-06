@@ -477,7 +477,7 @@ impl crate::force_powers::Forcer<'_, '_> {
         const PS_KNOWN: usize = 51;
         const PS_SABER_ANIM_LEVEL: usize = 23;
         const PS_SABER_DRAW_ANIM_LEVEL: usize = 25;
-        const SS_STAFF: u32 = 5;
+        const SS_STAFF: u32 = 7;
         for power in 0..NUM_FORCE_POWERS {
             let (bits, known) = (
                 self.state.raw_field(ps::HOLOCRON_BITS).unwrap_or(0),

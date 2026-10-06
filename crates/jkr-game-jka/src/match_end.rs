@@ -435,7 +435,7 @@ pub const MAP_RESTART_COMMAND: &str = "map_restart 0\n";
 /// ready, it should stick". The edge is what counts, not the button being down.
 pub fn asked_to_leave(old_buttons: i32, buttons: i32) -> bool {
     const BUTTON_ATTACK: i32 = 1;
-    const BUTTON_USE_HOLDABLE: i32 = 2;
+    const BUTTON_USE_HOLDABLE: i32 = 4;
     buttons & (BUTTON_ATTACK | BUTTON_USE_HOLDABLE) & (old_buttons ^ buttons) != 0
 }
 
