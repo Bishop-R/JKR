@@ -30,8 +30,15 @@ pub(crate) fn setup(
         } else {
             wgpu::TextureUsages::empty()
         };
+    // Screenshots belong beside the configuration (`GameData/jkr/screenshots/`), also
+    // when the renderer starts before a console is attached.
     let directory = console
         .map(|console| console.config_directory().to_owned())
+        .or_else(|| {
+            crate::platform::user_config_file()
+                .ok()
+                .and_then(|config| config.parent().map(Path::to_owned))
+        })
         .unwrap_or_else(|| fallback_directory.to_owned());
     let manager = Manager::new(directory, context.format, copy_supported);
     Setup {
