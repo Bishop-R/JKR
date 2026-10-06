@@ -11,6 +11,8 @@ mod info;
 pub(crate) mod movement;
 pub(crate) mod options;
 mod portrait;
+mod radar;
+pub(crate) use radar::{RadarAssets, RadarInputs};
 mod selection;
 mod siege;
 pub(crate) use siege::SiegeInputs;
@@ -36,7 +38,8 @@ use jkr_ui::{
 use std::path::Path;
 
 const WIDGET_LIMIT: usize = 64;
-const DRAW_LIMIT: usize = 320;
+/// Room for every widget plus the radar: its two-stage background and ~75 marks.
+const DRAW_LIMIT: usize = 480;
 const DEFAULT_LAYOUT: &str = include_str!("../assets/hud/default.json");
 /// The weapon name stays fully visible this long after a switch, then fades.
 const WEAPON_HOLD_MS: u64 = 2_000;
@@ -172,6 +175,8 @@ pub(crate) struct HudOverlay {
     warmup_text: String,
     /// The Siege round clock and respawn wave.
     siege: siege::State,
+    /// The radar of team games and vehicles.
+    radar: radar::State,
     interrupted: bool,
     lagometer: jkr_client::LagometerSamples,
     default_document: HudLayoutDocument,
@@ -255,6 +260,7 @@ impl HudOverlay {
             match_timer: String::with_capacity(16),
             warmup_text: String::with_capacity(48),
             siege: siege::State::default(),
+            radar: radar::State::default(),
             interrupted: false,
             lagometer: jkr_client::LagometerSamples::new(),
             default_document: HudLayoutDocument::from_json(DEFAULT_LAYOUT)

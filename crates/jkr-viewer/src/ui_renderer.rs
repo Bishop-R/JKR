@@ -8,6 +8,7 @@ mod icons;
 use icons::IconAtlas;
 pub(crate) use icons::{
     BANNER_SIZE, BANNER_TEXTURE, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE, LEVELSHOT_TEXTURE,
+    RADAR_CELL_COUNT, RADAR_CELLS,
 };
 
 /// Main-menu wordmark: the Jedi Knight saber emblem laid horizontal, white
@@ -98,9 +99,10 @@ impl ShapeRenderer {
                 module: &shader,
                 entry_point: Some("fragment_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
+                // The shader returns premultiplied colour, so a quad with no alpha adds.
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -244,6 +246,23 @@ impl ShapeRenderer {
                     clipped(rect, clips[clip_depth]),
                     texture,
                     color,
+                    opacity[opacity_depth],
+                    viewport,
+                    MAX_SHAPE_VERTICES,
+                ),
+                DrawCommand::RotatedQuad {
+                    rect,
+                    degrees,
+                    texture,
+                    color,
+                    additive,
+                } => icons::push_rotated(
+                    &mut self.vertices,
+                    rect,
+                    degrees,
+                    texture,
+                    color,
+                    additive,
                     opacity[opacity_depth],
                     viewport,
                     MAX_SHAPE_VERTICES,

@@ -54,6 +54,14 @@ impl Feedback {
         (left >= 0).then_some(left / 1_000)
     }
 
+    /// When `client` last gave a voice command (`vChatTime`), zero for never.
+    pub fn spoke_at(&self, client: u16) -> i32 {
+        self.voice_until
+            .get(usize::from(client))
+            .filter(|&&until| until != 0)
+            .map_or(0, |until| until.wrapping_sub(1_000))
+    }
+
     /// The voice sprite lasts one second and takes precedence over typing.
     pub fn speaking(&self, client: u16, time: i32) -> bool {
         self.voice_until

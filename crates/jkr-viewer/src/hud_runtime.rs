@@ -295,6 +295,45 @@ pub(crate) fn update(
             &gpu.localization,
         );
     }
+    // The radar of the latest snapshot and the predicted player, or in a demo of the
+    // presented snapshot and its own player, as `cg.predictedPlayerState` is there.
+    let radar = gpu
+        .live_session
+        .as_ref()
+        .map(|session| {
+            let predicted = gpu.local_prediction.predicted_state();
+            (session.latest_snapshot(), session.game_state(), predicted)
+        })
+        .or_else(|| {
+            gpu.demo_session.as_ref().map(|session| {
+                let snapshot = session.snapshot_at_or_before(presentation_time);
+                (snapshot, session.game_state(), None)
+            })
+        });
+    if let (Some((snapshot, game, predicted)), Some(vfs)) = (radar, gpu.vfs.as_deref()) {
+        gpu.hud.update_radar(
+            hud::RadarInputs {
+                snapshot,
+                game,
+                predicted,
+                time: presentation_time,
+                // `cg_drawRadar`; no radar during an intermission.
+                enabled: !intermission
+                    && gpu
+                        .console
+                        .as_ref()
+                        .and_then(|console| console.bool_cvar("cg_drawRadar"))
+                        .unwrap_or(true),
+                feedback: &gpu.effect_aux.feedback,
+            },
+            hud::RadarAssets {
+                vfs,
+                shaders: &gpu.shaders,
+                renderer: &gpu.ui_shapes,
+                queue: &gpu.queue,
+            },
+        );
+    }
     let game = gpu
         .live_session
         .as_ref()

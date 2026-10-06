@@ -99,6 +99,17 @@ pub enum DrawCommand {
         texture: TextureId,
         color: Color,
     },
+    /// Textured rectangle turned `degrees` about its centre, as `R_DrawRotatePic2` turns a
+    /// picture: a positive angle turns +x toward +y on the y-down screen. Not clipped.
+    RotatedQuad {
+        rect: Rect,
+        degrees: f32,
+        texture: TextureId,
+        color: Color,
+        /// Added to what is below instead of blended over it (`blendFunc GL_ONE GL_ONE`);
+        /// the colour's alpha then only dims it.
+        additive: bool,
+    },
     /// Begin clipping descendants.
     PushClip(Rect),
     /// End the most recent clip.

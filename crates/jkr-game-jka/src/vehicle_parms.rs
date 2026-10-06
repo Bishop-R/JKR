@@ -97,6 +97,11 @@ impl VehicleFiles {
         crate::vehicle_presentation::parse(&self.weapons, name)
     }
 
+    /// Vehicle `name`'s `radarIcon`, a client-only key.
+    pub fn radar_icon(&self, name: &[u8]) -> Option<String> {
+        crate::vehicle_presentation::radar_icon(&self.vehicles, name)
+    }
+
     /// `BG_VehicleLoadParms` and `BG_VehWeaponLoadParms` (`bg_vehicleLoad.c:1239-1383`):
     /// every `ext_data/vehicles/*.veh` and `ext_data/vehicles/weapons/*.vwp` the game's
     /// listings hold, in their order — as the server's game and a client's cgame both load

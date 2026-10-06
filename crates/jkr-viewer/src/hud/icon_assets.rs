@@ -72,7 +72,12 @@ pub(in crate::hud) fn decode(
     name: &str,
 ) -> Option<image::RgbaImage> {
     let path = shaders.resolve_image(vfs, name).ok()??;
-    let image = cached_decoded_image(vfs, path.as_str()).ok()??;
+    decode_path(vfs, path.as_str())
+}
+
+/// Image `path` decoded through the same cache and scaled to one atlas cell.
+pub(in crate::hud) fn decode_path(vfs: &VirtualFileSystem, path: &str) -> Option<image::RgbaImage> {
+    let image = cached_decoded_image(vfs, path).ok()??;
     Some(image::imageops::resize(
         &*image,
         ui_renderer::ICON_SIZE,

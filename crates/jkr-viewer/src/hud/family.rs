@@ -234,24 +234,27 @@ impl HudOverlay {
 
     /// Optional right-side readouts follow the leader block; explicit team
     /// overlay coordinates remain the player's choice.
-    pub(super) fn upper_right_stack(&self) -> [f32; 3] {
+    pub(super) fn upper_right_stack(&self) -> [f32; 4] {
         let bottom = self.enemy_info.bottom();
         let snapshot = if bottom > 0.0 { bottom + 16.0 } else { 50.0 };
         let after_snapshot = snapshot + if self.family.snapshot { 28.0 } else { 0.0 };
-        let inventory = 100.0_f32.max(after_snapshot);
+        // The radar follows, as `CG_DrawUpperRight` draws it after the snapshot line.
+        let radar = after_snapshot;
+        let after_radar = radar + self.radar.height();
+        let inventory = 100.0_f32.max(after_radar);
         let items = if self.family.upper && self.family.inventory {
             (self.inventory_bits & 0x0ffe).count_ones()
         } else {
             0
         };
-        let team = if bottom == 0.0 {
+        let team = if bottom == 0.0 && after_radar == after_snapshot {
             0.0
         } else if items > 0 {
             inventory + items as f32 * 26.0 + 12.0
         } else {
-            after_snapshot
+            after_radar
         };
-        [snapshot, inventory, team]
+        [snapshot, inventory, team, radar]
     }
 
     /// Append independent score and diagnostic text without a backplate.
@@ -261,7 +264,8 @@ impl HudOverlay {
         self.enemy_info
             .emit(&mut self.draw_list, viewport, self.theme);
         let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
-        let [snapshot_top, inventory_top, _] = self.upper_right_stack();
+        let [snapshot_top, inventory_top, _, radar_top] = self.upper_right_stack();
+        self.radar.emit(&mut self.draw_list, viewport, radar_top);
         if self.family.upper && self.family.inventory {
             let mut row = 0;
             for tag in 1..12 {

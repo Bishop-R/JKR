@@ -397,6 +397,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Team status: 0 off, 1 on",
         ),
         CvarDefinition::new(
+            "cg_drawRadar",
+            1_i64,
+            archive,
+            "Radar in team games and vehicles: 0 off, 1 on",
+        ),
+        CvarDefinition::new(
             "cg_speedometer",
             0_i64,
             archive,
