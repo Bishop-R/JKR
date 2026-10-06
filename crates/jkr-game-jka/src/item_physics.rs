@@ -1,9 +1,11 @@
 //! `G_RunItem` and `G_BounceItem` (OpenJK `codemp/game/g_items.c:3143-3272`) for a world
 //! object that is not a missile but has `physicsObject` set — the Jedi Master's saber while
-//! held, a holocron — in the two halves its caller runs its think between.
+//! held, a holocron, a set-down sentry ([`crate::sentry`]) or E-Web ([`crate::eweb`]) — in
+//! the two halves its caller runs its think between: [`fall`], then [`bounce`].
 
 use crate::pmove::{MovementCollision, MovementTrace};
 use crate::weapon_fire::Missile;
+use jkr_protocol::EntityState;
 
 /// The entity's wire fields `G_RunItem` reads and writes.
 const ES_POS_TIME: usize = 0;
@@ -13,9 +15,9 @@ const ES_POS_DURATION: usize = 20;
 const ES_GROUND: usize = 22;
 const ES_POS_TYPE: usize = 23;
 /// `TR_STATIONARY`, `TR_GRAVITY`, `CONTENTS_NODROP`.
-const TR_STATIONARY: u32 = 0;
-const TR_GRAVITY: u32 = 6;
-const CONTENTS_NODROP: u32 = 0x800;
+pub(crate) const TR_STATIONARY: u32 = 0;
+pub(crate) const TR_GRAVITY: u32 = 6;
+pub(crate) const CONTENTS_NODROP: u32 = 0x800;
 
 /// What the first half left: the object at rest (only its think runs), or moved along
 /// its trajectory with the trace that moved it.
@@ -38,78 +40,69 @@ pub(crate) enum ItemBounce {
     Bounced(MovementTrace),
 }
 
-/// `G_RunItem` up to its think: off the ground it falls again; at rest it does nothing
-/// more; else it is traced from where it is to where its trajectory has it now.
-pub(crate) fn item_move(
-    missile: &mut Missile,
+/// `G_RunItem` up to its think for an object with wire state `state` at `current`
+/// (`r.currentOrigin`): off the ground it falls again; at rest it does nothing more; else it
+/// is swept (`sweep`: its box with its pass entity and clip mask) from where it is to where
+/// its trajectory has it now, and placed at the sweep's end.
+pub(crate) fn fall(
+    state: &mut EntityState,
+    current: &mut [f32; 3],
     level_time: i32,
-    world: &dyn MovementCollision,
+    sweep: impl FnOnce([f32; 3], [f32; 3]) -> MovementTrace,
 ) -> ItemMove {
-    let get = |missile: &Missile, index: usize| missile.state.raw_field(index).unwrap_or(0);
-    if get(missile, ES_GROUND) == u32::from(jkr_protocol::ENTITY_NUMBER_NONE)
-        && get(missile, ES_POS_TYPE) != TR_GRAVITY
+    let get = |state: &EntityState, index: usize| state.raw_field(index).unwrap_or(0);
+    // "if groundentity has been set to ENTITYNUM_NONE, it may have been pushed off an edge".
+    if get(state, ES_GROUND) == u32::from(jkr_protocol::ENTITY_NUMBER_NONE)
+        && get(state, ES_POS_TYPE) != TR_GRAVITY
     {
-        missile.state.set_raw_field(ES_POS_TYPE, TR_GRAVITY);
-        missile.state.set_raw_field(ES_POS_TIME, level_time as u32);
+        state.set_raw_field(ES_POS_TYPE, TR_GRAVITY);
+        state.set_raw_field(ES_POS_TIME, level_time as u32);
     }
-    if get(missile, ES_POS_TYPE) == TR_STATIONARY {
+    if get(state, ES_POS_TYPE) == TR_STATIONARY {
         return ItemMove::Resting;
     }
-    let read = |fields: [usize; 3]| -> [f32; 3] {
-        std::array::from_fn(|axis| f32::from_bits(get(missile, fields[axis])))
-    };
     let origin = crate::trajectory::legacy_evaluate_trajectory(
-        read(ES_POS_BASE),
-        read(ES_POS_DELTA),
-        get(missile, ES_POS_TYPE) as u8,
-        get(missile, ES_POS_TIME) as i32,
-        get(missile, ES_POS_DURATION) as i32,
+        read(state, ES_POS_BASE),
+        read(state, ES_POS_DELTA),
+        get(state, ES_POS_TYPE) as u8,
+        get(state, ES_POS_TIME) as i32,
+        get(state, ES_POS_DURATION) as i32,
         level_time,
     );
-    let mut trace = world.trace(
-        missile.current,
-        missile.bounds.0,
-        missile.bounds.1,
-        origin,
-        missile.clip_mask,
-    );
-    missile.current = trace.end_position;
+    let mut trace = sweep(*current, origin);
+    *current = trace.end_position;
     if trace.start_solid {
         trace.fraction = 0.0;
     }
     ItemMove::Moved(trace)
 }
 
-/// `G_RunItem` after its think, for a move that struck something: `G_BounceItem` with no
-/// bounce left in it (`physicsBounce` is never set) — at rest a unit above a floor, or
-/// dropping from a wall from a unit off it.
-pub(crate) fn item_bounce(
-    missile: &mut Missile,
+/// `G_RunItem` after its think, for a move that struck something (`contents`: the point
+/// contents where the object is now): `G_BounceItem` with no bounce left in it
+/// (`physicsBounce` is never set) — at rest a unit above a floor, or dropping from a wall
+/// from a unit off it.
+pub(crate) fn bounce(
+    state: &mut EntityState,
+    current: &mut [f32; 3],
     trace: &MovementTrace,
     level_time: i32,
     previous_time: i32,
-    world: &dyn MovementCollision,
+    contents: impl FnOnce([f32; 3]) -> u32,
 ) -> ItemBounce {
     if trace.fraction == 1.0 {
         return ItemBounce::Clear;
     }
-    if world.point_contents(missile.current) & CONTENTS_NODROP != 0 {
+    if contents(*current) & CONTENTS_NODROP != 0 {
         return ItemBounce::NoDrop;
     }
-    let set_vector = |missile: &mut Missile, fields: [usize; 3], value: [f32; 3]| {
-        for axis in 0..3 {
-            missile
-                .state
-                .set_raw_field(fields[axis], value[axis].to_bits());
-        }
-    };
-    // The velocity at the moment of the hit, reflected, then scaled by `physicsBounce` —
-    // zero, which keeps each component's sign.
-    let get = |index: usize| missile.state.raw_field(index).unwrap_or(0);
-    let delta: [f32; 3] = std::array::from_fn(|axis| f32::from_bits(get(ES_POS_DELTA[axis])));
-    let hit_time = previous_time + ((level_time - previous_time) as f32 * trace.fraction) as i32;
+    // The velocity at the moment of the hit (`level.previousTime + (level.time -
+    // level.previousTime) * trace->fraction`, summed as a float), reflected, then scaled by
+    // `physicsBounce` — zero, which keeps each component's sign.
+    let get = |index: usize| state.raw_field(index).unwrap_or(0);
+    let hit_time =
+        (previous_time as f32 + (level_time - previous_time) as f32 * trace.fraction) as i32;
     let velocity = crate::trajectory::legacy_evaluate_trajectory_delta(
-        delta,
+        read(state, ES_POS_DELTA),
         get(ES_POS_TYPE) as u8,
         get(ES_POS_TIME) as i32,
         get(ES_POS_DURATION) as i32,
@@ -119,28 +112,66 @@ pub(crate) fn item_bounce(
     let dot = velocity.iter().zip(normal).map(|(a, b)| a * b).sum::<f32>();
     let reflected: [f32; 3] =
         std::array::from_fn(|axis| (velocity[axis] + -2.0 * dot * normal[axis]) * 0.0);
-    set_vector(missile, ES_POS_DELTA, reflected);
+    write(state, ES_POS_DELTA, reflected);
     if normal[2] > 0.0 && reflected[2] < 40.0 {
         let mut end = trace.end_position;
         end[2] += 1.0;
-        let end = crate::weapon_fire::snap_vector(end);
-        // `G_SetOrigin`.
-        set_vector(missile, ES_POS_BASE, end);
-        set_vector(missile, ES_POS_DELTA, [0.0; 3]);
-        for (index, value) in [
-            (ES_POS_TYPE, TR_STATIONARY),
-            (ES_POS_TIME, 0),
-            (ES_POS_DURATION, 0),
-            (ES_GROUND, u32::from(trace.entity_number)),
-        ] {
-            missile.state.set_raw_field(index, value);
-        }
-        missile.current = end;
+        set_origin(state, current, crate::weapon_fire::snap_vector(end));
+        state.set_raw_field(ES_GROUND, u32::from(trace.entity_number));
         return ItemBounce::Stopped;
     }
-    let current: [f32; 3] = std::array::from_fn(|axis| missile.current[axis] + normal[axis]);
-    missile.current = current;
-    set_vector(missile, ES_POS_BASE, current);
-    missile.state.set_raw_field(ES_POS_TIME, level_time as u32);
+    *current = std::array::from_fn(|axis| current[axis] + normal[axis]);
+    write(state, ES_POS_BASE, *current);
+    state.set_raw_field(ES_POS_TIME, level_time as u32);
     ItemBounce::Bounced(*trace)
+}
+
+/// `G_SetOrigin`: stationary at `origin`, there now.
+pub(crate) fn set_origin(state: &mut EntityState, current: &mut [f32; 3], origin: [f32; 3]) {
+    write(state, ES_POS_BASE, origin);
+    write(state, ES_POS_DELTA, [0.0; 3]);
+    for (index, value) in [(ES_POS_TYPE, TR_STATIONARY), (ES_POS_TIME, 0), (ES_POS_DURATION, 0)] {
+        state.set_raw_field(index, value);
+    }
+    *current = origin;
+}
+
+/// [`fall`] for a missile-shaped object, swept with its own box and clip mask.
+pub(crate) fn item_move(
+    missile: &mut Missile,
+    level_time: i32,
+    world: &dyn MovementCollision,
+) -> ItemMove {
+    let (bounds, mask) = (missile.bounds, missile.clip_mask);
+    fall(&mut missile.state, &mut missile.current, level_time, |from, to| {
+        world.trace(from, bounds.0, bounds.1, to, mask)
+    })
+}
+
+/// [`bounce`] for a missile-shaped object.
+pub(crate) fn item_bounce(
+    missile: &mut Missile,
+    trace: &MovementTrace,
+    level_time: i32,
+    previous_time: i32,
+    world: &dyn MovementCollision,
+) -> ItemBounce {
+    bounce(
+        &mut missile.state,
+        &mut missile.current,
+        trace,
+        level_time,
+        previous_time,
+        |point| world.point_contents(point),
+    )
+}
+
+fn read(state: &EntityState, fields: [usize; 3]) -> [f32; 3] {
+    fields.map(|field| f32::from_bits(state.raw_field(field).unwrap_or(0)))
+}
+
+fn write(state: &mut EntityState, fields: [usize; 3], value: [f32; 3]) {
+    for (field, value) in fields.into_iter().zip(value) {
+        state.set_raw_field(field, value.to_bits());
+    }
 }

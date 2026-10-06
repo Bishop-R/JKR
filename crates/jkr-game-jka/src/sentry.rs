@@ -22,8 +22,8 @@ use crate::map_turret_world::{
     CONTENTS_BODY, CONTENTS_LIGHTSABER, DAMAGE_DEATH_KNOCKBACK, ET_GENERAL, FRAMETIME, MASK_SHOT,
     Shot, Sighted, TurretHost, WP_TURRET, body_sound, es, find, length_squared, play_effect, sub,
 };
+use crate::item_physics::{TR_GRAVITY, TR_STATIONARY};
 use crate::means_of_death::{MOD_SENTRY, MOD_UNKNOWN};
-use crate::pmove::MovementTrace;
 use jkr_protocol::{EntityState, LEGACY_ENTITY_FIELDS};
 
 /// `TURRET_RADIUS`, `TURRET_LIFETIME`, `TURRET_DEATH_DELAY`, `TURRET_AMMO_COUNT`.
@@ -34,16 +34,12 @@ const AMMO: i32 = 40;
 /// Its box (`r.mins`, `r.maxs`) and its health.
 pub const BOUNDS: ([f32; 3], [f32; 3]) = ([-8.0, -8.0, 0.0], [8.0, 8.0, 24.0]);
 const HEALTH: i32 = 50;
-/// `MASK_SOLID` (its clip mask), `CONTENTS_SOLID`, `CONTENTS_NODROP`.
+/// `MASK_SOLID` (its clip mask), `CONTENTS_SOLID`.
 const MASK_SOLID: u32 = 0x1;
 const CONTENTS_SOLID: u32 = 0x1;
-const CONTENTS_NODROP: u32 = 0x800;
 /// `MAX_CLIENTS`, `ENTITYNUM_NONE`.
 const MAX_CLIENTS: u16 = 32;
 const ENTITYNUM_NONE: u16 = 1_023;
-/// `TR_STATIONARY`, `TR_GRAVITY`.
-const TR_STATIONARY: u32 = 0;
-const TR_GRAVITY: u32 = 6;
 /// `GT_TEAM`.
 const GT_TEAM: i32 = 6;
 /// `EFFECT_EXPLOSION_PAS`.
@@ -184,62 +180,36 @@ pub fn run(
     previous_time: i32,
     host: &mut dyn TurretHost,
 ) -> Outcome {
-    if pos_type(sentry) == TR_STATIONARY {
+    let moved = crate::item_physics::fall(
+        &mut sentry.state,
+        &mut sentry.origin,
+        level_time,
+        |from, to| host.trace_box(from, BOUNDS, to, ENTITYNUM_NONE, MASK_SOLID),
+    );
+    let crate::item_physics::ItemMove::Moved(moved) = moved else {
         return think(sentry, me, owner, targets, level_time, previous_time, host);
-    }
-    let to = position_at(sentry, level_time);
-    let mut moved = host.trace_box(sentry.origin, BOUNDS, to, ENTITYNUM_NONE, MASK_SOLID);
-    sentry.origin = moved.end_position;
-    if moved.start_solid {
-        moved.fraction = 0.0;
-    }
+    };
     link(sentry);
     let outcome = think(sentry, me, owner, targets, level_time, previous_time, host);
-    if sentry.freed || moved.fraction == 1.0 {
+    if sentry.freed {
         return outcome;
     }
-    if host.point_contents(sentry.origin, ENTITYNUM_NONE) & CONTENTS_NODROP != 0 {
+    let bounced = crate::item_physics::bounce(
+        &mut sentry.state,
+        &mut sentry.origin,
+        &moved,
+        level_time,
+        previous_time,
+        |point| host.point_contents(point, ENTITYNUM_NONE),
+    );
+    if bounced == crate::item_physics::ItemBounce::NoDrop {
+        // `turret_free`.
         sentry.freed = true;
         return Outcome {
             owner_undeployed: owner.is_some(),
         };
     }
-    bounce(sentry, &moved, level_time, previous_time);
     outcome
-}
-
-/// `G_BounceItem` with no bounce (`physicsBounce` 0, `g_items.c:3165-3209`): the
-/// velocity gone; on a floor it comes to rest a unit above it, else it falls on from where
-/// it stopped, a unit off what stopped it.
-fn bounce(sentry: &mut Sentry, moved: &MovementTrace, level_time: i32, previous_time: i32) {
-    // `level.previousTime + (level.time - level.previousTime) * trace->fraction`: a float.
-    let hit_time =
-        (previous_time as f32 + (level_time - previous_time) as f32 * moved.fraction) as i32;
-    let velocity = crate::trajectory::legacy_evaluate_trajectory_delta(
-        read3(&sentry.state, es::POS_DELTA),
-        pos_type(sentry) as u8,
-        read(&sentry.state, es::POS_TIME) as i32,
-        read(&sentry.state, es::POS_DURATION) as i32,
-        hit_time,
-    );
-    let normal = moved.plane_normal;
-    let dot = velocity[0] * normal[0] + velocity[1] * normal[1] + velocity[2] * normal[2];
-    let delta: [f32; 3] =
-        std::array::from_fn(|axis| (velocity[axis] + normal[axis] * (-2.0 * dot)) * 0.0);
-    set3(&mut sentry.state, es::POS_DELTA, delta);
-    if normal[2] > 0.0 && delta[2] < 40.0 {
-        let mut rest = moved.end_position;
-        rest[2] += 1.0;
-        let rest = crate::weapon_fire::snap_vector(rest);
-        set_origin(sentry, rest);
-        sentry
-            .state
-            .set_raw_field(es::GROUND_ENTITY, u32::from(moved.entity_number));
-        return;
-    }
-    sentry.origin = std::array::from_fn(|axis| sentry.origin[axis] + normal[axis]);
-    set3(&mut sentry.state, es::POS_BASE, sentry.origin);
-    sentry.state.set_raw_field(es::POS_TIME, level_time as u32);
 }
 
 /// `G_RunThink`: the sentry's think, if due.
@@ -538,28 +508,6 @@ fn link(sentry: &mut Sentry) {
         0
     };
     sentry.state.set_raw_field(es::SOLID, solid);
-}
-
-/// `G_SetOrigin`: at rest at `origin`.
-fn set_origin(sentry: &mut Sentry, origin: [f32; 3]) {
-    set3(&mut sentry.state, es::POS_BASE, origin);
-    set3(&mut sentry.state, es::POS_DELTA, [0.0; 3]);
-    sentry.state.set_raw_field(es::POS_TYPE, TR_STATIONARY);
-    sentry.state.set_raw_field(es::POS_TIME, 0);
-    sentry.state.set_raw_field(es::POS_DURATION, 0);
-    sentry.origin = origin;
-}
-
-/// `s.pos` evaluated at `level_time` (`BG_EvaluateTrajectory`).
-fn position_at(sentry: &Sentry, level_time: i32) -> [f32; 3] {
-    crate::trajectory::legacy_evaluate_trajectory(
-        base(sentry),
-        read3(&sentry.state, es::POS_DELTA),
-        pos_type(sentry) as u8,
-        read(&sentry.state, es::POS_TIME) as i32,
-        read(&sentry.state, es::POS_DURATION) as i32,
-        level_time,
-    )
 }
 
 /// `s.pos.trType`.

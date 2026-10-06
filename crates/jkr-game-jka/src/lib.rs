@@ -78,6 +78,7 @@ pub mod entity_clip;
 pub mod entity_id;
 pub mod entity_pool;
 pub mod event_entity;
+pub mod ex_physics;
 pub mod force_config;
 mod force_jump;
 pub mod force_powers;

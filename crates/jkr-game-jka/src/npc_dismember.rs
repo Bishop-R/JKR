@@ -44,8 +44,6 @@ const FRAMETIME: i32 = 100;
 const GT_TEAM: i32 = 6;
 const TEAM_RED: i32 = 1;
 const TEAM_BLUE: i32 = 2;
-/// `MAX_GRAVITY_PULL` (`g_exphysics.c:34`).
-const MAX_GRAVITY_PULL: f32 = 512.0;
 /// A limb's box (`g_combat.c:3423-3424`).
 const LIMB_MINS: [f32; 3] = [-6.0, -6.0, -3.0];
 const LIMB_MAXS: [f32; 3] = [6.0, 6.0, 6.0];
@@ -494,69 +492,43 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         self.level.limbs[at].next_think = level_time;
     }
 
-    /// `G_RunExPhys(ent, gravity, mass, bounce, qtrue, NULL, 0)` (`g_exphysics.c:39-297`)
-    /// for the limb at `at`: gravity while nothing is under it, the move along its
-    /// velocity (a tenth of it a step), slowed by its mass, bouncing off what it meets —
-    /// freed at once when it is stuck in something solid.
+    /// `G_RunExPhys(ent, gravity, mass, bounce, qtrue, NULL, 0)` ([`crate::ex_physics`]) for
+    /// the limb at `at`: its box and `MASK_SOLID`, linked as a trigger where it moved or
+    /// stopped, and freed at once when it is stuck in something solid (`autoKill`).
     fn run_ex_phys(&mut self, at: usize, gravity: f32, mass: f32, bounce: f32) {
-        let (number, origin) = (self.level.limbs[at].number, self.level.limbs[at].origin);
-        let mut ground = origin;
-        ground[2] -= 0.1;
-        let trace = self.trace_bodies(origin, LIMB_MINS, LIMB_MAXS, ground, number, MASK_SOLID);
-        let limb = &mut self.level.limbs[at];
-        let ground_entity = if trace.fraction == 1.0 {
-            ENTITYNUM_NONE
-        } else {
-            trace.entity_number
+        let limb = &self.level.limbs[at];
+        let number = limb.number;
+        let mut body = crate::ex_physics::Body {
+            origin: limb.origin,
+            velocity: limb.velocity,
+            grav_factor: limb.grav_factor,
+            ground: limb.state.raw_field(es::GROUND_ENTITY).unwrap_or(0) as u16,
         };
-        limb.set(es::GROUND_ENTITY, u32::from(ground_entity));
-        if ground_entity == ENTITYNUM_NONE {
-            limb.grav_factor = (limb.grav_factor + gravity).min(MAX_GRAVITY_PULL);
-            limb.velocity[2] -= limb.grav_factor;
-        } else {
-            limb.grav_factor = 0.0;
-        }
-        if limb.velocity == [0.0; 3] {
-            // Its touch (`LimbTouch`) does nothing.
-            return;
-        }
-        let projected: [f32; 3] =
-            std::array::from_fn(|axis| limb.origin[axis] + 0.1 * limb.velocity[axis]);
-        let keep = 1.0 - mass;
-        limb.velocity = limb.velocity.map(|axis| axis * keep);
-        let mut unit = limb.velocity;
-        let mut total = crate::saber_clash::normalize(&mut unit);
-        if total < 1.0 && ground_entity != ENTITYNUM_NONE {
-            limb.velocity = [0.0; 3];
-            limb.grav_factor = 0.0;
-            let state = limb.state.clone();
-            self.host
-                .publish(number, &state, (LIMB_MINS, LIMB_MAXS), CONTENTS_TRIGGER);
-            return;
-        }
-        let trace = self.trace_bodies(origin, LIMB_MINS, LIMB_MAXS, projected, number, MASK_SOLID);
+        let physics = crate::ex_physics::Physics {
+            gravity,
+            mass,
+            bounce,
+        };
+        let step = crate::ex_physics::run(&mut body, physics, &mut |from, to| {
+            self.trace_bodies(from, LIMB_MINS, LIMB_MAXS, to, number, MASK_SOLID)
+        });
+        let level_time = self.level_time;
         let limb = &mut self.level.limbs[at];
-        if trace.start_solid || trace.all_solid {
-            // "can't go anywhere from here": `autoKill`.
-            limb.freeing = true;
-            limb.next_think = self.level_time;
-            return;
+        limb.set(es::GROUND_ENTITY, u32::from(body.ground));
+        limb.velocity = body.velocity;
+        limb.grav_factor = body.grav_factor;
+        match step {
+            crate::ex_physics::Step::Still => return,
+            crate::ex_physics::Step::Stuck => {
+                limb.freeing = true;
+                limb.next_think = level_time;
+                return;
+            }
+            crate::ex_physics::Step::Stopped => {}
+            crate::ex_physics::Step::Moved { .. } => limb.set_origin(body.origin),
         }
-        limb.set_origin(trace.end_position);
         let state = limb.state.clone();
         self.host
             .publish(number, &state, (LIMB_MINS, LIMB_MAXS), CONTENTS_TRIGGER);
-        if trace.fraction == 1.0 {
-            return;
-        }
-        let limb = &mut self.level.limbs[at];
-        total *= bounce;
-        let rebound = trace.plane_normal.map(|axis| axis * total);
-        if rebound[2] > 0.0 {
-            limb.grav_factor = (limb.grav_factor - rebound[2] * keep).max(0.0);
-        }
-        for axis in 0..3 {
-            limb.velocity[axis] += rebound[axis];
-        }
     }
 }
