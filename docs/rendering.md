@@ -17,6 +17,7 @@ BSP geometry, PVS visibility, lightmaps, shader stages and legacy models.
 | Post processing | [post_aa.rs](../crates/jkr-viewer/src/post_aa.rs) |
 | Frame timing | [frame_pacing.rs](../crates/jkr-viewer/src/frame_pacing.rs) |
 | HUD integration | [hud.rs](../crates/jkr-viewer/src/hud.rs) |
+| Material map generator (tool) | [jkr-materialgen](../crates/jkr-materialgen/src/lib.rs) |
 
 The normal BSP path supports additional lighting, shadows, GI probes, ambient
 occlusion, reflections and post processing. Feature presence does not establish
@@ -677,6 +678,82 @@ instance kind to bypass the 16-unit intersection fade, while retaining ordinary
 depth testing, orientation and bounded effect-pass coverage. Smoke and other FX
 quads still soften against nearby surfaces. Applying the smoke fade to icons
 made opaque bubble interiors transparent near geometry.
+
+## Generating material maps
+
+`jkr-materialgen` writes normal, height and roughness/metalness/occlusion maps
+for the world textures of the player's own installation, in the rend2 naming
+that the optional material maps (`r_normalMapping`, `r_specularMapping`,
+`r_parallaxMapping`) look up next to a diffuse image. It runs offline and only
+reads the game data; [its crate documentation](../crates/jkr-materialgen/src/lib.rs)
+and `--help` are the reference.
+
+```sh
+cargo run --release -p jkr-materialgen -- --maps mp/ffa3,mp/duel1
+```
+
+- **Input.** GameData is found like the client finds it (`--game-data`,
+  `JKR_GAME_DATA`, the config's `fs_gameData`, then the usual Steam paths).
+  `base`, an optional `--fs-game` directory and `JKR_CONTENT` are mounted in
+  the client's order, case-insensitive. The tool's own earlier output is left
+  out. The installed maps (or `--maps`) supply the shaders actually drawn: BSP
+  shader lumps and surfaces plus the shader scripts.
+- **Selection** ([select.rs](../crates/jkr-materialgen/src/select.rs)). A texture
+  qualifies when a shader draws it on lightmapped surfaces with lightmap and
+  diffuse stages that collapse into one opaque pass. These are the stages the
+  renderer gives maps to. Skipped, each with a reason in the manifest: sky,
+  fog, liquids, nodraw/clip/system shaders, interface and 2D images,
+  lightmaps, blend-only effects, `deformVertexes`, glowing, animated,
+  environment-mapped and non-plain colour stages, alpha-tested foliage (grates
+  are allowed), images without relief (flat colours) and textures that already
+  have rend2 maps. With an existing normal map or specular map only the
+  missing kind is written.
+- **Generation** ([generate.rs](../crates/jkr-materialgen/src/generate.rs)),
+  deterministic and wrap-around, so tiling textures stay seamless. Height comes
+  from luminance, high-passed twice at 1/8 of the texture to suppress baked
+  lighting gradients. It is then weighted by scale band and normalised.
+  Normals are Scharr slopes (red +s, green +t down the image, rend2's frame),
+  scaled by the class strength. Above 512 texels they are taken per 1/512 of
+  the texture, so high-resolution replacements do not turn texel noise into
+  steep bumps. The packed map
+  holds roughness from the class plus local variation, brightness and cavities;
+  metalness only on bright, unsaturated texels; and cavity occlusion. Source
+  resolution is kept unless `--max-size` caps it, and alpha-tested textures
+  keep their alpha in the normal map.
+- **Classes** ([classes.rs](../crates/jkr-materialgen/src/classes.rs)): one table
+  of strength, parallax, roughness, metalness and occlusion per class. A class is
+  chosen by the BSP material id (`q3map_material`), then path keywords, then
+  `surfaceparm metalsteps`. Stone, tiles and ground get `<texture>_nh`
+  (height in alpha for parallax); the rest `<texture>_n`.
+- **Specular layout.** The tool writes `<texture>_rmo` (red roughness, green
+  metalness, blue occlusion) rather than `_specGloss`. The heuristics produce
+  roughness and metalness directly, and the packed path takes the metal colour
+  from the albedo and a 0.04 dielectric reflectance by itself, without rend2's
+  SDR gloss conversion. Metalness stays at most 0.3: in that path metal loses
+  its diffuse share, and nothing reflects the surroundings back into it.
+- **Output.** One pk3 of PNGs plus `jkr-materialgen/manifest.json` (every
+  source, its outputs, class, maps and shaders, skipped shaders with reasons,
+  all settings). The archive is deterministic. The default path is
+  `<JKR user data>/generated/zzz_jkr_materials.pk3`, `%APPDATA%\jkr\generated`
+  on Windows. The tool refuses to write into the game installation. To use it,
+  set `JKR_CONTENT` to that directory (the client mounts it above the game
+  data), or copy the pk3 into `GameData/base` by hand; the `zzz_` name loads
+  after the retail pk3s. `--dry-run` lists the choices, and `--limit`
+  takes only the most-used textures.
+
+The generated images are derived from retail textures. They stay on the
+player's machine and must not be shared, uploaded or committed; the tests use
+synthetic images only.
+
+Heuristics fail where luminance is not relief. Painted stripes, signs and
+decals become bumps. Lighting baked at panel scale (bright bevel edges, dark
+undersides) becomes a ridge and a groove instead of a raised panel. Dark
+grime reads as a dent, and smooth gradients within an eighth of the texture
+remain. Unit tests cover flat input, slope direction, seams, gradient
+suppression, alpha, class lookup, skip rules on synthetic scripts and the pk3
+layout. A read-only run on `mp/ffa3` and `mp/duel1` of a Windows installation
+with high-resolution texture packs took 11 s for 110 textures (160 MiB) and is
+described in the generator's pull request. No in-game image has been checked.
 
 ## Default visual profile
 

@@ -483,6 +483,7 @@ and the optimized client build passed.
 - Graphical client with browser, menus/settings, HUD, console, audio, screenshots,
   demos and a Create game flow.
 - wgpu BSP renderer with optional modern lighting and post processing.
+- Offline generator of local rend2-convention material maps (`jkr-materialgen`).
 - Dedicated-server game integration, console/configuration, stock game-type
   options, map entities, bots/NPCs and script integration.
 

@@ -45,6 +45,13 @@ impl VirtualFileSystem {
     }
 }
 
+/// The `*.pk3` files directly inside `directory`, lowest priority first: the
+/// order [`VirtualFileSystem::mount_pk3_directory`] mounts them in. Tools that
+/// must leave out an archive (their own earlier output) mount from this list.
+pub fn pk3_search_order(directory: impl AsRef<Path>) -> Result<Vec<PathBuf>, VfsError> {
+    pk3_archives(directory.as_ref())
+}
+
 /// Direct child PK3s (case-insensitive extension), in legacy search order.
 fn pk3_archives(directory: &Path) -> Result<Vec<PathBuf>, VfsError> {
     let io_error = |source| VfsError::Io {
