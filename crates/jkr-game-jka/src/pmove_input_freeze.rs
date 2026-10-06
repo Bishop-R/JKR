@@ -3,7 +3,8 @@
 //! The branch order and timer boundaries mirror OpenJK
 //! `codemp/game/bg_pmove.c:10224-10430`. Vehicle, held-client and
 //! rocket-trooper branches require state the bounded predictor does not carry
-//! and remain snapshot-authoritative.
+//! and remain snapshot-authoritative. A JA+ server's medium flip over and taunts
+//! follow [`JaPlusRules`].
 
 use jkr_protocol::{ENTITY_NUMBER_NONE, UserCommand};
 
@@ -11,6 +12,7 @@ use crate::pmove::{MovementCollision, MovementState};
 use crate::pmove_anim::{
     AnimationLengths, SETANIM_BOTH, SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE, set_animation,
 };
+use crate::pmove_japlus::JaPlusRules;
 use crate::saber_move_data::movement::*;
 
 const PM_FLOAT: u8 = 2;
@@ -36,6 +38,7 @@ pub(crate) fn apply(
     command_millis: i32,
     collision: &impl MovementCollision,
     animation_lengths: Option<&dyn AnimationLengths>,
+    ja_plus: JaPlusRules,
 ) {
     let had_movement = command.forward_move != 0 || command.right_move != 0 || command.up_move != 0;
     let mut stiffened =
@@ -54,6 +57,7 @@ pub(crate) fn apply(
             animation_name(state.legs_anim),
             Some("BOTH_JUMPFLIPSTABDOWN" | "BOTH_JUMPFLIPSLASHDOWN1")
         ) && (901..1_600).contains(&state.legs_timer)
+            && ja_plus.flip_over_spins()
         {
             state.view_angles[1] += crate::pmove::frame_seconds(command_millis) * 240.0;
             lock_view = true;
@@ -84,7 +88,7 @@ pub(crate) fn apply(
     } else if !stiffened && in_kata(state) {
         move_for_kata(state, command);
     } else if !stiffened && full_body_taunt(state.legs_anim) && full_body_taunt(state.torso_anim) {
-        lock_view = filter_taunt(state, command, &mut stiffened, animation_lengths);
+        lock_view = filter_taunt(state, command, &mut stiffened, animation_lengths, ja_plus);
     } else if !stiffened && animation_is(state.legs_anim, "BOTH_MEDITATE_END") {
         if state.legs_timer > 0 {
             command.buttons = 0;
@@ -129,6 +133,7 @@ fn filter_taunt(
     command: &mut UserCommand,
     stiffened: &mut bool,
     animation_lengths: Option<&dyn AnimationLengths>,
+    ja_plus: JaPlusRules,
 ) -> bool {
     let cancel = command.buttons & (BUTTON_ATTACK | BUTTON_ALT_ATTACK | FORCE_INPUTS) != 0
         || command.up_move != 0;
@@ -167,6 +172,16 @@ fn filter_taunt(
         }
         state.force_hand_extend = HAND_EXTEND_TAUNT;
         state.force_hand_extend_time = command.server_time.wrapping_add(100);
+        if ja_plus.free_taunts() {
+            // A JA+ client keeps meditating in place but looks around freely, its
+            // buttons kept (`bg_pmove.c:12228-12248` in EternalJK).
+            *stiffened = true;
+            return false;
+        }
+    }
+    if ja_plus.free_taunts() {
+        // Other taunts leave a JA+ client free to move and look (`bg_pmove.c:12249-12266`).
+        return false;
     }
     if state.legs_timer > 0 || state.torso_timer > 0 {
         command.buttons = 0;

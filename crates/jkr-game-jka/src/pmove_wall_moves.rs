@@ -52,6 +52,10 @@ pub(super) const BOTH_FORCEWALLHOLD_RIGHT: u16 = 882;
 pub(super) const BOTH_FORCEWALLRELEASE_FORWARD: u16 = 883;
 pub(super) const BOTH_JUMP1: u16 = 1_138;
 pub(super) const BOTH_INAIR1: u16 = 1_139;
+/// The Force jump's flips forward, left and right (`PM_SetForceJumpFlip`).
+const BOTH_FLIP_F: u16 = 1_163;
+const BOTH_FLIP_L: u16 = 1_165;
+const BOTH_FLIP_R: u16 = 1_166;
 pub(super) const BOTH_FORCEJUMP1: u16 = 1_151;
 pub(super) const BOTH_FLIP_BACK1: u16 = 1_206;
 pub(super) const BOTH_FLIP_BACK2: u16 = 1_207;
@@ -567,12 +571,19 @@ impl Predictor {
         };
         let mut wall_normal = Vec3::ZERO;
         if let Some(target) = target {
+            // A JA+ server with flip kick lets a player serve as the wall
+            // (`bg_pmove.c:2655-2665` in EternalJK).
+            let mask = if self.config.ja_plus.flip_kick() {
+                PLAYER_CONTENT_MASK
+            } else {
+                MASK_SOLID
+            };
             let trace = collision.trace(
                 self.state.origin,
                 minimums,
                 maximums,
                 target.to_array(),
-                MASK_SOLID,
+                mask,
             );
             wall_normal = vector_normalize(Vec3::from_array(trace.plane_normal));
             let ideal = vector_normalize(origin - target);
@@ -626,11 +637,24 @@ impl Predictor {
             self.flip_off_wall_run(command, bounds, collision);
         } else if legs == BOTH_FORCEWALLRUNFLIP_START {
             self.flip_off_wall_top(command, bounds, collision);
+        } else if self.config.ja_plus.flip_kick()
+            && command.forward_move > 0
+            && level > 1
+            && self.state.velocity[2] > 200.0
+            && self.ground_distance(bounds, collision) <= 80.0
+            && !crate::pmove_roll_anim::special_jump(legs)
+            && self.flip_off_player(command, bounds, collision, context)
+        {
+            // A JA+ server's flip kick: rising off a jump, pushing forward, a flip back
+            // off a player ahead (`bg_pmove.c:2919-2990`). Unlike EternalJK's branch, a
+            // JA+ server still runs up a wall when no player is there.
         } else if command.forward_move > 0
             && self.state.force_rage_recovery_time < command.server_time
             && level > 1
             && self.walkable_ground_distance(bounds, collision) <= 80.0
-            && matches!(legs, BOTH_JUMP1 | BOTH_INAIR1)
+            && (matches!(legs, BOTH_JUMP1 | BOTH_INAIR1)
+                || self.config.ja_plus.wall_runs_from_force_flips()
+                    && matches!(legs, BOTH_FLIP_F | BOTH_FLIP_L | BOTH_FLIP_R))
         {
             if rules.wall_runs {
                 self.start_wall_run_up(command, bounds, collision, context);
@@ -735,6 +759,63 @@ impl Predictor {
             command.up_move = 0;
             self.add_event(EV_JUMP, 0);
         }
+    }
+
+    /// A JA+ flip kick's flip back off a player (or NPC) within 32 units ahead
+    /// (`bg_pmove.c:2925-2989` in EternalJK): 150 back, 128 more up, the end of the
+    /// flip cut by 600 ms. Whether there was one to flip off.
+    fn flip_off_player(
+        &mut self,
+        command: &mut UserCommand,
+        bounds: Bounds,
+        collision: &impl MovementCollision,
+        context: &MoveContext,
+    ) -> bool {
+        let (forward, _) = yaw_axes(self.state.view_angles[1]);
+        let target = (Vec3::from_array(self.state.origin) + forward * 32.0).to_array();
+        let trace = collision.trace(
+            self.state.origin,
+            bounds.minimums,
+            bounds.maximums,
+            target,
+            PLAYER_CONTENT_MASK,
+        );
+        if !(trace.fraction < 1.0
+            && (trace.entity_number < MAX_CLIENTS || (context.npcs)(trace.entity_number)))
+        {
+            return false;
+        }
+        self.state.velocity[0] = 0.0;
+        self.state.velocity[1] = 0.0;
+        self.state.velocity = (Vec3::from_array(self.state.velocity) + forward * -150.0).to_array();
+        self.state.velocity[2] += 128.0;
+        let parts = self.jump_parts();
+        self.wall_animation(
+            parts,
+            BOTH_WALL_FLIP_BACK1,
+            SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+        );
+        self.state.legs_timer -= 600;
+        self.set_force_jump_start(self.state.origin[2]);
+        command.up_move = 0;
+        self.state.force_jump_sound = true;
+        super::force_jump::drain_levitation(&mut self.state);
+        true
+    }
+
+    /// `PM_GroundDistance` (`bg_saber.c:1936-1950`): how far below the player, box and
+    /// all, the solid ground is.
+    fn ground_distance(&self, bounds: Bounds, collision: &impl MovementCollision) -> f32 {
+        let mut down = self.state.origin;
+        down[2] -= 4_096.0;
+        let trace = collision.trace(
+            self.state.origin,
+            bounds.minimums,
+            bounds.maximums,
+            down,
+            MASK_SOLID,
+        );
+        (Vec3::from_array(self.state.origin) - Vec3::from_array(trace.end_position)).length()
     }
 
     /// `PM_WalkableGroundDistance` (`bg_saber.c:1952-1972`): how far below the player

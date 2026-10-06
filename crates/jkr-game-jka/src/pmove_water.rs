@@ -95,7 +95,9 @@ impl Predictor {
         }
         if self.state.water_level != 0 {
             drop += speed * f32::from(self.state.water_level) * seconds;
-        } else if self.state.ground_entity_number < 32 {
+        } else if self.state.ground_entity_number < 32 && self.config.ja_plus.slides_on_players() {
+            // Standing on a player is frictionless, unless a JA+ server turns the slide
+            // off (`jp_slideOnPlayer` 0, [`crate::pmove_japlus`]).
             drop = 0.0;
         }
         velocity *= (speed - drop).max(0.0) / speed;
