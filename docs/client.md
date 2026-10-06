@@ -292,6 +292,42 @@ positioned team overlay flow below that block. Explicit team-overlay coordinates
 remain authoritative. Visibility and server-selected leader/opponent rules are
 unchanged.
 
+## Scoreboard styles
+
+`cg_scoreboardStyle` (Settings, HUD+ tab, "Scoreboard style") picks the
+scoreboard layout: `modern` (default), JKR's table beside the chat column, or
+`classic`, the retail scoreboard as EternalJK-derived clients such as JoF EJK
+draw it ([classic.rs](../crates/jkr-viewer/src/scoreboard/classic.rs), after
+`CG_DrawOldScoreboard`/`CG_DrawClientScore` in `cg_scoreboard.c`):
+
+- The header shows "Killed by" while you are dead, otherwise the player count
+  (`cg_drawScoreboardPlayerCount`: 1 host name and counts, 2 counts only, 0 off;
+  team games show "N vs. M", your team first), and below it your place ("2nd
+  place (of 7) with 18", place in its retail colour) or the team lead.
+- Columns are Name, Score, Ping, Time and, with `cg_showClientIDs` (on by
+  default), the client ID; CTF shows Score, C, A, D, Ping and Time, and duels with
+  a frag limit show wins/losses. Score shows score/deaths when `cg_scoreDeaths`
+  provides deaths. Bots show `BOT` for their ping; clients still connecting show
+  `-`, and connected clients the scores do not list yet show `N/A`.
+- Team games list the leading team first over a translucent team band, then the
+  spectators; free-for-all lists the players, then the spectators. Your row is
+  highlighted in your rank's colour (1st blue, 2nd red, 3rd yellow, else grey) and
+  is added at the bottom if the list does not reach it. Flag carriers show the
+  flag icon before their row; at intermission, ready players are marked `READY`.
+- Rows are 25 units of the 480-line screen, 15 units once more than 12 players
+  are listed (always with `cg_smallScoreboard` and in CTF), and 12 units with the
+  header moved up from 20 clients. `cg_drawScoreboardIcons` (on by default) shows
+  each player's head icon (`models/players/<model>/icon_<skin>`), decoded when a
+  model changes, two per frame at most.
+- Positions follow the 640x480 screen fitted to the window height, spreading up
+  to 1.25x horizontally on wide windows while text keeps its proportions. Names
+  and headings are sized like retail `ergoec` text and numbers like `ocr_a`.
+
+The classic board also fades in over 120 ms and out over 200 ms after release
+(retail's fade time), rows glide to their new places when the order changes, pings
+are coloured from green to red, and rows alternate a faint stripe. Nothing is
+allocated per frame; the text and draw storage is reserved for 32 clients.
+
 ## Configuration and content
 
 The default writable client folder is `GameData/jkr/`, under the selected game

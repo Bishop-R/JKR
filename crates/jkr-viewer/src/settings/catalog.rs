@@ -174,6 +174,26 @@ pub(super) const HUD_OPTIONS: &[Setting] = &[
             step: 1,
         },
     },
+    Setting {
+        label: "Scoreboard style",
+        cvar: crate::scoreboard::style::CVAR,
+        kind: ValueKind::Choice(&crate::scoreboard::style::ScoreboardStyle::NAMES),
+    },
+    Setting {
+        label: "Scoreboard client IDs",
+        cvar: "cg_showClientIDs",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Scoreboard head icons",
+        cvar: "cg_drawScoreboardIcons",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Small scoreboard rows",
+        cvar: "cg_smallScoreboard",
+        kind: ValueKind::Bool,
+    },
 ];
 
 pub(super) const HUD: &[Setting] = &[

@@ -7,7 +7,9 @@ use super::ShapeVertex;
 use jkr_ui::{Color, Rect, TextureId};
 
 const ATLAS_SIZE: u32 = 2_048;
-const ATLAS_HEIGHT: u32 = ATLAS_SIZE + 768;
+/// The menu cells, the HUD cells, the scoreboard head icons (two rows) and the
+/// banner strip.
+const ATLAS_HEIGHT: u32 = ATLAS_SIZE + 768 + 2 * ICON_SIZE;
 /// Edge of one atlas cell; icons are uploaded at exactly this size.
 pub(crate) const ICON_SIZE: u32 = 128;
 const COLUMNS: u32 = ATLAS_SIZE / ICON_SIZE;
@@ -16,7 +18,10 @@ pub(crate) const BANNER_SIZE: [u32; 2] = [1_536, 384];
 const BANNER_Y: u32 = ATLAS_HEIGHT - BANNER_SIZE[1];
 /// Original menu-cell reservation; HUD cells follow without reducing menu capacity.
 pub(crate) const ICON_CELLS: u32 = COLUMNS * ((ATLAS_SIZE - BANNER_SIZE[1]) / ICON_SIZE);
-const TOTAL_CELLS: u32 = ICON_CELLS + 96;
+/// First of the 32 classic-scoreboard head-icon cells (one per client slot),
+/// after the 96 HUD cells.
+pub(crate) const SCOREBOARD_ICON_CELLS: u32 = ICON_CELLS + 96;
+const TOTAL_CELLS: u32 = SCOREBOARD_ICON_CELLS + 32;
 /// `TexturedQuad` texture naming the banner strip.
 pub(crate) const BANNER_TEXTURE: TextureId = TextureId(u32::MAX);
 /// Pixel size of the map-preview slot right of the banner (4:3, as the
@@ -223,4 +228,21 @@ pub(super) fn push_textured(
         parameters: [0.0, 2.0],
         uv,
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_cell_lies_above_the_banner_strip() {
+        let last = TOTAL_CELLS - 1;
+        let bottom = (last / COLUMNS + 1) * ICON_SIZE;
+        assert!(
+            bottom <= BANNER_Y,
+            "cells end at {bottom}, banner at {BANNER_Y}"
+        );
+        let (_, end) = uv_range(TextureId(SCOREBOARD_ICON_CELLS + 31));
+        assert!(end[1] <= BANNER_Y as f32 / ATLAS_HEIGHT as f32);
+    }
 }

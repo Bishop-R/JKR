@@ -2,7 +2,7 @@
 use super::*;
 use jkr_ui::{Color, DrawCommand, FontWeight, Rect, TextAlign, TextOverflow, TextureId};
 #[path = "icon_assets.rs"]
-pub(super) mod assets;
+pub(crate) mod assets;
 
 /// Register only the implemented flat-icon path and explicitly partial model selector.
 pub(crate) fn register(cvars: &mut jkr_shell::CvarRegistry) -> Result<(), jkr_shell::CvarError> {
@@ -75,6 +75,14 @@ pub(crate) struct Icons {
     cty: bool,
     method: usize,
     warned_model: bool,
+}
+
+impl Icons {
+    /// The loaded icon of timed powerup `power` (`PW_REDFLAG` is 4), if any.
+    pub(crate) fn powerup(&self, power: usize) -> Option<TextureId> {
+        let item = *assets::POWERS.get(power)?;
+        (item != 0).then(|| self.handles[item]).flatten()
+    }
 }
 
 impl Default for Icons {

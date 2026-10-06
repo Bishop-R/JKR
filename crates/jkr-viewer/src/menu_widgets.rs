@@ -60,7 +60,7 @@ pub(crate) struct MenuCanvas {
     tree: WidgetTree,
     rects: Vec<Rect>,
     tokens: Vec<MenuToken>,
-    text: [String; MAX_TEXT],
+    text: Vec<String>,
     text_len: usize,
     input: InputRouter,
     hovered_token: Option<MenuToken>,
@@ -76,13 +76,22 @@ impl MenuCanvas {
 
     /// Reserve screen-specific text storage before entering the frame loop.
     pub(crate) fn with_text_capacity(text_bytes: usize) -> Self {
+        Self::with_capacities(MAX_TEXT, text_bytes, MAX_DRAW)
+    }
+
+    /// Reserve `text_slots` text runs of `text_bytes` each and `draws` draw
+    /// commands, for layers that draw more than an ordinary screen (such as a
+    /// full scoreboard), before entering the frame loop.
+    pub(crate) fn with_capacities(text_slots: usize, text_bytes: usize, draws: usize) -> Self {
         Self {
             theme: Theme::default(),
-            draw: DrawList::new(MAX_DRAW),
+            draw: DrawList::new(draws),
             tree: WidgetTree::new(MAX_WIDGETS),
             rects: Vec::with_capacity(MAX_WIDGETS),
             tokens: Vec::with_capacity(MAX_WIDGETS),
-            text: std::array::from_fn(|_| String::with_capacity(text_bytes)),
+            text: (0..text_slots)
+                .map(|_| String::with_capacity(text_bytes))
+                .collect(),
             text_len: 0,
             input: InputRouter::new(MAX_WIDGETS),
             hovered_token: None,
