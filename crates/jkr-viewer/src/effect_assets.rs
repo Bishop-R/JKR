@@ -48,6 +48,7 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "thermal/explosion",
     "thermal/shockwave",
     "concussion/explosion",
+    "concussion/alt_ring",
     "sparks/spark_nosnd",
     "bryar/shot",
     "blaster/shot",
@@ -86,6 +87,12 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
 /// flare (`cg_draw.c`), the disruptor beam lines (`fx_disruptor.c`) and the
 /// sprites floated over players (`cg_players.c`).
 pub(crate) const CODE_SHADERS: &[&str] = &[
+    "gfx/misc/blue_portashield",
+    "gfx/misc/blue_dmgshield",
+    "gfx/misc/red_portashield",
+    "gfx/misc/red_dmgshield",
+    "@jkr/solid-add",
+    "gfx/mp/vchat_icon",
     "gfx/damage/rivetmark",
     "gfx/effects/saberdamageglow",
     "gfx/misc/spark",
@@ -93,6 +100,7 @@ pub(crate) const CODE_SHADERS: &[&str] = &[
     "gfx/effects/sabers/red_glow",
     "gfx/effects/saberFlare",
     "gfx/effects/redLine",
+    "gfx/effects/blueLine",
     "gfx/misc/whiteline2",
     jkr_client::LegacyPlayerSprite::ConnectionInterrupted.shader(),
     jkr_client::LegacyPlayerSprite::Talk.shader(),

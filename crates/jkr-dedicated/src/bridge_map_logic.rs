@@ -22,6 +22,7 @@ pub(super) enum Held {
     Runner(usize),
     Speaker(usize),
     Door(usize),
+    Station(usize),
     /// Kept by the reference, and never used alone here.
     Other,
 }
@@ -55,6 +56,8 @@ pub(super) struct StockEntities {
     pub(super) scenery: bridge_map_scenery::Scenery,
     /// Portable shields deployed during this level.
     pub(super) shields: bridge_holdables::shields::Shields,
+    /// The map's health, armor and ammunition converters.
+    pub(super) stations: super::bridge_stations::Stations,
 }
 
 impl StockEntities {
@@ -64,6 +67,7 @@ impl StockEntities {
             .obstacles()
             .chain(self.scenery.obstacles())
             .chain(self.shields.obstacles())
+            .chain(self.stations.obstacles())
     }
 }
 
@@ -78,6 +82,7 @@ impl NativeGame {
             return;
         };
         let level_time = self.last_frame_time;
+        self.spawn_stations(&entities, level_time);
         self.spawn_map_logic(&entities, level_time);
         self.spawn_path_movers(&entities, level_time);
         self.spawn_scenery(&entities, level_time);
@@ -89,6 +94,7 @@ impl NativeGame {
         self.run_path_movers(level_time);
         self.run_scenery(level_time);
         self.run_shields(level_time);
+        self.run_stations(level_time);
     }
 
     /// `G_UseTargets` reaching the logic entities and path movers called `name`.
@@ -96,6 +102,7 @@ impl NativeGame {
         self.use_map_logic(name, client, level_time);
         self.use_path_movers(name, client, level_time);
         self.use_glass(name, client, level_time);
+        self.use_named_stations(name, client, level_time);
     }
 
     /// Every logic entity the map places in this game type, and the list of named
@@ -105,7 +112,7 @@ impl NativeGame {
         self.stock.logic.clear();
         self.stock.named.clear();
         let (mut runners, mut speakers) = (0, 0);
-        for entity in entities.iter().skip(1) {
+        for (lump_index, entity) in entities.iter().enumerate().skip(1) {
             if !jkr_game_jka::spawn_table::kept_by_reference(entity, self.gametype) {
                 continue;
             }
@@ -136,7 +143,11 @@ impl NativeGame {
                             .position(|(_, door)| format!("*{}", door.model) == model)
                             .map_or(Held::Other, Held::Door)
                     }
-                    _ => Held::Other,
+                    _ => self
+                        .stock
+                        .stations
+                        .named(lump_index)
+                        .map_or(Held::Other, Held::Station),
                 },
             };
             let Some(name) = entity.get("targetname").filter(|name| !name.is_empty()) else {
@@ -274,6 +285,12 @@ impl NativeGame {
                     };
                     self.teleport_client(client, from, destination, angles, spectating, level_time);
                 }
+                Deed::Action(action, activator) => self.apply_target_action(
+                    action,
+                    self.stock.logic[index].origin,
+                    activator,
+                    level_time,
+                ),
                 Deed::Music(music) => {
                     self.publish_config_string(jkr_game_jka::worldspawn::CS_MUSIC, music.as_bytes())
                 }
@@ -307,6 +324,7 @@ impl NativeGame {
             Held::Logic(other) => self.use_logic_entity(other, activator, level_time),
             Held::Runner(runner) => self.use_one_runner(runner, client, level_time),
             Held::Speaker(speaker) => self.use_one_speaker(speaker, client, level_time),
+            Held::Station(station) => self.use_station_index(station, client, level_time),
             Held::Door(door) => {
                 let fired = jkr_game_jka::mover_team::use_mover(
                     &mut self.doors,

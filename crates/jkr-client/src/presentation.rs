@@ -446,6 +446,11 @@ fn legacy_entity_model_appearance(
     game_state: &GameState,
     state: &jkr_protocol::EntityState,
 ) -> Option<Appearance> {
+    // Special/shield, beam, portal, speaker and team tags are not CS_MODELS.
+    // OpenJK deliberately does not submit ET_TEAM (the old Q3 flag pedestals).
+    if matches!(state.entity_type(), 4 | 7 | 8 | 9 | 14) {
+        return None;
+    }
     if !legacy_model_index_is_model(state.entity_type(), state.weapon()) {
         return None;
     }

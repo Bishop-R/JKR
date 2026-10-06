@@ -2,7 +2,7 @@
 
 use super::*;
 
-pub(crate) const PIPELINE_COUNT: usize = 7;
+pub(crate) const PIPELINE_COUNT: usize = 8;
 
 pub(crate) fn specifications() -> [(&'static str, wgpu::BlendState); PIPELINE_COUNT] {
     [
@@ -28,6 +28,10 @@ pub(crate) fn specifications() -> [(&'static str, wgpu::BlendState); PIPELINE_CO
             "JKR inverse-source-alpha destination FX",
             factors(wgpu::BlendFactor::One, wgpu::BlendFactor::OneMinusSrcAlpha),
         ),
+        (
+            "JKR inverse-source-color destination FX",
+            factors(wgpu::BlendFactor::One, wgpu::BlendFactor::OneMinusSrc),
+        ),
     ]
 }
 
@@ -40,6 +44,7 @@ pub(crate) fn slot(blend: ParticleBlend) -> usize {
         ParticleBlend::TwiceModulate => 4,
         ParticleBlend::DstColorAdd => 5,
         ParticleBlend::OneMinusSrcAlpha => 6,
+        ParticleBlend::OneMinusSrcColor => 7,
     }
 }
 

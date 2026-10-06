@@ -97,10 +97,6 @@ impl ServerTurretHost<'_> {
             .iter_mut()
             .find(|instance| instance.number == me)
     }
-
-    fn register(&mut self) -> impl FnMut(usize, &[u8]) + '_ {
-        |index, value| self.registered.push((index, value.to_vec()))
-    }
 }
 
 impl TurretHost for ServerTurretHost<'_> {
@@ -138,25 +134,10 @@ impl TurretHost for ServerTurretHost<'_> {
 
     /// `G_IconIndex` (`CS_ICONS`): what the clients' radar draws a turret by.
     fn icon_index(&mut self, name: &[u8]) -> u16 {
-        if let Some(index) = self
-            .work
-            .icons
-            .iter()
-            .position(|known| known.eq_ignore_ascii_case(name))
-        {
-            return index as u16 + 1;
-        }
-        if self.work.icons.len() + 1 >= MAX_ICONS {
-            eprintln!(
-                "G_IconIndex: overflow; {} not registered",
-                String::from_utf8_lossy(name)
-            );
-            return 0;
-        }
-        self.work.icons.push(name.to_vec());
-        let index = self.work.icons.len();
-        (self.register())(CS_ICONS + index, name);
-        index as u16
+        let (icons, registered) = (&mut self.work.icons, &mut self.registered);
+        register_icon(icons, name, &mut |index, value| {
+            registered.push((index, value.to_vec()))
+        })
     }
 
     fn register_weapon(&mut self, weapon: u32) {
@@ -329,4 +310,28 @@ impl TurretHost for ServerTurretHost<'_> {
             means,
         });
     }
+}
+
+/// Shared G_IconIndex namespace for turrets and other map entities.
+pub(super) fn register_icon(
+    icons: &mut Vec<Vec<u8>>,
+    name: &[u8],
+    set: &mut impl FnMut(usize, &[u8]),
+) -> u16 {
+    if name.is_empty() {
+        return 0;
+    }
+    if let Some(index) = icons
+        .iter()
+        .position(|known| known.eq_ignore_ascii_case(name))
+    {
+        return index as u16 + 1;
+    }
+    if icons.len() + 1 >= MAX_ICONS {
+        return 0;
+    }
+    icons.push(name.to_vec());
+    let index = icons.len();
+    set(CS_ICONS + index, name);
+    index as u16
 }

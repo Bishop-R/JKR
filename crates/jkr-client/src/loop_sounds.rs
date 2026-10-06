@@ -16,7 +16,9 @@ use crate::ambient_world::{CS_GLOBAL_AMBIENT_SET, LegacyAmbientShot, LegacyAmbie
 use crate::player_identity::legacy_client_saber_names;
 use crate::presentation::legacy_evaluate_trajectory_delta;
 use crate::saber_definitions::legacy_saber_definitions;
-use crate::sound_events::{RegisteredLegacySound, intern_sound, normal_attenuation};
+use crate::sound_events::{
+    LegacySoundDecision, LegacySoundEvent, RegisteredLegacySound, intern_sound, normal_attenuation,
+};
 use crate::{AmbientSetKind, AmbientSets};
 use jkr_audio::{ChannelId, DopplerConfig, PlayRequest, SoundHandle, SourceId};
 use jkr_protocol::{EntityState, GameState, Snapshot};
@@ -145,6 +147,10 @@ pub(crate) struct LegacyLoopAdapter {
     listener_velocity: [f32; 3],
     ambient: LegacyAmbientWorld,
     ambient_catalog: AmbientSets,
+    speaker_clock: crate::speaker::SpeakerClock,
+    speaker_random: crate::animation_events::Random,
+    speaker_shots: Vec<LegacySoundDecision>,
+    speaker_stops: Vec<SourceId>,
 }
 
 impl LegacyLoopAdapter {
@@ -222,6 +228,10 @@ impl LegacyLoopAdapter {
             listener_velocity: [0.0; 3],
             ambient,
             ambient_catalog,
+            speaker_clock: Default::default(),
+            speaker_random: Default::default(),
+            speaker_shots: Vec::with_capacity(MAX_ENTITIES),
+            speaker_stops: Vec::with_capacity(MAX_ENTITIES),
         }
     }
 
@@ -266,8 +276,41 @@ impl LegacyLoopAdapter {
         self.listener_origin = listener_origin;
         self.listener_velocity = snapshot.player.velocity();
         self.ambient.begin_frame();
+        self.speaker_clock.begin_frame(presented_time);
+        self.speaker_shots.clear();
+        self.speaker_stops.clear();
 
         for state in &snapshot.entities {
+            if state.entity_type() == 9 {
+                let random = &mut self.speaker_random;
+                if self.speaker_clock.due(state, presented_time, || {
+                    random.index(65536) as f32 / 32767.5 - 1.0
+                }) {
+                    let sound = self.cs_sounds[usize::from(state.event_parameter())];
+                    let handle = sound.and_then(|i| self.sounds[usize::from(i)].handle);
+                    if self.speaker_shots.len() < MAX_ENTITIES {
+                        self.speaker_shots.push(LegacySoundDecision {
+                            event: LegacySoundEvent::General,
+                            sound,
+                            handle,
+                            additional: false,
+                            request: PlayRequest {
+                                origin: Some(presented_origin(state)),
+                                source: SourceId(u32::from(state.number())),
+                                channel: ChannelId(5), // CHAN_ITEM
+                                volume: 1.0,
+                                attenuation: normal_attenuation(5),
+                            },
+                        });
+                    }
+                }
+                if state.tracked_entity_num() != 0 {
+                    if self.speaker_stops.len() < MAX_ENTITIES {
+                        self.speaker_stops.push(SourceId(u32::from(state.number())));
+                    }
+                    continue;
+                }
+            }
             let local_set = state.sound_set_index() != 0 && state.entity_type() != ET_MOVER;
             let configured_loop = state.loop_sound() != 0
                 || (state.loop_is_soundset()
@@ -307,6 +350,13 @@ impl LegacyLoopAdapter {
     /// Ambient one-shots started while building the current frame.
     pub(crate) fn ambient_shots(&self) -> &[LegacyAmbientShot] {
         self.ambient.shots()
+    }
+
+    pub(crate) fn speaker_shots(&self) -> &[LegacySoundDecision] {
+        &self.speaker_shots
+    }
+    pub(crate) fn speaker_stops(&self) -> &[SourceId] {
+        &self.speaker_stops
     }
 
     /// Whether a global set resolved this frame (0 or 1).

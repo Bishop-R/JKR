@@ -6,6 +6,8 @@
 //! primitives are ignored explicitly instead of substituted with invented art.
 
 use super::*;
+#[path = "concussion_effects.rs"]
+mod concussion;
 pub(crate) use crate::effect_library::EffectLibrary;
 pub(crate) use crate::particle_types::{
     MAX_PARTICLES, Particle, ParticleLayerSamples, blend_for_stage as particle_blend_for_stage,
@@ -58,6 +60,34 @@ pub(crate) fn spawn_snapshot_particles(
             continue;
         }
         previous_events.insert(entity.number(), latch);
+        if raw_event == 84 {
+            concussion::spawn(
+                entity,
+                &mut crate::impact_spawn::Sinks {
+                    particles,
+                    auxiliary,
+                    effects,
+                    vfs,
+                    audio,
+                },
+                now,
+            );
+            continue;
+        }
+        auxiliary.feedback.observe(
+            raw_event,
+            entity,
+            game_state,
+            snapshot.player.client_num(),
+            snapshot.server_time,
+        );
+        if let Some((intensity, duration)) = jkr_client::event_feedback::screen_shake(
+            raw_event,
+            entity,
+            snapshot.player.client_num(),
+        ) {
+            auxiliary.screen_shake(intensity, duration, now, u32::from(entity.number()));
+        }
         let Some(effect_name) = combat_effects::for_event(raw_event, entity, game_state) else {
             continue;
         };

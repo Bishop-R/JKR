@@ -363,6 +363,14 @@ impl GameAudio {
                 self.output.send(AudioCommand::Play(handle, shot.request));
             }
         }
+        for source in adapter.speaker_stops() {
+            self.output.send(AudioCommand::StopLoops(*source));
+        }
+        for shot in adapter.speaker_shots() {
+            if let Some(handle) = shot.handle {
+                self.output.send(AudioCommand::Play(handle, shot.request));
+            }
+        }
         adapter.observe_maintained_loops(snapshot, |state| {
             presented_entity_origin(world, bsp, state, presented_time)
         });

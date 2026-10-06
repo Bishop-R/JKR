@@ -43,6 +43,16 @@ impl EffectLibrary {
         }
     }
 
+    /// Rigid models referenced by the already loaded recursive graph closure.
+    pub(crate) fn model_paths(&self) -> impl Iterator<Item = &str> {
+        self.definitions.values().flat_map(|definition| {
+            definition
+                .components
+                .iter()
+                .flat_map(|component| component.models.iter().map(String::as_str))
+        })
+    }
+
     pub(crate) fn append_sound_paths(&self, output: &mut Vec<String>) {
         output.clear();
         for definition in self.definitions.values() {

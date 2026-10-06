@@ -129,6 +129,9 @@ impl NativeGame {
         self.told
             .retain(|told| !matches!(told, Told::ConfigString { .. }));
         self.map_effects = Default::default();
+        // Entity registries and collision owners belong to the outgoing map.
+        self.map_turrets = Default::default();
+        self.stock = Default::default();
         // The game module is loaded afresh for a new map: its filter starts empty and
         // `G_InitGame` reads `g_banIPs` into it.
         self.ip_filter = Default::default();

@@ -20,6 +20,15 @@ impl NativeGame {
         if self.filtered_out(&address) {
             return Err(b"Banned.".to_vec());
         }
+        if !bot && self.cvars.integer(b"g_needpass") != 0 {
+            let password = self.cvars.string(b"g_password");
+            if !password.is_empty()
+                && !password.eq_ignore_ascii_case(b"none")
+                && jkr_protocol::info_value(userinfo, b"password").unwrap_or_default() != password
+            {
+                return Err(b"@@@INVALID_ESCAPE_TO_MAIN".to_vec());
+            }
+        }
         let address = if bot { b"Bot".to_vec() } else { address };
         let world = self
             .server

@@ -10,7 +10,9 @@ mod options;
 mod player_actions;
 mod social;
 
+mod ctf;
 mod view;
+mod voice;
 
 pub(crate) mod combat;
 

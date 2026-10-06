@@ -97,6 +97,11 @@ pub(crate) fn update(
     intermission: bool,
 ) {
     let (view_target, view_up, vertical_fov) = view;
+    gpu.hud.action_remaining = if intermission {
+        None
+    } else {
+        gpu.effect_aux.feedback.timer_remaining(presentation_time)
+    };
     hud::tints::update(gpu, view_position, presentation_time, intermission);
     let scoreboard = gpu.gameplay_input.held(input::GameButton::Scores);
     let labels_hidden = scoreboard
@@ -320,8 +325,9 @@ pub(crate) fn update(
             gpu.chat.observe_combat(
                 snapshot,
                 game,
+                &gpu.localization,
                 &gpu.obituaries,
-                gpu.console.as_ref(),
+                gpu.console.as_mut(),
                 camera,
                 presentation_time,
             );

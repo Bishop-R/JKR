@@ -11,6 +11,7 @@ pub(crate) enum ParticleBlend {
     TwiceModulate,
     DstColorAdd,
     OneMinusSrcAlpha,
+    OneMinusSrcColor,
     Unsupported,
 }
 
@@ -40,6 +41,10 @@ pub(crate) enum PrimitiveShape {
     Billboard,
     /// A retained-world sprite replaced each frame rather than simulated over its lifetime.
     FrameBillboard,
+    /// Explicit world-space face replaced at the next frame, like frame billboards.
+    FrameQuad {
+        points: [Vec3; 4],
+    },
     Cylinder {
         axis: Vec3,
         size2: crate::effect_envelope::Envelope,
@@ -56,6 +61,12 @@ pub(crate) enum PrimitiveShape {
         trace_end: bool,
         depth_hack: bool,
     },
+}
+
+impl PrimitiveShape {
+    pub(crate) fn is_frame(self) -> bool {
+        matches!(self, Self::FrameBillboard | Self::FrameQuad { .. })
+    }
 }
 
 impl Particle {
@@ -147,6 +158,12 @@ pub(crate) fn blend_for_stage(blend: Option<&StageBlend>) -> ParticleBlend {
             destination,
         }) if source == "gl_one" && destination == "gl_one_minus_src_alpha" => {
             ParticleBlend::OneMinusSrcAlpha
+        }
+        Some(StageBlend::Custom {
+            source,
+            destination,
+        }) if source == "gl_one" && destination == "gl_one_minus_src_color" => {
+            ParticleBlend::OneMinusSrcColor
         }
         Some(StageBlend::Custom { .. }) => ParticleBlend::Unsupported,
         Some(StageBlend::Replace | StageBlend::Alpha) | None => ParticleBlend::Alpha,

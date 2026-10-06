@@ -25,6 +25,8 @@ pub enum LegacyMaintainedEvent {
     StopLoopingSound,
     TrackedGeneralSound,
     MuteSound,
+    /// Reliable `kls` source/tracker cleanup.
+    KillLoopSounds,
 }
 
 impl LegacyMaintainedEvent {
@@ -36,6 +38,7 @@ impl LegacyMaintainedEvent {
             Self::StopLoopingSound => "EV_STOPLOOPINGSOUND",
             Self::TrackedGeneralSound => "EV_GENERAL_SOUND_TRACKED",
             Self::MuteSound => "EV_MUTE_SOUND",
+            Self::KillLoopSounds => "kls",
         }
     }
 }
@@ -207,6 +210,12 @@ impl MaintainedSounds {
             handle: None,
             affected_slots: affected,
         });
+    }
+
+    pub(crate) fn clear_source(&mut self, source: u16) {
+        if let Some(count) = self.counts.get_mut(usize::from(source)) {
+            *count = 0;
+        }
     }
 
     pub(crate) fn mute(&mut self, source: u16, channel: u32) {

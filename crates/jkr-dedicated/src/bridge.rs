@@ -357,7 +357,7 @@ impl NativeGame {
         // The `CVAR_SERVERINFO` cvars a legacy cgame reads from `CS_SERVERINFO`
         // (`CG_ParseServerinfo`), at the reference's defaults. `sv_maxclients` is the
         // protocol-26 roster — the cgame sizes its client arrays from it — not the
-        // core's capacity, which the browser's `getinfo` reports.
+        // core's entity capacity. Browser queries subtract reserved player slots.
         status_info.extend_from_slice(format!("\\sv_maxclients\\{wire_clients}").as_bytes());
         for (key, value) in SERVERINFO_DEFAULTS {
             status_info.extend_from_slice(format!("\\{key}\\{value}").as_bytes());
@@ -3272,6 +3272,8 @@ mod bridge_generic;
 mod bridge_holocron;
 #[path = "bridge_icarus.rs"]
 mod bridge_icarus;
+#[path = "bridge_information_commands.rs"]
+mod bridge_information_commands;
 #[path = "bridge_jedimaster.rs"]
 mod bridge_jedimaster;
 #[path = "bridge_lock.rs"]
@@ -3379,3 +3381,12 @@ pub use bridge_votes::SUPPORTED_VOTES;
 
 #[path = "bridge_continuation.rs"]
 mod continuation;
+
+#[path = "bridge_stations.rs"]
+mod bridge_stations;
+
+#[path = "bridge_target_actions.rs"]
+mod bridge_target_actions;
+
+#[path = "bridge_script_client.rs"]
+mod bridge_script_client;

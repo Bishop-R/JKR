@@ -55,13 +55,14 @@ struct ActiveShake {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct CameraOffset {
     pub(crate) origin: Vec3,
-    /// Pitch/yaw/roll in degrees. Codemp deliberately leaves roll unchanged.
+    /// Pitch/yaw/roll in degrees. Codemp reuses the vertical translation for roll.
     pub(crate) angles: Vec3,
     pub(crate) magnitude: f32,
 }
 
 /// Map-lifetime, allocation-free storage for EFX lights and camera shakes.
 pub(crate) struct Runtime {
+    pub(crate) feedback: jkr_client::event_feedback::Feedback,
     lights: Vec<ActiveLight>,
     pending_shakes: Vec<ShakeRequest>,
     active_shake: Option<ActiveShake>,
@@ -78,6 +79,7 @@ pub(crate) struct Runtime {
 impl Default for Runtime {
     fn default() -> Self {
         Self {
+            feedback: Default::default(),
             lights: Vec::with_capacity(MAX_EFFECT_PRIMITIVES),
             pending_shakes: Vec::with_capacity(MAX_PENDING_SHAKES),
             active_shake: None,
@@ -92,6 +94,17 @@ impl Default for Runtime {
 }
 
 impl Runtime {
+    /// A server screen-shake event has already selected its recipient and has
+    /// no distance falloff, unlike an EFX shake primitive.
+    pub(crate) fn screen_shake(&mut self, intensity: f32, duration: i32, now: Instant, seed: u32) {
+        self.active_shake = (duration > 0).then_some(ActiveShake {
+            intensity,
+            started_at: now,
+            lifetime: Duration::from_millis(duration.max(0) as u64),
+            seed,
+        });
+    }
+
     pub(crate) fn spawn_light(
         &mut self,
         component: &Component,
@@ -225,7 +238,9 @@ impl Runtime {
         let signed = |index: u32| random_unit(frame_seed.wrapping_add(index)) * 2.0 - 1.0;
         let offset = CameraOffset {
             origin: Vec3::new(signed(0), signed(1), signed(2)) * magnitude,
-            angles: Vec3::new(signed(3), signed(4), 0.0) * magnitude,
+            // CG_SE_UpdateShake overwrites only moveDir[0..2] before adding
+            // all three components to angles: despite its comment, roll keeps Z.
+            angles: Vec3::new(signed(3), signed(4), signed(2)) * magnitude,
             magnitude,
         };
         self.last_camera_offset = offset;

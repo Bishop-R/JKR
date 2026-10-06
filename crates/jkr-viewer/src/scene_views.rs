@@ -63,6 +63,9 @@ pub(crate) struct Runtime {
     format: wgpu::TextureFormat,
 }
 
+/// `ET_PORTAL` (`bg_public.h`): the entity a portal surface takes its camera from.
+const ET_PORTAL: u8 = 8;
+
 impl Runtime {
     /// Bind retained mirror suppression resources once the map renderer exists.
     pub(crate) fn configure_floor_commands(
@@ -211,7 +214,8 @@ impl Runtime {
         }
         use std::hash::{Hash, Hasher};
         let mut hash = std::collections::hash_map::DefaultHasher::new();
-        for e in jkr_client::legacy_scene_entities(game, snapshot).filter(|e| e.entity_type() == 7)
+        for e in jkr_client::legacy_scene_entities(game, snapshot)
+            .filter(|e| e.entity_type() == ET_PORTAL)
         {
             e.number().hash(&mut hash);
             for field in [e.trajectory_base(), e.origin2()] {
@@ -230,7 +234,7 @@ impl Runtime {
         self.portals.clear();
         self.portals.extend(
             jkr_client::legacy_scene_entities(game, snapshot)
-                .filter(|e| e.entity_type() == 7)
+                .filter(|e| e.entity_type() == ET_PORTAL)
                 .map(math::Portal::from_entity),
         );
         for face in &mut self.faces {

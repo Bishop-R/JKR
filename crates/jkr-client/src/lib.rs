@@ -73,11 +73,16 @@ mod saber_clash_flare;
 mod saber_definitions;
 mod saber_move;
 use jkr_game_jka::saber_move_data;
+pub mod concussion_shot;
+pub mod event_feedback;
 pub mod selection;
 mod server_address;
 mod server_clock;
 mod session_transition;
+pub mod sound_commands;
 mod sound_events;
+pub mod speaker;
+pub mod special_entities;
 mod taystjk_cosmetics;
 mod team_commands;
 mod team_info;
@@ -182,7 +187,7 @@ pub use player_profile::{
 };
 pub use player_sprites::{
     LEGACY_PLAYER_SPRITE_HEIGHT, LEGACY_PLAYER_SPRITE_RADIUS, LegacyPlayerSprite,
-    legacy_player_sprite,
+    legacy_player_sprite, with_voice as legacy_player_sprite_with_voice,
 };
 pub use pmove_anim::{AnimationLengthTable, AnimationLengths, AnimationTiming};
 pub use pmove_roll::{PMF_ROLLING, RollRules};
@@ -730,11 +735,10 @@ impl ClientSession {
                 &mut self.latest_snapshot,
                 &mut self.config_string_dirty,
             ) {
-                let mut commands = std::mem::take(&mut self.latest_snapshot.server_commands);
+                let commands = std::mem::take(&mut self.latest_snapshot.server_commands);
                 for command in &commands {
                     self.apply_server_command(&command.command)?;
                 }
-                commands.clear();
                 self.latest_snapshot.server_commands = commands;
                 Ok(&self.latest_snapshot)
             } else {
@@ -1039,6 +1043,18 @@ impl ClientSession {
             self.events.push_back(event);
             return Ok(());
         }
+        if name == b"cps" {
+            // CG_CenterPrintSE_f consumes one complete FILE_REFERENCE key,
+            // optionally prefixed with '@', unlike cp's embedded references.
+            let key = arguments.get(1).map_or(&[][..], Vec::as_slice);
+            let key = key.strip_prefix(b"@").unwrap_or(key);
+            self.events.push_back(ServerEvent {
+                kind: ServerEventKind::CenterPrint,
+                text: format!("@@@{}", String::from_utf8_lossy(key)),
+                sender: None,
+            });
+            return Ok(());
+        }
         let event_kind = match name {
             b"print" => Some(ServerEventKind::Print),
             b"cp" => Some(ServerEventKind::CenterPrint),
@@ -1095,6 +1111,11 @@ impl ClientSession {
                         .push_back(BaseServerCommandEvent::KillGhoul2(number));
                 }
             }
+            return Ok(());
+        }
+        if name == b"kls" {
+            // The shared snapshot sound adapter consumes this for live/local
+            // sessions and demos, including deferred audio initialization.
             return Ok(());
         }
         if let Some(event) = base_server_commands::siege_menu_command(name) {

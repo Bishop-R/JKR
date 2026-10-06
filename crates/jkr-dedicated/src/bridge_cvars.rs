@@ -37,6 +37,23 @@ impl NativeGame {
     /// settings, the server-info string everyone is sent, and the announcement of a
     /// tracked variable (`print "Server: %s changed to %s\n"`).
     pub(super) fn apply_cvars(&mut self) {
+        // G_CheckNeedPass: '%' cannot survive the legacy print/connect path.
+        // Derive the read-only public flag from the actual admission password.
+        if self.cvars.string(b"g_password").contains(&b'%') {
+            let password: Vec<u8> = self
+                .cvars
+                .string(b"g_password")
+                .iter()
+                .map(|&byte| if byte == b'%' { b'.' } else { byte })
+                .collect();
+            self.cvars.set(b"g_password", &password);
+        }
+        let password = self.cvars.string(b"g_password");
+        let required = !password.is_empty() && !password.eq_ignore_ascii_case(b"none");
+        if self.cvars.integer(b"g_needpass") != i32::from(required) {
+            self.cvars
+                .set(b"g_needpass", if required { b"1" } else { b"0" });
+        }
         let mut seen = std::mem::take(&mut self.cvars_seen);
         let changed = self.cvars.changed_since(&mut seen);
         self.cvars_seen = seen;

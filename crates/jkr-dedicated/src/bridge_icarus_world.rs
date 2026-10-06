@@ -582,15 +582,13 @@ impl ScriptWorld for ServerWorld<'_> {
                 }
                 self.player_die(client, -999, 100_000, jkr_game_jka::damage::MOD_FALLING);
             }
-            ClientAction::Teleport(origin) => {
-                if let Some(peer) = self.game.peer_mut(client) {
-                    peer.state
-                        .set_origin([origin[0], origin[1], origin[2] + 1.0]);
-                    peer.state.set_velocity([0.0; 3]);
-                    peer.movement = peer.movement.reseeded(&peer.state);
-                }
-            }
             other => {
+                if self
+                    .game
+                    .script_client_action(client, &other, self.game.last_frame_time)
+                {
+                    return;
+                }
                 let what = format!("{other:?}");
                 let kind = what
                     .split(['(', ' ', '{'])

@@ -392,6 +392,7 @@ impl LegacySoundLedger {
 
 #[derive(Clone, Copy, Default)]
 struct CustomSet {
+    siege: [Option<u16>; jkr_game_jka::voice_commands::SOUNDS.len()],
     pushed: [Option<u16>; 3],
     choke: [Option<u16>; 3],
     push_fail: Option<u16>,
@@ -410,6 +411,7 @@ struct CustomSet {
 
 #[derive(Clone, Copy)]
 enum CustomKind {
+    Siege(usize),
     Pushed(usize),
     Choke(usize),
     PushFail,
@@ -428,6 +430,7 @@ enum CustomKind {
 impl CustomSet {
     fn get(self, kind: CustomKind) -> Option<u16> {
         match kind {
+            CustomKind::Siege(index) => self.siege[index],
             CustomKind::Pushed(index) => self.pushed[index],
             CustomKind::Choke(index) => self.choke[index],
             CustomKind::PushFail => self.push_fail,
@@ -568,6 +571,7 @@ pub struct LegacySoundAdapter {
     ledger: LegacySoundLedger,
     loops: LegacyLoopAdapter,
     maintained: MaintainedSounds,
+    loop_command_sequence: i32,
 }
 
 impl LegacySoundAdapter {
@@ -795,6 +799,7 @@ impl LegacySoundAdapter {
             ledger: LegacySoundLedger::default(),
             loops,
             maintained,
+            loop_command_sequence: game_state.server_command_sequence,
         }
     }
 
@@ -852,6 +857,18 @@ impl LegacySoundAdapter {
         self.decisions.clear();
         self.music_actions.clear();
         self.maintained.begin_snapshot();
+        for command in &snapshot.server_commands {
+            if command.sequence <= self.loop_command_sequence {
+                continue;
+            }
+            self.loop_command_sequence = command.sequence;
+            if let Some(targets) = crate::sound_commands::loop_stop_targets(&command.command) {
+                for source in targets.into_iter().flatten() {
+                    self.maintained
+                        .stop(LegacyMaintainedEvent::KillLoopSounds, source);
+                }
+            }
+        }
         self.observe_entity_events(snapshot);
         self.observe_player_events(snapshot);
         self.local.observe_snapshot(snapshot);
@@ -891,8 +908,23 @@ impl LegacySoundAdapter {
         listener_origin: [f32; 3],
         presented_origin: impl FnMut(&EntityState) -> [f32; 3],
     ) -> usize {
-        self.loops
-            .observe(snapshot, presented_time, listener_origin, presented_origin)
+        let count = self
+            .loops
+            .observe(snapshot, presented_time, listener_origin, presented_origin);
+        for source in self.loops.speaker_stops() {
+            self.maintained.clear_source(source.0 as u16);
+        }
+        count
+    }
+
+    /// Automatic ET_SPEAKER one-shots selected at presentation cadence.
+    pub fn speaker_shots(&self) -> &[LegacySoundDecision] {
+        self.loops.speaker_shots()
+    }
+
+    /// ET_SPEAKER entities explicitly suppressing their looping sounds.
+    pub fn speaker_stops(&self) -> &[SourceId] {
+        self.loops.speaker_stops()
     }
 
     /// Loop requests selected for the most recent presented frame.
@@ -1621,6 +1653,9 @@ impl LegacySoundAdapter {
 }
 
 fn custom_kind(path: &str) -> Option<CustomKind> {
+    if let Some(index) = jkr_game_jka::voice_commands::sound_index(path) {
+        return Some(CustomKind::Siege(index));
+    }
     let name = path
         .trim_start_matches('*')
         .split('.')
@@ -1780,6 +1815,29 @@ fn custom_set(
         Some((directory, female))
     });
     let (directory, female) = configured.unwrap_or_else(|| (model.to_owned(), false));
+    let team_game = game_state
+        .config_string(0)
+        .and_then(|info| crate::LegacyClientInfo::new(info).integer("g_gametype"))
+        .is_some_and(|gametype| gametype >= 6);
+    let siege = if team_game {
+        jkr_game_jka::voice_commands::SOUNDS.map(|name| {
+            let name = &name[1..];
+            let paths = [
+                format!("sound/chars/{directory}/misc/{name}.wav"),
+                format!("sound/{directory}/{name}.wav"),
+                format!(
+                    "sound/chars/mp_generic_{}/misc/{name}.wav",
+                    if female { "female" } else { "male" }
+                ),
+            ];
+            paths
+                .iter()
+                .find(|path| sound_exists(vfs, path))
+                .map(|path| intern(path))
+        })
+    } else {
+        [None; jkr_game_jka::voice_commands::SOUNDS.len()]
+    };
     let mut sound = |name: &str| {
         let requested = format!("sound/chars/{directory}/misc/{name}.wav");
         let path = if sound_exists(vfs, &requested) {
@@ -1791,6 +1849,7 @@ fn custom_set(
         Some(intern(&path))
     };
     CustomSet {
+        siege,
         pushed: ["pushed1", "pushed2", "pushed3"].map(&mut sound),
         choke: ["choke1", "choke2", "choke3"].map(&mut sound),
         push_fail: sound("pushfail"),

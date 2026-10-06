@@ -165,6 +165,7 @@ impl GpuState {
             Instant::now(),
         );
         self.local_actor_state = Default::default();
+        self.effect_aux.feedback = Default::default();
         for mesh in &mut self.actor_meshes {
             mesh.angle_controller = jkr_client::LegacyPlayerAngleController::new();
         }

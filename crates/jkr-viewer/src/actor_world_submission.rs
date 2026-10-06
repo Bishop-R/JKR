@@ -20,6 +20,9 @@ pub(crate) mod monster_hold;
 #[path = "player_sprites.rs"]
 mod player_sprites;
 
+#[path = "special_entities.rs"]
+mod special_entities;
+
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
     shield_mesh: Option<usize>,
@@ -149,6 +152,9 @@ pub(crate) fn submit(
         entity_view_flags: 0,
         detached_camera: gpu.detached_camera,
     };
+    if let Some(snapshot) = snapshot {
+        special_entities::submit(&mut sinks, snapshot, visual_now);
+    }
     let thrown = snapshot
         .zip(game_state)
         .map(|(snapshot, game)| jkr_client::LegacyThrownSabers::new(snapshot, game));

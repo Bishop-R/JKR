@@ -134,7 +134,9 @@ impl GpuState {
         audio: &mut Option<crate::GameAudio>,
     ) -> Result<(), Box<dyn Error>> {
         update(self, presentation_time)?;
-        sounds::update(self, presentation_time, audio);
+        if sounds::update(self, presentation_time, audio) {
+            self.refresh_effect_assets(audio);
+        }
         Ok(())
     }
 

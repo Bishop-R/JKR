@@ -1,5 +1,6 @@
 //! Modern data-driven in-game HUD over authoritative snapshot values.
 
+mod action_timer;
 mod data_source;
 use data_source::*;
 pub(crate) mod enemy_info;
@@ -110,6 +111,7 @@ impl HudVisibility {
 
 /// Allocation-free-per-frame widget state for the local player's HUD.
 pub(crate) struct HudOverlay {
+    pub(crate) action_remaining: Option<f32>,
     /// Map-lifetime textures and sampled icon presentation policy.
     pub(crate) icons: icons::Icons,
     pub(crate) tints: tints::State,
@@ -194,6 +196,7 @@ impl HudOverlay {
             .and_then(|path| path.parent().map(|parent| parent.join("hud.json")))
             .and_then(|path| load_override(&path));
         Self {
+            action_remaining: None,
             icons: icons::Icons::default(),
             tints: tints::State::default(),
             guides: movement::Guides::default(),
@@ -402,6 +405,12 @@ impl HudOverlay {
             );
         }
         if visibility.hud {
+            action_timer::emit(
+                &mut self.draw_list,
+                self.action_remaining,
+                viewport,
+                user_scale,
+            );
             self.speed.emit(&mut self.draw_list, self.theme, viewport);
             selection::emit(
                 &mut self.draw_list,

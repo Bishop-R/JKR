@@ -59,17 +59,21 @@ impl ChatOverlay {
         &mut self,
         snapshot: &Snapshot,
         game: &GameState,
+        localization: &crate::Localization,
         tracker: &jkr_client::ObituaryTracker,
-        console: Option<&crate::console::ViewerConsole>,
+        mut console: Option<&mut crate::console::ViewerConsole>,
         camera: Camera,
         time: i32,
     ) {
         let integer = |key, fallback| {
             console
+                .as_deref()
                 .and_then(|c| c.integer_cvar(key))
                 .unwrap_or(fallback)
         };
         self.combat.enabled = integer("cg_scoreplums", 1) != 0;
+        let kill_mode = integer("cg_killmessage", 1);
+        let duel_sounds = integer("cg_duelsounds", 1);
         self.combat.camera = Some(camera);
         self.combat.time = time;
         let stamp = (snapshot.message_sequence, snapshot.server_time);
@@ -89,7 +93,6 @@ impl ChatOverlay {
             }
         }
         self.combat.snapshot = Some(stamp);
-        let kill_mode = integer("cg_killmessage", 1);
         let gametype = game
             .config_string(0)
             .and_then(|b| jkr_client::LegacyClientInfo::new(b).integer("g_gametype"))
@@ -125,6 +128,14 @@ impl ChatOverlay {
             }
             self.combat.signatures[slot] = signature;
             match signature & 255 {
+                75 => self.voice_command(entity, game, &snapshot.player, localization),
+                99 => {
+                    if let Some(text) = super::ctf::message(entity, game, localization)
+                        && let Some(console) = console.as_deref_mut()
+                    {
+                        console.push_log(text);
+                    }
+                }
                 98 if self.combat.enabled
                     && entity.other_entity_num() == snapshot.player.client_num() =>
                 {
@@ -148,7 +159,7 @@ impl ChatOverlay {
                 15 if entity.number() == snapshot.player.client_num()
                     && entity.event_parameter() == 2 =>
                 {
-                    let mode = integer("cg_duelsounds", 1);
+                    let mode = duel_sounds;
                     if mode != 0 && mode != 2 && !race(game, &snapshot.player) {
                         self.announcement("BEGIN DUEL", 120.0);
                     }

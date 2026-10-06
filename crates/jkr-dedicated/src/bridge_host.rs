@@ -53,26 +53,36 @@ impl LegacyGameHost for NativeGame {
     }
 
     fn server_info(&self) -> LegacyServerInfo<'_> {
-        let peers = self.peers() as i32;
+        // SVC_Info excludes reserved slots and counts bots separately. The
+        // world's entity budget is not the protocol's advertised player limit.
+        let private = self.cvars.integer(b"sv_privateClients").max(0) as usize;
+        let mut clients = 0;
+        let mut humans = 0;
+        for (id, handle) in self.players.occupied() {
+            if id.legacy_client().is_none_or(|slot| slot < private) {
+                continue;
+            }
+            if let Some(peer) = self.server.world(self.world).and_then(|w| w.entity(handle)) {
+                clients += 1;
+                humans += i32::from(!peer.bot);
+            }
+        }
         LegacyServerInfo {
             hostname: &self.identity.hostname,
             mapname: &self.identity.mapname,
-            game_directory: b"",
-            clients: peers,
-            humans: peers,
-            max_clients: self
-                .server
-                .world(self.world)
-                .map_or(0, |world| world.entity_capacity() as i32),
-            gametype: 0,
-            needpass: 0,
-            true_jedi: 0,
-            weapon_disable: 0,
-            duel_weapon_disable: 0,
-            force_disable: 0,
+            game_directory: self.cvars.string(b"fs_game"),
+            clients,
+            humans,
+            max_clients: self.players.places().saturating_sub(private) as i32,
+            gametype: self.gametype,
+            needpass: self.cvars.integer(b"g_needpass"),
+            true_jedi: self.cvars.integer(b"g_jediVmerc"),
+            weapon_disable: self.cvars.integer(b"g_weaponDisable"),
+            duel_weapon_disable: self.cvars.integer(b"g_duelWeaponDisable"),
+            force_disable: self.cvars.integer(b"g_forcePowerDisable"),
             auto_demo: self.cvars.integer(b"sv_autoDemo"),
-            min_ping: 0,
-            max_ping: 0,
+            min_ping: self.cvars.integer(b"sv_minPing"),
+            max_ping: self.cvars.integer(b"sv_maxPing"),
         }
     }
 

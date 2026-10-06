@@ -127,7 +127,7 @@ pub(crate) fn create(
         .iter()
         .map(|animation| animation.paths.len())
         .sum::<usize>()
-        .max(1);
+        + 1;
     let columns = (tile_count as f32).sqrt().ceil() as u32;
     let rows = u32::try_from(tile_count)?.div_ceil(columns);
     let width = TILE * columns;
@@ -183,6 +183,32 @@ pub(crate) fn create(
                 });
         }
     }
+    // One white tile serves code-built, untextured additive primitives (RT_BEAM).
+    let tile_x = tile_index % columns;
+    let tile_y = tile_index / columns;
+    for y in tile_y * TILE..(tile_y + 1) * TILE {
+        for x in tile_x * TILE..(tile_x + 1) * TILE {
+            atlas.put_pixel(x, y, image::Rgba([255; 4]));
+        }
+    }
+    animations.insert(
+        "@jkr/solid-add".to_owned(),
+        vec![ParticleAtlasAnimation {
+            frames: vec![[
+                (tile_x as f32 * TILE as f32 + 0.5) / width as f32,
+                (tile_y as f32 * TILE as f32 + 0.5) / height as f32,
+                ((tile_x + 1) as f32 * TILE as f32 - 0.5) / width as f32,
+                ((tile_y + 1) as f32 * TILE as f32 - 0.5) / height as f32,
+            ]],
+            frequency: 0.0,
+            one_shot: false,
+            blend: ParticleBlend::Add,
+            rgb_wave: None,
+            alpha_wave: None,
+            tc_scale: [1.0; 2],
+            tc_scroll: [0.0; 2],
+        }],
+    );
     let fallback = animations
         .get("gfx/misc/spark")
         .and_then(|animations| animations.first())

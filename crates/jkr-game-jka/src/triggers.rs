@@ -602,7 +602,9 @@ const EF_TELEPORT_BIT: u32 = 1 << 3;
 /// them; its view angles and its entity's angles follow.
 pub fn face(state: &mut PlayerState, angles: [f32; 3], command_angles: [i32; 3]) {
     for axis in 0..3 {
-        let short = (angles[axis] * (65_536.0 / 360.0)) as i32 & 65_535;
+        // ANGLE2SHORT multiplies before dividing. Precomputing the ratio changes
+        // rounding at integer boundaries, especially after several rotations.
+        let short = (angles[axis] * 65_536.0 / 360.0) as i32 & 65_535;
         state.set_raw_field(
             PS_DELTA_ANGLES[axis],
             short.wrapping_sub(command_angles[axis]) as u32,

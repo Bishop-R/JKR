@@ -256,17 +256,29 @@ impl GpuState {
     fn preload_config_effect(&mut self, name: &str, audio: &mut Option<GameAudio>) {
         let Some(vfs) = self.vfs.clone() else { return };
         self.effects.preload(&vfs, [name]);
+        self.refresh_effect_assets(audio);
+    }
+
+    /// Install dependencies after new graphs arrive from configstrings or models.
+    /// Called only on an asset lifecycle edge, never during steady-state playback.
+    pub(crate) fn refresh_effect_assets(&mut self, audio: &mut Option<GameAudio>) {
+        let Some(vfs) = self.vfs.clone() else { return };
         if let Err(error) = self.refresh_effect_atlas() {
-            log::progress(format_args!("effect {name}: texture load failed: {error}"));
+            log::progress(format_args!("effect texture load failed: {error}"));
         }
         // Recursive EFX dependencies include rigid models and sound assets.
-        for model in effect_assets::required_models(&vfs, std::iter::once(name)) {
+        let models = self
+            .effects
+            .model_paths()
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>();
+        for model in models {
             let appearance = Appearance {
                 model,
                 variant: String::new(),
             };
             if let Err(error) = self.load_config_model(&appearance) {
-                log::progress(format_args!("effect {name}: model load failed: {error}"));
+                log::progress(format_args!("effect model load failed: {error}"));
             }
         }
         if let Some(audio) = audio {

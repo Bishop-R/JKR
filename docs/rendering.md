@@ -28,6 +28,16 @@ endings. Code that patches a program by text with a pattern spanning a line brea
 normalises it first with [wgsl_source.rs](../crates/jkr-viewer/src/wgsl_source.rs);
 `.gitattributes` keeps `*.wgsl` LF in new checkouts.
 
+## Glass experiment status
+
+The experimental live-camera and static-world glass paths are parked outside
+this checkout. The regular renderer uses authored glass shader stages; existing
+floor reflections and authored mirrors remain as implemented on `af65396`.
+`jkr_glassReflections` is not a supported control in the regular build.
+Reintroduction needs further visual and frame-time work, particularly for curved
+surfaces and maps with many panes. The separate local snapshot retains the source,
+preview binary, previous measurements and limitations.
+
 ## Server shader remaps
 
 The client consumes multiplayer `CS_SHADERSTATE` on joining and live updates,

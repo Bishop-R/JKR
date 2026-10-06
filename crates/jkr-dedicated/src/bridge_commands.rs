@@ -92,7 +92,8 @@ impl NativeGame {
             self.siege_class_command(client, text, server_time);
             return;
         }
-        if self.chat_command(client, text, server_time)
+        if self.information_command(client, text, server_time)
+            || self.chat_command(client, text, server_time)
             || self.vote_command(client, text, server_time)
             || self.npc_client_command(client, text)
             || self.cheat_command(client, text)

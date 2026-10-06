@@ -1,4 +1,4 @@
-//! Load-time parsing of the audio subset of BG_ParseAnimationEvtFile.
+//! Load-time parsing of the presentation subset of BG_ParseAnimationEvtFile.
 use super::*;
 
 pub(super) fn load(
@@ -78,6 +78,17 @@ fn event(tokens: &[String], i: &mut usize, sequence: &AnimationSequence) -> Opti
     let kind = next(tokens, i)?.to_ascii_uppercase();
     let frame = (sequence.first_frame as i32).checked_add(number(tokens, i)?)?;
     let (cue, probability) = match kind.as_str() {
+        "AEV_EFFECT" => {
+            let path = next(tokens, i)?.replace('\\', "/").to_ascii_lowercase();
+            let path = path
+                .trim_start_matches("effects/")
+                .trim_end_matches(".efx")
+                .to_owned();
+            let bolt = next(tokens, i)?;
+            let bolt = (!bolt.eq_ignore_ascii_case("none") && !bolt.eq_ignore_ascii_case("null"))
+                .then(|| bolt.to_ascii_lowercase());
+            (Cue::Effect { path, bolt }, number(tokens, i)?)
+        }
         "AEV_FOOTSTEP" => {
             let foot = next(tokens, i)?.to_ascii_uppercase();
             let cue = Cue::Footstep {

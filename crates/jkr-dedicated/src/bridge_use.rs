@@ -88,6 +88,9 @@ impl NativeGame {
         if self.use_vehicle(client, found, level_time) || self.use_gun(client, found, level_time) {
             return;
         }
+        if self.use_station(client, found, level_time) {
+            return;
+        }
         // A button the use key reached is pressed (`Use_BinaryMover`).
         if let Some(index) = self.doors.iter().position(|(number, door)| {
             number.legacy_number() == found && door.kind == jkr_game_jka::movers::MoverKind::Button

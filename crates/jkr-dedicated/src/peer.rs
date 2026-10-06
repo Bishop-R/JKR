@@ -485,9 +485,15 @@ impl Peer {
         }
         // `ClientThink_real` links the entity with the move's box; a spectator's is not
         // linked at all, and a corpse is `CONTENTS_CORPSE`, which no client clips against.
+        // Script `nodraw` or a vehicle can clear `r.contents`; such a body blocks nothing.
+        const CONTENTS_SOLID_OR_BODY: u32 = 0x1 | jkr_game_jka::vehicle_rider::CONTENTS_BODY;
         let bounds = self.movement.box_bounds();
-        self.entity
-            .linked(bounds, self.playing() && self.corpse.is_none());
+        self.entity.linked(
+            bounds,
+            self.playing()
+                && self.corpse.is_none()
+                && self.riding.contents & CONTENTS_SOLID_OR_BODY != 0,
+        );
         // `client->oldbuttons`, `client->buttons` at the think's end (`g_active.c:3395`).
         self.lock.latch(command.buttons);
         if let Some(map) = map {

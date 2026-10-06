@@ -7,6 +7,46 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Glass experiment parked
+
+On 2026-10-05, the unmerged glass work was preserved in a separate local test
+folder with a complete source snapshot and the glass4 Linux preview binary.
+Product code was restored byte-for-byte to `af65396` before the subsequent
+[stock parity audit](stock-parity.md) and repair work below.
+The regular owner build returns to authored glass shaders and keeps existing
+floor reflections. No gameplay, protocol or asset changes accompany this rollback.
+
+Formatting, locked workspace build/tests (27 tests) and the optimized Linux
+owner build passed. The archived source and preview binary were byte-verified;
+the owner launcher now selects the restored build. No fresh GPU/runtime,
+Windows or multiplayer verification was performed for this source restoration.
+
+## Stock multiplayer source audit
+
+The 2026-10-05 [parity audit](stock-parity.md) inventories the major client/server
+systems against the original PC multiplayer source, with EternalJK as a secondary
+reference. The [spawn appendix](stock-spawns.md) covers all 185 reference table
+entries: 23 had missing native handlers at that baseline, with conditional gaps and
+reference no-ops distinguished from implementation failures.
+
+Confirmed gaps include client portable-shield/beam presentation,
+Siege briefing/radar/action feedback, several stock event and sound-command
+consumers, native recharge stations and holdables, ICARUS host actions, ROFF,
+pure-server validation, and specific movement/vehicle/Force interactions.
+Many core systems are implemented but remain unverified as complete experiences.
+The owner has since authorized implementing the backlog. The first changes cover
+client gameplay visibility and event feedback, sound lifetimes, server query and
+password handling, movement exceptions, all five recharge-station classes,
+three map target actions and player ICARUS actions. See the [implementation ledger](stock-parity-progress.md)
+for exact coverage, reference evidence and remaining verification. The backlog
+is not complete; no owner build or publication is implied by these changes.
+
+Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
+or a complete branch-by-branch equivalence proof. Workspace formatting, locked
+build and tests (27 tests) pass. No new runtime, performance, audio, Windows or
+protocol fixture checks were performed as part of the audit itself. Subsequent
+implementation evidence is recorded separately in the ledger.
+
 ## Server shader remaps
 
 Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and

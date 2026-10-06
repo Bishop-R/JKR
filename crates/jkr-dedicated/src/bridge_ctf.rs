@@ -159,6 +159,23 @@ impl FlagWorld for ServerFlags<'_> {
 }
 
 impl NativeGame {
+    /// `Use_target_remove_powerups`: one carried flag is returned before clearing all slots.
+    pub(super) fn remove_target_powerups(&mut self, client: usize, time: i32) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let team = [(4, 1), (5, 2), (6, 0)]
+            .into_iter()
+            .find_map(|(slot, team)| (peer.state.powerups[slot] != 0).then_some(team));
+        if let Some(team) = team {
+            self.with_flags(time, |flags, world| ctf::return_flag(flags, world, team));
+        }
+        if let Some(peer) = self.peer_mut(client) {
+            peer.state.powerups.fill(0);
+            peer.movement = peer.movement.reseeded(&peer.state);
+        }
+    }
+
     /// `run` with the server's [`FlagWorld`] and flags; afterwards the flag status is
     /// published and — the scores having changed — the ranks recalculated.
     fn with_flags<T>(

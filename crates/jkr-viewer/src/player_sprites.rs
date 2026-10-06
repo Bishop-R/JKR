@@ -45,7 +45,18 @@ pub(super) fn submit(
     } else {
         return;
     };
-    let Some(sprite) = jkr_client::legacy_player_sprite(flags, entity_type, mind_tricked) else {
+    let client = if local {
+        snapshot.player.client_num()
+    } else {
+        state.map_or(u16::MAX, |s| s.number())
+    };
+    let speaking = sinks
+        .effect_aux
+        .feedback
+        .speaking(client, sinks.presentation_time as i32);
+    let Some(sprite) =
+        jkr_client::legacy_player_sprite_with_voice(flags, entity_type, mind_tricked, speaking)
+    else {
         return;
     };
     if sinks.particles.len() == sinks.particles.capacity() {

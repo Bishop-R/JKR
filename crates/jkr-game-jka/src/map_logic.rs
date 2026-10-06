@@ -55,6 +55,8 @@ pub enum Kind {
     Teleporter,
     /// `target_play_music`: the level's music (`CS_MUSIC`) becomes `music`.
     PlayMusic { music: String },
+    /// An immediate score, powerup or screen-shake action.
+    Action(crate::map_target_action::Action),
 }
 
 /// One logic entity of the level.
@@ -93,7 +95,7 @@ pub enum Refused {
 }
 
 /// What a use or a think asks of the level, in the reference's order.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Deed {
     /// `G_UseTargets2(self, activator, name)`: every standing entity called `name` but
     /// the one firing is used.
@@ -120,6 +122,8 @@ pub enum Deed {
     },
     /// `trap->SetConfigstring(CS_MUSIC, music)`.
     Music(String),
+    /// An immediate target action on the activating entity, if any.
+    Action(crate::map_target_action::Action, Option<usize>),
     /// The rest of `func_timer_think`, after the uses before it have run (they may draw
     /// from the generator first): the caller calls [`Logic::rearm`].
     Rearm,
@@ -197,7 +201,7 @@ impl Logic {
                     music: music.to_owned(),
                 };
             }
-            _ => return None,
+            _ => logic.kind = Kind::Action(crate::map_target_action::Action::spawn(entity)?),
         }
         Some(Ok(logic))
     }
@@ -310,6 +314,7 @@ impl Logic {
                 })
                 .unwrap_or_default(),
             Kind::PlayMusic { music } => vec![Deed::Music(music.clone())],
+            Kind::Action(action) => vec![Deed::Action(action.clone(), activator)],
         }
     }
 

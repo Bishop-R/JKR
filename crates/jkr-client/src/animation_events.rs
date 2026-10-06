@@ -1,17 +1,19 @@
-//! Multiplayer `animevents.cfg` audio cues, independent of movement and the wire.
+//! Multiplayer `animevents.cfg` presentation cues, independent of movement and the wire.
 use jkr_model::{AnimationConfig, AnimationSequence};
 use jkr_vfs::VirtualFileSystem;
 
 pub mod footsteps;
 mod parser;
 
-/// One model-authored audio action. Paths are normalized once during loading.
+/// One model-authored presentation action. Paths are normalized once during loading.
 #[derive(Clone, Debug)]
 pub enum Cue {
     /// A random registered sound on a legacy channel.
     Sound { paths: Vec<String>, channel: u8 },
     /// Ground contact from a named Ghoul2 foot bolt.
     Footstep { right: bool, heavy: bool },
+    /// A registered EFX graph at an optional player or primary-weapon bolt.
+    Effect { path: String, bolt: Option<String> },
 }
 
 /// Absolute animation frame and probability (`0` means always).
@@ -21,7 +23,7 @@ pub struct Event {
     pub frame: i32,
     /// Percentage chance; zero means always, as in codemp.
     pub probability: u8,
-    /// Audio-only payload; gameplay animation events are not executed here.
+    /// Presentation payload; gameplay animation events are not executed here.
     pub cue: Cue,
     kind: String,
     order: usize,
@@ -64,9 +66,20 @@ impl Events {
             .flatten()
             .flat_map(|event| match &event.cue {
                 Cue::Sound { paths, .. } => paths.as_slice(),
-                Cue::Footstep { .. } => &[],
+                Cue::Footstep { .. } | Cue::Effect { .. } => &[],
             })
             .map(String::as_str)
+    }
+
+    /// Graph names to preload when an appearance is installed.
+    pub fn effect_paths(&self) -> impl Iterator<Item = &str> {
+        self.tracks
+            .iter()
+            .flatten()
+            .filter_map(|event| match &event.cue {
+                Cue::Effect { path, .. } => Some(path.as_str()),
+                _ => None,
+            })
     }
 }
 
@@ -119,7 +132,7 @@ impl Cursor {
             let sequence =
                 crate::legacy_animation_name(clip).and_then(|name| config.get_exact(name));
             let entries = &events.tracks[track];
-            let mut selected = [0usize; 42];
+            let mut selected = [0usize; 56];
             let mut count = 0;
             // Every eligible event is within three frames of one endpoint.
             for (range, (lo, hi)) in [
@@ -139,7 +152,7 @@ impl Cursor {
                         continue;
                     }
                     if matches_frame(event.frame, old, frame, clip == old_clip, sequence) {
-                        // Two seven-frame intervals, at most three supported event kinds per key.
+                        // Two seven-frame intervals, four supported event kinds per key.
                         selected[count] = start + offset;
                         count += 1;
                     }

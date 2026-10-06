@@ -43,6 +43,11 @@ pub(super) struct MapTurrets {
 }
 
 impl MapTurrets {
+    /// Registers a radar icon in the same namespace as map turrets.
+    pub(super) fn icon_index(&mut self, name: &[u8], set: &mut impl FnMut(usize, &[u8])) -> u16 {
+        bridge_map_turret_host::register_icon(&mut self.work.icons, name, set)
+    }
+
     /// Lets go of the turrets without freeing them: the pool they were in is gone.
     pub(super) fn forget_entities(&mut self) {
         self.g2.clear();

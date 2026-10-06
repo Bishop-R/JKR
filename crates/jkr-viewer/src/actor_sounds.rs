@@ -1,7 +1,10 @@
-//! Model-authored audio follows evaluated bones, including the first-person actor.
+//! Model-authored sound and effect cues follow evaluated bones, including first person.
 use crate::{GameAudio, GpuState};
 use glam::{Quat, Vec3};
 use jkr_client::animation_events::{Cue, Cursor, footsteps};
+
+#[path = "actor_event_effects.rs"]
+mod effects;
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -9,12 +12,14 @@ pub(crate) struct State {
     last_time: Option<i64>,
     identity: Option<jkr_runtime::EntityId>,
     motion_revision: u64,
+    effects_loaded: bool,
+    effect_weapon: Option<u8>,
+    effect_flash: Option<crate::bolt::BoltMatrix>,
 }
 
-pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio>) {
-    let Some(audio) = audio else {
-        return;
-    };
+pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio>) -> bool {
+    let mut effects_changed = false;
+    let now = std::time::Instant::now();
     let paused = gpu.resident.map_change_pending;
     let world = gpu
         .demo_session
@@ -28,7 +33,9 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
     let local = snapshot.map(|snapshot| u64::from(snapshot.player.client_num()) + 1);
     let predicted = gpu.local_prediction.predicted_state();
     for mesh in &mut gpu.actor_meshes {
-        if let Some(prefetch) = mesh.preview.event_sounds.take() {
+        if let Some(audio) = audio.as_mut()
+            && let Some(prefetch) = mesh.preview.event_sounds.take()
+        {
             audio.absorb_animation_prefetch(&prefetch);
         }
         let entity = mesh.entity_id.and_then(|id| world.entity(id));
@@ -72,12 +79,55 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
             });
         let frames = mesh.animator.event_frames(&mesh.preview.animation, time);
         let matrices = mesh.animator.matrices();
+        if !mesh.audio_events.effects_loaded
+            && let Some(vfs) = gpu.vfs.as_deref()
+        {
+            if mesh.preview.events.effect_paths().next().is_some() {
+                gpu.effects.preload(vfs, mesh.preview.events.effect_paths());
+                effects_changed = true;
+            }
+            mesh.audio_events.effects_loaded = true;
+        }
+        let weapon = entity.equipment().map_or(0, |equipment| equipment.weapon);
+        let hilt = (weapon == 3)
+            .then(|| {
+                Some(
+                    gpu.saber_hilts
+                        .as_ref()?
+                        .get(mesh.saber_names[0].as_deref()?),
+                )
+            })
+            .flatten();
+        if mesh.audio_events.effect_weapon != Some(weapon) {
+            mesh.audio_events.effect_weapon = Some(weapon);
+            mesh.audio_events.effect_flash =
+                crate::weapon_view::held_model(weapon).and_then(|model| {
+                    gpu.object_meshes
+                        .iter()
+                        .find(|m| m.appearance.model == model)?
+                        .flash_bolt
+                });
+        }
+        let gun_flash = mesh.audio_events.effect_flash;
+        let placement = effects::Placement {
+            preview: &mesh.preview,
+            matrices,
+            attachment: mesh.weapon_attachments[0],
+            hilt,
+            gun_flash,
+            origin: Vec3::from_array(origin),
+            rotation,
+            scale: Vec3::from_array(transform.scale),
+        };
         mesh.audio_events.cursor.advance(
             &mesh.preview.events,
             &mesh.preview.config,
             frames,
             |cue, variant| match cue {
                 Cue::Sound { paths, channel } => {
+                    let Some(audio) = audio.as_mut() else {
+                        return;
+                    };
                     let standard = &paths[variant % paths.len()];
                     let path = mesh.saber_names[0]
                         .as_deref()
@@ -90,6 +140,9 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
                     audio.play_animation(path, *channel, false, origin, id, is_local);
                 }
                 Cue::Footstep { right, heavy } => {
+                    let Some(audio) = audio.as_mut() else {
+                        return;
+                    };
                     if !footsteps::allowed_class(footstep_class) {
                         return;
                     }
@@ -115,7 +168,29 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
                         audio.play_animation(path, 6, true, origin, id, is_local);
                     }
                 }
+                Cue::Effect { path, bolt } => {
+                    let Some(vfs) = gpu.vfs.as_deref() else {
+                        return;
+                    };
+                    if !gpu.effects.contains_definition(path) {
+                        return;
+                    }
+                    crate::effect_runtime::spawn_effect(
+                        &mut gpu.particles,
+                        &mut gpu.effect_aux,
+                        &mut gpu.effects,
+                        vfs,
+                        path,
+                        placement.origin(bolt.as_deref()),
+                        now,
+                        id as u32 ^ time as u32,
+                        0,
+                        audio,
+                        crate::combat_effects::rotation_from_direction([0.0, 1.0, 0.0]),
+                    );
+                }
             },
         );
     }
+    effects_changed
 }
