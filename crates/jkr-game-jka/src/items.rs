@@ -270,24 +270,14 @@ pub fn removed_by_gametype(
         || (!matches!(gametype, GT_CTF | GT_CTY) && kind == Kind::Team && matches!(tag, 4..=6))
 }
 
-/// `G_SpawnItem`'s weapon rule (`g_items.c:3120-3138`): a weapon the server disables
-/// (`g_weaponDisable`, or `g_duelWeaponDisable` in the duels) is freed as it spawns,
-/// except in Jedi Master.
-pub fn weapon_disabled(
-    item: usize,
-    gametype: i32,
-    weapon_disable: i32,
-    duel_weapon_disable: i32,
-) -> bool {
+/// `G_SpawnItem`'s weapon rule (`g_items.c:3120-3138`): a weapon the server disables is
+/// freed as it spawns, except in Jedi Master. `disabled` is the game type's mask
+/// (`g_weaponDisable`, or `g_duelWeaponDisable` in the duels).
+pub fn weapon_disabled(item: usize, gametype: i32, disabled: u32) -> bool {
     let row = ITEMS[item];
-    let disabled = if matches!(gametype, GT_DUEL | GT_POWERDUEL) {
-        duel_weapon_disable
-    } else {
-        weapon_disable
-    };
     row.kind == Kind::Weapon
         && gametype != GT_JEDIMASTER
-        && 1_i32
+        && 1_u32
             .checked_shl(row.tag as u32)
             .is_some_and(|bit| disabled & bit != 0)
 }

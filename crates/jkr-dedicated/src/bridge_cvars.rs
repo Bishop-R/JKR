@@ -77,6 +77,11 @@ impl NativeGame {
                 "g_allowvote" => self.vote_rules.0 = integer & super::bridge_votes::SUPPORTED_VOTES,
                 "g_votedelay" => self.vote_rules.1 = integer,
                 "g_teamautojoin" => self.settings.team_auto_join = integer != 0,
+                "g_maxforcerank"
+                | "g_forcepowerdisable"
+                | "g_forcebasedteams"
+                | "g_weapondisable"
+                | "g_duelweapondisable" => self.refresh_rule_settings(),
                 "sv_cheats" => self.settings.cheats = integer != 0,
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
@@ -95,6 +100,28 @@ impl NativeGame {
             }
         }
         self.cvars_primed = true;
+    }
+
+    /// The Force and weapon rules the game reads from its cvars (`g_xcvar.h`, all latched):
+    /// the rank ceiling, the disabled powers, the sides by team, the disabled weapons.
+    pub(super) fn refresh_rule_settings(&mut self) {
+        self.settings.max_rank = self.integer_cvar(b"g_maxForceRank", 7);
+        self.settings.disabled = self.integer_cvar(b"g_forcePowerDisable", 0) as u32;
+        self.settings.force_based_teams = self.integer_cvar(b"g_forceBasedTeams", 0) != 0;
+        self.refresh_weapons_disabled();
+    }
+
+    /// The disabled weapons this game type reads: `g_duelWeaponDisable` in the duels,
+    /// else `g_weaponDisable` (`HasSetSaberOnly`, `G_SpawnItem`, `ClientSpawn`).
+    pub(super) fn refresh_weapons_disabled(&mut self) {
+        let duel =
+            jkr_game_jka::force_config::ForceServerSettings::uses_duel_weapons(self.gametype);
+        let (name, default): (&[u8], i32) = if duel {
+            (b"g_duelWeaponDisable", 1)
+        } else {
+            (b"g_weaponDisable", 0)
+        };
+        self.settings.weapons_disabled = self.integer_cvar(name, default) as u32;
     }
 
     /// `Cvar_Get` of a latched variable when a level is built (`SV_Map_f`'s

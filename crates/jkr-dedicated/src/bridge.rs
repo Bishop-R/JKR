@@ -467,6 +467,8 @@ impl NativeGame {
             scripts: Default::default(),
         };
         game.pool = EntityPool::with_budget(0, game.entity_budget());
+        // The level is built under the rules the process was started with.
+        game.refresh_rule_settings();
         game.spawn_items();
         game.spawn_triggers();
         game.spawn_movers();

@@ -25,6 +25,7 @@ impl NativeGame {
         let differs = gametype != self.gametype;
         self.gametype = gametype;
         self.settings.gametype = gametype;
+        self.refresh_weapons_disabled();
         if differs {
             self.spawn_level_entities();
         }

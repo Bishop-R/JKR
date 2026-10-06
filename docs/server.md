@@ -54,6 +54,13 @@ runs the command-line `+` commands in order. With `--home`, `exec` checks its
 `base` directory first and archived variables are saved in `base/jkr_server.cfg`.
 Without a home, this archive is not written.
 
+The game's Force and weapon rules follow their cvars as stock's do, latched until
+the next map: `g_maxForceRank` and `g_forcePowerDisable` limit the Force
+configurations players may use, `g_forceBasedTeams` ties sides to teams, and
+`g_weaponDisable` (`g_duelWeaponDisable` in the duels) removes weapons from the
+map and from spawning players. Disabling every weapon but the saber makes a
+saber-only server: no pistol at spawn, no weapon or ammunition pickups.
+
 Type commands such as `status`, `map mp/ffa3` and `quit` on stdin. Remote console
 commands require an explicitly configured `rconpassword`; never commit that
 password. The console implementation lives in

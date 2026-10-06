@@ -170,20 +170,6 @@ impl NativeGame {
         peer.movement.set_health(peer.health);
     }
 
-    /// Whether an item spawned now would stay: `G_SpawnItem`'s disabled weapons and
-    /// `FinishSpawningItem`'s game-type filter, as this server is set.
-    fn item_spawns(&self) -> impl Fn(usize) -> bool + use<> {
-        use jkr_game_jka::items::{removed_by_gametype, weapon_disabled};
-        let (gametype, saber_only) = (self.gametype, self.settings.saber_only());
-        let force_disabled = self.settings.disabled != 0;
-        let weapons = self.integer_cvar(b"g_weaponDisable", 0);
-        let duel_weapons = self.integer_cvar(b"g_duelWeaponDisable", 1);
-        move |item| {
-            !weapon_disabled(item, gametype, weapons, duel_weapons)
-                && !removed_by_gametype(item, gametype, saber_only, force_disabled)
-        }
-    }
-
     /// `ClientNumberFromString` as the other-player cheats use it: the player, or `None`
     /// having told the asker (`g_cmds.c:180-221`).
     fn other_player(&mut self, client: usize, word: &[u8]) -> Option<usize> {

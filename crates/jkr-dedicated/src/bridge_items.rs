@@ -7,6 +7,7 @@ impl NativeGame {
     /// `FinishSpawningItem` for every item the map placed: dropped to the floor (or
     /// left hanging), a trigger in the world from the game's first moment.
     pub(super) fn spawn_items(&mut self) {
+        let spawns = self.item_spawns();
         let Some(map) = self.map.take() else { return };
         for placed in &map.items {
             let mut trace =
@@ -17,14 +18,7 @@ impl NativeGame {
                     }
                     .trace(start, mins, maxs, end, mask)
                 };
-            // What the game type does without (`FinishSpawningItem`): the flags outside the
-            // flag games, the duels' health and armour, and the rest.
-            if jkr_game_jka::items::removed_by_gametype(
-                placed.item,
-                self.gametype,
-                self.settings.saber_only(),
-                self.settings.disabled != 0,
-            ) {
+            if !spawns(placed.item) {
                 continue;
             }
             let Some(pickup) = jkr_game_jka::items::finish_spawning(placed, &mut trace) else {
@@ -36,6 +30,20 @@ impl NativeGame {
             }
         }
         self.map = Some(map);
+    }
+
+    /// Whether an item spawned now would stay: `G_SpawnItem`'s disabled weapons and
+    /// `FinishSpawningItem`'s game-type filter (the flags outside the flag games, the
+    /// duels' health and armour, and the rest), as this server is set.
+    pub(super) fn item_spawns(&self) -> impl Fn(usize) -> bool + use<> {
+        use jkr_game_jka::items::{removed_by_gametype, weapon_disabled};
+        let (gametype, weapons) = (self.gametype, self.settings.weapons_disabled);
+        let (saber_only, force_disabled) =
+            (self.settings.saber_only(), self.settings.disabled != 0);
+        move |item| {
+            !weapon_disabled(item, gametype, weapons)
+                && !removed_by_gametype(item, gametype, saber_only, force_disabled)
+        }
     }
 
     /// The items' respawns at `server_time` (`RespawnItem`): a trigger and drawn again,
