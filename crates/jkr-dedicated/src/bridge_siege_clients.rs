@@ -380,15 +380,23 @@ impl NativeGame {
             }
         }
         if restart {
-            self.match_end.intermission_time = 0;
-            for client in 0..self.players.places() {
-                if let Some(peer) = self.peer_mut(client) {
-                    peer.state.persistent[PERS_SCORE] = 0;
-                }
-            }
-            self.queue_restart(server_time);
+            self.restart_after_exit(server_time);
         }
         restart
+    }
+
+    /// `ExitLevel` sending `map_restart 0`: the intermission over, the scores cleared and
+    /// the level restarted as new. For a Siege round's level that is also what a server
+    /// without a rotation runs, `vstr nextmap` being `map_restart 0` unless set
+    /// (`SV_SpawnServer`, `sv_init.cpp:563-565`): only a restart begins the next round.
+    pub(super) fn restart_after_exit(&mut self, server_time: i32) {
+        self.match_end.intermission_time = 0;
+        for client in 0..self.players.places() {
+            if let Some(peer) = self.peer_mut(client) {
+                peer.state.persistent[PERS_SCORE] = 0;
+            }
+        }
+        self.queue_restart(server_time);
     }
 
     /// `G_SiegeClientExData` (`g_saga.c:1935-1979`), once a second for a player whose class

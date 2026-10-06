@@ -7,7 +7,8 @@ impl NativeGame {
     /// `ExitLevel` (`g_main.c:1434`). This server hosts one map and has no `nextmap`
     /// to run, so the level it goes to is the one it is on: the scores are cleared, the
     /// clock starts again, and everyone plays on. A map rotation is what would change
-    /// here, and nothing else.
+    /// here — and Siege, whose round ends with its level: it restarts the level, as the
+    /// reference's default `nextmap` (`map_restart 0`) does.
     pub(super) fn exit_level(&mut self, server_time: i32) {
         // A duel plays the next round on this level (`g_main.c:1440-1452`).
         // Siege plays its second round on this level, the sides swapped.
@@ -35,6 +36,12 @@ impl NativeGame {
                 self.change_map(&name, loaded, server_time);
                 return;
             }
+        }
+        // A Siege round ends with its level: playing on in place would leave it ended.
+        if self.siege.is_some() {
+            println!("level exit at {server_time}; no nextmap on this server, map_restart");
+            self.restart_after_exit(server_time);
+            return;
         }
         println!(
             "level exit at {server_time}; no nextmap on this server, so the match starts again"
