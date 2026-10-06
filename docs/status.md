@@ -425,6 +425,27 @@ not bundled with the source. No windows, game instances or servers were opened;
 visual playtesting remains with the owner. Formatting, locked workspace build/tests
 and the optimized build passed.
 
+## Cvar float text
+
+Local fix based on `af65396` (2026-10-06): a float cvar registered from an `f32`
+default is stored as the widened `f64`, and `CvarValue::as_text` printed that value
+in full: `r_windDampFactor` (`0.1_f32`) listed as `0.10000000149011612` in the
+cvar listings, the command browser and, for archived cvars, saved configuration.
+A value that is exactly an `f32` now prints as that `f32`'s shortest form (`0.1`).
+Reading that form back gives the default itself (`CvarValue::parse_like`), so a
+saved default still equals its default: `save_config` omits `OMIT_DEFAULT` cvars at
+their default and `cvar_modified` lists cvars that differ from it, and without this
+the printed form would have read back as a nearby `f64`. Values no `f32` holds and
+every other cvar type print and parse as before.
+
+Three unit tests cover the printed forms, the default reading back as itself and
+longer text still parsing as an ordinary `f64`, and a registered `0.35_f32` default
+that is set from its own saved text without a change or a difference from its
+default. Formatting (`cargo fmt --all --check`), `cargo build --locked --workspace` and `cargo test --locked --workspace` passed on Windows 11 with Rust 1.96.0 (30 tests, 3 of them new). `cargo clippy --locked --workspace --all-targets` stops at four deny-level lints that `main` already has (`jkr-game-jka` `concussion.rs:118` and `weapon_fire.rs:593/614/655`) before it reaches the crates changed here; with `-A clippy::erasing_op -A clippy::redundant_comparisons` it passes, with no warning on the changed lines.
+
+Limits: no client was started, so the command browser and a saved configuration
+were not inspected on screen or on disk.
+
 ## Client devmap preview
 
 Local `devmap1` preview (2026-10-04, based on `7155455`) exposes `devmap <map>`
