@@ -37,6 +37,8 @@ impl HudOverlay {
             317 => &self.targeting.position,
             318 => &self.enemy_info.name,
             319 => &self.enemy_info.detail,
+            320 => &self.siege.clock,
+            321 => &self.siege.respawn,
             value @ 400..=415 => self.icons.text((value - 400) as usize),
             _ => selection::text(id),
         }

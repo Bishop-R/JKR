@@ -118,7 +118,10 @@ In Siege the JKR client now announces completed objectives and the end of a roun
 the map's own `.siege` file, as stock clients do: each side's message, centre-printed,
 and its announcer line. Stock opens the round's message in a popup; JKR puts it at the
 head of the intermission scoreboard. On `siege_hoth` the JKR and TaystJK clients showed
-the same words for the same side. Radar, briefings and teammate health remain open.
+the same words for the same side. It also shows the round itself: waiting for players,
+the countdown with its three-two-one, the round clock (red for the timed side, green
+for the other) and the player's respawn wave. Radar, briefings and teammate health
+remain open.
 
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked

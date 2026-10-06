@@ -46,6 +46,10 @@ pub(super) struct WidgetData<'a> {
     pub(super) timer: bool,
     /// warmup binding supplied by the owning HUD.
     pub(super) warmup: bool,
+    /// A Siege round clock is shown, and whether its timed side is the viewer's.
+    pub(super) siege_clock: Option<bool>,
+    /// A Siege respawn wave is coming.
+    pub(super) siege_respawn: bool,
     /// interrupted binding supplied by the owning HUD.
     pub(super) interrupted: bool,
 }
@@ -92,6 +96,11 @@ impl HudDataSource for WidgetData<'_> {
             "draw_crosshair_name" => Some(self.visibility.crosshair_names && self.crosshair_name),
             "draw_timer" => Some(self.visibility.timer && self.timer),
             "draw_warmup" => Some(self.visibility.hud && self.warmup),
+            "draw_siege_timer_own" => Some(self.visibility.hud && self.siege_clock == Some(true)),
+            "draw_siege_timer_other" => {
+                Some(self.visibility.hud && self.siege_clock == Some(false))
+            }
+            "draw_siege_respawn" => Some(self.visibility.hud && self.siege_respawn),
             "draw_lagometer" => Some(self.visibility.lagometer),
             "draw_interrupted" => Some(self.visibility.hud && self.interrupted),
             _ => None,
@@ -116,6 +125,8 @@ pub(super) fn text_id(binding: Option<&str>) -> Option<TextId> {
         Some("match_timer") => Some(TextId(311)),
         Some("warmup_text") => Some(TextId(312)),
         Some("connection_interrupted") => Some(TextId(313)),
+        Some("siege_timer") => Some(TextId(320)),
+        Some("siege_respawn") => Some(TextId(321)),
         _ => None,
     }
 }

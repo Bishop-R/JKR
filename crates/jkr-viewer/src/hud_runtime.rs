@@ -196,6 +196,17 @@ pub(crate) fn update(
                 && jkr_client::connection_interrupted(presentation_time, snapshot.server_time),
             &gpu.localization,
         );
+        gpu.hud.update_siege(
+            hud::SiegeInputs {
+                game: session.game_state(),
+                time: presentation_time,
+                team: snapshot.player.team(),
+                notices: gpu.chat.siege_notices(),
+                respawn: gpu.effect_aux.feedback.respawn_remaining(presentation_time),
+                intermission,
+            },
+            &gpu.localization,
+        );
     } else if let Some(session) = &gpu.demo_session {
         let snapshot = session.snapshot_at_or_before(presentation_time);
         gpu.scoreboard.observe_deaths(
@@ -270,6 +281,17 @@ pub(crate) fn update(
             &gpu.lagometer,
             crosshair,
             false,
+            &gpu.localization,
+        );
+        gpu.hud.update_siege(
+            hud::SiegeInputs {
+                game: session.game_state(),
+                time: presentation_time,
+                team: snapshot.player.team(),
+                notices: gpu.chat.siege_notices(),
+                respawn: gpu.effect_aux.feedback.respawn_remaining(presentation_time),
+                intermission,
+            },
             &gpu.localization,
         );
     }

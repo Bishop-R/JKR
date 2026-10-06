@@ -35,6 +35,11 @@ impl ChatOverlay {
         self.combat.siege.round.as_deref()
     }
 
+    /// The current map's `.siege` file, while it is a Siege map (the HUD's round clock).
+    pub(crate) fn siege_notices(&self) -> Option<&jkr_client::siege_notices::SiegeNotices> {
+        self.combat.siege.cache.notices()
+    }
+
     /// One newly seen Siege event (`EV_SIEGE_OBJECTIVECOMPLETE` or `EV_SIEGE_ROUNDOVER`).
     pub(super) fn siege_event(
         &mut self,

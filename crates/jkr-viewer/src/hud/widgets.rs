@@ -71,7 +71,10 @@ pub(super) fn emit(
                 )
             ) {
                 TextAlign::Center
-            } else if binding == Some("style_value") {
+            } else if matches!(
+                binding,
+                Some("style_value" | "siege_timer" | "siege_respawn")
+            ) {
                 TextAlign::End
             } else {
                 TextAlign::Start

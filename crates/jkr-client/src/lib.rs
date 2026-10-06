@@ -81,6 +81,7 @@ mod server_address;
 mod server_clock;
 mod session_transition;
 pub mod siege_notices;
+pub mod siege_round;
 pub mod sound_commands;
 mod sound_events;
 pub mod speaker;

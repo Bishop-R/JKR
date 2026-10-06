@@ -7,10 +7,13 @@ use jkr_protocol::{EntityState, GameState};
 pub struct Feedback {
     voice_until: [i32; 32],
     timer: Option<(i32, i32)>,
+    /// `cg_siegeDeathTime`: when the local player's respawn wave comes.
+    respawn: Option<i32>,
 }
 
 impl Feedback {
-    /// Apply `EV_VOICECMD_SOUND` / `EV_LOCALTIMER` to their intended player.
+    /// Apply `EV_VOICECMD_SOUND` / `EV_LOCALTIMER` / `EV_SIEGESPEC` to their intended
+    /// player.
     pub fn observe(
         &mut self,
         event: u16,
@@ -36,8 +39,19 @@ impl Feedback {
                 let duration = entity.integer_field(61).unwrap_or(0);
                 self.timer = (duration > 0).then_some((start.saturating_add(duration), duration));
             }
+            // `EV_SIEGESPEC` (`cg_event.c:1827-1834`): `time` is the wave.
+            191 if entity.raw_field(40) == Some(u32::from(local)) => {
+                self.respawn = entity.integer_field(65);
+            }
             _ => {}
         }
+    }
+
+    /// Whole seconds until the local player's respawn wave (`CG_DrawSiegeDeathTimer`),
+    /// down to zero during its last second; hidden once it has come.
+    pub fn respawn_remaining(&self, time: i32) -> Option<i32> {
+        let left = self.respawn?.wrapping_sub(time);
+        (left >= 0).then_some(left / 1_000)
     }
 
     /// The voice sprite lasts one second and takes precedence over typing.
@@ -65,4 +79,29 @@ pub fn screen_shake(event: u16, entity: &EntityState, local: u16) -> Option<(f32
     intensity
         .is_finite()
         .then_some((intensity.min(16.0), entity.integer_field(65).unwrap_or(0)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `EV_SIEGESPEC` as a server sends it: the wave's time and the player it is for.
+    fn siege_spec(owner: u32, wave: i32) -> EntityState {
+        let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
+        state.set_raw_field(65, wave as u32);
+        state.set_raw_field(40, owner);
+        state
+    }
+
+    #[test]
+    fn a_respawn_wave_counts_down_for_its_own_player_only() {
+        let game = GameState::empty_local(3);
+        let mut feedback = Feedback::default();
+        feedback.observe(191, &siege_spec(4, 30_000), &game, 3, 20_000);
+        assert_eq!(feedback.respawn_remaining(20_500), None);
+        feedback.observe(191, &siege_spec(3, 30_000), &game, 3, 20_000);
+        assert_eq!(feedback.respawn_remaining(20_500), Some(9));
+        assert_eq!(feedback.respawn_remaining(29_999), Some(0));
+        assert_eq!(feedback.respawn_remaining(30_001), None);
+    }
 }

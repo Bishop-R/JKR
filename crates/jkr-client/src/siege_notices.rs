@@ -102,6 +102,21 @@ impl SiegeNotices {
         }
     }
 
+    /// `team1Timed` and `team2Timed` (`CG_InitSiegeMode`): each side's `Timed`, in
+    /// milliseconds; zero for a side without a clock.
+    pub fn timed(&self) -> [i32; 2] {
+        [1, 2].map(|team| {
+            self.map
+                .side(team)
+                .value("Timed")
+                .ok()
+                .flatten()
+                .map_or(0, |value| {
+                    jkr_game_jka::userinfo::atoi(value.as_bytes()).wrapping_mul(1_000)
+                })
+        })
+    }
+
     /// Every announcer line the events above can play, each once, so that a client can
     /// load them with the map: both sides' objective lines, as
     /// `CG_PrecacheSiegeObjectiveAssetsForTeam` registers them, and their round lines,
@@ -297,6 +312,11 @@ mod tests {
                 "sound/chars/protocol/misc/siege6.mp3",
             ]
         );
+    }
+
+    #[test]
+    fn each_side_has_its_own_clock() {
+        assert_eq!(notices().timed(), [600_000, 0]);
     }
 
     #[test]

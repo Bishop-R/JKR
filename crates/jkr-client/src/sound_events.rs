@@ -38,7 +38,7 @@ const CHAN_MENU1: u32 = 11;
 const CHAN_LOCAL: u32 = 1;
 pub(crate) const CHAN_ANNOUNCER: u32 = 9;
 const CS_AMBIENT_SET: usize = 37;
-const EVENT_KIND_COUNT: usize = 58;
+const EVENT_KIND_COUNT: usize = 59;
 const EV_PLAYDOORLOOPSOUND: u16 = 72;
 const EV_MUTE_SOUND: u16 = 74;
 const EV_GENERAL_SOUND: u16 = 76;
@@ -242,6 +242,8 @@ pub enum LegacySoundEvent {
     SiegeObjectiveComplete,
     /// A Siege round's announcer line (`CG_SiegeRoundOver`).
     SiegeRoundOver,
+    /// `CG_Draw2D`'s 3/2/1 before a Siege round begins.
+    SiegeCountdown,
 }
 
 impl LegacySoundEvent {
@@ -316,6 +318,7 @@ impl LegacySoundEvent {
             Self::RestartFight => "CG_RESTART_FIGHT",
             Self::SiegeObjectiveComplete => "EV_SIEGE_OBJECTIVECOMPLETE",
             Self::SiegeRoundOver => "EV_SIEGE_ROUNDOVER",
+            Self::SiegeCountdown => "CG_SIEGE_COUNTDOWN",
         }
     }
 }

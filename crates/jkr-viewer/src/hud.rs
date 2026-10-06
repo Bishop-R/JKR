@@ -12,6 +12,8 @@ pub(crate) mod movement;
 pub(crate) mod options;
 mod portrait;
 mod selection;
+mod siege;
+pub(crate) use siege::SiegeInputs;
 pub(crate) mod targeting;
 mod text_values;
 pub(crate) mod tints;
@@ -168,6 +170,8 @@ pub(crate) struct HudOverlay {
     crosshair_teammate: bool,
     match_timer: String,
     warmup_text: String,
+    /// The Siege round clock and respawn wave.
+    siege: siege::State,
     interrupted: bool,
     lagometer: jkr_client::LagometerSamples,
     default_document: HudLayoutDocument,
@@ -250,6 +254,7 @@ impl HudOverlay {
             crosshair_teammate: false,
             match_timer: String::with_capacity(16),
             warmup_text: String::with_capacity(48),
+            siege: siege::State::default(),
             interrupted: false,
             lagometer: jkr_client::LagometerSamples::new(),
             default_document: HudLayoutDocument::from_json(DEFAULT_LAYOUT)
@@ -318,6 +323,8 @@ impl HudOverlay {
             crosshair_name: !self.crosshair_name.is_empty(),
             timer: !self.match_timer.is_empty(),
             warmup: !self.warmup_text.is_empty(),
+            siege_clock: (!self.siege.clock.is_empty()).then_some(self.siege.clock_own),
+            siege_respawn: !self.siege.respawn.is_empty(),
             interrupted: self.interrupted,
         };
         let mut visible = [false; WIDGET_LIMIT];
