@@ -118,6 +118,11 @@ impl<H: NpcHost> ThrowWorld for NpcThrow<'_, '_, H> {
         }
     }
 
+    fn work_mover(&mut self, _mover: u16, _thrower: u16, _button: bool) {
+        // An NPC's throw lists no movers yet ([`Self::entities_in_box`]), so none is
+        // ever worked.
+    }
+
     fn reflect_missile(&mut self, missile: u16, thrower: u16, forward: [f32; 3]) {
         // The thrower where it stands: an NPC, or the player.
         let origin = match self.world.actor_at(thrower) {

@@ -72,6 +72,10 @@ The disruptor and the concussion beam now hurt everything stock's do, not only
 players: on `ctf5` each shattered a pane of glass, and the disruptor killed an NPC.
 Doors and buttons with health still take no damage from any weapon.
 
+Force push and pull now work Force-activated doors and Force-pushable buttons
+(audit row G3). Only `siege_korriban` has such doors among the stock maps; a push
+there slid a slab over the lava as stock does.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

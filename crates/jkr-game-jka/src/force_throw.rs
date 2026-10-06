@@ -18,8 +18,12 @@
 //! NPCs are clients too: they throw and are thrown alike (an NPC's world is
 //! [`crate::npc_force_throw`]'s), but a vehicle, and any NPC in siege, is out of reach.
 //!
-//! Not yet: doors, buttons and `func_static`s pushed or pulled (the movers' part), thrown
-//! sabers and limbs, a push breaking a saber lock, and riders thrown off their vehicles.
+//! A Force-activated door or a Force-pushable button is worked as the reference works it
+//! (`GEntity_UseFunc`, `Touch_Button`): a door only when the thrower points right at it
+//! and the throw would move it away from the end it is at.
+//!
+//! Not yet: Force-usable `func_static`s (no stock map has one), thrown sabers and limbs, a
+//! push breaking a saber lock, and riders thrown off their vehicles.
 
 use crate::event_entity::EventEntity;
 use crate::force_powers::{FORCE_POWER_NEEDED, FP_ABSORB, FP_GRIP, FP_PULL, FP_PUSH, ForcePowers};
@@ -64,7 +68,7 @@ pub struct Candidate {
 }
 
 /// What a candidate is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CandidateKind {
     Player,
     /// A missile: its trajectory type, `EF_MISSILE_STICK`, its weapon.
@@ -73,8 +77,61 @@ pub enum CandidateKind {
         stuck: bool,
         weapon: u32,
     },
-    /// Anything else the throw leaves alone (items, the world, movers not yet ported).
+    /// A mover the throw works.
+    Mover(ThrownMover),
+    /// Anything else the throw leaves alone (items, the world, other movers).
     Other,
+}
+
+/// A mover a throw works (`w_force.c:3209-3240`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ThrownMover {
+    /// A `func_button` the map made Force-pushable (`SPF_BUTTON_FPUSHABLE`): pushed,
+    /// never pulled, and pressed as if touched (`Touch_Button`).
+    Button,
+    /// A `func_door` the map made Force-activated (`MOVER_FORCE_ACTIVATE`): whether it is
+    /// at rest, and at its first place, and its two ends as the throw measures them
+    /// ([`door_ends`]).
+    Door {
+        at_rest: bool,
+        at_pos1: bool,
+        ends: ([f32; 3], [f32; 3]),
+    },
+}
+
+/// A door's two ends as the throw measures them (`w_force.c:3598-3618`). Without an
+/// origin brush its places are offsets from the map's own position, so they are added
+/// to the middle of the box where it started; with one they are where it is.
+#[allow(clippy::too_many_arguments)]
+pub fn door_ends(
+    origin_brush: bool,
+    absmin: [f32; 3],
+    absmax: [f32; 3],
+    start_open: bool,
+    at_pos1: bool,
+    at_pos2: bool,
+    pos1: [f32; 3],
+    pos2: [f32; 3],
+) -> ([f32; 3], [f32; 3]) {
+    if origin_brush {
+        return (pos1, pos2);
+    }
+    let mut centre: [f32; 3] =
+        std::array::from_fn(|axis| absmin[axis] + 0.5 * (absmax[axis] - absmin[axis]));
+    let moved = if start_open && at_pos1 {
+        Some(pos1)
+    } else if !start_open && at_pos2 {
+        Some(pos2)
+    } else {
+        None
+    };
+    if let Some(moved) = moved {
+        centre = std::array::from_fn(|axis| centre[axis] - moved[axis]);
+    }
+    (
+        std::array::from_fn(|axis| centre[axis] + pos1[axis]),
+        std::array::from_fn(|axis| centre[axis] + pos2[axis]),
+    )
 }
 
 /// Everything beyond the thrower that a throw reaches.
@@ -89,6 +146,9 @@ pub trait ThrowWorld {
     fn player(&mut self, number: u16) -> Option<ThrowPlayer<'_>>;
     /// `G_ReflectMissile(thrower, missile, forward)`.
     fn reflect_missile(&mut self, missile: u16, thrower: u16, forward: [f32; 3]);
+    /// A door used by the thrower (`GEntity_UseFunc`), or a button pressed by it
+    /// (`Touch_Button`).
+    fn work_mover(&mut self, mover: u16, thrower: u16, button: bool);
     /// `TossClientWeapon(victim, direction, speed)`.
     fn toss_weapon(&mut self, victim: u16, direction: [f32; 3], speed: f32);
     /// A temp entity raised now.
@@ -187,6 +247,9 @@ pub fn throw(context: Throw, world: &mut dyn ThrowWorld) {
                 if trajectory != TR_STATIONARY && !rolling_thermal && !context.pull {
                     world.reflect_missile(candidate.number, context.thrower, thrower.forward);
                 }
+            }
+            CandidateKind::Mover(mover) => {
+                work_mover(context, &thrower, candidate.number, mover, world)
             }
             CandidateKind::Other => {}
         }
@@ -428,6 +491,10 @@ fn in_reach(
                 return None;
             }
         }
+        // A button is never pulled; a door must be at rest.
+        CandidateKind::Mover(ThrownMover::Button) if context.pull => return None,
+        CandidateKind::Mover(ThrownMover::Door { at_rest: false, .. }) => return None,
+        CandidateKind::Mover(_) => {}
         CandidateKind::Other => return None,
     }
     let centre = thrower.origin;
@@ -452,7 +519,9 @@ fn in_reach(
     if length(v) >= RADIUS {
         return None;
     }
-    if !world.in_pvs(middle, thrower.origin) {
+    // A brush model is not held to the PVS.
+    let brush = matches!(candidate.kind, CandidateKind::Mover(_));
+    if !brush && !world.in_pvs(middle, thrower.origin) {
         return None;
     }
     let sighted = |world: &mut dyn ThrowWorld, from: [f32; 3]| {
@@ -463,6 +532,35 @@ fn in_reach(
         return None;
     }
     Some(candidate)
+}
+
+/// What the throw does to a mover it reached (`w_force.c:3584-3662`): a button is
+/// pressed; a door is used if the thrower points right at it and it is not already at
+/// the end the throw would move it to — a pull does nothing at the end nearest the
+/// thrower, a push nothing at the farthest.
+fn work_mover(
+    context: Throw,
+    thrower: &Thrower,
+    number: u16,
+    mover: ThrownMover,
+    world: &mut dyn ThrowWorld,
+) {
+    let ThrownMover::Door { at_pos1, ends, .. } = mover else {
+        world.work_mover(number, context.thrower, true);
+        return;
+    };
+    let end: [f32; 3] =
+        std::array::from_fn(|axis| thrower.eye[axis] + RADIUS * thrower.forward[axis]);
+    let hit = world.trace(thrower.eye, end, context.thrower, MASK_SHOT);
+    if hit.entity_number != number || hit.fraction == 1.0 || hit.all_solid || hit.start_solid {
+        return;
+    }
+    let near_pos1 = length(std::array::from_fn(|axis| ends.0[axis] - thrower.eye[axis]))
+        < length(std::array::from_fn(|axis| ends.1[axis] - thrower.eye[axis]));
+    let at_nearest = near_pos1 == at_pos1;
+    if at_nearest != context.pull {
+        world.work_mover(number, context.thrower, false);
+    }
 }
 
 /// What the throw does to a player it reached (`w_force.c:3326-3571`).

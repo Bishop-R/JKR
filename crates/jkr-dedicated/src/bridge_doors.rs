@@ -193,6 +193,33 @@ impl NativeGame {
         }
     }
 
+    /// A door or button a Force throw by `client` worked: `GEntity_UseFunc` on a door
+    /// (`Use_BinaryMover`), `Touch_Button` on a button — which only a button at rest
+    /// where the map put it answers.
+    pub(super) fn work_thrown_mover(
+        &mut self,
+        number: u16,
+        client: usize,
+        button: bool,
+        level_time: i32,
+    ) {
+        let Some(index) = self
+            .doors
+            .iter()
+            .position(|(id, _)| id.legacy_number() == number)
+        else {
+            return;
+        };
+        if button && self.doors[index].1.state != MoverState::Pos1 {
+            return;
+        }
+        let fired = mover_team::use_mover(&mut self.doors, index, level_time, Some(client));
+        self.publish_team(index);
+        if let Some(target) = fired {
+            self.fire_targets(&target, client, level_time);
+        }
+    }
+
     /// `ClientImpacts` (`g_active.c:493-521`) for the movers this move touched: a
     /// `func_plat` a living player stood on or walked into keeps itself up for another
     /// second (`Touch_Plat`), which is what holds a lift at the top while somebody rides
