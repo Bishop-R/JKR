@@ -237,6 +237,24 @@ pub(crate) fn normalize_stock_backslash(input: &str) -> std::borrow::Cow<'_, str
     input.into()
 }
 
+/// A key name as shown to players: ASCII letters in uppercase, as retail's
+/// controls menu shows them (`ui_shared.c` `BindingFromName` upper-cases
+/// with `Q_strupr`). Only ASCII is changed, as `Q_strupr` does, so layout
+/// names such as `é` keep their character. Configs and `bind` arguments keep
+/// the canonical spelling; matching is case-insensitive either way.
+pub fn display_key(key: &str) -> std::borrow::Cow<'_, str> {
+    if key.bytes().any(|byte| byte.is_ascii_lowercase()) {
+        key.to_ascii_uppercase().into()
+    } else {
+        key.into()
+    }
+}
+
+/// Append [`display_key`] of `key` to `output` without allocating.
+pub fn push_display_key(output: &mut String, key: &str) {
+    output.extend(key.chars().map(|character| character.to_ascii_uppercase()));
+}
+
 /// Resolve a stock name or old viewer alias to the spelling saved in configs.
 pub fn canonical_key(key: &str) -> Option<&str> {
     for (alias, name) in [
@@ -272,4 +290,28 @@ pub fn canonical_key(key: &str) -> Option<&str> {
                 .find(|(alias, _)| alias.eq_ignore_ascii_case(key))
                 .map(|(_, name)| *name)
         })
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn display_names_are_ascii_uppercase() {
+        assert_eq!(display_key("w"), "W");
+        assert_eq!(display_key("MOUSE1"), "MOUSE1");
+        assert_eq!(display_key("kp_enter"), "KP_ENTER");
+        assert_eq!(display_key("é"), "é");
+        assert_eq!(display_key(";"), ";");
+        let mut output = String::from("a / ");
+        push_display_key(&mut output, "mwheelup");
+        assert_eq!(output, "a / MWHEELUP");
+    }
+
+    #[test]
+    fn display_names_still_resolve_to_the_saved_spelling() {
+        for key in ["w", "space", "MOUSE1", "kp_enter"] {
+            assert_eq!(canonical_key(&display_key(key)), canonical_key(key));
+        }
+    }
 }

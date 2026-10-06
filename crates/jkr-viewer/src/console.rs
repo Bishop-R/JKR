@@ -65,7 +65,6 @@ use console_view::ConsolePresentation;
 use jkr_client::{ClientSession, ForceRankUpdate, compat_console_commands};
 use jkr_shell::{CompletionKey, CvarDefinition, CvarFlags, CvarRegistry, CvarValue, Shell};
 use std::error::Error;
-use std::fmt::Write as _;
 use std::io::{Error as IoError, ErrorKind};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -339,7 +338,8 @@ impl ViewerConsole {
             .any(|(bound, _)| bound.eq_ignore_ascii_case(key))
     }
 
-    /// Format all physical keys bound to `command` into retained storage.
+    /// Format all physical keys bound to `command` into retained storage, as
+    /// players see key names ([`jkr_shell::key_names::display_key`]).
     pub(crate) fn write_keys_for_command(&self, command: &str, output: &mut String) {
         output.clear();
         for (key, bound) in self.shell.binds.iter() {
@@ -349,7 +349,7 @@ impl ViewerConsole {
             if !output.is_empty() {
                 output.push_str(" / ");
             }
-            let _ = write!(output, "{key}");
+            jkr_shell::key_names::push_display_key(output, key);
         }
         if output.is_empty() {
             output.push_str("unbound");
