@@ -60,8 +60,8 @@ const ES_ANGLES: [usize; 3] = [25, 9, 24];
 const ES_ORIGIN: [usize; 3] = [11, 12, 13];
 /// `CHAN_WEAPON`, `CHAN_ITEM`, `CHAN_BODY`, `CHAN_AUTO`, carried in `saberEntityNum`.
 const CHAN_WEAPON: u32 = 2;
-const CHAN_ITEM: u32 = 4;
-const CHAN_BODY: u32 = 5;
+const CHAN_ITEM: u32 = 5;
+const CHAN_BODY: u32 = 6;
 const ES_SABER_ENTITY: usize = 37;
 
 impl NativeGame {
