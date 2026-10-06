@@ -73,12 +73,18 @@ impl CvarValue {
                 .parse()
                 .map(Self::Integer)
                 .map_err(|_| CvarError::InvalidValue(text.to_owned())),
-            Self::Float(_) => text
-                .parse::<f64>()
-                .ok()
-                .filter(|value| value.is_finite())
-                .map(Self::Float)
-                .ok_or_else(|| CvarError::InvalidValue(text.to_owned())),
+            Self::Float(default) => {
+                // `as_text` prints an `f32`-backed default in its shortest form, so that
+                // form reads back as the default itself rather than as a nearby `f64`.
+                if is_f32_exact(*default) && text == (*default as f32).to_string() {
+                    return Ok(Self::Float(*default));
+                }
+                text.parse::<f64>()
+                    .ok()
+                    .filter(|value| value.is_finite())
+                    .map(Self::Float)
+                    .ok_or_else(|| CvarError::InvalidValue(text.to_owned()))
+            }
             Self::Text(_) => Ok(Self::Text(text.to_owned())),
         }
     }
@@ -89,7 +95,14 @@ impl CvarValue {
             Self::Bool(value) => if *value { "1" } else { "0" }.to_owned(),
             Self::Integer(value) => value.to_string(),
             Self::Float(value) => {
-                let mut text = value.to_string();
+                // A value that came from an `f32` (a default such as 0.9_f32) is
+                // printed as that `f32`'s shortest form, "0.9", not its widened
+                // binary value 0.8999999761581421.
+                let mut text = if is_f32_exact(*value) {
+                    (*value as f32).to_string()
+                } else {
+                    value.to_string()
+                };
                 if !text.contains(['.', 'e', 'E']) {
                     text.push_str(".0");
                 }
@@ -328,6 +341,11 @@ impl CvarRegistry {
     }
 }
 
+/// Whether `value` is an `f32` widened to `f64`, such as a default registered from `0.9_f32`.
+fn is_f32_exact(value: f64) -> bool {
+    f64::from(value as f32) == value
+}
+
 fn set_entry(entry: &mut CvarEntry, value: CvarValue, restoring: bool) -> Result<bool, CvarError> {
     if !entry.cvar.default.same_kind(&value) {
         return Err(CvarError::WrongType(entry.cvar.name.clone()));
@@ -393,3 +411,43 @@ impl Display for CvarError {
 }
 
 impl std::error::Error for CvarError {}
+
+#[cfg(test)]
+mod float_text_tests {
+    use super::{CvarDefinition, CvarFlags, CvarRegistry, CvarValue};
+
+    #[test]
+    fn floats_from_f32_print_their_shortest_form() {
+        assert_eq!(CvarValue::Float(f64::from(0.9_f32)).as_text(), "0.9");
+        assert_eq!(CvarValue::Float(f64::from(0.75_f32)).as_text(), "0.75");
+        assert_eq!(CvarValue::Float(3.0).as_text(), "3.0");
+        // A value no f32 holds keeps its full form.
+        assert_eq!(CvarValue::Float(0.1).as_text(), "0.1");
+        assert_eq!(CvarValue::Float(1.0 / 3.0).as_text(), "0.3333333333333333");
+    }
+
+    #[test]
+    fn an_f32_default_reads_back_as_itself() {
+        let default = CvarValue::Float(f64::from(0.9_f32));
+        assert_eq!(default.parse_like(&default.as_text()).unwrap(), default);
+        // The long form still parses, and to the same value.
+        assert_eq!(default.parse_like("0.8999999761581421").unwrap(), default);
+        // Other text is an ordinary f64, and `0.9` is one for a default that is not `0.9_f32`.
+        assert_eq!(default.parse_like("0.95").unwrap(), CvarValue::Float(0.95));
+        let other = CvarValue::Float(0.5);
+        assert_eq!(other.parse_like("0.9").unwrap(), CvarValue::Float(0.9));
+    }
+
+    #[test]
+    fn a_saved_f32_default_is_still_the_default_after_loading() {
+        let mut registry = CvarRegistry::new();
+        let default = f64::from(0.35_f32);
+        let definition = CvarDefinition::new("test_f32", default, CvarFlags::ARCHIVE, "test");
+        registry.register(definition).unwrap();
+        let saved = registry.get("test_f32").unwrap().value.as_text();
+        assert_eq!(saved, "0.35");
+        assert!(!registry.set_text("test_f32", &saved).unwrap());
+        let cvar = registry.get("test_f32").unwrap();
+        assert_eq!(cvar.value, cvar.default);
+    }
+}
