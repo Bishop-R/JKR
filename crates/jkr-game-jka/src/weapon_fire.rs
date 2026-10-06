@@ -516,6 +516,8 @@ pub(crate) fn create_missile_by(
     level_time: i32,
     alternate: bool,
 ) -> Missile {
+    // `SnapVector(org)`: a muzzle its caller snapped already stays where it is.
+    let muzzle = snap_vector(muzzle);
     let mut entity = EntityState::zero(0, &LEGACY_ENTITY_FIELDS);
     entity.set_raw_field(ES_TYPE, ET_MISSILE);
     if alternate {
