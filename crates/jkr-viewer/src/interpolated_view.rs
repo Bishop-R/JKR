@@ -1,5 +1,6 @@
 //! Stock `CG_InterpolatePlayerState`: smooth authoritative views between snapshots.
-//! Follow views interpolate angles; synchronous local views keep immediate mouse-look.
+//! Follow views interpolate angles; synchronous local views, and a player on an E-Web
+//! (`CG_UsingEWeb`: its server places them each frame), keep immediate mouse-look.
 
 use super::GpuState;
 use glam::Vec3;
@@ -9,6 +10,29 @@ pub(crate) fn server_synchronous(game: &GameState) -> bool {
     game.config_string(1)
         .and_then(|info| jkr_protocol::info_value(info, b"g_synchronousClients"))
         .is_some_and(|value| jkr_game_jka::userinfo::atoi(value) != 0)
+}
+
+/// `CG_UsingEWeb` (`cg_predict.c:885-894`): the player holds the emplaced gun's weapon on
+/// an entity whose own weapon is none, which only an E-Web's is (a map's emplaced gun keeps
+/// its gunner's).
+pub(crate) fn using_eweb(snapshot: &Snapshot) -> bool {
+    const WP_EMPLACED_GUN: u8 = 17;
+    let index = snapshot.player.emplaced_index();
+    snapshot.player.weapon() == WP_EMPLACED_GUN
+        && index != 0
+        && snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.number() == index)
+            .is_some_and(|entity| entity.weapon() == 0)
+}
+
+/// Whether the local view is interpolated rather than predicted (`cg_predict.c:962`):
+/// following another player, a synchronous server, or on an E-Web.
+pub(crate) fn interpolates_local_view(snapshot: &Snapshot, game: &GameState) -> bool {
+    !crate::local_prediction::predicts_local_view(snapshot.player.movement_flags())
+        || server_synchronous(game)
+        || using_eweb(snapshot)
 }
 
 /// Do not bridge a teleport, a followed-player change, or a change of view mode.
@@ -58,7 +82,7 @@ pub(crate) fn present(gpu: &mut GpuState, time: i32) {
         return;
     }
     let following = latest.player.movement_flags() & 4096 != 0;
-    if !following && !server_synchronous(session.game_state()) {
+    if !interpolates_local_view(latest, session.game_state()) {
         return;
     }
     let previous = session.snapshot_at_or_before(time);

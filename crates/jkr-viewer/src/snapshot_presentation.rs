@@ -345,10 +345,11 @@ impl GpuState {
             self.camera_position = Vec3::from_array(view.origin);
             self.camera_pitch = -view.angles[0].to_radians();
             self.camera_yaw = view.angles[1].to_radians();
-        } else if !crate::local_prediction::predicts_local_view(snapshot.player.movement_flags())
-            || crate::prediction_preview::interpolated::server_synchronous(session.game_state())
-        {
-            // Follow and synchronous movement are interpolated each rendered frame.
+        } else if crate::prediction_preview::interpolated::interpolates_local_view(
+            snapshot,
+            session.game_state(),
+        ) {
+            // Follow, synchronous and E-Web movement are interpolated each rendered frame.
             let view_height = snapshot.player.view_height() as f32;
             self.local_prediction.stop(view_height);
             self.camera_position =
