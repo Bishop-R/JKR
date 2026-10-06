@@ -204,7 +204,7 @@ impl State {
         health: Option<f32>,
         icon: Option<Color>,
     ) {
-        let unit = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let unit = crate::ui_scale::height_scale(viewport[1]);
         let size = 36.0 * self.scale * unit;
         if self.names != 0 && names_allowed {
             let width = (320.0 * unit).min(viewport[0]);

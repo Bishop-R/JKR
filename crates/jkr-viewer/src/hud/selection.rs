@@ -73,7 +73,7 @@ pub(super) fn emit(
     user_scale: f32,
 ) {
     let Some(view) = view else { return };
-    let scale = (viewport[1] / 1080.0).clamp(0.6, 2.5) * user_scale.clamp(0.25, 2.0);
+    let scale = crate::ui_scale::height_scale(viewport[1]) * user_scale.clamp(0.25, 2.0);
     let x = 60.0 * scale;
     let y = viewport[1] - 180.0 * (viewport[1] / 1080.0) - 350.0 * scale;
     let base = if view.inventory { 1100 } else { 1000 };

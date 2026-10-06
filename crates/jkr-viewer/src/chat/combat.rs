@@ -240,7 +240,7 @@ impl ChatOverlay {
             self.ui.text_aligned(
                 &plum.text,
                 Rect::new(x - 100.0, y - 16.0, 200.0, 32.0),
-                22.0 * (camera.viewport[1] / 1080.0).clamp(0.6, 2.5),
+                22.0 * crate::ui_scale::height_scale(camera.viewport[1]),
                 color,
                 FontWeight::Semibold,
                 0.0,

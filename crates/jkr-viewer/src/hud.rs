@@ -341,9 +341,9 @@ impl HudOverlay {
             });
         }
         let dpi_scale =
-            (viewport[1] / 1_080.0).clamp(2.0 / 3.0, 4.0 / 3.0) * user_scale.clamp(0.25, 2.0);
+            crate::ui_scale::height_scale(viewport[1]).max(2.0 / 3.0) * user_scale.clamp(0.25, 2.0);
         let upper_right_bottom =
-            self.upper_right_stack()[2] * (viewport[1] / 1080.0).clamp(0.6, 2.5);
+            self.upper_right_stack()[2] * crate::ui_scale::height_scale(viewport[1]);
         let rectangles = LayoutEngine.layout(
             &self.tree,
             LayoutContext {
@@ -385,7 +385,7 @@ impl HudOverlay {
                     icons: &self.icons,
                     viewport,
                     dpi_scale,
-                    hero_scale: (viewport[1] / 1080.0).clamp(0.6, 2.5)
+                    hero_scale: crate::ui_scale::height_scale(viewport[1])
                         * user_scale.clamp(0.25, 2.0),
                     low_health,
                     low_ammo,

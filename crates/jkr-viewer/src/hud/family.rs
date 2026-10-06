@@ -264,7 +264,7 @@ impl HudOverlay {
             .emit(&mut self.draw_list, viewport, self.theme);
         self.enemy_info
             .emit(&mut self.draw_list, viewport, self.theme);
-        let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let s = crate::ui_scale::height_scale(viewport[1]);
         let [snapshot_top, inventory_top, _] = self.upper_right_stack();
         if self.family.upper && self.family.inventory {
             let mut row = 0;

@@ -172,7 +172,7 @@ impl Icons {
         upper: bool,
     ) {
         let [w, h] = viewport;
-        let s = (h / 1080.0).clamp(0.6, 2.5);
+        let s = crate::ui_scale::height_scale(h);
         let white = Color::new(1.0, 1.0, 1.0, 1.0);
         if self.enabled && visibility.status && self.alive {
             let item = assets::WEAPONS

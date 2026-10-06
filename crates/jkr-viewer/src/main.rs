@@ -150,6 +150,7 @@ mod snapshot_presentation;
 mod static_models;
 mod text;
 mod ui_renderer;
+mod ui_scale;
 mod weapon_view;
 mod wgsl_source;
 mod world_materials;
@@ -1304,7 +1305,7 @@ impl GpuState {
             self.configuration.width as f32,
             self.configuration.height as f32,
         ];
-        let text_scale = (self.configuration.height as f32 / 1_080.0).clamp(0.85, 1.35);
+        let text_scale = ui_scale::height_scale(viewport[1]).max(0.85);
         hud_runtime::update(
             self,
             view_position,
@@ -1418,17 +1419,15 @@ impl GpuState {
             .is_some_and(|selected| selected.elapsed() < Duration::from_secs(2))
             && !self.weapon_selection_label.is_empty()
         {
-            let width = visible_text_width(
-                &self.ui_font,
-                &self.weapon_selection_label,
-                text_scale * 1.1,
-            );
+            // 1.1 times Inter's 38.7-pixel line at 1080 lines.
+            let scale = ui_scale::glyph_scale(&self.ui_font, 42.6, text_scale);
+            let width = visible_text_width(&self.ui_font, &self.weapon_selection_label, scale);
             append_text(
                 &mut self.text_vertices,
                 &self.ui_font,
                 &self.weapon_selection_label,
                 [(viewport[0] - width) * 0.5, viewport[1] * 0.78],
-                text_scale * 1.1,
+                scale,
                 viewport,
             );
         }

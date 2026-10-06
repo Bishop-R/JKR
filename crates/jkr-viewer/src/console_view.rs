@@ -127,7 +127,7 @@ impl ConsolePresentation {
         } else {
             self.ui.begin_transparent(viewport);
             if !open {
-                let scale = (viewport[1] / 1080.0).clamp(0.75, 2.5) * options.scale;
+                let scale = crate::ui_scale::height_scale(viewport[1]).max(0.75) * options.scale;
                 let color = self.ui.theme().foreground;
                 for (i, line) in lines
                     .rev()
@@ -177,7 +177,7 @@ fn build_options<'a>(
     header: &str,
 ) {
     ui.begin_transparent(viewport);
-    let scale = (viewport[1] / 1080.0).clamp(0.75, 2.5) * options.scale;
+    let scale = crate::ui_scale::height_scale(viewport[1]).max(0.75) * options.scale;
     let height = (viewport[1] * options.height).min(viewport[1]);
     let margin = 24.0 * scale;
     let width = (viewport[0] - margin * 2.0).max(0.0);

@@ -46,7 +46,7 @@ pub(crate) struct HeroColumn {
 
 impl HeroColumn {
     pub(crate) fn new(viewport: [f32; 2]) -> Self {
-        let scale = (viewport[1] / 1_080.0).clamp(0.6, 2.5);
+        let scale = crate::ui_scale::height_scale(viewport[1]);
         let margin = (viewport[0] * 0.075).max(72.0 * scale);
         Self {
             scale,

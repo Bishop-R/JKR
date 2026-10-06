@@ -24,7 +24,8 @@ impl GpuState {
                 &self.ui_font,
                 self.frame_pacer.label(),
                 [(viewport[0] - 780.0).max(8.0), 18.0],
-                text_scale * 0.8,
+                // 0.8 times Inter's 38.7-pixel line at 1080 lines.
+                ui_scale::glyph_scale(&self.ui_font, 31.0, text_scale),
                 viewport,
             );
         }

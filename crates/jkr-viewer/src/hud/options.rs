@@ -108,7 +108,7 @@ impl Speed {
         if !self.enabled {
             return;
         }
-        let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
+        let s = crate::ui_scale::height_scale(viewport[1]);
         let _ = draw.push(DrawCommand::Text {
             rect: Rect::new(
                 self.position[0] * viewport[0] / 640.0,
