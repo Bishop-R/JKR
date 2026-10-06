@@ -124,6 +124,7 @@ pub fn npc_as_other(npc: &mut NpcActor) -> OtherPlayer<'_> {
         npc_class: Some(npc.definition.client_class),
         absmin: npc.link.0,
         absmax: npc.link.1,
+        jetpack: None,
     }
 }
 

@@ -51,6 +51,8 @@ pub struct OtherPlayer<'a> {
     /// `r.absmin`, `r.absmax`.
     pub absmin: [f32; 3],
     pub absmax: [f32; 3],
+    /// A player's jetpack, which a grip puts out (`Jetpack_Off`); `None` for an NPC.
+    pub jetpack: Option<&'a mut crate::holdables::Packs>,
 }
 
 /// Everyone but a Force power's user, as its grip, lightning, drain and mind trick reach
@@ -412,6 +414,10 @@ impl Forcer<'_, '_> {
         let Some(held) = self.frame.others.player(number) else {
             return;
         };
+        // "make sure the guy being gripped has his jetpack off".
+        if let Some(packs) = held.jetpack {
+            packs.jetpack_on = false;
+        }
         held.force.grip_being_gripped = (level_time + 1_000) as f32;
         let elapsed = level_time as f32 - held.force.grip_started;
         if level == 1 {

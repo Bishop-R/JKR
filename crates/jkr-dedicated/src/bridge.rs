@@ -1597,6 +1597,10 @@ impl NativeGame {
             return;
         }
         self.eject_on_death(client, server_time);
+        // "Make sure the jetpack is turned off" (`player_die`).
+        if let Some(peer) = self.peer_mut(client) {
+            peer.gear.packs.jetpack_on = false;
+        }
         // A carrier's item drops (or goes home) at once; a hack ends.
         self.siege_carrier_gone(client, server_time);
         self.siege_hack_ends(client);
@@ -2423,6 +2427,7 @@ impl NativeGame {
             force: Some(&mut victim.force),
             spared_by_master,
             god_mode,
+            jetpack: Some(&mut victim.gear.packs),
         };
         let damaged = if sheltered {
             jkr_game_jka::damage::shock(&mut target_view, &request, &mut rng);

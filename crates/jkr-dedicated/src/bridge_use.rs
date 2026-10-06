@@ -82,7 +82,13 @@ impl NativeGame {
             });
             return;
         }
+        // "can't use anything else so jp is off" (`goto tryJetPack`).
+        if peer.gear.packs.jetpack_on {
+            self.jetpack_by_use_key(client, level_time);
+            return;
+        }
         let Some(found) = self.use_target(client) else {
+            self.jetpack_by_use_key(client, level_time);
             return;
         };
         if self.use_vehicle(client, found, level_time) || self.use_gun(client, found, level_time) {
@@ -119,7 +125,9 @@ impl NativeGame {
             if !usable.target.is_empty() {
                 self.fire_targets(&usable.target, client, level_time);
             }
+            return;
         }
+        self.jetpack_by_use_key(client, level_time);
     }
 
     /// `TryUse`'s vehicle (`g_utils.c:1699-1723`): the one the player rides it gets off, any

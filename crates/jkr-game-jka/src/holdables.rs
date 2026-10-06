@@ -334,6 +334,38 @@ pub fn use_jetpack(packs: &mut Packs, wearer: &Wearer, level_time: i32) -> Toggl
     toggled
 }
 
+/// `EF_JETPACK` (carried), `EF_JETPACK_ACTIVE` (lit), `EF_JETPACK_FLAMING` (thrusting).
+pub const EF_JETPACK: u32 = 1 << 29;
+pub const EF_JETPACK_ACTIVE: u32 = 1 << 11;
+const EF_JETPACK_FLAMING: u32 = 1 << 30;
+
+/// `ClientThink_real`'s jetpack (`g_active.c:2093-2132`) for a player in the game:
+/// `EF_JETPACK` while it carries one; while it is lit, a player the chain's earlier rules
+/// (noclip, a disintegration, death, a grip) leave free moves as a jetpacker (`PM_JETPACK`
+/// with `EF_JETPACK_ACTIVE`), and one put out goes back to `PM_NORMAL`; a player not
+/// jetting has both jet flags put out. Returns the movement type and the flags.
+pub fn jetpack_think(movement_type: u8, flags: u32, carried: bool, lit: bool) -> (u8, u32) {
+    const PM_NORMAL: u8 = 0;
+    use crate::pmove::jetpack::PM_JETPACK;
+    let mut flags = if carried {
+        flags | EF_JETPACK
+    } else {
+        flags & !EF_JETPACK
+    };
+    let free = movement_type == PM_NORMAL || movement_type == PM_JETPACK;
+    if free && lit {
+        flags |= EF_JETPACK_ACTIVE;
+    } else {
+        flags &= !(EF_JETPACK_ACTIVE | EF_JETPACK_FLAMING);
+    }
+    let movement_type = match (free, lit) {
+        (true, true) => PM_JETPACK,
+        (true, false) => PM_NORMAL,
+        (false, _) => movement_type,
+    };
+    (movement_type, flags)
+}
+
 /// `ItemUse_UseCloak`: cloaked or uncloaked, a second apart; never while dead, never
 /// cloaked with less than 5 in the battery.
 pub fn use_cloak(packs: &mut Packs, wearer: &Wearer, level_time: i32) -> Toggled {

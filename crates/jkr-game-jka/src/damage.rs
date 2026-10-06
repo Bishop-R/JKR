@@ -296,6 +296,9 @@ pub struct Target<'a> {
     pub spared_by_master: bool,
     /// `ent->flags & FL_GODMODE`: the push lands, unprotected damage still kills.
     pub god_mode: bool,
+    /// A player's jetpack (`jetPackOn`, `jetPackToggleTime`), which a DEMP2 blow puts out
+    /// for three to ten seconds; `None` for a target without one.
+    pub jetpack: Option<&'a mut crate::holdables::Packs>,
 }
 
 /// What `G_Damage` came to.
@@ -552,10 +555,21 @@ pub fn damage_at(
         damaged.absorbed = save;
     }
     take -= save;
-    // `MOD_DEMP2` on a player (`g_combat.c:5150-5195`): a third of what is left, one at
-    // least (droids take more, fighters none; a jetpack goes off — none of them here yet).
-    if matches!(request.means, MOD_DEMP2 | MOD_DEMP2_ALT) && take > 0 {
-        take = (take / 3).max(1);
+    // `MOD_DEMP2` on a player (`g_combat.c:5150-5195`): a lit jetpack goes out for three
+    // to ten seconds, and a third of what is left lands, one at least (droids take more,
+    // fighters none — none of them here yet).
+    if matches!(request.means, MOD_DEMP2 | MOD_DEMP2_ALT) {
+        if let Some(packs) = target
+            .jetpack
+            .as_deref_mut()
+            .filter(|packs| packs.jetpack_on)
+        {
+            packs.jetpack_on = false;
+            packs.jetpack_toggle_time = request.level_time + rng.irand(3_000, 10_000);
+        }
+        if take > 0 {
+            take = (take / 3).max(1);
+        }
     }
     // The frame's totals, for the feedback at its end.
     target.state.persistent[PERS_ATTACKER] = u32::from(attacker_number);

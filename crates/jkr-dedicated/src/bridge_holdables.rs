@@ -4,8 +4,9 @@
 //! jetpack and cloak batteries and the seeker drone. The rules are
 //! `jkr_game_jka::holdables` and `seeker_drone`, held to `holdables.c`.
 //!
-//! Not yet: the E-Web and the jetpack's flight; used, each says so once. The sentry is set
-//! down by `bridge_sentries`.
+//! Not yet: the E-Web; used, it says so once. The sentry is set down by `bridge_sentries`;
+//! the jetpack's flight is the movement's (`jkr_game_jka::pmove::jetpack`), switched each
+//! think by `holdables::jetpack_think`.
 
 use super::*;
 use jkr_game_jka::holdables::{
@@ -50,13 +51,14 @@ const GENERIC_TAGS: [i32; 12] = [
     HI_CLOAK,
 ];
 /// The holdables this server cannot use yet.
-const UNPORTED: [i32; 2] = [HI_JETPACK, HI_EWEB];
+const UNPORTED: [i32; 1] = [HI_EWEB];
 /// `EV_PLAY_EFFECT`, `EFFECT_SPARK_EXPLOSION`, `s.angles`, `s.origin`.
 const EV_PLAY_EFFECT: u32 = 68;
 const EFFECT_SPARK_EXPLOSION: u32 = 4;
 const ES_ANGLES: [usize; 3] = [25, 9, 24];
 const ES_ORIGIN: [usize; 3] = [11, 12, 13];
-/// `CHAN_WEAPON`, `CHAN_ITEM`, `CHAN_BODY`, `CHAN_AUTO`, carried in `saberEntityNum`.
+/// `CHAN_AUTO`, `CHAN_WEAPON`, `CHAN_ITEM`, `CHAN_BODY`, carried in `saberEntityNum`.
+const CHAN_AUTO: u32 = 0;
 const CHAN_WEAPON: u32 = 2;
 const CHAN_ITEM: u32 = 5;
 const CHAN_BODY: u32 = 6;
@@ -162,6 +164,20 @@ impl NativeGame {
         true
     }
 
+    /// `TryUse`'s last resort (`g_utils.c:1820-1829`): with nothing else used, a carried
+    /// jetpack is switched — off when lit, on only in the air. The generic command cannot
+    /// do it: `G_ItemUsable` refuses an item that is never selectable.
+    pub(super) fn jetpack_by_use_key(&mut self, client: usize, level_time: i32) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let carried = peer.state.stats[STAT_HOLDABLE_ITEMS] & (1 << HI_JETPACK) != 0;
+        let airborne = peer.state.ground_entity_num() == jkr_protocol::ENTITY_NUMBER_NONE;
+        if carried && (peer.gear.packs.jetpack_on || airborne) {
+            self.use_item(client, HI_JETPACK, level_time);
+        }
+    }
+
     /// `ItemUse_*` for `tag` by `client`.
     fn use_item(&mut self, client: usize, tag: i32, level_time: i32) {
         let Some(peer) = self.peer_mut(client) else {
@@ -211,13 +227,22 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
             HI_CLOAK => {
-                let wearer = wearer_of(peer);
+                let wearer = wearer_of(peer, level_time);
                 let toggled = holdables::use_cloak(&mut peer.gear.packs, &wearer, level_time);
                 self.cloak_toggled(client, toggled, level_time);
             }
             HI_SHIELD => self.place_shield(client, level_time),
             HI_SENTRY_GUN => self.place_sentry(client, level_time),
-            HI_JETPACK | HI_EWEB => self.told_unported_holdable(tag),
+            HI_JETPACK => {
+                let wearer = wearer_of(peer, level_time);
+                if holdables::use_jetpack(&mut peer.gear.packs, &wearer, level_time)
+                    == Toggled::JetpackOn
+                {
+                    let origin = peer.state.origin();
+                    self.general_sound(b"sound/boba/JETON", origin, CHAN_AUTO, level_time);
+                }
+            }
+            HI_EWEB => self.told_unported_holdable(tag),
             _ => {}
         }
     }
@@ -441,16 +466,20 @@ fn holder_of(peer: &Peer) -> Holder {
     }
 }
 
-/// The jetpack's and cloak's view of a player.
-fn wearer_of(peer: &Peer) -> Wearer {
+/// The jetpack's and cloak's view of a player at `level_time`.
+fn wearer_of(peer: &Peer, level_time: i32) -> Wearer {
+    const PM_DEAD: u8 = 5;
     Wearer {
         health: peer.health,
-        dead: peer.state.raw_field(PS_EFLAGS).unwrap_or(0) & holdables::EF_DEAD != 0,
+        // `ps.stats[STAT_HEALTH] <= 0`, `EF_DEAD` or `PM_DEAD` (`ItemUse_Jetpack`).
+        dead: peer.state.raw_field(PS_EFLAGS).unwrap_or(0) & holdables::EF_DEAD != 0
+            || peer.state.stats[0] as i16 <= 0
+            || peer.state.movement_type() == PM_DEAD,
         jetpack_fuel: peer.state.raw_field(PS_JETPACK_FUEL).unwrap_or(0) as i32,
         cloak_fuel: peer.state.raw_field(PS_CLOAK_FUEL).unwrap_or(0) as i32,
         cloaked: peer.state.powerups[PW_CLOAKED] != 0,
-        gripped: false,
-        falling_to_death: false,
+        gripped: peer.force.grip_being_gripped >= level_time as f32,
+        falling_to_death: peer.state.falling_to_death() != 0,
     }
 }
 

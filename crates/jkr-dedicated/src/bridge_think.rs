@@ -121,6 +121,28 @@ impl NativeGame {
             peer.state.set_movement_type(PM_NOCLIP);
             peer.movement = peer.movement.reseeded(&peer.state);
         }
+        // The jetpack, last in the chain: its flags, and a free player's flight.
+        if peer.playing() {
+            const STAT_HOLDABLE_ITEMS: usize = 2;
+            let carried = peer.state.stats[STAT_HOLDABLE_ITEMS]
+                & (1 << jkr_game_jka::holdables::HI_JETPACK)
+                != 0;
+            let (kind, flags) = (
+                peer.state.movement_type(),
+                peer.state.raw_field(EFLAGS).unwrap_or(0),
+            );
+            let jet = jkr_game_jka::holdables::jetpack_think(
+                kind,
+                flags,
+                carried,
+                peer.gear.packs.jetpack_on,
+            );
+            if jet != (kind, flags) {
+                peer.state.set_movement_type(jet.0);
+                peer.state.set_raw_field(EFLAGS, jet.1);
+                peer.movement = peer.movement.reseeded(&peer.state);
+            }
+        }
         let others = crate::peer::Others {
             boxes: obstacles,
             legs: body_legs,

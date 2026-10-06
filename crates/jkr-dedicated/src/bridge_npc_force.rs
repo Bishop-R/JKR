@@ -221,6 +221,7 @@ impl PlayerForce for ServerHost<'_> {
             team: peer.session.team,
             absmin,
             absmax,
+            jetpack: Some(&mut peer.gear.packs),
         })
     }
 

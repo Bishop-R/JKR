@@ -1337,9 +1337,14 @@ impl Predictor {
         // `BG_VehicleAdjustBBoxForOrientation` (`bg_pmove.c:10814-10818`).
         let bounds = self.vehicle_box(bounds, collision);
         self.box_bounds = (bounds.minimums, bounds.maximums);
-        // A wall run falls at half gravity (`bg_pmove.c:10726-10730`), until the slice ends.
+        // A jetpack's gravity is lightened and it climbs or hovers (`bg_pmove.c:10712-10811`);
+        // a wall run falls at half gravity (`:10726-10730`); either until the slice ends.
         let gravity = self.state.gravity;
-        if self.slow_fall {
+        if jetpack::active(&self.state) {
+            let ground_distance = jetpack::ground_distance(&self.state, bounds, collision);
+            self.state.gravity = jetpack::lightened_gravity(gravity, ground_distance);
+            jetpack::steer(&mut self.state, &command, ground_distance);
+        } else if self.slow_fall {
             self.state.gravity = wall_moves::halved_gravity(gravity);
         }
         self.state.legs_timer_at_entry = self.state.legs_timer;
@@ -1516,7 +1521,7 @@ impl Predictor {
         if self.config.snap_velocity {
             self.state.velocity = self.state.velocity.map(f32::round_ties_even);
         }
-        if self.slow_fall {
+        if jetpack::active(&self.state) || self.slow_fall {
             self.state.gravity = gravity;
         }
         // `AttachRiders` (`bg_pmove.c:11138-11154`).
@@ -1686,9 +1691,13 @@ impl Predictor {
             end,
             PLAYER_CONTENT_MASK,
         );
-        // PM_FLOAT always takes PM_GroundTraceMissed, even above a floor
-        // (bg_pmove.c:4137-4143); it must not acquire walking friction/land timers.
-        if trace.all_solid || trace.fraction == 1.0 || self.state.movement_type == 2 {
+        // PM_FLOAT and PM_JETPACK always take PM_GroundTraceMissed, even above a floor
+        // (bg_pmove.c:4137-4143); they must not acquire walking friction/land timers.
+        if trace.all_solid
+            || trace.fraction == 1.0
+            || self.state.movement_type == 2
+            || jetpack::active(&self.state)
+        {
             if !trace.all_solid
                 && let Some(lengths) = self.animation_lengths.as_deref()
             {
@@ -1888,10 +1897,14 @@ impl Predictor {
         let (forward, right) = (vector_normalize(forward), vector_normalize(right));
         // A hovering vehicle has air control along its `moveDir` (`bg_pmove.c:3087-3095`).
         let (wish_direction, wish_speed) = self.vehicle_air_wish().unwrap_or_else(|| {
+            let steered =
+                forward * f32::from(command.forward_move) + right * f32::from(command.right_move);
             let wish_velocity = if self.slow_fall {
                 Vec3::ZERO
+            } else if jetpack::active(&self.state) {
+                steered * jetpack::air_control(command.up_move)
             } else {
-                forward * f32::from(command.forward_move) + right * f32::from(command.right_move)
+                steered
             };
             (
                 vector_normalize(wish_velocity),
@@ -2222,6 +2235,9 @@ mod force_jump;
 
 #[path = "pmove_jump.rs"]
 mod jump;
+
+#[path = "pmove_jetpack.rs"]
+pub mod jetpack;
 
 #[path = "pmove_wall_moves.rs"]
 mod wall_moves;

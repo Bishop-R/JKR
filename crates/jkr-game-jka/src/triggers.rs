@@ -510,7 +510,7 @@ pub fn pushed(
 const PM_NORMAL: u8 = 0;
 const PM_DEAD: u8 = 5;
 const PM_FREEZE: u8 = 6;
-const PM_JETPACK: u8 = 8;
+const PM_JETPACK: u8 = 1;
 const PM_FLOAT: u8 = 2;
 
 /// `BG_TouchJumpPad` (`bg_misc.c:2543-2569`): the movement's own, which the client makes
