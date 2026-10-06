@@ -814,7 +814,9 @@ fn inverse_rigid_3x4(matrix: [[f32; 4]; 3]) -> [[f32; 4]; 3] {
 }
 
 fn quake_angles_matrix(angles: [f32; 3]) -> [[f32; 4]; 3] {
-    let [pitch, yaw, roll] = angles.map(f32::to_radians);
+    // `AngleVectors`' `angles[i] * (M_PI*2 / 360)`: a double product, kept as a float.
+    let [pitch, yaw, roll] =
+        angles.map(|degrees| (f64::from(degrees) * (std::f64::consts::PI * 2.0 / 360.0)) as f32);
     let (sp, cp) = pitch.sin_cos();
     let (sy, cy) = yaw.sin_cos();
     let (sr, cr) = roll.sin_cos();
