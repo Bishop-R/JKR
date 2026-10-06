@@ -22,7 +22,7 @@ use jkr_game_jka::{
     demp2::{ShockTarget, Sphere, SphereRun, run_sphere},
     disruptor::{
         Blow, DisruptorTargets, EF_DISINTEGRATION, Shooter, StruckPlayer, disintegrated, fire_alt,
-        fire_main, would_dodge,
+        fire_main,
     },
     entity_clip::BoxObstacle,
     entity_id::EntityId,
@@ -2994,8 +2994,12 @@ impl ConcussionTargets for InstantTargets<'_> {
         Some(jkr_game_jka::concussion::StruckPlayer {
             counts,
             no_knockback: peer.wounds.no_knockback,
-            dodges: would_dodge(&peer.state, peer.health > 0),
+            wields_saber: peer.state.weapon() == WP_SABER,
         })
+    }
+    fn dodges(&mut self, number: u16) -> bool {
+        self.game
+            .shot_dodge(number, jkr_game_jka::force_dodge::HL_NONE, self.level_time)
     }
     fn count_hit(&mut self) {
         if let Some(shooter) = self.game.peer_mut(self.shooter) {
@@ -3084,8 +3088,11 @@ impl DisruptorTargets for InstantTargets<'_> {
         Some(StruckPlayer {
             duelling_another: jkr_game_jka::duel::elsewhere(&peer.state, self.shooter as u16),
             saber_defense,
-            dodges: would_dodge(&peer.state, peer.health > 0),
         })
+    }
+    fn dodges(&mut self, number: u16, point: [f32; 3]) -> bool {
+        let location = self.game.player_hit_location(number, point);
+        self.game.shot_dodge(number, location, self.level_time)
     }
     fn can_block(&mut self, number: u16, point: [f32; 3]) -> bool {
         let level_time = self.level_time;
@@ -3237,6 +3244,7 @@ const WP_ROCKET_LAUNCHER: u8 = 11;
 const WP_CONCUSSION: u8 = 15;
 const WP_STUN_BATON: u8 = 1;
 const WP_MELEE: u8 = 2;
+const WP_SABER: u8 = 3;
 const WP_TRIP_MINE: u8 = 13;
 const WP_DET_PACK: u8 = 14;
 /// `EV_GENERAL_SOUND`.
@@ -3263,6 +3271,8 @@ mod bridge_chat;
 mod bridge_cheats;
 #[path = "bridge_ctf.rs"]
 mod bridge_ctf;
+#[path = "bridge_dodge.rs"]
+mod bridge_dodge;
 #[path = "bridge_duel.rs"]
 mod bridge_duel;
 #[path = "bridge_follow.rs"]

@@ -56,6 +56,12 @@ god, named items under `g_weaponDisable`, the dead-player refusals and the
 intermission refusals. Waypoint editing and a given flag's capture rules stay
 open; see the ledger row.
 
+Force Sight now dodges disruptor shots as stock does (audit row G4): the player
+takes the dodge pose, speed burst and sound, and the concussion beam no longer
+passes through Force Sight users. The rules match unchanged OpenJK on 200,000
+generated cases, and two live clients on `ctf5` showed dodged and landed shots.
+NPCs are not yet asked to dodge the disruptor; see the ledger row.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

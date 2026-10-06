@@ -86,18 +86,12 @@ const SES_RETURNING: i32 = 1;
 const CONTENTS_SOLID: u32 = 0x1;
 const CONTENTS_MONSTERCLIP: u32 = 0x20;
 const CONTENTS_BOTCLIP: u32 = 0x40;
-/// `HANDEXTEND_NONE`, `HANDEXTEND_DODGE`; `PW_SPEEDBURST`.
-const HANDEXTEND_NONE: u32 = 0;
-const HANDEXTEND_DODGE: u32 = 7;
-const PW_SPEEDBURST: usize = 8;
 /// Player-state wire fields the evasions write: `weaponTime`, `fd.saberAnimLevel`,
-/// `fd.forceJumpZStart`, `saberBlocked`, `forceHandExtend`, `forceDodgeAnim`.
+/// `fd.forceJumpZStart`, `saberBlocked`.
 pub(crate) const PS_WEAPON_TIME: usize = 10;
 const PS_SABER_ANIM_LEVEL: usize = 23;
 pub(crate) const PS_FORCE_JUMP_Z_START: usize = 74;
 pub(crate) const PS_SABER_BLOCKED: usize = 77;
-const PS_FORCE_HAND_EXTEND: usize = 80;
-const PS_FORCE_DODGE_ANIM: usize = 89;
 /// `SFL_NO_WALL_RUNS`, `SFL_NO_WALL_FLIPS`.
 const SFL_NO_WALL_RUNS: u32 = 1 << 13;
 const SFL_NO_WALL_FLIPS: u32 = 1 << 14;
@@ -258,46 +252,39 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         hit_loc: i32,
     ) -> bool {
         let level_time = self.level_time;
+        let mode = self.jedi_force_dodge();
+        // Only read with `g_forceDodge 2`; it asks nothing of the world.
+        let speed_usable = mode == 2 && self.force_power_usable(me, FP_SPEED);
         let npc = &self.actors[me];
-        if npc.health <= 0 {
-            return false;
-        }
-        let dodge = self.jedi_force_dodge();
-        let active = npc.player.force_powers_active();
-        if dodge == 0 || (dodge != 2 && active & (1 << FP_SEE) == 0) {
-            return false;
-        }
-        if npc.player.ground_entity_num() == ENTITYNUM_NONE
-            || npc.player.weapon_time() > 0
-            || u32::from(npc.player.force_hand_extend()) != HANDEXTEND_NONE
-        {
-            return false;
-        }
-        if dodge == 2 && (active != 0 || !self.force_power_usable(me, FP_SPEED)) {
-            return false;
-        }
-        let levels = self.actors[me].force_levels;
-        if dodge == 2 {
-            if self.host.irand(1, 7) > levels[FP_SPEED] {
-                return false;
-            }
-        } else if levels[FP_SEE] < 3 {
-            return false;
-        }
-        let Some(animation) = dodge_animation(hit_loc) else {
+        let dodger = crate::force_dodge::Dodger {
+            alive: npc.health > 0,
+            active_powers: npc.player.force_powers_active(),
+            on_ground: npc.player.ground_entity_num() != ENTITYNUM_NONE,
+            weapon_time: npc.player.weapon_time(),
+            hand_extend: u32::from(npc.player.force_hand_extend()),
+            sight_level: npc.force_levels[FP_SEE],
+            speed_level: npc.force_levels[FP_SPEED],
+            speed_usable,
+        };
+        let host = &mut *self.host;
+        let Some(dodge) =
+            crate::force_dodge::dodge_evasion(&dodger, mode, hit_loc, &mut |low, high| {
+                host.irand(low, high)
+            })
+        else {
             return false;
         };
         let npc = &mut self.actors[me];
-        npc.player
-            .set_raw_field(PS_FORCE_HAND_EXTEND, HANDEXTEND_DODGE);
-        npc.player
-            .set_raw_field(PS_FORCE_DODGE_ANIM, u32::from(animation));
-        npc.mind.knockdown.hand_extend_time = level_time + 300;
-        npc.player.powerups[PW_SPEEDBURST] = (level_time + 100) as u32;
-        if dodge == 2 {
+        crate::force_dodge::take(
+            dodge,
+            &mut npc.player,
+            &mut npc.mind.knockdown.hand_extend_time,
+            level_time,
+        );
+        if dodge.by_speed {
             self.force_speed(me, 500);
         } else {
-            self.jedi_body_sound(me, b"sound/weapons/force/speed.wav");
+            self.jedi_body_sound(me, crate::force_dodge::SPEED_SOUND);
         }
         true
     }
@@ -944,20 +931,4 @@ struct EnemyThreat {
     throwing: bool,
     /// `evasionChance`, in hundredths.
     chance: i32,
-}
-
-/// `Jedi_DodgeEvasion`'s dodge for where the shot would land (`hitLocation_t`): none for
-/// the legs, feet or nowhere.
-fn dodge_animation(hit_loc: i32) -> Option<u16> {
-    match hit_loc {
-        // `HL_BACK_RT`; `HL_BACK`, `HL_CHEST`, `HL_WAIST`; `HL_HEAD`.
-        6 | 8 | 11 | 5 | 16 => Some(BOTH_DODGE_FL),
-        // `HL_CHEST_RT`, `HL_BACK_LT`, `HL_CHEST_LT`.
-        9 | 7 | 10 => Some(BOTH_DODGE_FR),
-        // `HL_ARM_RT`, `HL_HAND_RT`.
-        12 | 14 => Some(BOTH_DODGE_L),
-        // `HL_ARM_LT`, `HL_HAND_LT`.
-        13 | 15 => Some(BOTH_DODGE_R),
-        _ => None,
-    }
 }

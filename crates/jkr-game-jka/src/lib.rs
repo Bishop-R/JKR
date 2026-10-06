@@ -227,6 +227,7 @@ mod npc_wampa_attack;
 pub mod npc_weapon_pickup;
 
 pub mod force_dark;
+pub mod force_dodge;
 pub mod force_team;
 pub mod force_throw;
 pub mod force_trick;

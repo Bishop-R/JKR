@@ -518,6 +518,26 @@ pub fn key(
     None
 }
 
+/// `ForceSpeed(self, duration)` for a player, as a Force dodge by speed calls it
+/// (`g_forceDodge 2`, [`crate::force_dodge`]): on for `duration`, or off when it has run
+/// long enough to be turned off.
+pub fn speed(
+    state: &mut PlayerState,
+    force: &mut ForcePowers,
+    duration: i32,
+    frame: &mut ForceFrame,
+) {
+    let mut forcer = Forcer {
+        state,
+        force,
+        frame,
+        throw: None,
+        saber_knocked: false,
+        buttons: 0,
+    };
+    forcer.speed(duration);
+}
+
 /// The levels a client is sent: levitation's and seeing's.
 pub(crate) fn mirror_levels(state: &mut PlayerState, force: &ForcePowers) {
     state.set_raw_field(PS_LEVITATION_LEVEL, u32::from(force.levels[FP_LEVITATION]));
@@ -1447,7 +1467,7 @@ pub(crate) fn available(
 }
 
 /// `WP_ForcePowerUsable` for a player in the game (never a spectator).
-pub(crate) fn usable(
+pub fn usable(
     state: &PlayerState,
     force: &ForcePowers,
     health: i32,

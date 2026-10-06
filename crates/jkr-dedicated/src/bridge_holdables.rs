@@ -267,7 +267,7 @@ impl NativeGame {
         peer.state.powerups[PW_CLOAKED] = cloak as u32;
         peer.movement = peer.movement.reseeded(&peer.state);
         let origin = peer.state.origin();
-        self.holdable_sound(sound, origin, CHAN_ITEM, level_time);
+        self.general_sound(sound, origin, CHAN_ITEM, level_time);
     }
 
     /// `G_AddEvent` on a player: its external event (`EV_EVENT_BITS` stepped).
@@ -284,7 +284,13 @@ impl NativeGame {
     }
 
     /// `G_Sound`/`G_SoundAtLoc`: a sound event at `origin` on `channel`.
-    fn holdable_sound(&mut self, name: &[u8], origin: [f32; 3], channel: u32, level_time: i32) {
+    pub(super) fn general_sound(
+        &mut self,
+        name: &[u8],
+        origin: [f32; 3],
+        channel: u32,
+        level_time: i32,
+    ) {
         let told = &mut self.told;
         let index = self.sounds.index(name, &mut |index, value| {
             told.push(Told::ConfigString {
@@ -403,7 +409,7 @@ impl NativeGame {
                     }
                     let _ = self.pool.spawn_temporary(effect.state(), level_time, None);
                 }
-                Deed::Warning => self.holdable_sound(
+                Deed::Warning => self.general_sound(
                     b"sound/weapons/laser_trap/warning.wav",
                     origin,
                     CHAN_BODY,
@@ -417,7 +423,7 @@ impl NativeGame {
                         self.pool.set_bounds(id, missile.bounds);
                         self.missiles.push((id, missile));
                     }
-                    self.holdable_sound(
+                    self.general_sound(
                         b"sound/weapons/bryar/fire.wav",
                         at,
                         CHAN_WEAPON,

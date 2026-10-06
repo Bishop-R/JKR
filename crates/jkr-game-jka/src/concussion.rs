@@ -35,9 +35,12 @@ pub trait ConcussionTargets {
     /// `trap->Trace` from `start` to `end` in a box of one, passing `skip`.
     fn trace(&mut self, skip: u16, start: [f32; 3], end: [f32; 3], mask: u32) -> MovementTrace;
     /// A player entity that takes damage (a corpse too): whether it counts for the
-    /// accuracy (`LogAccuracyHit`), its `FL_NO_KNOCKBACK`, whether it dodges; `None` for
-    /// anything else.
+    /// accuracy (`LogAccuracyHit`), its `FL_NO_KNOCKBACK`, whether it holds a saber;
+    /// `None` for anything else.
     fn player(&self, number: u16) -> Option<StruckPlayer>;
+    /// `Jedi_DodgeEvasion(other, shooter, &tr, HL_NONE)`: without a hit location nobody
+    /// dodges, though `g_forceDodge 2` still draws for it ([`crate::force_dodge`]).
+    fn dodges(&mut self, number: u16) -> bool;
     /// `accuracy_hits++` for a player struck that counts.
     fn count_hit(&mut self);
     /// `G_Damage` on `number`.
@@ -61,9 +64,8 @@ pub trait ConcussionTargets {
 pub struct StruckPlayer {
     pub counts: bool,
     pub no_knockback: bool,
-    /// `Jedi_DodgeEvasion`, gated as [`crate::disruptor::would_dodge`]: the beam goes on
-    /// through untouched.
-    pub dodges: bool,
+    /// `s.weapon == WP_SABER`: the beam asks it to dodge, without a hit location.
+    pub wields_saber: bool,
 }
 
 /// `WP_FireConcussionAlt` by `state`'s player: the shooter shoved 200 back along the
@@ -119,7 +121,7 @@ pub fn fire_alt(
             .then(|| targets.player(trace.entity_number))
             .flatten();
         let Some(player) = struck else { break };
-        if player.dodges {
+        if player.wields_saber && targets.dodges(trace.entity_number) {
             start = trace.end_position;
             skip = trace.entity_number;
             continue;
