@@ -105,8 +105,9 @@ client shows no health meter for it yet.
 The JKR client now poses Ghoul2 machines as stock does: an E-Web unfolds, turns and
 pitches, and a turret turns by the bones its server sends; seen from the same spot,
 the JKR and TaystJK clients draw the same E-Web alike. They had been drawn in their
-bind pose and turned 90° away from stock's. The emplaced gun's aim and the sentry's
-turning are still to come; stock clients compute those themselves.
+bind pose and turned 90° away from stock's. Like stock clients, the JKR client also aims a
+manned emplaced gun where its gunner looks and turns a sentry toward its enemy itself;
+both were checked side by side with TaystJK.
 
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked

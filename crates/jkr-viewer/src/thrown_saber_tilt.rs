@@ -80,7 +80,7 @@ pub(crate) fn flight_rotations(
 }
 
 /// `vectoangles` (`q_math.c`): pitch positive looking down, in degrees.
-fn vector_to_angles(value: Vec3) -> [f32; 3] {
+pub(crate) fn vector_to_angles(value: Vec3) -> [f32; 3] {
     if value.x == 0.0 && value.y == 0.0 {
         return [if value.z > 0.0 { -90.0 } else { -270.0 }, 0.0, 0.0];
     }

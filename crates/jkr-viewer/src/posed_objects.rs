@@ -18,8 +18,14 @@
 use super::*;
 use crate::actor_instance::EntityLight;
 use crate::actor_pose::server_bone_angles;
-use jkr_model::{BoneAnimationCommand, BoneOverridePose, OverrideEndBehavior};
+use jkr_model::{
+    BoneAngleCommand, BoneAngleMode, BoneAnimationCommand, BoneAxis, BoneOverridePose,
+    OverrideEndBehavior,
+};
 use jkr_protocol::EntityState;
+
+#[path = "posed_sentry.rs"]
+mod sentry;
 
 /// The weights a Ghoul2 vertex carries at most (`iMAX_G2_BONEWEIGHTS_PER_VERT`).
 const MAX_WEIGHTS: usize = 4;
@@ -33,6 +39,26 @@ const ANIMATION_SPEED: f32 = 1.0;
 const ANIMATION_BLEND_MILLIS: u16 = 100;
 /// The posed entities followed at once; one beyond them is drawn unposed.
 const MAX_POSED: usize = 128;
+/// `MAX_CLIENTS`: entities below it are players.
+const MAX_CLIENTS: u16 = 32;
+/// `activeForcePass` of a manned emplaced gun: `NUM_FORCE_POWERS + 1`.
+const MANNED: u8 = 19;
+/// `CLASS_VEHICLE` (`teams.h`).
+const CLASS_VEHICLE: u8 = 53;
+/// The bone an emplaced gun aims with (`cg_ents.c:1344`).
+const AIM_BONE: &str = "Bone02";
+/// The bone a sentry turns (`cg_turret.c:254`).
+const HINGE_BONE: &str = "bone_hinge";
+/// The highest an emplaced gun pitches (down is positive).
+const AIM_PITCH_LIMIT: f32 = 40.0;
+/// The renderer's root matrix under every Ghoul2 skeleton, a quarter turn about Z
+/// (`tr_ghoul2.cpp:130-137`'s `identityMatrix`). A posed skeleton includes it, so a
+/// replacing bone turn is absolute in its space, as Ghoul2's are.
+const GHOUL2_ROOT: [[f32; 4]; 3] = [
+    [0.0, -1.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+];
 
 /// A Ghoul2 model split into rigid parts: its skeleton and, for each part, the bones its
 /// vertices follow. Part `i` is drawn as the object mesh `i + 1` after the model's own.
@@ -40,6 +66,10 @@ pub(crate) struct PosedModel {
     animation: Gla,
     /// `model_root`, where `EF_G2ANIMATING` plays; `None` for a skeleton without one.
     root: Option<usize>,
+    /// `Bone02`, which a manned emplaced gun aims with.
+    aim: Option<usize>,
+    /// `bone_hinge`, which a sentry turns.
+    hinge: Option<usize>,
     parts: Vec<Weights>,
 }
 
@@ -152,7 +182,9 @@ fn cut(
         }
         if surface.triangles.iter().any(|triangle| {
             let part = of_vertex[triangle[0] as usize];
-            triangle[1..].iter().any(|&corner| of_vertex[corner as usize] != part)
+            triangle[1..]
+                .iter()
+                .any(|&corner| of_vertex[corner as usize] != part)
         }) {
             eprintln!(
                 "{}: a triangle spans two bone weightings; drawn unposed",
@@ -212,14 +244,19 @@ fn cut(
             posed: None,
         });
     }
-    let root = animation
-        .bones
-        .iter()
-        .position(|bone| bone.name.eq_ignore_ascii_case(ROOT_BONE));
+    let find = |name: &str| {
+        animation
+            .bones
+            .iter()
+            .position(|bone| bone.name.eq_ignore_ascii_case(name))
+    };
+    let (root, aim, hinge) = (find(ROOT_BONE), find(AIM_BONE), find(HINGE_BONE));
     Some((
         PosedModel {
             animation,
             root,
+            aim,
+            hinge,
             parts,
         },
         meshes,
@@ -229,6 +266,17 @@ fn cut(
 /// Whether `mesh` is a rigid part of a posed model rather than a model of its own.
 pub(crate) fn is_part(mesh: &StaticModelMesh) -> bool {
     mesh.appearance.variant.starts_with("#part")
+}
+
+/// The gunner of the manned emplaced gun `state` is, if it is one (`CG_General`,
+/// `cg_ents.c:1319-1321`): an entity past the players marked by `activeForcePass`, not a
+/// vehicle.
+pub(crate) fn gunner(state: &EntityState) -> Option<u16> {
+    (state.number() >= MAX_CLIENTS
+        && state.active_force_pass() == MANNED
+        && state.npc_class() != CLASS_VEHICLE)
+        .then(|| u16::try_from(state.emplaced_owner()).ok())
+        .flatten()
 }
 
 /// The state `snapshot` holds for world entity `entity` (its number plus one).
@@ -255,6 +303,11 @@ pub(crate) struct Draw<'a> {
     pub(crate) view_flags: u32,
     /// `cg.time`.
     pub(crate) time: i64,
+    /// For a manned emplaced gun, where its gunner looks: the local view in first person,
+    /// otherwise the gunner's presented angles (`cg_ents.c:1323-1334`).
+    pub(crate) gunner_view: Option<[f32; 3]>,
+    /// For a sentry (`bolt1`) with an enemy, where that enemy stands.
+    pub(crate) sentry_enemy: Option<[f32; 3]>,
 }
 
 /// The skeletons of the posed entities, one per entity, kept while it is drawn: what
@@ -275,6 +328,8 @@ struct Slot {
     played: (u16, u16, bool),
     /// The frame it was last drawn.
     seen: u32,
+    /// A sentry's own turning, once it has been seen.
+    sentry: Option<sentry::Sentry>,
 }
 
 /// One part instance: the object mesh's group, its place there, its entity's origin.
@@ -311,6 +366,25 @@ impl Poses {
             }
             if state.e_flags() & EF_G2ANIMATING != 0 {
                 animate(slot, model, state, draw.time);
+            }
+            if let (Some(view), Some(bone)) = (draw.gunner_view, model.aim) {
+                let command = aim(view, state.angles()[1]);
+                // A bone of the skeleton always takes a command.
+                let _ = slot.pose.set_bone_angles(animation, bone, command);
+            }
+            // `CG_General` hands a sentry to `TurretClientRun` (`cg_ents.c:1409-1412`).
+            if state.bolt1() {
+                let origin = draw.transform.translation;
+                let (pose, enemy) = (&mut slot.pose, draw.sentry_enemy);
+                sentry::run(
+                    &mut slot.sentry,
+                    pose,
+                    model,
+                    state,
+                    origin,
+                    enemy,
+                    draw.time,
+                );
             }
         }
         let Ok(matrices) = slot.pose.evaluate(animation, draw.time) else {
@@ -367,13 +441,13 @@ impl Poses {
     }
 }
 
-/// Where a part posed as `matrix` (model space) is drawn for an entity at `transform`: the
-/// instance's position and rotation, for the renderer's `origin + rotation * (scale * v)`.
-/// That is the entity's turn over Ghoul2's root turn over the part's matrix, as the renderer
-/// places a Ghoul2 vertex; exact for a uniform scale and a rigid matrix, and for a blend of
-/// bones the blend's rotation.
+/// Where a part posed as `matrix` (the skeleton's space, Ghoul2's root included) is drawn
+/// for an entity at `transform`: the instance's position and rotation, for the renderer's
+/// `origin + rotation * (scale * v)`. That is the entity's turn over the part's matrix, as
+/// the renderer places a Ghoul2 vertex; exact for a uniform scale and a rigid matrix, and for
+/// a blend of bones the blend's rotation.
 fn place(transform: &jkr_runtime::Transform, matrix: [[f32; 4]; 3]) -> ([f32; 3], [f32; 4]) {
-    let rotation = crate::weapon_view::actor_world_rotation(transform.rotation);
+    let rotation = Quat::from_array(transform.rotation);
     let part_rotation = Quat::from_mat3(&glam::Mat3::from_cols(
         Vec3::new(matrix[0][0], matrix[1][0], matrix[2][0]),
         Vec3::new(matrix[0][1], matrix[1][1], matrix[2][1]),
@@ -422,10 +496,24 @@ impl Slot {
         Self {
             entity,
             mesh,
-            pose: BoneOverridePose::new(model.animation.bones.len()),
+            pose: BoneOverridePose::new(model.animation.bones.len()).with_root(GHOUL2_ROOT),
             played: (0, 0, false),
             seen: 0,
+            sentry: None,
         }
+    }
+}
+
+/// An emplaced gun's aim (`cg_ents.c:1336-1344`): its gunner's `view`, the pitch held
+/// to 40 down and the yaw taken from the gun's own `gun_yaw`, as the absolute turn of
+/// `Bone02` (`BONE_ANGLES_REPLACE` about -Y up, -X left, +Z forward).
+fn aim(view: [f32; 3], gun_yaw: f32) -> BoneAngleCommand {
+    BoneAngleCommand {
+        angles_degrees: [view[0].min(AIM_PITCH_LIMIT), view[1] - gun_yaw, view[2]],
+        mode: BoneAngleMode::Replace,
+        up: BoneAxis::NegativeY,
+        left: BoneAxis::NegativeX,
+        forward: BoneAxis::PositiveZ,
     }
 }
 
@@ -631,13 +719,7 @@ mod tests {
             scale: [1.25; 3],
         };
         let (position, rotation) = place(&transform, matrix);
-        // The renderer: the entity's axes over Ghoul2's root (`tr_ghoul2.cpp:130-137`, rows
-        // (0,-1,0) (1,0,0) (0,0,1)) over the part's matrix, scaled in model space.
-        let root = glam::Mat3::from_cols(
-            Vec3::new(0.0, 1.0, 0.0),
-            Vec3::new(-1.0, 0.0, 0.0),
-            Vec3::Z,
-        );
+        // The renderer: the entity's axes over the part's matrix, scaled in model space.
         let origin = Vec3::from_array(transform.translation);
         let entity = Quat::from_array(transform.rotation);
         for corner in [
@@ -645,7 +727,7 @@ mod tests {
             Vec3::new(10.0, 0.0, 0.0),
             Vec3::new(-3.0, 8.0, 5.0),
         ] {
-            let expected = origin + entity * (root * (1.25 * (turn * corner + offset)));
+            let expected = origin + entity * (1.25 * (turn * corner + offset));
             let drawn = Vec3::from_array(position) + Quat::from_array(rotation) * (1.25 * corner);
             assert!((drawn - expected).length() < 1e-3, "{drawn} != {expected}");
         }

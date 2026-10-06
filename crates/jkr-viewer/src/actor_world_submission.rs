@@ -64,6 +64,8 @@ struct Sinks<'a> {
     material_overrides: model_materials::Overrides,
     camera_position: Vec3,
     camera_yaw: f32,
+    /// Radians up (the opposite of a Quake pitch).
+    camera_pitch: f32,
     view_height: f32,
     predicted_force_powers_active: Option<u32>,
     predicted_local_state: Option<&'a jkr_client::pmove::MovementState>,
@@ -155,6 +157,7 @@ pub(crate) fn submit(
         material_overrides: gpu.model_material_overrides,
         camera_position: gpu.camera_position,
         camera_yaw: gpu.camera_yaw,
+        camera_pitch: gpu.camera_pitch,
         view_height: gpu.local_prediction.view_height(),
         predicted_force_powers_active: gpu
             .local_prediction
@@ -218,16 +221,25 @@ pub(crate) fn submit(
         }) {
             // A Ghoul2 model drawn posed, part by part (`CG_General`'s skeleton).
             let model = sinks.object_meshes[mesh].posed.as_deref();
+            let state = object_meshes::posed::entity_state(snapshot, entity.id.get());
+            let gunner_view = state
+                .and_then(object_meshes::posed::gunner)
+                .and_then(|gunner| gunner_view(&sinks, snapshot, gunner, presentation_time));
+            let sentry_enemy = state
+                .filter(|state| state.bolt1())
+                .and_then(|state| enemy_origin(&sinks, snapshot, state.bolt2(), presentation_time));
             let posed = model.is_some_and(|model| {
                 let draw = object_meshes::posed::Draw {
                     mesh,
                     model,
                     entity: entity.id.get(),
-                    state: object_meshes::posed::entity_state(snapshot, entity.id.get()),
+                    state,
                     game_state,
                     transform,
                     view_flags: sinks.entity_view_flags,
                     time: presentation_time,
+                    gunner_view,
+                    sentry_enemy,
                 };
                 sinks.poses.submit(draw, sinks.object_groups)
             });
@@ -245,6 +257,49 @@ pub(crate) fn submit(
         }
     }
     overlay_count
+}
+
+/// Where an emplaced gun's `gunner` looks (`cg_ents.c:1323-1334`): this client's own view
+/// when it is the gunner in first person, otherwise the gunner's presented angles.
+fn gunner_view(
+    sinks: &Sinks<'_>,
+    snapshot: Option<&Snapshot>,
+    gunner: u16,
+    time: i64,
+) -> Option<[f32; 3]> {
+    let local = snapshot.is_some_and(|snapshot| snapshot.player.client_num() == gunner);
+    if local && !sinks.third_person {
+        let pitch = -sinks.camera_pitch.to_degrees();
+        return Some([pitch, sinks.camera_yaw.to_degrees(), 0.0]);
+    }
+    let entity = sinks.world.entity(EntityId::new(u64::from(gunner) + 1))?;
+    Some(entity.sample_pose(time)?.view_angles_degrees)
+}
+
+/// Where a sentry's enemy `number` stands (`cg_turret.c:213-215` reads its `pos.trBase`):
+/// its state in this snapshot, else where this client last placed it; `None` for no enemy
+/// (`ENTITYNUM_NONE`) or one it never saw.
+fn enemy_origin(
+    sinks: &Sinks<'_>,
+    snapshot: Option<&Snapshot>,
+    number: u16,
+    time: i64,
+) -> Option<[f32; 3]> {
+    let entity = u64::from(number) + 1;
+    if number >= 1_023 {
+        return None;
+    }
+    object_meshes::posed::entity_state(snapshot, entity)
+        .map(jkr_protocol::EntityState::trajectory_base)
+        .or_else(|| {
+            Some(
+                sinks
+                    .world
+                    .entity(EntityId::new(entity))?
+                    .sample(time)
+                    .translation,
+            )
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
