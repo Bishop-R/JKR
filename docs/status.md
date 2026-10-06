@@ -398,6 +398,27 @@ launched to verify this layout revision, per owner preference. Visual playtestin
 remains with the owner. Formatting, locked workspace build/tests and the release
 build passed.
 
+## Third-person view visibility
+
+Local fix based on `af65396` (2026-10-06): the main view's PVS source cluster and
+area mask came from `camera_position`, the player's eye, not from the position the
+picture is taken from. A third-person camera sits behind and above the eye, often in
+another cluster, and the eye's visible set then culled walls the camera could see;
+the intermission camera and the first-person view with its prediction-error and
+effect offsets had the same mismatch. The leaf is now looked up at `view_position`,
+the camera used for the frame, as stock builds the view's PVS from
+`refdef.vieworg`. Reflection, portal and scene views already used their own eye. See
+[rendering](rendering.md).
+
+Three unit tests pin the frustum test used by the culling guard (a box ahead is kept,
+one behind is culled, a wall wider than the view is kept, a box touching a side plane
+is kept). Formatting (`cargo fmt --all --check`), `cargo build --locked --workspace` and `cargo test --locked --workspace` passed on Windows 11 with Rust 1.96.0 (30 tests, 3 of them new). `cargo clippy --locked --workspace --all-targets` stops at four deny-level lints that `main` already has (`jkr-game-jka` `concussion.rs:118` and `weapon_fire.rs:593/614/655`) before it reaches the crates changed here; with `-A clippy::erasing_op -A clippy::redundant_comparisons` it passes, with no warning on the changed lines.
+
+Limits: the visibility change itself has no test, and no GPU or game was started:
+the pop-out in third person, and that nothing new vanishes in first person, are
+unverified on screen. AGENTS.md asks for an actual GPU run for rendering changes; this
+change still needs one.
+
 ## Leader HUD placement preview
 
 Local preview `leader1` moves the portrait and leader/opponent name/score from the

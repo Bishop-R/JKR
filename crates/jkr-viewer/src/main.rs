@@ -1505,7 +1505,10 @@ impl GpuState {
         }
 
         timing.mark(Phase::World);
-        let leaf_index = self.bsp.leaf_at(self.camera_position.to_array());
+        // PVS and the area mask belong to where the picture is taken from (`refdef.vieworg`),
+        // not to the player's eye: a third-person camera sits behind and above it, often in
+        // another cluster, and the eye's visible set then culled walls in plain view.
+        let leaf_index = self.bsp.leaf_at(view_position.to_array());
         let camera_cluster = self.bsp.leaves()[leaf_index].cluster;
         let source_cluster = usize::try_from(camera_cluster).ok();
         if camera_cluster != self.last_cluster {
