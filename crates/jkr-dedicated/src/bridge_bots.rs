@@ -34,6 +34,17 @@ pub(super) struct Bots {
     pub(super) arenas: jkr_game_jka::arenas::Arenas,
 }
 
+impl Bots {
+    /// `forceMove_Forward`, `forceMove_Right`, `forceMove_Up` of the bot at `client`, for
+    /// the `debugBMove_*` cheats; `None` for a slot that is not a bot.
+    pub(super) fn forced_movement(&mut self, client: usize) -> Option<&mut [i32; 3]> {
+        self.minds
+            .get_mut(client)
+            .and_then(Option::as_mut)
+            .map(|mind| &mut mind.force_move)
+    }
+}
+
 /// No bot slots: for a console line the game runs on its own (a vote's), where no bot is
 /// added.
 pub(super) struct NoBotSlots;

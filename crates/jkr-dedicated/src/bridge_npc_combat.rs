@@ -315,6 +315,11 @@ impl NativeGame {
                         peer.npc_enemy = enemy;
                     }
                 }
+                NpcOutcome::ClearPlayerNotarget(player) => {
+                    if let Some(peer) = self.peer_mut(usize::from(player)) {
+                        peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_NOTARGET;
+                    }
+                }
                 NpcOutcome::KillPlayer(player) => {
                     self.npc_kill_player(usize::from(player), level_time)
                 }

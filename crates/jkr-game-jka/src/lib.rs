@@ -29,6 +29,7 @@ pub mod bot_trail;
 pub mod bot_weapons;
 pub mod bots;
 pub mod chat;
+pub mod cheat_flags;
 pub mod client_begin;
 pub mod client_idle;
 pub mod client_spawn;

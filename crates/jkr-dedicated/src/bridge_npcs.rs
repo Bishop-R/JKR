@@ -575,7 +575,8 @@ impl NativeGame {
                 },
                 eye_angles: peer.state.view_angles(),
                 health: peer.health,
-                flags: 0,
+                // `ent->flags`: `notarget` hides the player from NPCs and gunners.
+                flags: peer.riding.flags,
                 entity_flags: peer.entity.state().raw_field(19).unwrap_or(0),
                 player_team,
                 enemy_team: 0,

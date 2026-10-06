@@ -156,6 +156,16 @@ pub fn find(classname: &str) -> Option<usize> {
         .map(|index| index + 1)
 }
 
+/// `BG_FindItem` (`bg_misc.c:1875-1884`): an item by classname, ignoring case, as
+/// `give` names it.
+pub fn find_named(classname: &[u8]) -> Option<usize> {
+    ITEMS
+        .iter()
+        .skip(1)
+        .position(|item| item.classname.as_bytes().eq_ignore_ascii_case(classname))
+        .map(|index| index + 1)
+}
+
 /// An item as the map placed it, before it is dropped to the floor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placed {
@@ -222,12 +232,15 @@ pub struct Pickup {
     pub allow_npc: bool,
 }
 
-/// `FinishSpawningItem` (`g_items.c:2814-3006`): the box of eight by sixteen, `ET_ITEM`
-/// with the item's row as its model, a trigger; suspended it stays where it was put,
-/// else it is dropped to the floor — a tenth up first, the box a tenth shorter, traced
-/// 4096 down through the world (the ground remembered). `trace` answers as
-/// `trap->Trace` with `MASK_SOLID` would; `None` where the item starts in a solid, which
-/// the reference frees with a print.
+/// `gametype_t` values the spawn filters below test (`bg_public.h`).
+const GT_HOLOCRON: i32 = 1;
+const GT_JEDIMASTER: i32 = 2;
+const GT_DUEL: i32 = 3;
+const GT_POWERDUEL: i32 = 4;
+const GT_SIEGE: i32 = 7;
+const GT_CTF: i32 = 8;
+const GT_CTY: i32 = 9;
+
 /// `FinishSpawningItem`'s game-type filter (`g_items.c:2820-2922`): whether `item` is
 /// freed rather than placed — powerups in siege and Jedi Master, ammunition and the
 /// seeker, shield and sentry on a saber-only server (but in Jedi Master), enlightenment in
@@ -239,13 +252,6 @@ pub fn removed_by_gametype(
     saber_only: bool,
     force_disabled: bool,
 ) -> bool {
-    const GT_HOLOCRON: i32 = 1;
-    const GT_JEDIMASTER: i32 = 2;
-    const GT_DUEL: i32 = 3;
-    const GT_POWERDUEL: i32 = 4;
-    const GT_SIEGE: i32 = 7;
-    const GT_CTF: i32 = 8;
-    const GT_CTY: i32 = 9;
     let row = ITEMS[item];
     let (kind, tag) = (row.kind, row.tag);
     // `HI_SEEKER`, `HI_SHIELD`, `HI_MEDPAC`, `HI_MEDPAC_BIG`, `HI_SENTRY_GUN`;
@@ -264,6 +270,34 @@ pub fn removed_by_gametype(
         || (!matches!(gametype, GT_CTF | GT_CTY) && kind == Kind::Team && matches!(tag, 4..=6))
 }
 
+/// `G_SpawnItem`'s weapon rule (`g_items.c:3120-3138`): a weapon the server disables
+/// (`g_weaponDisable`, or `g_duelWeaponDisable` in the duels) is freed as it spawns,
+/// except in Jedi Master.
+pub fn weapon_disabled(
+    item: usize,
+    gametype: i32,
+    weapon_disable: i32,
+    duel_weapon_disable: i32,
+) -> bool {
+    let row = ITEMS[item];
+    let disabled = if matches!(gametype, GT_DUEL | GT_POWERDUEL) {
+        duel_weapon_disable
+    } else {
+        weapon_disable
+    };
+    row.kind == Kind::Weapon
+        && gametype != GT_JEDIMASTER
+        && 1_i32
+            .checked_shl(row.tag as u32)
+            .is_some_and(|bit| disabled & bit != 0)
+}
+
+/// `FinishSpawningItem` (`g_items.c:2814-3006`): the box of eight by sixteen, `ET_ITEM`
+/// with the item's row as its model, a trigger; suspended it stays where it was put,
+/// else it is dropped to the floor — a tenth up first, the box a tenth shorter, traced
+/// 4096 down through the world (the ground remembered). `trace` answers as
+/// `trap->Trace` with `MASK_SOLID` would; `None` where the item starts in a solid, which
+/// the reference frees with a print.
 pub fn finish_spawning(
     placed: &Placed,
     trace: &mut dyn FnMut([f32; 3], [f32; 3], [f32; 3], [f32; 3], u32) -> MovementTrace,

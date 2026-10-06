@@ -33,6 +33,8 @@ pub(super) enum NpcOutcome {
     NpcScored(i32, i32),
     /// `NPC_CheckAttacker`: whom a player is taken to fight.
     PlayerEnemy(u16, Option<u16>),
+    /// `other->flags &= ~FL_NOTARGET` for a player an ally turns on (`NPC_reactions.c`).
+    ClearPlayerNotarget(u16),
     /// `npc kill team nonally` on a player.
     KillPlayer(u16),
     /// A line of the game log (`G_LogPrintf`).
@@ -626,6 +628,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn set_player_enemy(&mut self, player: u16, enemy: Option<u16>) {
         self.outcomes.push(NpcOutcome::PlayerEnemy(player, enemy));
+    }
+
+    fn clear_player_notarget(&mut self, player: u16) {
+        self.outcomes.push(NpcOutcome::ClearPlayerNotarget(player));
     }
 
     fn humanoid_animations(&mut self) -> Option<Arc<dyn AnimationLengths>> {

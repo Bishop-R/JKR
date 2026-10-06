@@ -294,6 +294,8 @@ pub struct Target<'a> {
     /// `G_Damage`'s Jedi Master rule holds between this target and the attacker
     /// ([`crate::jedi_master::spares`]): the blow's push lands, nothing more.
     pub spared_by_master: bool,
+    /// `ent->flags & FL_GODMODE`: the push lands, unprotected damage still kills.
+    pub god_mode: bool,
 }
 
 /// What `G_Damage` came to.
@@ -485,6 +487,10 @@ pub fn damage_at(
         (by_a_player || !by_a_client) && attacker.team != 0 && attacker.team == target.team
     });
     if flags & DAMAGE_NO_PROTECTION == 0 && by_another && (teammate || target.spared_by_master) {
+        return damaged;
+    }
+    // "check for godmode" (`g_combat.c:4854-4857`): any blow, one's own too.
+    if flags & DAMAGE_NO_PROTECTION == 0 && target.god_mode {
         return damaged;
     }
     // Complete protection: the spawn's, while it lasts.
@@ -766,13 +772,14 @@ pub fn fall_damage(delta: i32, dmflags: u32, knocked_down: bool) -> Option<i32> 
 /// (`EV_PAIN` as the player's external event, `G_AddEvent`) at most every 700 ms, for
 /// ten points or more — none for a player whose entity is dead (`s.eFlags & EF_DEAD`,
 /// which the conversion sets from the health: a disintegrated player floats in
-/// `PM_NOCLIP`, dead all the same). `health` is the entity's. Returns whether the pain
+/// `PM_NOCLIP`, dead all the same) or in god mode. `health` is the entity's. Returns whether the pain
 /// event was raised: the player's entity must then be told
 /// (`PlayerEntity::event_raised`).
 pub fn damage_feedback(
     state: &mut PlayerState,
     wounds: &mut Wounds,
     health: i32,
+    god_mode: bool,
     level_time: i32,
     pain_time: &mut i32,
     pain_direction: &mut bool,
@@ -798,7 +805,7 @@ pub fn damage_feedback(
         state.set_raw_field(PS_DAMAGE_YAW, yaw.max(0) as u32);
     }
     let dead = health <= 0;
-    if level_time > wounds.pain_debounce_time && !dead {
+    if level_time > wounds.pain_debounce_time && !god_mode && !dead {
         // Not more than two pain sounds a second, none for a nick.
         if level_time - *pain_time < 500 || count < 10 {
             return false;

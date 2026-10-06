@@ -5,6 +5,9 @@ use super::*;
 
 /// `WP_EMPLACED_GUN`: a gunner's shot is the gun's (`bridge_emplaced`).
 const WP_EMPLACED_GUN: u8 = 17;
+/// `GT_DUEL`, `GT_POWERDUEL`: the game types where `G_Kill` guards a running duel.
+const GT_DUEL: i32 = 3;
+const GT_POWERDUEL: i32 = 4;
 
 impl NativeGame {
     /// The rest of `ClientThink_real`, for a player in the world or a spectator flying
@@ -431,19 +434,29 @@ impl NativeGame {
         }
     }
 
-    /// `Cmd_Kill_f`: a living player kills itself; a spectator or a corpse cannot.
+    /// `G_Kill` (`g_cmds.c:515-528`), for `kill` and `killother` once their gates passed:
+    /// a dueller may not leave a running duel this way unless `g_allowDuelSuicide`.
     pub(super) fn kill(&mut self, client: usize, server_time: i32) {
-        let Some(peer) = self.peer_mut(client) else {
-            return;
-        };
-        // `CMD_ALIVE` reads the health: a corpse in noclip is in `PM_NOCLIP`, not `PM_DEAD`.
-        if !peer.playing() || peer.health <= 0 || peer.state.movement_type() == PM_DEAD {
+        if matches!(self.gametype, GT_DUEL | GT_POWERDUEL)
+            && self.sorted().1 > 1
+            && self.limits.warmup_time == 0
+            && self.integer_cvar(b"g_allowDuelSuicide", 1) == 0
+        {
+            self.told.push(Told::One(
+                client,
+                b"print \"@@@ATTEMPTDUELKILL\n\"".to_vec(),
+            ));
             return;
         }
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
-        // `G_Kill` (`g_cmds.c:526-527`): the caller sets both the health and its stat.
+        // A corpse in noclip is in `PM_NOCLIP`, not `PM_DEAD`: the health decides.
+        if peer.state.movement_type() == PM_DEAD {
+            return;
+        }
+        peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
+        // The caller sets both the health and its stat.
         peer.health = -999;
         peer.state.stats[0] = (-999i32) as u32;
         let request = DeathRequest::suicide(

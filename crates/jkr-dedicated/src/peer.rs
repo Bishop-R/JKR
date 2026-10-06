@@ -576,6 +576,7 @@ impl Peer {
             &mut self.state,
             &mut self.wounds,
             self.health,
+            self.riding.flags & jkr_game_jka::cheat_flags::FL_GODMODE != 0,
             server_time,
             &mut self.pain.0,
             &mut self.pain.1,

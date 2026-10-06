@@ -45,6 +45,9 @@ impl NativeGame {
         let mut class_speed = 1.0;
         let mut class_sabers: Option<(Option<String>, Option<String>)> = None;
         (peer.state, peer.in_space, peer.no_corpse) = (begun.state, 0, false);
+        // `ClientSpawn` clears `ent->flags` (`g_client.c:3372`): god mode and notarget
+        // last one life.
+        peer.riding.flags = 0;
         peer.switch_class_time = 0;
         // `ClientSpawn`'s siege branch: what the class hands its player.
         if let Some(class) = siege_class.as_ref() {

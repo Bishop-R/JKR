@@ -142,6 +142,7 @@ impl NativeGame {
         }
         if !waiting && peer.health > 0 {
             let (origin, sounds) = (peer.state.origin(), peer.saber_off_sounds());
+            peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
             peer.health = 0;
             peer.state.stats[STAT_HEALTH] = 0;
             let mut death = DeathRequest::suicide(level_time, client as u16, origin, sounds, 0);
@@ -268,6 +269,7 @@ impl NativeGame {
         if peer.temp_spectate < server_time {
             if peer.health > 0 && !started_as_spectator {
                 let (origin, sounds) = (peer.state.origin(), peer.saber_off_sounds());
+                peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
                 peer.health = 0;
                 peer.state.stats[STAT_HEALTH] = 0;
                 self.die(

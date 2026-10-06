@@ -147,8 +147,10 @@ impl NativeGame {
             if peer.health <= 0 {
                 self.leave_body(client, server_time);
             } else {
-                // `SetTeam` (`g_cmds.c:815`) sets the health and its stat first.
+                // `SetTeam` (`g_cmds.c:814-815`) clears god mode, then sets the health
+                // and its stat.
                 let (origin, sounds) = (peer.state.origin(), peer.saber_off_sounds());
+                peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
                 peer.health = 0;
                 peer.state.stats[0] = 0;
                 self.die(

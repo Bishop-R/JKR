@@ -48,6 +48,14 @@ JKR server, and debris was captured on `duel8`. Resting chunks vanish rather
 than fade, and fragments ignore movers; see the ledger row for the remaining
 limits.
 
+Player commands (audit row N3) now pass OpenJK's `ClientCommand` gates in the
+reference's order, and `forcechanged`, `god`, `notarget`, `giveother`,
+`killother`, `maplist`, `levelshot` and giving an item by name answer as stock
+does. A live `ctf5` session checked every reply, fall damage with and without
+god, named items under `g_weaponDisable`, the dead-player refusals and the
+intermission refusals. Waypoint editing and a given flag's capture rules stay
+open; see the ledger row.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

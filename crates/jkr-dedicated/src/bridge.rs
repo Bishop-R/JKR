@@ -1530,6 +1530,7 @@ impl NativeGame {
         let Some(begun) = client_respawn(
             client as u16,
             &mut peer.session,
+            &peer.userinfo,
             &peer.accepted,
             settings,
             SPAWN_INVULNERABILITY,
@@ -2407,6 +2408,7 @@ impl NativeGame {
             std::array::from_fn(|axis| origin[axis] + top[axis] + 1.0),
         );
         let team = victim.session.team;
+        let god_mode = victim.riding.flags & jkr_game_jka::cheat_flags::FL_GODMODE != 0;
         let mut target_view = Target {
             client: target as u16,
             state: &mut victim.state,
@@ -2418,6 +2420,7 @@ impl NativeGame {
             wounds: &mut victim.wounds,
             force: Some(&mut victim.force),
             spared_by_master,
+            god_mode,
         };
         let damaged = if sheltered {
             jkr_game_jka::damage::shock(&mut target_view, &request, &mut rng);

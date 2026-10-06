@@ -12,32 +12,25 @@ impl NativeGame {
             .split(|byte| byte.is_ascii_whitespace())
             .filter(|word| !word.is_empty());
         let Some(command) = words.next() else { return };
-        if [
-            b"kill".as_slice(),
-            b"team",
-            b"follow",
-            b"follownext",
-            b"followprev",
-            b"setviewpos",
-        ]
-        .iter()
-        .any(|name| command.eq_ignore_ascii_case(name))
-        {}
+        if self.command_refused(client, command) {
+            return;
+        }
+        if command.eq_ignore_ascii_case(b"addbot") {
+            // `Cmd_AddBot_f`: the menus offer it, but only the server adds bots.
+            self.told.push(Told::One(
+                client,
+                b"print \"@@@ONLY_ADD_BOTS_AS_SERVER.\n\"".to_vec(),
+            ));
+            return;
+        }
         if command.eq_ignore_ascii_case(b"score") {
             // `Cmd_Score_f`: the scoreboard, as this client asked for it.
             let message = self.scoreboard(server_time);
             self.told.push(Told::One(client, message));
             return;
         }
-        if command.eq_ignore_ascii_case(b"kill") {
-            self.kill(client, server_time);
-            return;
-        }
         if command.eq_ignore_ascii_case(b"duelteam") {
-            let word = text
-                .split(|byte| byte.is_ascii_whitespace())
-                .filter(|word| !word.is_empty())
-                .nth(1);
+            let word = words.next();
             self.duel_team_command(client, word, server_time);
             return;
         }
@@ -60,55 +53,40 @@ impl NativeGame {
             self.set_view_position(client, &arguments, server_time);
             return;
         }
-        if command.eq_ignore_ascii_case(b"give") {
-            // `ClientCommand`'s gates (`g_cmds.c:3466-3480`): a cheat needs `sv_cheats`, and
-            // this one a living player; then `Cmd_Give_f`.
-            if !self.settings.cheats {
-                self.told
-                    .push(Told::One(client, b"print \"@@@NOCHEATS\n\"".to_vec()));
-                return;
-            }
-            let arguments: Vec<&[u8]> = words.collect();
-            let Some(peer) = self.peer_mut(client) else {
-                return;
-            };
-            if peer.health <= 0 || !peer.playing() {
-                self.told
-                    .push(Told::One(client, b"print \"@@@MUSTBEALIVE\n\"".to_vec()));
-                return;
-            }
-            let (name, rest) = arguments
-                .split_first()
-                .map_or((&b""[..], &[][..]), |(name, rest)| (*name, rest));
-            let _ = give(&mut peer.state, &mut peer.health, name, rest);
-            // The weapons and the ammo are the movement's to spend: it restarts from
-            // the state as given.
-            peer.movement = peer.movement.reseeded(&peer.state);
-            peer.movement.set_health(peer.health);
-            return;
-        }
         if command.eq_ignore_ascii_case(b"siegeclass") {
             // `Cmd_SiegeClass_f`: only a siege game has classes.
             self.siege_class_command(client, text, server_time);
+            return;
+        }
+        if command.eq_ignore_ascii_case(b"forcechanged") {
+            let arguments: Vec<&[u8]> = words.collect();
+            self.force_changed(client, &arguments, server_time);
             return;
         }
         if self.information_command(client, text, server_time)
             || self.chat_command(client, text, server_time)
             || self.vote_command(client, text, server_time)
             || self.npc_client_command(client, text)
-            || self.cheat_command(client, text)
+            || self.cheat_command(client, text, server_time)
         {
             return;
         }
-        if !command.eq_ignore_ascii_case(b"team") {
-            // Every other game command is still to come.
+        if command.eq_ignore_ascii_case(b"team") {
+            let arguments: Vec<&[u8]> = words.collect();
+            self.team_request(client, &arguments, server_time);
             return;
         }
-        let arguments: Vec<&[u8]> = words.collect();
+        // Not in the reference's table (`g_cmds.c:3446-3450`).
+        let reply = [b"print \"Unknown command ".as_slice(), command, b"\n\""].concat();
+        self.told.push(Told::One(client, reply));
+    }
+
+    /// `Cmd_Team_f` with `arguments`, the words after `team`.
+    fn team_request(&mut self, client: usize, arguments: &[&[u8]], server_time: i32) {
         let gametype = self.gametype;
         // `SetTeam` on a siege server, once `Cmd_Team_f`'s own checks have passed.
         if self.siege.is_some()
-            && let [word] = arguments.as_slice()
+            && let [word] = arguments
             && self
                 .peer(client)
                 .is_some_and(|peer| peer.session.switch_team_time <= server_time)
@@ -127,7 +105,7 @@ impl NativeGame {
         match team_command(
             &mut peer.session,
             &name,
-            &arguments,
+            arguments,
             gametype,
             sides,
             server_time,
@@ -141,6 +119,42 @@ impl NativeGame {
         }
         if let Some(peer) = self.peer_mut(client) {
             peer.session.team_command_done(before, server_time);
+        }
+    }
+
+    /// `Cmd_ForceChanged_f` (`g_cmds.c:1276-1311`): a spectator's Force is read again at
+    /// once; a player is told and gets it at the next spawn. Outside duels an argument
+    /// is the menu's combined team choice.
+    fn force_changed(&mut self, client: usize, arguments: &[&[u8]], server_time: i32) {
+        let settings = self.settings;
+        let Some(peer) = self.peer_mut(client) else {
+            return;
+        };
+        if peer.session.team == i32::from(TEAM_SPECTATOR) {
+            let mut force = jkr_game_jka::client_begin::init_force_powers(
+                &mut peer.session,
+                &peer.userinfo,
+                settings,
+            );
+            let commands = std::mem::take(&mut force.commands);
+            peer.session.force = Some(force);
+            for command in commands {
+                self.told.push(Told::One(client, command));
+            }
+        } else {
+            peer.session.force_do_init = true;
+            self.told.push(Told::One(
+                client,
+                b"print \"^2@@@FORCEPOWERCHANGED\n\"".to_vec(),
+            ));
+        }
+        const GT_DUEL: i32 = 3;
+        const GT_POWERDUEL: i32 = 4;
+        if matches!(self.gametype, GT_DUEL | GT_POWERDUEL) {
+            return;
+        }
+        if let Some(word) = arguments.first().filter(|word| !word.is_empty()) {
+            self.team_request(client, &[word], server_time);
         }
     }
 
