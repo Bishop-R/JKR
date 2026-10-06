@@ -11,6 +11,8 @@ mod skeleton_pose;
 mod skin;
 
 #[cfg(test)]
+mod animation_config_tests;
+#[cfg(test)]
 mod glm_tolerance_tests;
 
 pub use bone_angles::{BoneAngleCommand, BoneAngleMode, BoneAxis};
@@ -68,6 +70,19 @@ pub struct AnimationSequence {
     pub frames_per_second: f32,
 }
 
+impl AnimationSequence {
+    /// Frame 0 held, for a model whose table names no animation at all:
+    /// `G2_TransformBone` (`tr_ghoul2.cpp`) poses a bone that no animation was
+    /// set on at frame 0.
+    pub const REST: Self = Self {
+        name: String::new(),
+        first_frame: 0,
+        frame_count: 1,
+        loop_frame: -1,
+        frames_per_second: 20.0,
+    };
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SplitAnimationSample {
     pub lower_frames: (usize, usize),
@@ -91,6 +106,11 @@ impl AnimationConfig {
                 continue;
             }
             let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+            // BG_ParseAnimationFile skips every token that names no animation, so a
+            // line without a name ("0 11 0 30", left by vehicle packs) adds nothing.
+            if fields[0].parse::<f64>().is_ok() {
+                continue;
+            }
             if fields.len() != 5 {
                 return Err(ModelError::invalid(
                     line_index,
@@ -106,8 +126,11 @@ impl AnimationConfig {
                 .map_err(|_| ModelError::invalid(line_index, "negative first animation frame"))?;
             let frame_count = usize::try_from(parse_integer(fields[2])?)
                 .map_err(|_| ModelError::invalid(line_index, "negative animation frame count"))?;
+            // BG_ParseAnimationFile (bg_panimate.c) keeps such a line and
+            // BG_HasAnimation then reports the animation as absent; creature
+            // packs (bomabeast, nexu) list unused sequences this way.
             if frame_count == 0 {
-                return Err(ModelError::invalid(line_index, "empty animation sequence"));
+                continue;
             }
             let loop_frame = parse_integer(fields[3])?;
             let frames_per_second = fields[4]

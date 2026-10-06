@@ -156,7 +156,8 @@ pub(super) fn load_player_appearance_with(
         // an attack, two cinematics and its root pose. Any frame of theirs is a rest pose.
         .or_else(|| config.get("ROOT"))
         .or_else(|| config.get_by_index(0))
-        .ok_or("player animation config has no sequence at all")?
+        // A table naming no animation (a vehicle pack's nameless lines) holds frame 0.
+        .unwrap_or(&AnimationSequence::REST)
         .clone();
     let forward = [camera_yaw.cos(), camera_yaw.sin()];
     let origin = [

@@ -294,6 +294,8 @@ impl LegacyGhoul2Animator {
     }
 }
 
+static REST_POSE: AnimationSequence = AnimationSequence::REST;
+
 fn command_for_track(
     animation: &Gla,
     config: &AnimationConfig,
@@ -321,9 +323,8 @@ fn command_for_track(
         // stopped the animation of every actor in the scene, not just this one.
         .or_else(|| config.get("ROOT"))
         .or_else(|| config.get_by_index(0))
-        .ok_or_else(|| {
-            ModelError::invalid(track.clip, "animation config has no sequence at all")
-        })?;
+        // A table naming no animation at all holds frame 0.
+        .unwrap_or(&REST_POSE);
     let speed = LegacyGhoul2PosePolicy::animation_speed(sequence, track.speed_milli);
     let (start_frame, end_frame) = if speed < 0.0 {
         (
@@ -374,4 +375,34 @@ fn command_for_track(
         command.set_frame = Some(phase.current_frame as f32 + phase.fraction);
     }
     Ok(command)
+}
+
+#[cfg(test)]
+mod rest_pose_tests {
+    use super::command_for_track;
+    use jkr_model::{AnimationConfig, Gla};
+    use jkr_runtime::AnimationTrackState;
+
+    #[test]
+    fn a_table_naming_no_animation_holds_frame_zero() {
+        let animation = Gla {
+            name: "machine".into(),
+            scale: 1.0,
+            bones: Vec::new(),
+            frames: vec![Vec::new(); 4],
+            compressed_bones: Vec::new(),
+        };
+        let config = AnimationConfig::parse(b"0\t11\t0\t30\n").expect("parse");
+        let track = AnimationTrackState {
+            clip: 0,
+            revision: 1,
+            started_at_millis: 0,
+            phase_millis: 0,
+            speed_milli: 1_000,
+            forced_frame: None,
+            transition: None,
+        };
+        let command = command_for_track(&animation, &config, track, None).expect("command");
+        assert_eq!((command.start_frame, command.end_frame), (0, 1));
+    }
 }
