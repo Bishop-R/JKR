@@ -1006,6 +1006,10 @@ fn read_player_state_fields(
     Ok(state)
 }
 
+/// `stats`, `persistant` and `ammo`: codemp `MSG_ReadDeltaPlayerstate` reads each
+/// entry with `MSG_ReadShort`, a signed 16-bit value sign-extended into the int
+/// field, so a score, health or ammo of -1 stays -1 rather than 65535. Only
+/// `STAT_WEAPONS` is an unsigned `MAX_WEAPONS`-bit field.
 fn read_array_delta(
     reader: &mut MessageReader<'_>,
     values: &mut [u32; MAX_ARRAY_VALUES],
@@ -1020,7 +1024,7 @@ fn read_array_delta(
             *value = if wide_index == Some(index) {
                 reader.read_bits(MAX_WEAPONS)?
             } else {
-                reader.read_bits(16)?
+                i32::from(reader.read_bits(16)? as u16 as i16) as u32
             };
         }
     }
@@ -1102,5 +1106,58 @@ impl From<MessageError> for SnapshotError {
 impl From<EntityDeltaError> for SnapshotError {
     fn from(value: EntityDeltaError) -> Self {
         Self::Entity(value)
+    }
+}
+
+#[cfg(test)]
+mod array_tests {
+    use super::*;
+
+    #[test]
+    fn short_arrays_are_signed_like_msg_read_short() {
+        let mut state = PlayerState::zero();
+        // PERS_SCORE -1 after a suicide; a C server holds it as int -1, which the
+        // wire carries as the same 16 bits as 0xffff.
+        state.persistent[0] = 0xffff;
+        state.persistent[1] = (-3_i32) as u32;
+        state.stats[0] = (-40_i32) as u32;
+        state.ammo[3] = (-1_i32) as u32;
+        state.stats[STAT_WEAPONS] = 1 << 18;
+        let received = write::player_state_as_received(&state).unwrap();
+        assert_eq!(received.persistent[0] as i32, -1);
+        assert_eq!(received.persistent[1] as i32, -3);
+        assert_eq!(received.stats[0] as i32, -40);
+        assert_eq!(received.health(), -40);
+        assert_eq!(received.ammo_value(3), Some(-1));
+        // The weapon bitset is unsigned: its top bit does not spread.
+        assert_eq!(received.stats[STAT_WEAPONS], 1 << 18);
+    }
+
+    #[test]
+    fn a_wire_entry_of_sixteen_one_bits_reads_as_minus_one() {
+        // The layout `MSG_ReadDeltaPlayerstate` reads: the array's changed bit, a
+        // 16-bit mask naming entries 0 and 2, then each named entry as 16 bits.
+        let mut writer = crate::message::MessageWriter::new(64);
+        writer.write_bits(1, 1).unwrap();
+        writer.write_bits(0b101, 16).unwrap();
+        writer.write_bits(0xffff, 16).unwrap();
+        writer.write_bits(0x8000, 16).unwrap();
+        let bytes = writer.finish().unwrap();
+        let mut reader = MessageReader::new(&bytes);
+        let mut values = [0_u32; MAX_ARRAY_VALUES];
+        read_array_delta(&mut reader, &mut values, None).unwrap();
+        assert_eq!(values[0] as i32, -1);
+        assert_eq!(values[1], 0);
+        assert_eq!(values[2] as i32, -32_768);
+    }
+
+    #[test]
+    fn positive_shorts_are_unchanged() {
+        let mut state = PlayerState::zero();
+        state.persistent[0] = 32_767;
+        state.ammo[2] = 300;
+        let received = write::player_state_as_received(&state).unwrap();
+        assert_eq!(received.persistent[0], 32_767);
+        assert_eq!(received.ammo[2], 300);
     }
 }

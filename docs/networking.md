@@ -35,6 +35,11 @@ share the same mistake. Establish gameplay behavior against OpenJK multiplayer
 `codemp`, including relevant animation, events and timing. Wire changes require
 byte-level reference evidence; reasoning from matching Rust structures is insufficient.
 
+The snapshot's `stats`, `persistant` and `ammo` entries are 16-bit values that codemp
+reads with `MSG_ReadShort`, which sign-extends them
+([snapshot.rs](../crates/jkr-protocol/src/snapshot.rs) does the same); only
+`STAT_WEAPONS` is an unsigned field, and `powerups` are 32-bit.
+
 Check ordinary native and legacy client joins on isolated servers for integration.
 A handshake or successful movement run does not verify downloads, every reliable
 command, map restarts, all combat, vehicles or every game type. The current evidence

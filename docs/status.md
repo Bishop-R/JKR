@@ -370,6 +370,28 @@ EFF's read-only status advertised stock FFA1 and downloads disabled. Its complet
 join with this follow-up remains unverified; no public server was joined for
 these checks.
 
+## Signed player-state arrays
+
+Local fix based on `af65396` (2026-10-06): the snapshot decoder read the 16-bit
+`stats`, `persistant` and `ammo` entries unsigned. codemp's
+`MSG_ReadDeltaPlayerstate` reads them with `MSG_ReadShort`, a `(short)` cast that
+sign-extends (`codemp/qcommon/msg.cpp`, read in EternalJK's copy), so -1 arrived as
+65535. `PlayerState::ammo_value` documents -1 as the infinite-ammo sentinel and
+`legacy_hud_values` drops negative counts as `CG_DrawAmmo` does, but neither could
+see a negative value, and a score below zero decoded as 65535. The entries are now
+sign-extended; `STAT_WEAPONS` stays an unsigned `MAX_WEAPONS`-bit field and
+`powerups` stay 32-bit. Nothing is encoded differently.
+
+Three unit tests: a round trip of negative and positive entries through the
+snapshot writer and reader, with the weapon bitset staying unsigned, and a message
+whose bits are laid out by hand as `msg.cpp` reads them (changed bit, 16-bit mask,
+two 16-bit entries `0xffff` and `0x8000` reading as -1 and -32768). Formatting (`cargo fmt --all --check`), `cargo build --locked --workspace` and `cargo test --locked --workspace` passed on Windows 11 with Rust 1.96.0 (30
+tests, 3 of them new). `cargo clippy --locked --workspace --all-targets` stops at four deny-level lints that `main` already has (`jkr-game-jka` `concussion.rs:118` and `weapon_fire.rs:593/614/655`) before it reaches the crates changed here; with `-A clippy::erasing_op -A clippy::redundant_comparisons` it passes, with no warning on the changed lines.
+
+Limits: no packet captured from a codemp server was decoded, only the reference
+source and hand-built bits, and no client or server was started, so a negative score
+or ammo on a live server is unverified on screen.
+
 ## Chat player menu preview
 
 Local preview `chat5` (2026-10-04) adds a compact square-edged dropdown left of
