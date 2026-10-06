@@ -36,7 +36,7 @@ impl Catalog {
     }
 
     /// Return the retained item handle without a runtime model-name search.
-    pub(super) fn mesh(&self, item_index: usize) -> Option<usize> {
+    pub(crate) fn mesh(&self, item_index: usize) -> Option<usize> {
         self.mesh_by_item.get(item_index).copied().flatten()
     }
 }

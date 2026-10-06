@@ -20,12 +20,20 @@ pub(crate) mod monster_hold;
 #[path = "player_sprites.rs"]
 mod player_sprites;
 
+#[path = "seeker_drone.rs"]
+pub(crate) mod seeker_drone;
+
 #[path = "special_entities.rs"]
 mod special_entities;
+
+/// `bg_itemlist`'s `item_seeker`.
+const ITEM_SEEKER: usize = 4;
 
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
     shield_mesh: Option<usize>,
+    /// `models/items/remote.md3`, the seeker drone's (`item_seeker`'s pickup model).
+    seeker_mesh: Option<usize>,
     world: &'a jkr_runtime::World,
     actor_meshes: &'a [ActorMesh],
     object_meshes: &'a [StaticModelMesh],
@@ -110,6 +118,7 @@ pub(crate) fn submit(
             .object_meshes
             .iter()
             .position(|mesh| mesh.appearance.model == "models/weaphits/testboom.md3"),
+        seeker_mesh: gpu.pickup_catalog.mesh(ITEM_SEEKER),
         world: active_world,
         actor_meshes: &gpu.actor_meshes,
         object_meshes: &gpu.object_meshes,
@@ -283,6 +292,15 @@ fn submit_actor(
             local,
             draw_actor,
             visual_now,
+        );
+        seeker_drone::submit(
+            sinks,
+            entity.kind,
+            transform.translation,
+            snapshot,
+            state,
+            local,
+            presentation_time,
         );
     }
     if let (Some(mesh), Some(snapshot)) = (mesh, snapshot) {

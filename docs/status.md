@@ -83,6 +83,9 @@ OpenJK line for line, and on `ffa3` a sentry killed a stormtrooper for its owner
 The JKR client does not turn the sentry's gun yet; the E-Web and the jetpack's
 flight are still unported.
 
+The client now draws the seeker drone over its owner as stock does. The server
+already ran it, but no client drew it.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or
