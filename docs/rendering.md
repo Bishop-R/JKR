@@ -659,6 +659,49 @@ and text integration and binds client state to the HUD. Layouts are data in
 [assets/hud](../crates/jkr-viewer/assets/hud); menus and HUD may be modern while
 movement, combat and network behavior remain compatible.
 
+### Game-data HUD
+
+`cg_hudStyle game` replaces JKR's health, armor, Force and ammo widgets with the
+status HUD the game's own menu files describe, as retail Jedi Academy draws it
+([menu_hud.rs](../crates/jkr-viewer/src/menu_hud.rs)). `cg_hudFiles` (retail
+default `ui/jahud.txt`) names a list of `loadMenu` files; the stock list loads
+`ui/hud.menu`, so a PK3 that replaces that file (a custom HUD pack) or a list
+naming other menus changes the HUD with no JKR-specific format. A nonzero
+integer selects the stock text-only HUD; as in EternalJK, `0` is the default
+list and `3`/`4` name `ui/elegance_hud.txt`/`ui/jof_hud.txt`. A missing list
+falls back to the default one, as `CG_LoadMenus` does; files without a
+`lefthud` or `righthud` menu leave JKR's HUD in place.
+
+The reader ([parse.rs](../crates/jkr-viewer/src/menu_hud/parse.rs)) keeps the
+window fields HUDs use (`name`, `rect`, `visible`, `style`, `background`,
+`forecolor`, `backcolor`) and skips other keywords with their arguments.
+Drawing follows OpenJK codemp `CG_DrawHUD` and its helpers in `cg_draw.c`
+([frame.rs](../crates/jkr-viewer/src/menu_hud/frame.rs)): the menus' visible
+filled/shader backgrounds (`Menu_Paint`), `scanline` and `frame`, four tics per
+meter with the partial one faded, the low-armor blink of the last armor tic,
+three-cell numbers from the `gfx/2d/numbers/t_*` digits (`CG_DrawNumField`),
+the saber style or ammo (grey while firing, yellow just after a pickup, red when
+empty, `--` for weapons without ammo) and the score line. A HUD that provides
+`saberstyle_desann`, `_tavion`, `_dual` or `_staff` gets that picture for the
+style, as EternalJK draws them; otherwise the stock fast/medium/strong mapping
+applies. The status HUD shows only for a living, non-spectating player without
+the scoreboard, with `cg_draw2D`, `cg_drawHud` and `cg_drawStatus` on.
+
+Items keep their 4:3 shape on wider screens: `righthud` items scale from the
+right edge and every other menu from the left, as EternalJK's widescreen
+correction (`cl_ratioFix`, `widthRatioCoef`) places them; at 4:3 this is
+retail's plain 640x480 stretch. `cg_hudScale` grows the HUD from its bottom
+corner. Pictures resolve through shader scripts and are packed once per load
+into one atlas, each stored no larger than a 2160-line screen draws it (at most
+512 texels); additive shaders (`blendFunc GL_ONE GL_ONE`) draw after the
+alpha-blended ones. Score and `--` text use the HUD font (Inter, or `arialnb`
+with `cg_classicHudFont`) rather than retail's `ergoec`. Not drawn: vehicle and
+siege HUD menus, the out-of-Force flash, and item text or owner-draw fields,
+which the retail and the checked custom HUDs do not use.
+
+`cg_hudStyle classic` selects JKR's classic layout in either font; `modern` keeps
+the existing behavior, where `cg_classicHudFont` also selects the classic layout.
+
 ## Billboard icons
 
 Frame billboard icons follow OpenJK's `RT_SPRITE` image orientation: texture v=0

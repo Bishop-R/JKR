@@ -227,6 +227,16 @@ pub(super) const HUD: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
+        label: "HUD style",
+        cvar: crate::menu_hud::STYLE_CVAR,
+        kind: ValueKind::Choice(&crate::menu_hud::HudStyle::NAMES),
+    },
+    Setting {
+        label: "Game HUD files",
+        cvar: crate::menu_hud::FILES_CVAR,
+        kind: ValueKind::Text,
+    },
+    Setting {
         label: "Classic HUD font",
         cvar: "cg_classicHudFont",
         kind: ValueKind::Bool,
