@@ -36,12 +36,7 @@ impl ServerProfile {
             .unwrap_or("basejka");
         let lower_name = game_name.to_ascii_lowercase();
 
-        // These aliases mirror names encountered by established JKA clients.
-        let is_ja_plus = lower_name.starts_with("ja+")
-            || lower_name.starts_with("japlus")
-            || lower_name.starts_with("ja_plus")
-            || game_name.starts_with("^4U^3A^5Galaxy")
-            || lower_name.starts_with("abyssmod");
+        let is_ja_plus = is_ja_plus_game_name(game_name);
 
         let is_tayst = lower_name.starts_with("japro") || lower_name.starts_with("taystjk");
         let dialect = if protocol.is_some_and(|version| version < 26) {
@@ -87,6 +82,24 @@ impl ServerProfile {
             server_fps,
         }
     }
+}
+
+/// Whether a serverinfo `gamename` (or `getinfo` `game`) names JA+ or one of the
+/// mods that present themselves as JA+. The aliases mirror names established JKA
+/// clients recognise (EternalJK `cg_servercmds.c:247-250`). Allocation-free, so
+/// presentation code can ask per frame.
+pub fn is_ja_plus_game_name(game_name: &str) -> bool {
+    let starts_with = |prefix: &str| {
+        game_name
+            .as_bytes()
+            .get(..prefix.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(prefix.as_bytes()))
+    };
+    starts_with("ja+")
+        || starts_with("japlus")
+        || starts_with("ja_plus")
+        || game_name.starts_with("^4U^3A^5Galaxy")
+        || starts_with("abyssmod")
 }
 
 /// jaPRO features encoded by the server in `jcinfo`.
@@ -157,5 +170,27 @@ impl JaPlusCapabilities {
 
     pub fn contains(self, flag: u32) -> bool {
         self.0 & flag == flag
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ja_plus_names_and_their_aliases_are_recognised() {
+        for name in [
+            "JA+ Mod v2.4 B7",
+            "japlus",
+            "JAPlus",
+            "ja_plus",
+            "^4U^3A^5Galaxy",
+            "AbyssMod",
+        ] {
+            assert!(is_ja_plus_game_name(name), "{name}");
+        }
+        for name in ["basejka", "japro", "", "ja", "taystjk", "^4u^3a^5galaxy"] {
+            assert!(!is_ja_plus_game_name(name), "{name}");
+        }
     }
 }

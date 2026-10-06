@@ -2,6 +2,12 @@
 
 use super::*;
 
+/// Whether a stage image names the renderer's built-in all-white image (the
+/// `white` shader in `gfx.shader`, drawn by `CG_TestLine` lines).
+fn is_white_image(name: &str) -> bool {
+    name.eq_ignore_ascii_case("$whiteimage") || name.eq_ignore_ascii_case("*white")
+}
+
 /// The shared bind-group layout used by effect rendering and atlas expansion.
 pub(crate) fn layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -50,6 +56,8 @@ pub(crate) fn create(
     struct PendingAnimation {
         shader: String,
         paths: Vec<jkr_vfs::VirtualPath>,
+        /// One generated all-white frame instead of `paths`.
+        white: bool,
         frequency: f32,
         one_shot: bool,
         blend: ParticleBlend,
@@ -73,6 +81,7 @@ pub(crate) fn create(
                 .filter(|stage| !stage.images.is_empty())
             {
                 let mut paths = Vec::new();
+                let white = stage.images.iter().any(|name| is_white_image(name));
                 for name in &stage.images {
                     if name.starts_with('$') || name == "-" {
                         continue;
@@ -83,7 +92,7 @@ pub(crate) fn create(
                         paths.push(path);
                     }
                 }
-                if !paths.is_empty() {
+                if !paths.is_empty() || white {
                     let (tc_scale, tc_scroll) =
                         effect_texcoords::compile(&stage.texture_modifications);
                     let blend = effect_runtime::particle_blend_for_stage(Some(&stage.blend));
@@ -95,6 +104,7 @@ pub(crate) fn create(
                     }
                     pending.push(PendingAnimation {
                         shader: shader.to_ascii_lowercase(),
+                        white: white && paths.is_empty(),
                         paths,
                         frequency: stage.animation_frequency.unwrap_or(0.0),
                         one_shot: stage.one_shot,
@@ -113,6 +123,7 @@ pub(crate) fn create(
             pending.push(PendingAnimation {
                 shader: shader.to_ascii_lowercase(),
                 paths: vec![path],
+                white: false,
                 frequency: 0.0,
                 one_shot: false,
                 blend: ParticleBlend::Alpha,
@@ -125,7 +136,7 @@ pub(crate) fn create(
     }
     let tile_count = pending
         .iter()
-        .map(|animation| animation.paths.len())
+        .map(|animation| animation.paths.len() + usize::from(animation.white))
         .sum::<usize>()
         .max(1);
     let columns = (tile_count as f32).sqrt().ceil() as u32;
@@ -137,19 +148,29 @@ pub(crate) fn create(
     let mut tile_index = 0_u32;
     for animation in pending {
         let mut frames = Vec::new();
-        for path in animation.paths {
+        let mut tiles = Vec::with_capacity(animation.paths.len() + 1);
+        if animation.white {
+            tiles.push(image::RgbaImage::from_pixel(
+                TILE,
+                TILE,
+                image::Rgba([255; 4]),
+            ));
+        }
+        for path in &animation.paths {
             let Some(asset) = vfs.read(path.as_str())? else {
                 continue;
             };
             let Ok(decoded) = decode_image(&asset.bytes, path.as_str()) else {
                 continue;
             };
-            let resized = image::imageops::resize(
+            tiles.push(image::imageops::resize(
                 &decoded.into_rgba8(),
                 TILE,
                 TILE,
                 image::imageops::FilterType::Triangle,
-            );
+            ));
+        }
+        for resized in tiles {
             let tile_x = tile_index % columns;
             let tile_y = tile_index / columns;
             image::imageops::overlay(

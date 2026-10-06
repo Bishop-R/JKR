@@ -20,6 +20,9 @@ pub(crate) mod monster_hold;
 #[path = "player_sprites.rs"]
 mod player_sprites;
 
+#[path = "grapple_rope.rs"]
+mod grapple_rope;
+
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
     shield_mesh: Option<usize>,
@@ -55,6 +58,8 @@ struct Sinks<'a> {
     portal_view: bool,
     entity_view_flags: u32,
     detached_camera: bool,
+    /// This frame's JA+ grapple hooks, drawn as ropes from their players' hands.
+    hooks: grapple_rope::Hooks,
 }
 
 /// Submit all presented actor-like entities without allocating frame storage.
@@ -148,6 +153,7 @@ pub(crate) fn submit(
         portal_view: gpu.scene_views.has_portal_view(),
         entity_view_flags: 0,
         detached_camera: gpu.detached_camera,
+        hooks: grapple_rope::Hooks::collect(snapshot, game_state, presentation_time as i32),
     };
     let thrown = snapshot
         .zip(game_state)
@@ -278,6 +284,19 @@ fn submit_actor(
             draw_actor,
             visual_now,
         );
+    }
+    // A JA+ hook's rope runs from the right hand (`cg_ents.c:2785-2792`).
+    if entity.kind == EntityKind::Actor
+        && let Some(attachment) =
+            mesh.and_then(|mesh| sinks.actor_meshes[mesh].weapon_attachments[0])
+        && let Ok(client) = u16::try_from(entity.id.get().saturating_sub(1))
+    {
+        let (hand, _) = saber::world_attachment(
+            Vec3::from_array(transform.translation),
+            weapon_view::actor_world_rotation(transform.rotation),
+            attachment,
+        );
+        grapple_rope::submit(sinks, client, hand, visual_now);
     }
     if let (Some(mesh), Some(snapshot)) = (mesh, snapshot) {
         flags::submit(
