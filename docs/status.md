@@ -167,6 +167,41 @@ and optimized client/server builds passed. The workspace has no bundled gameplay
 tests; the external checks above provide the focused evidence. Wire encode/decode
 paths are unchanged.
 
+## Player model tolerance
+
+Local change based on `af65396` (2026-10-06): the client drew Kyle for a player
+whose model, skin or animation table differs from what rd-vanilla and the retail
+cgame accept, although both load it. Four classes now follow the reference (see
+[player models](client.md#player-models)): skins are read with
+`RE_RegisterIndividualSkin`'s `CommaParse` loop and never refused, and a missing
+skin or skin part falls back to `model_default.skin` as `CG_RegisterClientModelname`
+does; GLM vertex weights past one are used as written (`G2_GetVertBoneWeight`) and a
+mesh whose bone count differs from its skeleton's loads when its bone references name
+skeleton bones (`R_LoadMDXM` makes no count check); `animation.cfg` lines that name no
+animation, and sequences with no frames, are skipped as `BG_ParseAnimationFile`
+skips them, and a table that then names nothing holds frame 0. A mesh referencing a
+bone past its skeleton is still refused. No animation timing, movement or wire code
+changed.
+
+29 new unit tests (one skeleton test replaced by two): 13 on skin text (comments,
+missing commas, stray text, quotes, `tag_` and `_off` entries, duplicates, non-UTF-8
+bytes, the 128-entry cap), 8 on skin resolution against in-memory files, 2 on GLM
+weights, 2 on bone counts and skeleton fitting, and 4 on animation tables and the
+rest pose. Formatting (`cargo fmt --all --check`), `cargo build --locked --workspace` and `cargo test --locked --workspace` passed on Windows 11 with Rust 1.96.0 (55 tests).
+`cargo clippy --locked --workspace --all-targets` stops at four deny-level lints that `main` already has (`jkr-game-jka` `concussion.rs:118` and `weapon_fire.rs:593/614/655`) before it reaches the crates changed here; with `-A clippy::erasing_op -A clippy::redundant_comparisons` it passes, with no warning on the changed lines.
+
+The cases come from community packs on the contributor's installation (young* Jedi
+packs, aldrokoon, sad_scout, the vehicle and creature packs). A headless scan of that
+installation's models, not part of this change, ran the same loaders in the SJK
+client: of 5064 model/skin rows in 782 model directories, failures fell from 887 to 2,
+with the leading-slash skeleton name fix of #133 also in that build. That run is the
+only evidence of the effect on real content, and it is not reproducible from this
+change alone.
+
+Limits: no game or window was started, so how the rescued models look and animate in
+play, and the GPU skinning of meshes whose bone count differs from the skeleton's,
+remain to be checked.
+
 ## Actor animation error isolation
 
 Local fix based on `3a70c22` (2026-10-04): a custom glider's run clip ends at

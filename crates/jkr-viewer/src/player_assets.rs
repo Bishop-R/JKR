@@ -115,43 +115,13 @@ pub(super) fn load_player_appearance_with(
             .ok_or_else(|| format!("player preview asset {path:?} was not found"))?
             .bytes)
     };
-    let mesh = Glm::parse(&read(&format!("{directory}/model.glm"))?)?;
+    let mut mesh = Glm::parse(&read(&format!("{directory}/model.glm"))?)?;
     let animation_path = format!("{}.gla", mesh.animation_name);
     let animation = cache.get(&animation_path, || read(&animation_path))?;
-    skeleton_matches(&mesh, &animation, directory, &animation_path)?;
-    // CG_G2AnimEntModelLoad accepts skin handle 0. Machines such as the retail
-    // sentry have no default .skin and use the GLM's embedded surface materials.
-    // Named/multipart skins still follow the existing error/fallback policy.
-    let skin = if variant == "default"
-        && !vfs.contains(&format!("{directory}/model_default.skin"))?
-    {
-        Skin::default()
-    } else if variant.contains('|') {
-        let parts = variant.split('|').collect::<Vec<_>>();
-        if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) {
-            return Err("multipart player skin must contain head, torso and lower variants".into());
-        }
-        let mut combined = Skin::default();
-        for part in parts {
-            combined.merge(Skin::parse(&read(&format!("{directory}/{part}.skin"))?)?);
-        }
-        combined
-    } else {
-        let requested = read(&format!("{directory}/model_{variant}.skin"));
-        // BG_ValidateSkinForTeam (bg_misc.c:2687-2770) tries a custom
-        // team suffix first, then the ordinary team skin if it is absent.
-        let bytes = requested.or_else(|error| {
-            let team = variant
-                .strip_suffix("_red")
-                .map(|_| "red")
-                .or_else(|| variant.strip_suffix("_blue").map(|_| "blue"));
-            match team {
-                Some(team) => read(&format!("{directory}/model_{team}.skin")),
-                None => Err(error),
-            }
-        })?;
-        Skin::parse(&bytes)?
-    };
+    fit_skeleton(&mut mesh, &animation, directory, &animation_path)?;
+    // A skin never costs the model: a skin that gives no handle falls back to
+    // model_default.skin, then to the surfaces' own shaders (skin handle 0).
+    let skin = crate::player_skin::resolve(vfs, directory, variant)?;
     let animation_directory = mesh
         .animation_name
         .rsplit_once('/')
@@ -186,7 +156,8 @@ pub(super) fn load_player_appearance_with(
         // an attack, two cinematics and its root pose. Any frame of theirs is a rest pose.
         .or_else(|| config.get("ROOT"))
         .or_else(|| config.get_by_index(0))
-        .ok_or("player animation config has no sequence at all")?
+        // A table naming no animation (a vehicle pack's nameless lines) holds frame 0.
+        .unwrap_or(&AnimationSequence::REST)
         .clone();
     let forward = [camera_yaw.cos(), camera_yaw.sin()];
     let origin = [
@@ -221,31 +192,44 @@ pub(super) fn load_player_appearance_with(
     })
 }
 
-/// A mesh skinned against a skeleton with a different bone count cannot be
-/// posed. rd-vanilla refuses such a model when it loads (`R_LoadMDXM`), and the
-/// client then uses its fallback; refusing it here keeps one bad custom model on
-/// a server from failing the whole map load at its first skinning instead.
-fn skeleton_matches(
-    mesh: &Glm,
+/// rd-vanilla never compares a mesh's bone count with its skeleton's
+/// (`R_LoadMDXM`, `tr_ghoul2.cpp`): skinning looks each surface's bone references
+/// up in the skeleton's bone cache. A mesh whose references all name bones of
+/// its skeleton therefore loads and animates whatever count its header gives,
+/// and is skinned with the skeleton's count here. A reference past the skeleton
+/// reads outside rd-vanilla's bone cache; such a mesh is refused, and the
+/// caller's fallback keeps one bad custom model from failing the map load.
+fn fit_skeleton(
+    mesh: &mut Glm,
     animation: &Gla,
     directory: &str,
     animation_path: &str,
 ) -> Result<(), Box<dyn Error>> {
-    if mesh.bone_count == animation.bones.len() {
+    let skeleton_bones = animation.bones.len();
+    if mesh.bone_count == skeleton_bones {
+        return Ok(());
+    }
+    let highest = mesh
+        .lods
+        .iter()
+        .flat_map(|lod| &lod.surfaces)
+        .flat_map(|surface| surface.bone_references.iter().copied())
+        .max();
+    if highest.is_none_or(|bone| bone < skeleton_bones) {
+        mesh.bone_count = skeleton_bones;
         return Ok(());
     }
     Err(format!(
-        "{directory}/model.glm has {} bones but its skeleton {animation_path} has {}",
-        mesh.bone_count,
-        animation.bones.len()
+        "{directory}/model.glm uses bone {} but its skeleton {animation_path} has {skeleton_bones}",
+        highest.unwrap_or_default()
     )
     .into())
 }
 
 #[cfg(test)]
 mod skeleton_tests {
-    use super::skeleton_matches;
-    use jkr_model::{Gla, GlaBone, Glm};
+    use super::fit_skeleton;
+    use jkr_model::{Gla, GlaBone, Glm, GlmLod, GlmSurface};
 
     fn bones(count: usize) -> Vec<GlaBone> {
         (0..count)
@@ -260,13 +244,20 @@ mod skeleton_tests {
             .collect()
     }
 
-    fn pair(mesh_bones: usize, skeleton_bones: usize) -> (Glm, Gla) {
+    fn pair(mesh_bones: usize, references: Vec<usize>, skeleton_bones: usize) -> (Glm, Gla) {
         let mesh = Glm {
             name: "model".into(),
             animation_name: "models/players/_humanoid/_humanoid".into(),
             bone_count: mesh_bones,
             hierarchy: Vec::new(),
-            lods: Vec::new(),
+            lods: vec![GlmLod {
+                surfaces: vec![GlmSurface {
+                    hierarchy_index: 0,
+                    vertices: Vec::new(),
+                    triangles: Vec::new(),
+                    bone_references: references,
+                }],
+            }],
         };
         let skeleton = Gla {
             name: "_humanoid".into(),
@@ -280,17 +271,27 @@ mod skeleton_tests {
 
     #[test]
     fn a_mesh_matching_its_skeleton_loads() {
-        let (mesh, skeleton) = pair(53, 53);
-        assert!(skeleton_matches(&mesh, &skeleton, "models/players/kyle", "a.gla").is_ok());
+        let (mut mesh, skeleton) = pair(53, vec![0, 52], 53);
+        assert!(fit_skeleton(&mut mesh, &skeleton, "models/players/kyle", "a.gla").is_ok());
+        assert_eq!(mesh.bone_count, 53);
     }
 
     #[test]
-    fn a_bone_count_mismatch_is_a_load_error() {
-        let (mesh, skeleton) = pair(72, 53);
-        let error = skeleton_matches(&mesh, &skeleton, "models/players/custom", "a.gla")
+    fn a_different_count_loads_when_every_reference_names_a_skeleton_bone() {
+        for header_bones in [40, 60] {
+            let (mut mesh, skeleton) = pair(header_bones, vec![0, 12, 39], 53);
+            assert!(fit_skeleton(&mut mesh, &skeleton, "models/players/custom", "a.gla").is_ok());
+            assert_eq!(mesh.bone_count, 53);
+        }
+    }
+
+    #[test]
+    fn a_reference_past_the_skeleton_is_a_load_error() {
+        let (mut mesh, skeleton) = pair(72, vec![0, 60], 53);
+        let error = fit_skeleton(&mut mesh, &skeleton, "models/players/custom", "a.gla")
             .unwrap_err()
             .to_string();
-        assert!(error.contains("72 bones"), "{error}");
+        assert!(error.contains("uses bone 60"), "{error}");
         assert!(error.contains("has 53"), "{error}");
     }
 }

@@ -93,6 +93,39 @@ expiry and recharge, while refreshing its networked state. A different vehicle,
 pilot or definition starts with fresh local state. This prevents exhausted boost
 input from predicting a new burst after every snapshot.
 
+## Player models
+
+A player's or NPC's appearance (`models/players/<model>/<skin>`) loads its
+`model.glm`, the skeleton the mesh names (`<name>.gla`), that skeleton's
+`animation.cfg` and a skin; if the model cannot be loaded or built, the client
+draws Kyle for that player instead
+([player_assets.rs](../crates/jkr-viewer/src/player_assets.rs),
+[actor_load.rs](../crates/jkr-viewer/src/actor_load.rs)). These files are read as
+rd-vanilla and the retail cgame read them, so community models that other
+clients draw are not swapped for Kyle over details the reference ignores:
+
+- Skins are read with rd-vanilla's `CommaParse` loop (`RE_RegisterIndividualSkin`,
+  `tr_skin.cpp`): tokens in surface/shader pairs, so comments, missing commas,
+  stray text and bytes outside UTF-8 do not stop a skin from loading; `tag_`
+  entries are skipped, `_off` is stripped from surface names, the first entry for
+  a surface wins and a skin keeps at most 128 entries
+  ([skin.rs](../crates/jkr-model/src/skin.rs)).
+- A skin never costs the model (`CG_RegisterClientModelname`, `cg_players.c`): when
+  the requested skin is missing, has a missing part or names no surface, the model
+  wears `model_default.skin`, and without one its surfaces' own shaders. A name is
+  a three-part skin only when it has `|` and says `head`, `torso` and `lower`; the
+  log notes each fallback ([player_skin.rs](../crates/jkr-viewer/src/player_skin.rs)).
+- Vertex weights adding up past one are used as written (`G2_GetVertBoneWeight`),
+  and a mesh whose header bone count differs from its skeleton's loads when its
+  bone references name bones of that skeleton (`R_LoadMDXM` makes no count check).
+- `animation.cfg` lines that name no animation, and sequences with no frames, are
+  left out as `BG_ParseAnimationFile` leaves them; a table that then names nothing
+  holds frame 0, as `G2_TransformBone` does.
+
+A mesh that references a bone past its skeleton, a missing or unsupported
+`model.glm` or skeleton, and an `animation.cfg` line that names an animation with
+other than five fields are still refused and drawn as Kyle.
+
 ## Animation sounds and voice variants
 
 Footsteps and authored swing/spin sounds follow the evaluated lower/upper Ghoul2

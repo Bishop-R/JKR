@@ -8,12 +8,19 @@ mod md3_lerp;
 pub mod posed_trace;
 mod reskin;
 mod skeleton_pose;
+mod skin;
+
+#[cfg(test)]
+mod animation_config_tests;
+#[cfg(test)]
+mod glm_tolerance_tests;
 
 pub use bone_angles::{BoneAngleCommand, BoneAngleMode, BoneAxis};
 pub use bone_override::{
     BoneAnimationCommand, BoneFrameSample, BoneOverridePose, OverrideEndBehavior,
 };
 pub use skeleton_pose::{BoneTrack, BoneTrackPartition, PoseScratch};
+pub use skin::{SKIN_SHADER_OFF, Skin};
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -48,11 +55,6 @@ const GLA_SKELETON_BYTES: usize = 172;
 const GLA_COMPRESSED_BONE_BYTES: usize = 14;
 const GLA_MAX_FRAMES: usize = 1_000_000;
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Skin {
-    mappings: HashMap<String, String>,
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AnimationConfig {
     sequences: HashMap<String, AnimationSequence>,
@@ -66,6 +68,19 @@ pub struct AnimationSequence {
     pub frame_count: usize,
     pub loop_frame: i32,
     pub frames_per_second: f32,
+}
+
+impl AnimationSequence {
+    /// Frame 0 held, for a model whose table names no animation at all:
+    /// `G2_TransformBone` (`tr_ghoul2.cpp`) poses a bone that no animation was
+    /// set on at frame 0.
+    pub const REST: Self = Self {
+        name: String::new(),
+        first_frame: 0,
+        frame_count: 1,
+        loop_frame: -1,
+        frames_per_second: 20.0,
+    };
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -91,6 +106,11 @@ impl AnimationConfig {
                 continue;
             }
             let fields = line.split_ascii_whitespace().collect::<Vec<_>>();
+            // BG_ParseAnimationFile skips every token that names no animation, so a
+            // line without a name ("0 11 0 30", left by vehicle packs) adds nothing.
+            if fields[0].parse::<f64>().is_ok() {
+                continue;
+            }
             if fields.len() != 5 {
                 return Err(ModelError::invalid(
                     line_index,
@@ -106,8 +126,11 @@ impl AnimationConfig {
                 .map_err(|_| ModelError::invalid(line_index, "negative first animation frame"))?;
             let frame_count = usize::try_from(parse_integer(fields[2])?)
                 .map_err(|_| ModelError::invalid(line_index, "negative animation frame count"))?;
+            // BG_ParseAnimationFile (bg_panimate.c) keeps such a line and
+            // BG_HasAnimation then reports the animation as absent; creature
+            // packs (bomabeast, nexu) list unused sequences this way.
             if frame_count == 0 {
-                return Err(ModelError::invalid(line_index, "empty animation sequence"));
+                continue;
             }
             let loop_frame = parse_integer(fields[3])?;
             let frames_per_second = fields[4]
@@ -155,61 +178,6 @@ impl AnimationConfig {
 
     pub fn is_empty(&self) -> bool {
         self.sequences.is_empty()
-    }
-}
-
-/// Skin shader name that hides a surface instead of texturing it.
-pub const SKIN_SHADER_OFF: &str = "*off";
-
-impl Skin {
-    pub fn parse(bytes: &[u8]) -> Result<Self, ModelError> {
-        let text = std::str::from_utf8(bytes)
-            .map_err(|_| ModelError::invalid(0, "skin file is not UTF-8"))?;
-        let mut mappings = HashMap::new();
-        for (line_index, raw_line) in text.lines().enumerate() {
-            let line = raw_line
-                .split_once("//")
-                .map_or(raw_line, |(content, _)| content)
-                .trim();
-            if line.is_empty() {
-                continue;
-            }
-            let (surface, shader) = line.split_once(',').ok_or_else(|| {
-                ModelError::invalid(line_index, "skin line lacks surface,shader separator")
-            })?;
-            let surface = surface.trim().to_ascii_lowercase();
-            let shader = shader.trim().replace('\\', "/").to_ascii_lowercase();
-            if surface.is_empty() || shader.is_empty() {
-                return Err(ModelError::invalid(
-                    line_index,
-                    "skin surface and shader must be nonempty",
-                ));
-            }
-            mappings.insert(surface, shader);
-        }
-        Ok(Self { mappings })
-    }
-
-    pub fn shader(&self, surface: &str) -> Option<&str> {
-        self.mappings
-            .get(&surface.to_ascii_lowercase())
-            .map(String::as_str)
-    }
-
-    pub fn len(&self) -> usize {
-        self.mappings.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mappings.is_empty()
-    }
-
-    /// Append another part's mappings; the first part to name a surface
-    /// wins, as in the original renderer's `head|torso|lower` skin lookup.
-    pub fn merge(&mut self, other: Self) {
-        for (surface, shader) in other.mappings {
-            self.mappings.entry(surface).or_insert(shader);
-        }
     }
 }
 
@@ -1376,6 +1344,8 @@ fn parse_glm_surface(
                         "vertex weight references absent surface bone",
                     ));
                 }
+                // The last weight is whatever the others leave, below zero when
+                // they add up to more than one; G2_GetVertBoneWeight uses it as is.
                 let weight = if weight_index + 1 == weight_count {
                     1.0 - accumulated
                 } else {
@@ -1390,9 +1360,6 @@ fn parse_glm_surface(
                     bone_reference,
                     weight,
                 });
-            }
-            if weights.iter().any(|weight| weight.weight < -0.001) {
-                return Err(ModelError::invalid(offset + 28, "GLM weights exceed one"));
             }
             Ok(GlmVertex {
                 normal: reader.f32x3(offset, "GLM vertex normal")?,
