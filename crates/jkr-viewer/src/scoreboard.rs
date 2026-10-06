@@ -67,6 +67,7 @@ impl Scoreboard {
         font: &UiFont,
         viewport: [f32; 2],
         _scale: f32,
+        notice: Option<&str>,
     ) {
         self.refresh(session);
         for row in &mut self.rows {
@@ -79,6 +80,7 @@ impl Scoreboard {
             view::MatchHeader {
                 map: &self.map,
                 mode: &self.mode,
+                notice,
                 team_scores: session.team_scores(),
                 team_game: self.team_game,
                 local_client: local,
@@ -136,6 +138,7 @@ pub(crate) fn append_overlay(gpu: &mut crate::GpuState, viewport: [f32; 2], scal
             &gpu.ui_font,
             viewport,
             scale,
+            gpu.chat.round_notice(),
         );
     }
 }

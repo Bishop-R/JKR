@@ -8,6 +8,8 @@ use jkr_ui::{Color, FontWeight, Rect, TextAlign};
 pub(super) struct MatchHeader<'a> {
     pub(super) map: &'a str,
     pub(super) mode: &'a str,
+    /// An ended Siege round's message, shown in the mode's place.
+    pub(super) notice: Option<&'a str>,
     pub(super) team_scores: [i32; 2],
     pub(super) team_game: bool,
     pub(super) local_client: u16,
@@ -35,14 +37,24 @@ pub(super) fn build(
         Rect::new(x - 18.0 * s, 64.0 * s, 4.0 * s, 72.0 * s),
         theme.accent,
     );
-    ui.text(
-        header.mode,
-        Rect::new(x, 54.0 * s, width, 22.0 * s),
-        14.0 * s,
-        theme.accent,
-        FontWeight::Semibold,
-        2.0 * s,
-    );
+    match header.notice {
+        Some(notice) => ui.text(
+            notice,
+            Rect::new(x, 52.0 * s, width, 26.0 * s),
+            16.0 * s,
+            theme.foreground,
+            FontWeight::Semibold,
+            0.0,
+        ),
+        None => ui.text(
+            header.mode,
+            Rect::new(x, 54.0 * s, width, 22.0 * s),
+            14.0 * s,
+            theme.accent,
+            FontWeight::Semibold,
+            2.0 * s,
+        ),
+    }
     ui.text(
         header.map,
         Rect::new(x, 80.0 * s, width, 64.0 * s),

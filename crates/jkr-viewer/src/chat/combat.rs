@@ -26,6 +26,8 @@ pub(super) struct Combat {
     pub(super) height: Option<f32>,
     /// Production projection reused by the evidence fixture.
     pub(super) camera: Option<Camera>,
+    /// Siege objective and round messages.
+    pub(super) siege: super::siege::Notices,
     time: i32,
     enabled: bool,
 }
@@ -47,6 +49,7 @@ impl Default for Combat {
             spare: String::with_capacity(1024),
             height: None,
             camera: None,
+            siege: Default::default(),
             time: 0,
             enabled: true,
         }
@@ -80,12 +83,12 @@ impl ChatOverlay {
         if self.combat.snapshot == Some(stamp) {
             return;
         }
-        if self
+        let restarted = self
             .combat
             .snapshot
             .is_some_and(|(_, old)| old > snapshot.server_time)
-            || tracker.decoded() < self.combat.obituaries
-        {
+            || tracker.decoded() < self.combat.obituaries;
+        if restarted {
             self.combat.signatures.fill(0);
             self.combat.obituaries = 0;
             for plum in &mut self.combat.plums {
@@ -93,6 +96,7 @@ impl ChatOverlay {
             }
         }
         self.combat.snapshot = Some(stamp);
+        self.observe_siege_round(&snapshot.player, restarted);
         let gametype = game
             .config_string(0)
             .and_then(|b| jkr_client::LegacyClientInfo::new(b).integer("g_gametype"))
@@ -129,6 +133,9 @@ impl ChatOverlay {
             self.combat.signatures[slot] = signature;
             match signature & 255 {
                 75 => self.voice_command(entity, game, &snapshot.player, localization),
+                event @ (101 | 102) => {
+                    self.siege_event(event, entity, &snapshot.player, localization);
+                }
                 99 => {
                     if let Some(text) = super::ctf::message(entity, game, localization)
                         && let Some(console) = console.as_deref_mut()

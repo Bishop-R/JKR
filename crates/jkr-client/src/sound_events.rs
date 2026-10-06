@@ -14,6 +14,7 @@ use crate::loop_sounds::{LegacyLoopAdapter, LegacyLoopDecision};
 use crate::maintained_sounds::{
     LegacyMaintainedAction, LegacyMaintainedEvent, LegacyMaintainedLoopDecision, MaintainedSounds,
 };
+use crate::siege_notices::{EV_SIEGE_OBJECTIVECOMPLETE, EV_SIEGE_ROUNDOVER, SiegeAnnouncer};
 use crate::{AmbientSetKind, AmbientSets};
 use jkr_audio::{Attenuation, ChannelId, PlayRequest, SoundHandle, SourceId};
 use jkr_protocol::{EntityState, GameState, Snapshot};
@@ -37,7 +38,7 @@ const CHAN_MENU1: u32 = 11;
 const CHAN_LOCAL: u32 = 1;
 pub(crate) const CHAN_ANNOUNCER: u32 = 9;
 const CS_AMBIENT_SET: usize = 37;
-const EVENT_KIND_COUNT: usize = 56;
+const EVENT_KIND_COUNT: usize = 58;
 const EV_PLAYDOORLOOPSOUND: u16 = 72;
 const EV_MUTE_SOUND: u16 = 74;
 const EV_GENERAL_SOUND: u16 = 76;
@@ -237,6 +238,10 @@ pub enum LegacySoundEvent {
     Choke,
     /// Failed push reaction voice (`cg_event.c:1821-1823`).
     PushFail,
+    /// A Siege objective's announcer line (`CG_SiegeObjectiveCompleted`).
+    SiegeObjectiveComplete,
+    /// A Siege round's announcer line (`CG_SiegeRoundOver`).
+    SiegeRoundOver,
 }
 
 impl LegacySoundEvent {
@@ -309,6 +314,8 @@ impl LegacySoundEvent {
             Self::ThreeFragWarning => "CG_THREE_FRAG_WARNING",
             Self::WarmupCount => "CG_WARMUP_COUNT",
             Self::RestartFight => "CG_RESTART_FIGHT",
+            Self::SiegeObjectiveComplete => "EV_SIEGE_OBJECTIVECOMPLETE",
+            Self::SiegeRoundOver => "EV_SIEGE_ROUNDOVER",
         }
     }
 }
@@ -556,6 +563,8 @@ pub struct LegacySoundAdapter {
     dramatic_failure: Option<u16>,
     /// Announcer and chat sounds derived on the client (`local_sounds.rs`).
     local: LegacyLocalSounds,
+    /// The Siege map's objective and round lines.
+    siege: Option<SiegeAnnouncer>,
     decisions: Vec<LegacySoundDecision>,
     music_actions: Vec<LegacyMusicAction>,
     previous_entity_event: Box<[u16]>,
@@ -737,6 +746,7 @@ impl LegacySoundAdapter {
         let custom =
             std::array::from_fn(|client| custom_set(game_state, vfs, client as u16, &mut intern));
         let client_teams = std::array::from_fn(|client| client_team(game_state, client));
+        let siege = SiegeAnnouncer::load(vfs, game_state, &mut intern);
 
         drop(intern);
         if let Some(id) = preferred_chat.filter(|id| sounds[*id as usize].handle.is_some()) {
@@ -783,6 +793,7 @@ impl LegacySoundAdapter {
             select_fallback,
             dramatic_failure,
             local,
+            siege,
             ambient_catalog: ambient,
             decisions: Vec::with_capacity(2_048),
             music_actions: Vec::with_capacity(2),
@@ -1010,6 +1021,34 @@ impl LegacySoundAdapter {
         let parameter = raw as u8;
         if event == 78 {
             self.local.team_event(parameter);
+            return;
+        }
+        if matches!(event, EV_SIEGE_ROUNDOVER | EV_SIEGE_OBJECTIVECOMPLETE) {
+            // `S_StartLocalSound(…, CHAN_ANNOUNCER)` straight away, not through the ring.
+            let (team, won) = (snapshot.player.team(), i32::from(parameter));
+            let objective = i32::from(entity.tracked_entity);
+            let sound = self
+                .siege
+                .as_ref()
+                .and_then(|siege| siege.line(event, team, won, objective));
+            if sound.is_some() {
+                let kind = if event == EV_SIEGE_ROUNDOVER {
+                    LegacySoundEvent::SiegeRoundOver
+                } else {
+                    LegacySoundEvent::SiegeObjectiveComplete
+                };
+                let client = snapshot.player.client_num();
+                self.emit(
+                    kind,
+                    sound,
+                    client,
+                    CHAN_ANNOUNCER,
+                    true,
+                    false,
+                    [0.0; 3],
+                    snapshot,
+                );
+            }
             return;
         }
         let source = entity.number;

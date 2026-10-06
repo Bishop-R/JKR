@@ -114,6 +114,12 @@ does and checks each client's reply against them, dropping an unpure client with
 message. TaystJK and the JKR client both joined such a server; the pk3 checksums match
 OpenJK's own code for every retail pak.
 
+In Siege the JKR client now announces completed objectives and the end of a round from
+the map's own `.siege` file, as stock clients do: each side's message, centre-printed,
+and its announcer line. Stock opens the round's message in a popup; JKR puts it at the
+head of the intermission scoreboard. On `siege_hoth` the JKR and TaystJK clients showed
+the same words for the same side. Radar, briefings and teammate health remain open.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

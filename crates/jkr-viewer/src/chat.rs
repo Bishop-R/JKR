@@ -11,6 +11,7 @@ mod player_actions;
 mod social;
 
 mod ctf;
+mod siege;
 mod view;
 mod voice;
 

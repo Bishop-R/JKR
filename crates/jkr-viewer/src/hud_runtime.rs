@@ -321,6 +321,7 @@ pub(crate) fn update(
                     &gpu.ui_shapes,
                     &gpu.queue,
                 );
+                gpu.chat.refresh_siege(vfs, game);
             }
             gpu.chat.observe_combat(
                 snapshot,
