@@ -375,6 +375,19 @@ accent composition. Other dead keys retain normal accent composition.
 console output. See [console registration](../crates/jkr-viewer/src/console_session.rs)
 and [file commands](../crates/jkr-viewer/src/console_files.rs) for argument handling.
 
+`serverconfig` lists a JA+ server's options from the `jp_cinfo` value in its
+serverinfo (flip kick, roll fix mode, DFA variants, kata, ledge grab, alternate
+dimension and the rest), as the JA+ client plugin and EternalJK print them
+locally; on jaPRO/TaystJK it is forwarded to the server, which answers it, and
+elsewhere it reports that the server runs neither. `pluginDisable` lists the
+fifteen JA+ client-plugin features with `Allowed`/`Disallowed`, and
+`pluginDisable <id>` toggles one bit of the archived userinfo cvar
+`cp_pluginDisable` (a set bit disables the feature). Its default, 1536, disables
+the holstered saber and ledge grab, which need JA+ animations JKR does not have.
+The connection userinfo does not read this cvar yet: it carries the compatibility
+profile's fixed `cp_pluginDisable 1536`, and only on TaystJK servers.
+See [console_mod_commands.rs](../crates/jkr-viewer/src/console_mod_commands.rs).
+
 The console input line has a caret, drawn as stock's underscore: Left and Right
 move it, Ctrl+Left and Ctrl+Right by word, Home and End to either end, and Shift
 with any of them selects. Backspace and Delete remove a character, or a word with

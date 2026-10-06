@@ -100,6 +100,8 @@ impl ViewerConsole {
                 )
             }
             "afk" | "colorname" | "colorstring" => self.identity_command(name, args),
+            "serverconfig" => self.server_config(session),
+            "plugindisable" => self.plugin_disable(args),
             _ => Err(format!("Unsupported client command: {name}")),
         }
     }

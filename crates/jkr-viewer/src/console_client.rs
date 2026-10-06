@@ -16,6 +16,8 @@ mod hud_commands;
 mod identity;
 #[path = "console_info.rs"]
 mod info;
+#[path = "console_mod_commands.rs"]
+mod mod_commands;
 #[path = "console_queries.rs"]
 mod queries;
 #[path = "console_remaps.rs"]
@@ -66,6 +68,14 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
     ("model", "Set player model and optional skin"),
     ("forcepowers", "Set the player force profile"),
     ("configstrings", "Print non-empty indexed configstrings"),
+    (
+        "serverconfig",
+        "List the JA+ server's options (forwarded to jaPRO/TaystJK servers)",
+    ),
+    (
+        "pluginDisable",
+        "List or toggle JA+ plugin features (cp_pluginDisable)",
+    ),
     ("showip", "List local interface addresses"),
     ("fs_openedList", "Print mounted package names"),
     ("fs_referencedList", "Print pure-proof package references"),
@@ -118,6 +128,7 @@ pub(super) fn register(shell: &mut Shell, commands: &Commands) -> Result<(), Box
     queries::register(&mut shell.cvars)?;
     restarts::register(&mut shell.cvars)?;
     identity::register(&mut shell.cvars, &commands.name_clock)?;
+    mod_commands::register(&mut shell.cvars)?;
     for (name, value, flags, help) in [
         (
             "cg_chatBeep",
