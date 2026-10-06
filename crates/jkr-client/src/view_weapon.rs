@@ -15,6 +15,7 @@ use jkr_model::AnimationConfig;
 use jkr_protocol::Snapshot;
 
 const WP_STUN_BATON: u8 = 1; // codemp/game/bg_weapons.h:33
+const WP_MELEE: u8 = 2;
 const WP_SABER: u8 = 3;
 const WP_EMPLACED_GUN: u8 = 17;
 const PM_SPECTATOR: u8 = 4; // codemp/game/bg_public.h:430
@@ -55,9 +56,15 @@ const BATON_BARRELS: &[(&str, &str)] = &[
 /// View models by `weapon_t`. The saber registers no hand model
 /// (`cg_weaponinit.c:119-126`) and is drawn by the Ghoul2 player model
 /// instead, so it yields `None` like the unarmed slots.
+///
+/// `WP_MELEE` registers no hand model either, though its item's view model is the
+/// baton (`bg_misc.c` `weapon_melee`). `CG_AddViewWeapon` then hangs the baton on
+/// handle 0, whose `R_LerpTag` is the identity, so it sits at the view origin; the
+/// baton's geometry (x from -6.7 to -0.6) is all behind the eye, and nothing shows.
+/// Drawing it on the stun baton's own rig showed a baton in first-person melee.
 pub fn legacy_view_model(weapon: u8) -> Option<LegacyViewModel> {
     Some(match weapon {
-        WP_STUN_BATON | 2 => model(
+        WP_STUN_BATON => model(
             "models/weapons2/stun_baton/baton.md3",
             "models/weapons2/stun_baton/baton_hand.md3",
             BATON_BARRELS,
@@ -142,6 +149,7 @@ pub fn legacy_view_model(weapon: u8) -> Option<LegacyViewModel> {
             "models/weapons2/briar_pistol/briar_pistol_hand.md3",
             &[],
         ),
+        WP_MELEE => return None,
         _ => return None,
     })
 }
@@ -317,5 +325,19 @@ pub fn legacy_view_weapon_pose(
     LegacyViewWeaponPose {
         origin,
         angles: [pitch + drift, yaw + drift, roll + drift],
+    }
+}
+
+#[cfg(test)]
+mod melee_tests {
+    use super::*;
+
+    #[test]
+    fn melee_draws_no_view_model_but_the_baton_does() {
+        assert_eq!(legacy_view_model(WP_MELEE), None);
+        assert!(legacy_view_weapons().all(|(weapon, _)| weapon != WP_MELEE));
+        let baton = legacy_view_model(WP_STUN_BATON).unwrap();
+        assert_eq!(baton.gun, "models/weapons2/stun_baton/baton.md3");
+        assert_eq!(baton.barrels.len(), 3);
     }
 }
