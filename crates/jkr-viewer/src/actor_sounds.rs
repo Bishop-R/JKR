@@ -17,6 +17,22 @@ pub(crate) struct State {
     effect_flash: Option<crate::bolt::BoltMatrix>,
 }
 
+/// Load the effects `mesh`'s animation events name, once per mesh. Returns whether the
+/// library gained any, when the assets built from it must be built again; that is a
+/// rebuild of the whole effect atlas, so it is done as the model loads, not as it is
+/// first animated (every player of a Siege round spawns in the same frame).
+pub(crate) fn preload_effects(
+    mesh: &mut crate::actor_mesh::ActorMesh,
+    library: &mut crate::effect_library::EffectLibrary,
+    vfs: &jkr_vfs::VirtualFileSystem,
+) -> bool {
+    if mesh.audio_events.effects_loaded {
+        return false;
+    }
+    mesh.audio_events.effects_loaded = true;
+    library.preload(vfs, mesh.preview.events.effect_paths())
+}
+
 pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio>) -> bool {
     let mut effects_changed = false;
     let now = std::time::Instant::now();
@@ -77,17 +93,11 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
             .map_or(Quat::from_array(transform.rotation), |yaw| {
                 Quat::from_rotation_z(yaw.to_radians())
             });
+        if let Some(vfs) = gpu.vfs.as_deref() {
+            effects_changed |= preload_effects(mesh, &mut gpu.effects, vfs);
+        }
         let frames = mesh.animator.event_frames(&mesh.preview.animation, time);
         let matrices = mesh.animator.matrices();
-        if !mesh.audio_events.effects_loaded
-            && let Some(vfs) = gpu.vfs.as_deref()
-        {
-            if mesh.preview.events.effect_paths().next().is_some() {
-                gpu.effects.preload(vfs, mesh.preview.events.effect_paths());
-                effects_changed = true;
-            }
-            mesh.audio_events.effects_loaded = true;
-        }
         let weapon = entity.equipment().map_or(0, |equipment| equipment.weapon);
         let hilt = (weapon == 3)
             .then(|| {

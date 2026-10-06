@@ -198,6 +198,24 @@ impl GpuState {
         Ok(())
     }
 
+    /// Load the effects of `client`'s model as it is installed rather than at its first
+    /// animation (`actor_pose::sounds::preload_effects`); whether the library gained any.
+    pub(crate) fn preload_actor_effects(&mut self, client: u16) -> bool {
+        let Some(vfs) = self.vfs.clone() else {
+            return false;
+        };
+        let entity_id = EntityId::new(u64::from(client) + 1);
+        let mut gained = false;
+        for mesh in self
+            .actor_meshes
+            .iter_mut()
+            .filter(|mesh| !mesh.corpse_pool && mesh.entity_id == Some(entity_id))
+        {
+            gained |= crate::actor_pose::sounds::preload_effects(mesh, &mut self.effects, &vfs);
+        }
+        gained
+    }
+
     /// Load `appearance` for `entity_id` and append it to the shared buffers.
     pub(crate) fn build_live_actor(
         &mut self,

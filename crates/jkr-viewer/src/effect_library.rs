@@ -124,11 +124,19 @@ impl EffectLibrary {
         value
     }
 
-    pub(crate) fn preload<I, S>(&mut self, vfs: &VirtualFileSystem, names: I)
+    /// Load `names` and every effect, shader and model they name. Returns whether the
+    /// library gained anything: only then must the assets built from it (the effect atlas,
+    /// models, sounds) be built again.
+    pub(crate) fn preload<I, S>(&mut self, vfs: &VirtualFileSystem, names: I) -> bool
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        let before = (
+            self.definitions.len(),
+            self.shaders.len(),
+            self.asset_names.len(),
+        );
         let mut pending = names
             .into_iter()
             .map(|name| name.as_ref().to_owned())
@@ -154,5 +162,11 @@ impl EffectLibrary {
                 }
             }
         }
+        before
+            != (
+                self.definitions.len(),
+                self.shaders.len(),
+                self.asset_names.len(),
+            )
     }
 }

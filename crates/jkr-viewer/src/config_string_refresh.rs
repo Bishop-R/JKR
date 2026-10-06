@@ -102,6 +102,7 @@ impl GpuState {
         } else if let Some(session) = &mut self.demo_session {
             session.drain_config_string_changes(|index| changes.mark(index));
         }
+        let mut actor_effects = false;
         changes.drain(|index| {
             let Some(target) = consumer(index) else {
                 return;
@@ -178,6 +179,7 @@ impl GpuState {
                     if let Err(error) = self.apply_clientinfo(client) {
                         log::progress(format_args!("cs {index}: clientinfo failed: {error}"));
                     }
+                    actor_effects |= self.preload_actor_effects(client);
                 }
                 Consumer::Effect => {
                     self.missile_effects.refresh_config_string(index, game);
@@ -191,6 +193,9 @@ impl GpuState {
                 }
             }
         });
+        if actor_effects {
+            self.refresh_effect_assets(audio);
+        }
         self.refresh_npc_actors();
         let remaps = self
             .live_session
@@ -260,8 +265,9 @@ impl GpuState {
 
     fn preload_config_effect(&mut self, name: &str, audio: &mut Option<GameAudio>) {
         let Some(vfs) = self.vfs.clone() else { return };
-        self.effects.preload(&vfs, [name]);
-        self.refresh_effect_assets(audio);
+        if self.effects.preload(&vfs, [name]) {
+            self.refresh_effect_assets(audio);
+        }
     }
 
     /// Install dependencies after new graphs arrive from configstrings or models.
