@@ -339,8 +339,9 @@ impl EntityState {
         self.raw_field(34).unwrap_or(0) as i32
     }
 
+    /// `apos.trDuration` (field 89; 91 is `bolt1`).
     pub fn angular_trajectory_duration(&self) -> i32 {
-        self.raw_field(91).unwrap_or(0) as i32
+        self.raw_field(89).unwrap_or(0) as i32
     }
 
     pub fn client_num(&self) -> u16 {

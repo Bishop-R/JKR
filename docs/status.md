@@ -86,6 +86,10 @@ flight are still unported.
 The client now draws the seeker drone over its owner as stock does. The server
 already ran it, but no client drew it.
 
+Rotating doors, pendulums and turning turrets now move smoothly on the client.
+It read their angular duration from the wrong wire field, so community maps' rotating
+doors held still and then snapped open.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or
