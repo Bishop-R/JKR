@@ -194,6 +194,15 @@ impl NativeGame {
             siege_round_begun: self.siege.as_ref().is_some_and(|siege| siege.round.begun),
             friendly_fire_objectives: self.integer_cvar(b"g_ff_objectives", 0) != 0,
         };
+        if self
+            .map_turrets
+            .sentries
+            .iter()
+            .any(|(id, _)| id.legacy_number() == target)
+        {
+            self.damage_sentry(target, &blow, level_time);
+            return;
+        }
         self.gather_turret_sights();
         let targets = std::mem::take(&mut self.map_turrets.sighted);
         let known = attacker

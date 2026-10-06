@@ -8,6 +8,7 @@ use super::*;
 use jkr_game_jka::map_turret_model::{TurretModel, TurretPose};
 use jkr_game_jka::map_turret_world::{BoltIndex, Shot, TurretHost};
 use jkr_game_jka::registries::{BoneTable, EffectTable};
+use jkr_game_jka::saber_block::MissilePaths;
 use std::sync::Arc;
 
 /// A splash a turret asked for (`G_RadiusDamage`).
@@ -61,7 +62,8 @@ pub(super) struct ServerTurretHost<'a> {
     /// The configstrings registered, for the clients.
     pub(super) registered: &'a mut Vec<(usize, Vec<u8>)>,
     pub(super) map: Option<&'a LoadedMap>,
-    /// The level's boxes but the turret's own and what it owns ([`NativeGame::gather_obstacles`]).
+    /// The level's boxes but the turret's own and what it owns ([`NativeGame::gather_obstacles`]);
+    /// a sentry's own box among them while it moves, which its sight passes.
     pub(super) obstacles: &'a [BoxObstacle],
     pub(super) pool: &'a mut EntityPool,
     pub(super) missiles: &'a mut Vec<(EntityId, Missile)>,
@@ -150,7 +152,18 @@ impl TurretHost for ServerTurretHost<'_> {
         &mut self,
         start: [f32; 3],
         end: [f32; 3],
-        _: u16,
+        pass: u16,
+        mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        self.trace_box(start, ([0.0; 3], [0.0; 3]), end, pass, mask)
+    }
+
+    fn trace_box(
+        &mut self,
+        start: [f32; 3],
+        (mins, maxs): ([f32; 3], [f32; 3]),
+        end: [f32; 3],
+        pass: u16,
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
         let players = self.obstacles;
@@ -162,12 +175,12 @@ impl TurretHost for ServerTurretHost<'_> {
                 },
                 players,
             }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
+            .trace_from(pass, start, mins, maxs, end, mask),
             None => WithPlayers {
                 world: Void,
                 players,
             }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
+            .trace_from(pass, start, mins, maxs, end, mask),
         }
     }
 

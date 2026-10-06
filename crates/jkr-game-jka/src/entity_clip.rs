@@ -24,6 +24,14 @@ pub struct BoxObstacle {
     pub model: Option<usize>,
 }
 
+/// `SV_LinkEntity`'s `s.solid` for a solid box that is no brush model: its size, which is
+/// all a client's prediction knows of it — half its width, its depth below the origin, its
+/// height above it plus 32, a byte each (`sv_world.cpp:263-286`).
+pub fn packed_solid((mins, maxs): ([f32; 3], [f32; 3])) -> u32 {
+    let byte = |value: f32| (value as i32).clamp(1, 255) as u32;
+    byte(maxs[2] + 32.0) << 16 | byte(-mins[2]) << 8 | byte(maxs[0])
+}
+
 /// The move as `SV_Trace` is handed it.
 #[derive(Clone, Copy, Debug)]
 pub struct Move {

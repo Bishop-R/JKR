@@ -2537,6 +2537,7 @@ impl NativeGame {
         self.run_stock_entities(server_time);
         self.run_doors(server_time);
         self.run_map_turrets(server_time);
+        self.run_sentries(server_time);
         self.run_scripts(server_time);
 
         self.run_npcs(server_time);

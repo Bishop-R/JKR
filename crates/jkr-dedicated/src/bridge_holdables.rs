@@ -4,8 +4,8 @@
 //! jetpack and cloak batteries and the seeker drone. The rules are
 //! `jkr_game_jka::holdables` and `seeker_drone`, held to `holdables.c`.
 //!
-//! Not yet: the sentry, the E-Web and the jetpack's flight. Used, each says
-//! so once and is given back (the movement had used it up), so no item is lost.
+//! Not yet: the E-Web and the jetpack's flight; used, each says so once. The sentry is set
+//! down by `bridge_sentries`.
 
 use super::*;
 use jkr_game_jka::holdables::{
@@ -28,10 +28,8 @@ const PS_JETPACK_FUEL: usize = 39;
 const PS_CLOAK_FUEL: usize = 40;
 const PS_EXTERNAL_EVENT: usize = 56;
 const PS_EXTERNAL_EVENT_PARM: usize = 64;
-/// `powerups[PW_CLOAKED]`, `stats[STAT_HOLDABLE_ITEM]`, `stats[STAT_HOLDABLE_ITEMS]`,
-/// `stats[STAT_MAX_HEALTH]`.
+/// `powerups[PW_CLOAKED]`, `stats[STAT_HOLDABLE_ITEMS]`, `stats[STAT_MAX_HEALTH]`.
 const PW_CLOAKED: usize = 11;
-const STAT_HOLDABLE_ITEM: usize = 1;
 const STAT_HOLDABLE_ITEMS: usize = 2;
 const STAT_MAX_HEALTH: usize = 8;
 /// `GENCMD_USE_SEEKER` .. `GENCMD_USE_CLOAK`, in `genCmds_t`'s order, as holdable tags.
@@ -52,7 +50,7 @@ const GENERIC_TAGS: [i32; 12] = [
     HI_CLOAK,
 ];
 /// The holdables this server cannot use yet.
-const UNPORTED: [i32; 3] = [HI_SENTRY_GUN, HI_JETPACK, HI_EWEB];
+const UNPORTED: [i32; 2] = [HI_JETPACK, HI_EWEB];
 /// `EV_PLAY_EFFECT`, `EFFECT_SPARK_EXPLOSION`, `s.angles`, `s.origin`.
 const EV_PLAY_EFFECT: u32 = 68;
 const EFFECT_SPARK_EXPLOSION: u32 = 4;
@@ -67,7 +65,7 @@ const ES_SABER_ENTITY: usize = 37;
 impl NativeGame {
     /// `ClientEvents`' `EV_USE_ITEM1..11`: the use key's item `tag`, used by the move.
     pub(super) fn use_item_of_move(&mut self, client: usize, tag: i32, level_time: i32) {
-        self.use_item(client, tag, level_time, true);
+        self.use_item(client, tag, level_time);
     }
 
     /// The generic commands `GENCMD_USE_*` (`g_active.c:3171-3300`): the item, if held
@@ -133,7 +131,7 @@ impl NativeGame {
             Ok(()) => {
                 // The dispensers' `ItemUse_UseDisp` is commented out: only the event.
                 if !matches!(tag, HI_HEALTHDISP | holdables::HI_AMMODISP) {
-                    self.use_item(client, tag, level_time, false);
+                    self.use_item(client, tag, level_time);
                 }
                 let zoomed = self
                     .peer(client)
@@ -164,9 +162,8 @@ impl NativeGame {
         true
     }
 
-    /// `ItemUse_*` for `tag` by `client`; `moved` when the use key's movement used it (and
-    /// so already took a used-up item away).
-    fn use_item(&mut self, client: usize, tag: i32, level_time: i32, moved: bool) {
+    /// `ItemUse_*` for `tag` by `client`.
+    fn use_item(&mut self, client: usize, tag: i32, level_time: i32) {
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -219,15 +216,8 @@ impl NativeGame {
                 self.cloak_toggled(client, toggled, level_time);
             }
             HI_SHIELD => self.place_shield(client, level_time),
-            HI_JETPACK | HI_SENTRY_GUN | HI_EWEB => {
-                // Given back: the movement used a sentry up.
-                if moved && tag == HI_SENTRY_GUN {
-                    peer.state.stats[STAT_HOLDABLE_ITEMS] |= 1 << tag;
-                    peer.state.stats[STAT_HOLDABLE_ITEM] = holdables::index_of(tag);
-                    peer.movement = peer.movement.reseeded(&peer.state);
-                }
-                self.told_unported_holdable(tag);
-            }
+            HI_SENTRY_GUN => self.place_sentry(client, level_time),
+            HI_JETPACK | HI_EWEB => self.told_unported_holdable(tag),
             _ => {}
         }
     }

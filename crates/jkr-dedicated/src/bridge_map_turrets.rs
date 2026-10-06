@@ -19,6 +19,7 @@ use bridge_map_turret_host::{Blast, ServerTurretHost, TurretWork};
 use jkr_game_jka::map_turret::{MiscTurret, Part};
 use jkr_game_jka::map_turret_g2::TurretG2;
 use jkr_game_jka::map_turret_world::{BlowAttacker, FL_NOTARGET, ObjectBlow, Sighted};
+use jkr_game_jka::sentry::Sentry;
 
 #[path = "bridge_map_turret_host.rs"]
 mod bridge_map_turret_host;
@@ -35,6 +36,8 @@ pub(super) struct MapTurrets {
     g2: Vec<(EntityId, TurretG2)>,
     /// A `misc_turret`'s base, its top and itself.
     misc: Vec<(EntityId, EntityId, MiscTurret)>,
+    /// The players' portable sentries, in the order they were set down ([`bridge_sentries`]).
+    sentries: Vec<(EntityId, Sentry)>,
     work: TurretWork,
     /// The level as the turrets read it, kept between frames.
     sighted: Vec<Sighted>,
@@ -52,6 +55,7 @@ impl MapTurrets {
     pub(super) fn forget_entities(&mut self) {
         self.g2.clear();
         self.misc.clear();
+        self.sentries.clear();
         self.work.instances.clear();
     }
 
@@ -61,6 +65,10 @@ impl MapTurrets {
             || self.misc.iter().any(|(base, top, _)| {
                 base.legacy_number() == number || top.legacy_number() == number
             })
+            || self
+                .sentries
+                .iter()
+                .any(|(id, _)| id.legacy_number() == number)
     }
 
     /// The turrets' boxes for a trace of entity `pass`: not its own, nor what it owns — a
@@ -90,6 +98,11 @@ impl MapTurrets {
                         model: None,
                     });
                 }
+            }
+        }
+        for (id, sentry) in &self.sentries {
+            if !skipped(id.legacy_number(), ENTITYNUM_NONE) {
+                obstacles.push(bridge_sentries::obstacle(*id, sentry));
             }
         }
     }
@@ -132,6 +145,7 @@ impl MapTurrets {
             velocity: [0.0; 3],
             atst: false,
             walker: false,
+            vehicle: false,
         };
         let g2 = self
             .g2
@@ -170,7 +184,18 @@ impl MapTurrets {
                 ),
             ]
         });
-        g2.chain(misc)
+        let sentries = self.sentries.iter().map(move |(id, sentry)| {
+            thing(
+                id.legacy_number(),
+                sentry.origin,
+                jkr_game_jka::sentry::BOUNDS,
+                sentry.takes_damage,
+                sentry.health,
+                0,
+                0,
+            )
+        });
+        g2.chain(misc).chain(sentries)
     }
 }
 
@@ -188,6 +213,9 @@ impl NativeGame {
         for (base, top, _) in std::mem::take(&mut self.map_turrets.misc) {
             self.pool.free(base, level_time);
             self.pool.free(top, level_time);
+        }
+        for (id, _) in std::mem::take(&mut self.map_turrets.sentries) {
+            self.pool.free(id, level_time);
         }
         self.map_turrets.work.instances.clear();
         let Some(map) = self.map.take() else { return };
@@ -290,6 +318,15 @@ impl NativeGame {
         } else {
             self.obstacles.clear();
         }
+        self.with_gathered_turret_host(map, f)
+    }
+
+    /// `f(host)` with the obstacles as they were last gathered.
+    fn with_gathered_turret_host<R>(
+        &mut self,
+        map: Option<&LoadedMap>,
+        f: impl FnOnce(&mut ServerTurretHost<'_>) -> R,
+    ) -> R {
         let mut registered = Vec::new();
         let clock = if self.previous_frame_time == 0 {
             self.last_frame_time
@@ -382,6 +419,7 @@ impl NativeGame {
                     velocity: peer.state.velocity(),
                     atst: false,
                     walker: false,
+                    vehicle: false,
                 });
             }
         }
@@ -406,6 +444,7 @@ impl NativeGame {
                 velocity: npc.player.velocity(),
                 atst: npc.npc_type.eq_ignore_ascii_case(b"atst_vehicle"),
                 walker,
+                vehicle: npc.definition.client_class == jkr_game_jka::npc_parms::CLASS_VEHICLE,
             });
         }
         for (id, brush) in breakables.iter().filter(|(_, brush)| brush.contents != 0) {
@@ -427,6 +466,7 @@ impl NativeGame {
                 velocity: [0.0; 3],
                 atst: false,
                 walker: false,
+                vehicle: false,
             });
         }
         sighted.extend(map_turrets.things());
@@ -617,5 +657,7 @@ impl NativeGame {
     }
 }
 
+#[path = "bridge_sentries.rs"]
+mod bridge_sentries;
 #[path = "bridge_map_turret_damage.rs"]
 mod damage;

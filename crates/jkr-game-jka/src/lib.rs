@@ -115,6 +115,7 @@ pub mod map_turret_model;
 pub mod map_turret_world;
 pub mod npc_senses;
 pub mod npc_world;
+pub mod sentry;
 pub mod vehicle;
 pub mod vehicle_auto_board;
 mod vehicle_blast;

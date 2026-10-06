@@ -322,8 +322,7 @@ impl PlayerEntity {
     /// origin, its height above it plus 32, a byte each (`sv_world.cpp:263-286`). An
     /// entity made of nothing solid has none.
     pub fn linked(&mut self, bounds: ([f32; 3], [f32; 3]), solid: bool) {
-        let byte = |value: f32| (value as i32).clamp(1, 255) as u32;
-        let packed = byte(bounds.1[2] + 32.0) << 16 | byte(-bounds.0[2]) << 8 | byte(bounds.1[0]);
+        let packed = crate::entity_clip::packed_solid(bounds);
         self.state
             .set_raw_field(ES_SOLID, if solid { packed } else { 0 });
     }

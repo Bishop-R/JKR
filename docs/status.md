@@ -76,6 +76,13 @@ Force push and pull now work Force-activated doors and Force-pushable buttons
 (audit row G3). Only `siege_korriban` has such doors among the stock maps; a push
 there slid a slab over the lava as stock does.
 
+Players can now set down the portable assault sentry (audit row N4). Like stock's,
+it hovers where it was placed, winds up, fires at the nearest visible enemy and
+blows up when spent or after a minute. Five reference scenarios match unchanged
+OpenJK line for line, and on `ffa3` a sentry killed a stormtrooper for its owner.
+The JKR client does not turn the sentry's gun yet; the E-Web and the jetpack's
+flight are still unported.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or
