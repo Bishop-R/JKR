@@ -1,8 +1,9 @@
-//! Inline scenery uses the world-material pipeline regardless of entity type.
-//! Permanent BSP instances come from baselines rather than network snapshots.
+//! Inline BSP models use the world-material pipeline. Like codemp, which
+//! draws an inline model only from `CG_Mover`, only `ET_MOVER`s draw one:
+//! snapshot movers come from `movers::collect`, permanent BSP instances from
+//! baselines rather than network snapshots.
 use super::*;
-use crate::{GpuState, demo_playback, first_person_view, menu_backdrop};
-use jkr_runtime::EntityKind;
+use crate::{GpuState, first_person_view, menu_backdrop};
 
 pub(crate) fn append_frame(gpu: &mut GpuState, time: i64, now: Instant) {
     let game = gpu
@@ -24,36 +25,6 @@ pub(crate) fn append_frame(gpu: &mut GpuState, time: i64, now: Instant) {
         &mut gpu.mover_groups,
         |number| crate::actor_instance::scene_flags(game, snapshot, number),
     );
-    let world = gpu
-        .demo_session
-        .as_ref()
-        .map_or(&gpu.live_world, demo_playback::Session::world);
-    for entity in world
-        .entities()
-        .filter(|entity| entity.kind != EntityKind::Mover)
-    {
-        let Some(model) = entity.appearance().and_then(|a| inline_number(&a.model)) else {
-            continue;
-        };
-        let Some(mesh) = gpu
-            .mover_catalog
-            .mesh_by_model
-            .get(model)
-            .copied()
-            .flatten()
-        else {
-            continue;
-        };
-        let pose = entity.sample(time);
-        let mut instance = ActorInstance::new(pose.translation, pose.rotation, pose.scale);
-        instance.view_flags = ActorInstance::WORLD
-            | u16::try_from(entity.id.get().saturating_sub(1))
-                .ok()
-                .map_or(0, |number| {
-                    crate::actor_instance::scene_flags(game, snapshot, number)
-                });
-        gpu.mover_groups[mesh].push(instance);
-    }
     if let (Some(game), Some(snapshot)) = (game, snapshot) {
         for state in game.baselines().filter(|state| {
             jkr_client::legacy_permanent_visible(state, snapshot.player.origin())
@@ -82,9 +53,4 @@ pub(crate) fn append_frame(gpu: &mut GpuState, time: i64, now: Instant) {
             }
         }
     }
-}
-
-fn inline_number(path: &str) -> Option<usize> {
-    let value = path.strip_prefix('*')?.parse::<usize>().ok()?;
-    (value != 0).then_some(value)
 }

@@ -743,6 +743,12 @@ remain open.
   also passed an external parsing check. Formatting, locked workspace build/tests
   and the optimized Linux client build passed. Native owner listening, broader
   custom-model coverage and animation effect/footprint rendering remain open.
+- Snapshot entities draw a model from `modelindex` only for the entity types
+  whose codemp cgame function does so; the per-type rules and their reference
+  are in [entity_models.rs](../crates/jkr-client/src/entity_models.rs). Models
+  codemp draws that the client still does not: force holocrons, non-brush
+  `ET_MOVER` models and a mover's secondary `modelindex2` model, and the
+  portable shield (`ET_SPECIAL`) and `ET_BEAM` effects.
 - Mod compatibility is scoped by explicit profiles; broad BaseJKA/JA+/TaystJK
   feature parity is not established by profile detection.
 - Community PK3 compatibility needs broader map/model coverage. One retail map
