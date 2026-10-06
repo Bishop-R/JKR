@@ -10,6 +10,12 @@ pub(super) const TABS: [&str; 7] = [
 ];
 /// The tab whose last row opens the key-binding editor.
 pub(super) const KEYBINDS_TAB: usize = 3;
+/// The tab whose last row opens the renderer settings ([`RENDERER_TABS`]).
+pub(super) const RENDERER_TAB: usize = 0;
+/// Tabs of the renderer settings, JKR's own `jkr_*` rendering cvars, reached
+/// from the last row of [`VIDEO`] as JoF EJK reaches its advanced renderer page
+/// from Video.
+pub(super) const RENDERER_TABS: [&str; 3] = ["IMAGE", "LIGHTING", "SHADOWS"];
 
 #[derive(Clone, Copy)]
 pub(super) enum ValueKind {
@@ -95,15 +101,6 @@ pub(super) const VIDEO: &[Setting] = &[
             min: 0.5,
             max: 3.0,
             step: 0.1,
-        },
-    },
-    Setting {
-        label: "Filmic scene (0 off / 1 on)",
-        cvar: "jkr_tonemap",
-        kind: ValueKind::Integer {
-            min: 0,
-            max: 1,
-            step: 1,
         },
     },
 ];
@@ -340,5 +337,212 @@ pub(super) const NETWORK: &[Setting] = &[
             max: 60,
             step: 5,
         },
+    },
+];
+
+// Renderer settings. "(restart)" marks cvars the renderer reads only at startup
+// (their registrations print a restart notice on change); "(next map)" those read
+// when a map loads. The rest apply immediately. Ranges follow each consumer's clamp.
+
+pub(super) const RENDER_IMAGE: &[Setting] = &[
+    Setting {
+        label: "HDR scene (restart)",
+        cvar: "jkr_hdr",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "HDR exposure (restart)",
+        cvar: "jkr_hdrExposure",
+        kind: ValueKind::Float {
+            min: 0.25,
+            max: 4.0,
+            step: 0.05,
+        },
+    },
+    Setting {
+        label: "Filmic tone curve",
+        cvar: "jkr_tonemap",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Bloom",
+        cvar: "jkr_bloom",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "FXAA (restart)",
+        cvar: "jkr_fxaa",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Supersampling, 1 off (restart)",
+        cvar: "jkr_renderScale",
+        kind: ValueKind::Integer {
+            min: 1,
+            max: 3,
+            step: 1,
+        },
+    },
+    Setting {
+        label: "Soft particles",
+        cvar: "jkr_softParticles",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Per-pixel model lighting",
+        cvar: "jkr_modelDiffusePixels",
+        kind: ValueKind::Bool,
+    },
+];
+
+pub(super) const RENDER_LIGHTING: &[Setting] = &[
+    Setting {
+        label: "Sun and sky (restart)",
+        cvar: "jkr_dayNight",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Live lighting 0-2 (next map)",
+        cvar: "jkr_realtime",
+        kind: ValueKind::Integer {
+            min: 0,
+            max: 2,
+            step: 1,
+        },
+    },
+    Setting {
+        label: "Time of day (hour)",
+        cvar: "jkr_dayHour",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 24.0,
+            step: 0.5,
+        },
+    },
+    Setting {
+        label: "Day length, min (0 holds)",
+        cvar: "jkr_dayMinutes",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 1440.0,
+            step: 5.0,
+        },
+    },
+    Setting {
+        label: "Sunlight brightness",
+        cvar: "jkr_dayBrightness",
+        kind: ValueKind::Float {
+            min: 0.1,
+            max: 10.0,
+            step: 0.1,
+        },
+    },
+    Setting {
+        label: "Ambient fill",
+        cvar: "jkr_ambientFill",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 0.2,
+            step: 0.005,
+        },
+    },
+    Setting {
+        label: "Ambient fill corner shading",
+        cvar: "jkr_ambientFillOcclusion",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+        },
+    },
+    Setting {
+        label: "Indirect light boost",
+        cvar: "jkr_indirectBoost",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 4.0,
+            step: 0.1,
+        },
+    },
+    Setting {
+        label: "Light shafts 0-3 (restart)",
+        cvar: "jkr_volumetrics",
+        kind: ValueKind::Integer {
+            min: 0,
+            max: 3,
+            step: 1,
+        },
+    },
+    Setting {
+        label: "Light shaft clarity",
+        cvar: "jkr_volumetricClarity",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 1.0,
+            step: 0.05,
+        },
+    },
+];
+
+pub(super) const RENDER_SHADOWS: &[Setting] = &[
+    Setting {
+        label: "World sun shadows (restart)",
+        cvar: "jkr_worldSunShadows",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Character sun shadows (restart)",
+        cvar: "jkr_sunShadows",
+        kind: ValueKind::Bool,
+    },
+    Setting {
+        label: "Shadow resolution (restart)",
+        cvar: "jkr_shadowResolution",
+        kind: ValueKind::Integer {
+            min: 512,
+            max: 4096,
+            step: 512,
+        },
+    },
+    Setting {
+        label: "Sharp shadow distance (restart)",
+        cvar: "jkr_shadowDistance",
+        kind: ValueKind::Integer {
+            min: 128,
+            max: 4096,
+            step: 128,
+        },
+    },
+    Setting {
+        label: "Close shadow distance (restart)",
+        cvar: "jkr_shadowNear",
+        kind: ValueKind::Integer {
+            min: 64,
+            max: 1024,
+            step: 64,
+        },
+    },
+    Setting {
+        label: "Shadow filter taps (restart)",
+        cvar: "jkr_shadowTaps",
+        kind: ValueKind::Integer {
+            min: 4,
+            max: 32,
+            step: 4,
+        },
+    },
+    Setting {
+        label: "Close shadow slits (units)",
+        cvar: "jkr_shadowGapClose",
+        kind: ValueKind::Float {
+            min: 0.0,
+            max: 64.0,
+            step: 1.0,
+        },
+    },
+    Setting {
+        label: "Contact shadows",
+        cvar: "jkr_contactShadows",
+        kind: ValueKind::Bool,
     },
 ];
