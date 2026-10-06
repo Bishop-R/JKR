@@ -182,6 +182,7 @@ impl NativeGame {
         let (fresh, _) = super::world_config_strings(
             &self.status_info,
             self.map.as_ref(),
+            self.pure.as_ref(),
             self.gametype,
             self.map_generation,
         );

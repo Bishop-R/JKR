@@ -114,9 +114,11 @@ impl NativeGame {
         self.identity.mapname = mapname.as_bytes().to_vec();
         self.cvars.set(b"mapname", mapname.as_bytes());
         self.status_info = server_info_with(&self.status_info, "mapname", mapname);
+        self.pure = pure_files(&self.cvars, map.as_ref());
         let (config_strings, sounds) = world_config_strings(
             &self.status_info,
             map.as_ref(),
+            self.pure.as_ref(),
             self.gametype,
             self.map_generation,
         );
@@ -182,6 +184,19 @@ impl NativeGame {
     }
 }
 
+/// `SV_SpawnServer`'s pure branch: the pk3 files `map` was loaded with when `sv_pure` is
+/// set, `None` otherwise or without a map.
+pub(super) fn pure_files(
+    cvars: &crate::cvars::Cvars,
+    map: Option<&LoadedMap>,
+) -> Option<crate::pure_files::PureFiles> {
+    let map = map.filter(|_| cvars.integer(b"sv_pure") != 0)?;
+    Some(crate::pure_files::PureFiles::new(
+        &map.files,
+        map.checksum_feed,
+    ))
+}
+
 /// Every configstring a world starts with, in index order: the two engine strings, what
 /// `G_InitGame` publishes, what the map's worldspawn does, and the registered items.
 ///
@@ -191,21 +206,48 @@ impl NativeGame {
 pub(super) fn world_config_strings(
     status_info: &[u8],
     map: Option<&LoadedMap>,
+    pure: Option<&crate::pure_files::PureFiles>,
     gametype: i32,
     server_id: i32,
 ) -> (Vec<(usize, Vec<u8>)>, SoundTable) {
     // The two engine strings every legacy client reads first. The game's own strings
-    // (version, models, sounds) arrive with the JKA game profile.
-    let mut system_info = format!("\\sv_serverid\\{server_id}\\sv_pure\\0").into_bytes();
-    system_info.extend_from_slice(b"\\sv_paks\\\\sv_pakNames\\");
+    // (version, models, sounds) arrive with the JKA game profile. A pure server lists
+    // every pk3 it loaded, so that its clients load from nothing else.
+    let (paks, names) = pure.map_or_else(Default::default, |pure| (pure.checksums(), pure.names()));
+    let system_info = format!(
+        "\\sv_serverid\\{server_id}\\sv_pure\\{}\\sv_paks\\{paks}\\sv_pakNames\\{names}",
+        u8::from(pure.is_some())
+    );
+    let mut system_info = system_info.into_bytes();
     // `SV_SpawnServer`: the paks a client needs, which it downloads if it lacks them
-    // (`FS_ReferencedPakChecksums`, `FS_ReferencedPakNames`). Not being pure, this server
-    // references only the pak its map came from.
-    if let Some(pak) = map.and_then(|map| map.pak.as_ref()) {
+    // (`FS_ReferencedPakChecksums`, `FS_ReferencedPakNames`), in search order: the pak
+    // its map came from and, on a pure server, the cgame's (`SV_TouchCGame`).
+    let map_pak = map.and_then(|map| map.pak.as_ref());
+    let referenced: Vec<(i32, &str)> = match pure {
+        Some(pure) => pure
+            .paks
+            .iter()
+            .filter(|pak| {
+                Some(*pak) == pure.cgame()
+                    || map_pak.is_some_and(|map_pak| pak.is_at(&map_pak.path))
+            })
+            .map(|pak| (pak.checksum, pak.game_name.as_str()))
+            .collect(),
+        None => map_pak
+            .map(|pak| (pak.checksum, pak.name.as_str()))
+            .into_iter()
+            .collect(),
+    };
+    if !referenced.is_empty() {
+        let checksums: String = referenced
+            .iter()
+            .map(|(checksum, _)| format!("{checksum} "))
+            .collect();
+        let names: Vec<&str> = referenced.iter().map(|(_, name)| *name).collect();
         system_info.extend_from_slice(
             format!(
-                "\\sv_referencedPaks\\{} \\sv_referencedPakNames\\{}",
-                pak.checksum, pak.name
+                "\\sv_referencedPaks\\{checksums}\\sv_referencedPakNames\\{}",
+                names.join(" ")
             )
             .as_bytes(),
         );

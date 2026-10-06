@@ -241,6 +241,9 @@ pub struct NativeGame {
     /// reference's console buffer runs them between frames.
     vote_commands: Vec<Vec<u8>>,
     map: Option<LoadedMap>,
+    /// The running map's pk3 files when it was loaded with `sv_pure` set, which the
+    /// endpoint checks its clients against.
+    pure: Option<crate::pure_files::PureFiles>,
     /// Saber definitions set by the host over the map's game data's (a server without
     /// game data, a test).
     saber_definitions: Option<std::sync::Arc<jkr_game_jka::saber_definition::SaberParms>>,
@@ -359,8 +362,14 @@ impl NativeGame {
         for (key, value) in SERVERINFO_DEFAULTS {
             status_info.extend_from_slice(format!("\\{key}\\{value}").as_bytes());
         }
-        let (config_strings, sounds) =
-            world_config_strings(&status_info, map.as_ref(), GAMETYPE_FFA, SERVER_ID);
+        let pure = pure_files(&cvars, map.as_ref());
+        let (config_strings, sounds) = world_config_strings(
+            &status_info,
+            map.as_ref(),
+            pure.as_ref(),
+            GAMETYPE_FFA,
+            SERVER_ID,
+        );
         let mut game = Self {
             server,
             world,
@@ -442,6 +451,7 @@ impl NativeGame {
             ),
             vote_commands: Vec::new(),
             map,
+            pure,
             saber_definitions: None,
             jedi_master: Default::default(),
             broadcast_scratch: Vec::new(),
@@ -3328,7 +3338,7 @@ mod bridge_think;
 mod bridge_tournament;
 #[path = "bridge_votes.rs"]
 mod bridge_votes;
-use bridge_maps::{authoritative, fixed, world_config_strings};
+use bridge_maps::{authoritative, fixed, pure_files, world_config_strings};
 #[path = "bridge_console.rs"]
 mod bridge_console;
 #[path = "bridge_cvars.rs"]

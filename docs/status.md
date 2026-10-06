@@ -109,6 +109,11 @@ bind pose and turned 90° away from stock's. Like stock clients, the JKR client 
 manned emplaced gun where its gunner looks and turns a sentry toward its enemy itself;
 both were checked side by side with TaystJK.
 
+A JKR server can now run pure (`sv_pure 1`, audit row N1): it lists its pk3 files as stock
+does and checks each client's reply against them, dropping an unpure client with stock's
+message. TaystJK and the JKR client both joined such a server; the pk3 checksums match
+OpenJK's own code for every retail pak.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

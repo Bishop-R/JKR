@@ -267,7 +267,11 @@ impl LegacyGameHost for NativeGame {
     }
 
     fn checksum_feed(&self) -> i32 {
-        0
+        self.map.as_ref().map_or(0, |map| map.checksum_feed)
+    }
+
+    fn pure_manifest(&self) -> Option<&jkr_network::LegacyPureManifest> {
+        self.pure.as_ref().map(|pure| &pure.manifest)
     }
 
     fn baseline(&self, _: u16) -> Option<&EntityState> {

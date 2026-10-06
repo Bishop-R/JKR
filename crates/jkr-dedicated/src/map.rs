@@ -86,6 +86,9 @@ pub struct LoadedMap {
     pub entities: Vec<jkr_entity::Entity>,
     /// `sv_mapChecksum`: the `.bsp`'s checksum (`CM_LoadMap`, `Com_BlockChecksum`).
     pub checksum: i32,
+    /// `sv.checksumFeed`: drawn as the map is loaded, it keys the clients' movement
+    /// packets and their pure checksums ([`crate::pure_files`]).
+    pub checksum_feed: i32,
     /// The map's navigation file (`maps/<name>.nav`), if the game data has one.
     pub nav_file: Option<Vec<u8>>,
     /// How long each animation of the humanoid skeleton lasts, which movement holds
@@ -322,6 +325,7 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
         .cloned()
         .collect();
     let checksum = jkr_vfs::file_checksum(&asset.bytes);
+    let checksum_feed = crate::pure_files::checksum_feed();
     let nav_file = files
         .read(&format!("maps/{name}.nav"))?
         .map(|asset| asset.bytes.to_vec());
@@ -352,6 +356,7 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
         vehicle_files,
         npc_entities,
         checksum,
+        checksum_feed,
         nav_file,
         files,
         pak,

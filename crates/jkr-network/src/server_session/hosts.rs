@@ -172,13 +172,12 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
             restarted_server_id,
             gamestate_message: slot.peer.gamestate_message,
             // The clock the last world stopped at, which this client carries across a
-            // map change; zero for a client that has never ridden one. Pure servers do
-            // not exist yet.
+            // map change; zero for a client that has never ridden one.
             old_server_time: slot.old_server_time,
             downloading: slot.download.active(),
             admission: LegacyMoveAdmission {
                 phase: slot.phase,
-                pure_required: false,
+                pure_required: self.view.game.pure_manifest().is_some(),
                 pure_authentic: slot.pure_authentic,
                 got_cp: slot.got_cp,
             },
@@ -201,8 +200,6 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
         game_allowed: bool,
     ) {
         // `SV_ExecuteClientCommand`: engine commands first, the game otherwise.
-        // cp and vdr are not implemented yet and are swallowed here as the reference
-        // keeps them from the game.
         let mut tokens = LegacyTokens::new(text);
         let (command, client) = (tokens.next().unwrap_or_default(), self.client);
         if command.eq_ignore_ascii_case(b"disconnect") {
@@ -254,10 +251,22 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
             if self.view.slots[client].phase != LegacyClientPhase::Active {
                 self.view.slots[client].gamestate_due = true;
             }
-        } else if [&b"cp"[..], b"vdr"]
-            .iter()
-            .any(|engine| command.eq_ignore_ascii_case(engine))
-        {
+        } else if command.eq_ignore_ascii_case(b"cp") {
+            // `SV_VerifyPaks_f`: only a pure server reads it; an unpure client is dropped.
+            if let Some(manifest) = self.view.game.pure_manifest() {
+                let arguments: Vec<&[u8]> = LegacyTokens::new(text).collect();
+                let pure = manifest.verify(&arguments);
+                let slot = &mut self.view.slots[client];
+                (slot.got_cp, slot.pure_authentic) = (true, pure);
+                if !pure {
+                    let reason = b"Unpure client detected. Invalid .PK3 files referenced!";
+                    self.view.drop(client, reason, Some((client, reliable)));
+                }
+            }
+        } else if command.eq_ignore_ascii_case(b"vdr") {
+            // `SV_ResetPureClient_f`.
+            let slot = &mut self.view.slots[client];
+            (slot.got_cp, slot.pure_authentic) = (false, false);
         } else if game_allowed {
             self.view
                 .game

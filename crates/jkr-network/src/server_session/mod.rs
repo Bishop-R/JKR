@@ -26,6 +26,7 @@ mod gamestate;
 mod hosts;
 mod output;
 mod ping;
+mod pure;
 mod schedule;
 mod shutdown;
 mod snapshot;
@@ -37,6 +38,7 @@ pub use auto_demo::{
 pub use bots::LegacyBotSlots;
 pub use console::LegacyConsoleSettings;
 pub use download::LegacyDownloadFile;
+pub use pure::LegacyPureManifest;
 pub use schedule::{LegacyRateSettings, legacy_is_private_address};
 pub use snapshot::{
     LEGACY_SNAPSHOT_ENTITIES, LegacySnapshotFrame, LegacySnapshotRefusal, LocalSnapshotBuffer,
@@ -78,6 +80,11 @@ pub trait LegacyGameHost {
     fn baselines(&self) -> impl Iterator<Item = &EntityState>;
     /// The map's checksum feed, which keys every movement packet.
     fn checksum_feed(&self) -> i32;
+    /// What the running map's pure server checks its clients' pk3 files against; `None`
+    /// for a server that does not run pure, whose clients need no `cp`.
+    fn pure_manifest(&self) -> Option<&LegacyPureManifest> {
+        None
+    }
     /// The baseline of one wire entity number, as sent in the gamestate.
     fn baseline(&self, number: u16) -> Option<&EntityState>;
     /// Project the world onto what this client is shown in one snapshot. Called for

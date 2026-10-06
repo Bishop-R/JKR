@@ -13,4 +13,5 @@ pub mod map;
 pub mod master;
 pub mod peer;
 pub(crate) mod players;
+pub mod pure_files;
 pub mod visibility;
