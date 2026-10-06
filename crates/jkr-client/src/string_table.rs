@@ -6,7 +6,9 @@
 use jkr_vfs::VirtualFileSystem;
 use std::collections::HashMap;
 
-/// Parse one table's text into `target`, later keys overriding earlier ones.
+/// Parse one table's text into `target`, later keys overriding earlier ones. A `\n` in a
+/// value becomes a line break, as `ConvertCRLiterals_Read` makes it
+/// (`stringed_ingame.cpp:290`).
 pub fn parse_into(target: &mut HashMap<String, String>, text: &str) {
     let mut reference = None;
     for line in text.lines() {
@@ -19,7 +21,7 @@ pub fn parse_into(target: &mut HashMap<String, String>, text: &str) {
             };
             let value = value.trim();
             if let Some(value) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) {
-                target.insert(key, value.to_owned());
+                target.insert(key, value.replace("\\n", "\n"));
             }
         }
     }
@@ -52,11 +54,47 @@ pub fn load_referenced(vfs: &VirtualFileSystem, paths: &[&str]) -> HashMap<Strin
     strings
 }
 
+/// The entry for `FILE_KEY` in `strings`, in any case: `SE_GetString` upper-cases the
+/// reference it is asked for (`stringed_ingame.cpp:1000`), and map files write some in
+/// lower case (`@siege_hoth_obj_1_new_imp_final`).
+pub fn lookup<'a>(strings: &'a HashMap<String, String>, key: &str) -> Option<&'a str> {
+    strings
+        .get(key)
+        .or_else(|| {
+            key.bytes()
+                .any(|byte| byte.is_ascii_lowercase())
+                .then(|| strings.get(&key.to_ascii_uppercase()))
+                .flatten()
+        })
+        .map(String::as_str)
+}
+
 /// Resolve a `@FILE_KEY` reference against `strings`; other text is
 /// returned as it is, and an unknown key keeps its reference so it stays
 /// visible.
 pub fn resolve<'a>(strings: &'a HashMap<String, String>, text: &'a str) -> &'a str {
     text.strip_prefix('@')
-        .and_then(|key| strings.get(key))
-        .map_or(text, String::as_str)
+        .and_then(|key| lookup(strings, key))
+        .unwrap_or(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entries_read_as_the_string_package_reads_them() {
+        let mut strings = HashMap::new();
+        parse_into(
+            &mut strings,
+            "REFERENCE           HOTH_OBJ_1_NEW_IMP_FINAL\n\
+             LANG_ENGLISH        \"The wall has been breached.\\nYou've advanced!\"\n",
+        );
+        let text = "The wall has been breached.\nYou've advanced!";
+        assert_eq!(lookup(&strings, "HOTH_OBJ_1_NEW_IMP_FINAL"), Some(text));
+        assert_eq!(lookup(&strings, "hoth_obj_1_new_imp_final"), Some(text));
+        assert_eq!(resolve(&strings, "@hoth_obj_1_new_imp_final"), text);
+        assert_eq!(resolve(&strings, "@HOTH_NOTHING"), "@HOTH_NOTHING");
+        assert_eq!(resolve(&strings, "plain text"), "plain text");
+    }
 }
