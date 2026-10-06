@@ -12,7 +12,7 @@ use jkr_game_jka::world_effects::{
 
 /// `EV_GENERAL_SOUND`, and the wire field its channel goes in (`saberEntityNum`).
 const EV_GENERAL_SOUND: u32 = 76;
-const ES_SABER_ENTITY: usize = 50;
+const ES_SABER_ENTITY: usize = 37;
 
 impl NativeGame {
     /// `ClientEndFrame` for every client, in slot order, after `G_RunFrame`'s entities.

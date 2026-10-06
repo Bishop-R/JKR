@@ -62,7 +62,7 @@ const ES_ORIGIN: [usize; 3] = [11, 12, 13];
 const CHAN_WEAPON: u32 = 2;
 const CHAN_ITEM: u32 = 4;
 const CHAN_BODY: u32 = 5;
-const ES_SABER_ENTITY: usize = 31;
+const ES_SABER_ENTITY: usize = 37;
 
 impl NativeGame {
     /// `ClientEvents`' `EV_USE_ITEM1..11`: the use key's item `tag`, used by the move.
