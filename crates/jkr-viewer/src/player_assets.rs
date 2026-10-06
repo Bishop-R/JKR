@@ -119,39 +119,9 @@ pub(super) fn load_player_appearance_with(
     let animation_path = format!("{}.gla", mesh.animation_name);
     let animation = cache.get(&animation_path, || read(&animation_path))?;
     skeleton_matches(&mesh, &animation, directory, &animation_path)?;
-    // CG_G2AnimEntModelLoad accepts skin handle 0. Machines such as the retail
-    // sentry have no default .skin and use the GLM's embedded surface materials.
-    // Named/multipart skins still follow the existing error/fallback policy.
-    let skin = if variant == "default"
-        && !vfs.contains(&format!("{directory}/model_default.skin"))?
-    {
-        Skin::default()
-    } else if variant.contains('|') {
-        let parts = variant.split('|').collect::<Vec<_>>();
-        if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) {
-            return Err("multipart player skin must contain head, torso and lower variants".into());
-        }
-        let mut combined = Skin::default();
-        for part in parts {
-            combined.merge(Skin::parse(&read(&format!("{directory}/{part}.skin"))?)?);
-        }
-        combined
-    } else {
-        let requested = read(&format!("{directory}/model_{variant}.skin"));
-        // BG_ValidateSkinForTeam (bg_misc.c:2687-2770) tries a custom
-        // team suffix first, then the ordinary team skin if it is absent.
-        let bytes = requested.or_else(|error| {
-            let team = variant
-                .strip_suffix("_red")
-                .map(|_| "red")
-                .or_else(|| variant.strip_suffix("_blue").map(|_| "blue"));
-            match team {
-                Some(team) => read(&format!("{directory}/model_{team}.skin")),
-                None => Err(error),
-            }
-        })?;
-        Skin::parse(&bytes)?
-    };
+    // A skin never costs the model: a skin that gives no handle falls back to
+    // model_default.skin, then to the surfaces' own shaders (skin handle 0).
+    let skin = crate::player_skin::resolve(vfs, directory, variant)?;
     let animation_directory = mesh
         .animation_name
         .rsplit_once('/')

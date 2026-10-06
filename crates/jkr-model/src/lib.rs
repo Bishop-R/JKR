@@ -8,12 +8,14 @@ mod md3_lerp;
 pub mod posed_trace;
 mod reskin;
 mod skeleton_pose;
+mod skin;
 
 pub use bone_angles::{BoneAngleCommand, BoneAngleMode, BoneAxis};
 pub use bone_override::{
     BoneAnimationCommand, BoneFrameSample, BoneOverridePose, OverrideEndBehavior,
 };
 pub use skeleton_pose::{BoneTrack, BoneTrackPartition, PoseScratch};
+pub use skin::{SKIN_SHADER_OFF, Skin};
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -47,11 +49,6 @@ const GLA_HEADER_BYTES: usize = 100;
 const GLA_SKELETON_BYTES: usize = 172;
 const GLA_COMPRESSED_BONE_BYTES: usize = 14;
 const GLA_MAX_FRAMES: usize = 1_000_000;
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct Skin {
-    mappings: HashMap<String, String>,
-}
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AnimationConfig {
@@ -155,61 +152,6 @@ impl AnimationConfig {
 
     pub fn is_empty(&self) -> bool {
         self.sequences.is_empty()
-    }
-}
-
-/// Skin shader name that hides a surface instead of texturing it.
-pub const SKIN_SHADER_OFF: &str = "*off";
-
-impl Skin {
-    pub fn parse(bytes: &[u8]) -> Result<Self, ModelError> {
-        let text = std::str::from_utf8(bytes)
-            .map_err(|_| ModelError::invalid(0, "skin file is not UTF-8"))?;
-        let mut mappings = HashMap::new();
-        for (line_index, raw_line) in text.lines().enumerate() {
-            let line = raw_line
-                .split_once("//")
-                .map_or(raw_line, |(content, _)| content)
-                .trim();
-            if line.is_empty() {
-                continue;
-            }
-            let (surface, shader) = line.split_once(',').ok_or_else(|| {
-                ModelError::invalid(line_index, "skin line lacks surface,shader separator")
-            })?;
-            let surface = surface.trim().to_ascii_lowercase();
-            let shader = shader.trim().replace('\\', "/").to_ascii_lowercase();
-            if surface.is_empty() || shader.is_empty() {
-                return Err(ModelError::invalid(
-                    line_index,
-                    "skin surface and shader must be nonempty",
-                ));
-            }
-            mappings.insert(surface, shader);
-        }
-        Ok(Self { mappings })
-    }
-
-    pub fn shader(&self, surface: &str) -> Option<&str> {
-        self.mappings
-            .get(&surface.to_ascii_lowercase())
-            .map(String::as_str)
-    }
-
-    pub fn len(&self) -> usize {
-        self.mappings.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.mappings.is_empty()
-    }
-
-    /// Append another part's mappings; the first part to name a surface
-    /// wins, as in the original renderer's `head|torso|lower` skin lookup.
-    pub fn merge(&mut self, other: Self) {
-        for (surface, shader) in other.mappings {
-            self.mappings.entry(surface).or_insert(shader);
-        }
     }
 }
 
