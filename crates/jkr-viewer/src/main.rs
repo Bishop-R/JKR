@@ -575,7 +575,7 @@ impl GpuState {
         } else {
             None
         };
-        let pickup_catalog = pickups::Catalog::build(&object_meshes);
+        let pickup_catalog = pickups::Catalog::build(&object_meshes, &vfs);
         let first_person_weapon = first_person_weapon::Catalog::build(
             &vfs,
             &object_meshes,

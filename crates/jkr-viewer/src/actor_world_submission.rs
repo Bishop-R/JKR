@@ -23,6 +23,9 @@ mod player_sprites;
 #[path = "seeker_drone.rs"]
 pub(crate) mod seeker_drone;
 
+#[path = "jetpack_carrier.rs"]
+pub(crate) mod jetpack;
+
 #[path = "special_entities.rs"]
 mod special_entities;
 
@@ -34,6 +37,8 @@ struct Sinks<'a> {
     shield_mesh: Option<usize>,
     /// `models/items/remote.md3`, the seeker drone's (`item_seeker`'s pickup model).
     seeker_mesh: Option<usize>,
+    /// The jetpack a carrier wears.
+    jetpack: Option<jetpack::JetpackModel>,
     world: &'a jkr_runtime::World,
     actor_meshes: &'a [ActorMesh],
     object_meshes: &'a [StaticModelMesh],
@@ -119,6 +124,7 @@ pub(crate) fn submit(
             .iter()
             .position(|mesh| mesh.appearance.model == "models/weaphits/testboom.md3"),
         seeker_mesh: gpu.pickup_catalog.mesh(ITEM_SEEKER),
+        jetpack: gpu.pickup_catalog.jetpack,
         world: active_world,
         actor_meshes: &gpu.actor_meshes,
         object_meshes: &gpu.object_meshes,
@@ -321,6 +327,9 @@ fn submit_actor(
             snapshot,
             presentation_time as i32,
             visual_now,
+        );
+        jetpack::submit(
+            sinks, mesh, *transform, snapshot, state, local, draw_actor, visual_now,
         );
     }
     let mut equipment = if Some(entity.id.get()) == local_entity_id {

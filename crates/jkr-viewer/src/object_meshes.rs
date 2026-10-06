@@ -89,6 +89,15 @@ pub(super) fn load<'a>(
             }
         }
     }
+    // The jetpack a carrier wears: a `model.glm` like an NPC's body, but drawn rigid.
+    let jetpack = Appearance {
+        model: crate::actor_world_submission::jetpack::MODEL.to_owned(),
+        variant: String::new(),
+    };
+    match load_one(vfs, &jetpack, flattened) {
+        Ok(mesh) => meshes.push(mesh),
+        Err(error) => eprintln!("could not load the jetpack model: {error}"),
+    }
     meshes
 }
 

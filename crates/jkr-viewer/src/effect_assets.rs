@@ -10,6 +10,7 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "emplaced/dead_smoke",
     "emplaced/explode",
     "turret/explode",
+    "boba/jet",
     "sparks/spark_explosion",
     "tripmine/explosion",
     "detpack/explosion",

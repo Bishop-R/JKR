@@ -38,6 +38,10 @@ const ET_NPC: u8 = 13;
 const WP_SABER: u8 = 3;
 const EF_DEAD: u32 = 1 << 1;
 const EF_FIRING: u32 = 1 << 9;
+/// `EF_JETPACK_ACTIVE`, `EF_JETPACK`, `EF_JETPACK_FLAMING`.
+const EF_JETPACK_ACTIVE: u32 = 1 << 11;
+const EF_JETPACK: u32 = 1 << 29;
+const EF_JETPACK_FLAMING: u32 = 1 << 30;
 
 // `CG_RegisterWeapon`, codemp/cgame/cg_weaponinit.c:136-607. Only WP_SABER
 // registers a firing loop in BaseJKA MP and no weapon registers readySound.
@@ -74,6 +78,8 @@ pub enum LegacyLoopKind {
     WeaponReady,
     SaberHumPrimary,
     SaberHumSecondary,
+    /// A lit jetpack's hover, and its fire while thrusting (`CG_Player`).
+    Jetpack,
     AmbientGlobal,
     AmbientLocal,
 }
@@ -89,6 +95,7 @@ impl LegacyLoopKind {
             Self::WeaponReady => "weapon_readySound",
             Self::SaberHumPrimary => "saber_primary_hum",
             Self::SaberHumSecondary => "saber_secondary_hum",
+            Self::Jetpack => "jetpack",
             Self::AmbientGlobal => "ambient_global_set",
             Self::AmbientLocal => "ambient_local_set",
         }
@@ -135,6 +142,8 @@ pub(crate) struct LegacyLoopAdapter {
     soundsets: [SoundsetStages; MAX_SOUNDS],
     weapon_firing: [Option<u16>; 19],
     weapon_ready: [Option<u16>; 19],
+    /// `sound/boba/JETHOVER` and `sound/effects/fire_lp`.
+    jetpack: [Option<u16>; 2],
     sabers: [SaberLoops; MAX_CLIENTS],
     client_config_hash: [u64; MAX_CLIENTS],
     decisions: Vec<LegacyLoopDecision>,
@@ -175,6 +184,10 @@ impl LegacyLoopAdapter {
         let mut intern = |path: &str| intern_sound(&mut sounds, vfs, path, register);
         let weapon_firing = WEAPON_FIRING_LOOPS.map(|path| path.map(&mut intern));
         let weapon_ready = WEAPON_READY_LOOPS.map(|path| path.map(&mut intern));
+        let jetpack = [
+            Some(intern("sound/boba/JETHOVER")),
+            Some(intern("sound/effects/fire_lp")),
+        ];
         let definitions = legacy_saber_definitions(vfs).unwrap_or_default();
         let sabers = std::array::from_fn(|client| {
             saber_loops_for_client(game_state, client as u16, &definitions, &mut intern)
@@ -214,6 +227,7 @@ impl LegacyLoopAdapter {
             soundsets,
             weapon_firing,
             weapon_ready,
+            jetpack,
             sabers,
             client_config_hash: std::array::from_fn(|client| {
                 player_config_hash(game_state, client)
@@ -329,7 +343,9 @@ impl LegacyLoopAdapter {
                 && state.weapon() == WP_SABER
                 && state.saber_holstered() < 2
                 && state.e_flags() & EF_DEAD == 0;
-            if !configured_loop && !weapon_loop && !saber_loop && !local_set {
+            let jet_loop =
+                matches!(state.entity_type(), ET_PLAYER | ET_NPC) && jetpack_lit(state.e_flags());
+            if !configured_loop && !weapon_loop && !saber_loop && !local_set && !jet_loop {
                 continue;
             }
             let origin = presented_origin(state);
@@ -341,8 +357,15 @@ impl LegacyLoopAdapter {
                 self.add_weapon_loop(state, origin);
                 self.add_entity_saber_loops(state, origin);
             }
+            if jet_loop {
+                self.add_jetpack_loops(state.number(), state.e_flags(), origin);
+            }
         }
         self.add_local_saber_loops(snapshot, listener_origin);
+        if jetpack_lit(snapshot.player.entity_flags()) && !snapshot.player.is_spectator() {
+            let (client, flags) = (snapshot.player.client_num(), snapshot.player.entity_flags());
+            self.add_jetpack_loops(client, flags, listener_origin);
+        }
         self.add_global_set(listener_origin, presented_time);
         self.decisions.len()
     }
@@ -551,6 +574,30 @@ impl LegacyLoopAdapter {
         }
     }
 
+    /// `CG_Player`'s jetpack loops (`cg_players.c:8746-8802`): the fire while thrusting, then
+    /// the hover, at the player and without velocity.
+    fn add_jetpack_loops(&mut self, source: u16, flags: u32, origin: [f32; 3]) {
+        let [hover, fire] = self.jetpack;
+        if flags & EF_JETPACK_FLAMING != 0 {
+            self.push(
+                LegacyLoopKind::Jetpack,
+                fire,
+                None,
+                source,
+                origin,
+                [0.0; 3],
+            );
+        }
+        self.push(
+            LegacyLoopKind::Jetpack,
+            hover,
+            None,
+            source,
+            origin,
+            [0.0; 3],
+        );
+    }
+
     fn add_local_saber_loops(&mut self, snapshot: &Snapshot, listener_origin: [f32; 3]) {
         let player = &snapshot.player;
         if player.is_spectator()
@@ -659,6 +706,11 @@ impl LegacyLoopAdapter {
             self.decisions.last_mut().unwrap().soundset_index = Some(soundset_index);
         }
     }
+}
+
+/// `CG_Player`'s jetpack test: carried, alive and lit.
+fn jetpack_lit(flags: u32) -> bool {
+    flags & EF_JETPACK != 0 && flags & EF_DEAD == 0 && flags & EF_JETPACK_ACTIVE != 0
 }
 
 /// Exact `S_AddLoopingSound` Doppler scale from

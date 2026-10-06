@@ -88,8 +88,8 @@ already ran it, but no client drew it.
 
 The jetpack flies (audit row N4). As in stock, the use key lights it in the air
 and puts it out. Its movement matches unchanged OpenJK on 50 runs at every command
-spacing, and the client predicts it without misses. The client does not draw the
-jetpack or its flames yet.
+spacing, and the client predicts it without misses. The client draws the pack, its
+flames and its sounds as stock does, checked against TaystJK on the same server.
 
 Rotating doors, pendulums and turning turrets now move smoothly on the client.
 It read their angular duration from the wrong wire field, so community maps' rotating
