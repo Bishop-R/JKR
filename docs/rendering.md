@@ -436,6 +436,12 @@ priming reuses the existing visibility ranges and indirect argument storage,
 with direct draws as a fallback. It is limited to active real-time lighting;
 reflections use their own camera, depth target, receiver frustum and scissor.
 
+The main view's PVS source cluster is the leaf of the camera actually used for the picture
+(`view_position`, as `refdef.vieworg` in stock), not of the player's eye. In third person
+the camera sits behind and above the eye, often in another cluster; taking the eye's cluster
+culled walls the camera could see. Reflection, portal and scene views already used their own
+eye.
+
 Camera-range caches also retain their PVS/area selection independently of the
 camera frustum. Turning or moving within a cluster rechecks bounds but reuses
 the same candidate indices; a source-cluster, area-mask or PVS-mode change
