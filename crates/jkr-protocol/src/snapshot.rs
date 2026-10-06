@@ -760,6 +760,17 @@ impl PlayerState {
         i32::from(self.stats[8] as u16 as i16)
     }
 
+    /// `persistant[PERS_SCORE]`, a signed short on the wire like the stats: a
+    /// suicide's -1 must not read as 65535.
+    pub fn score(&self) -> i32 {
+        i32::from(self.persistent[0] as u16 as i16)
+    }
+
+    /// `persistant[PERS_HITS]`, signed: hitting a teammate takes one away.
+    pub fn hits(&self) -> i32 {
+        i32::from(self.persistent[1] as u16 as i16)
+    }
+
     /// Direction byte written by `P_DamageFeedback` and consumed by codemp's
     /// `CG_DamageFeedback` as the world-space yaw of the incoming damage.
     pub fn damage_yaw(&self) -> u8 {

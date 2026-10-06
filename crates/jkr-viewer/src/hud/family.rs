@@ -217,11 +217,7 @@ impl HudOverlay {
             0
         };
         self.score_text.clear();
-        let _ = write!(
-            self.score_text,
-            "SCORE {}",
-            snapshot.player.persistent[0] as i32
-        );
+        let _ = write!(self.score_text, "SCORE {}", snapshot.player.score());
         if self.family.score > 1 && matches!(snapshot.player.team(), 1 | 2) {
             for index in [6, 7] {
                 let value = config_number(game, index);

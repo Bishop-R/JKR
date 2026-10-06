@@ -217,7 +217,7 @@ impl ChatOverlay {
                 text,
                 "\nRank {} with {} points.",
                 (player.persistent[2] & !0x4000) + 1,
-                player.persistent[0] as i32
+                player.score()
             );
         }
     }

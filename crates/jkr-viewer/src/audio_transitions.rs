@@ -63,7 +63,7 @@ impl Transitions {
         let now = Previous {
             client: player.client_num(),
             team: player.persistent[3],
-            hits: player.persistent[1] as i32,
+            hits: player.hits(),
             health: player.health(),
             time: snapshot.server_time,
         };
