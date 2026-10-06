@@ -47,6 +47,14 @@ pub(in crate::bridge) struct Scenery {
 }
 
 impl Scenery {
+    /// Whether the pane at `number` takes damage (`takedamage`); `None` for no pane.
+    pub(in crate::bridge) fn glass_takes_damage(&self, number: u16) -> Option<bool> {
+        self.glass
+            .iter()
+            .find(|(id, _)| id.legacy_number() == number)
+            .map(|(_, pane)| pane.takes_damage)
+    }
+
     /// The panes still standing, as obstacles to every trace.
     pub(super) fn obstacles(&self) -> impl Iterator<Item = BoxObstacle> + '_ {
         self.glass.iter().map(|(id, pane)| BoxObstacle {

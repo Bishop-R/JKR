@@ -237,6 +237,7 @@ mod saber_keywords;
 pub mod saber_lock;
 pub mod saber_stance;
 pub mod saber_throw;
+pub mod shot_target;
 pub mod team_info;
 pub mod text_parse;
 

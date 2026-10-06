@@ -68,6 +68,10 @@ were advertised but ignored, so saber-only and restricted-Force servers did not
 work. A saber-only `ctf5` spawned no weapons and gave no pistol, and a rank-1
 server admitted a client with a trimmed profile.
 
+The disruptor and the concussion beam now hurt everything stock's do, not only
+players: on `ctf5` each shattered a pane of glass, and the disruptor killed an NPC.
+Doors and buttons with health still take no damage from any weapon.
+
 Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
 or a complete branch-by-branch equivalence proof. Workspace formatting, locked
 build and tests (27 tests) pass. No new runtime, performance, audio, Windows or

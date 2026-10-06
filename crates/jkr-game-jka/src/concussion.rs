@@ -1,12 +1,15 @@
 //! The concussion rifle's alternate fire (OpenJK `codemp/game/g_weapon.c:3080-3339`): a
-//! rail-like beam of up to three traces through whatever it strikes, twenty-five to a
-//! player without knockback or hit location, then the shove and the knockdown of
-//! `knockdown::concussion_shove`; the shooter shoved backwards for a quarter second; one
-//! temp entity for the whole beam.
+//! rail-like beam of up to three traces through whatever it strikes, twenty-five to what
+//! takes damage without knockback or hit location, then for a player the shove and the
+//! knockdown of `knockdown::concussion_shove`. A mover — glass, a breakable brush, a door —
+//! stops it after the blow, and any other solid before; the shooter is shoved backwards
+//! for a quarter second; one temp entity for the whole beam. An NPC is hurt but not
+//! knocked down, and Galak's armour (ten points, the beam stopped) is not modelled.
 
 use crate::damage::{Attacker, DAMAGE_NO_HIT_LOC, DAMAGE_NO_KNOCKBACK, DamageRequest};
 use crate::event_entity::EventEntity;
 use crate::pmove::MovementTrace;
+use crate::shot_target::ShotTarget;
 use jkr_protocol::{PlayerState, legacy_direction_to_byte};
 
 /// `CONC_ALT_DAMAGE`, `DISRUPTOR_ALT_TRACES`, the shot's range, `MOD_CONC_ALT`.
@@ -14,10 +17,9 @@ const CONC_ALT_DAMAGE: i32 = 25;
 const ALT_TRACES: usize = 3;
 const SHOT_RANGE: f32 = 8_192.0;
 const MOD_CONC_ALT: u32 = 30;
-/// `MASK_SHOT`, `SURF_NOIMPACT`, `ENTITYNUM_WORLD`, `MAX_CLIENTS`.
+/// `MASK_SHOT`, `SURF_NOIMPACT`, `MAX_CLIENTS`.
 const MASK_SHOT: u32 = 0x1 | 0x100 | 0x200 | 0x1000;
 const SURF_NOIMPACT: u32 = 0x10;
-const ENTITY_WORLD: u16 = 1_022;
 const MAX_CLIENTS: u16 = 32;
 /// `EV_CONC_ALT_IMPACT` and the fields its entity carries: `owner`, `angles`,
 /// `origin2`, `angles2`.
@@ -41,9 +43,11 @@ pub trait ConcussionTargets {
     /// `Jedi_DodgeEvasion(other, shooter, &tr, HL_NONE)`: without a hit location nobody
     /// dodges, though `g_forceDodge 2` still draws for it ([`crate::force_dodge`]).
     fn dodges(&mut self, number: u16) -> bool;
+    /// What the beam makes of `number` (`g_entities[tr.entityNum]`).
+    fn target(&mut self, number: u16) -> ShotTarget;
     /// `accuracy_hits++` for a player struck that counts.
     fn count_hit(&mut self);
-    /// `G_Damage` on `number`.
+    /// `G_Damage` on `number`, whatever it is.
     fn hurt(&mut self, number: u16, request: DamageRequest);
     /// The shove and the knockdown after the damage (`knockdown::concussion_shove`, with
     /// `FL_NO_KNOCKBACK` as it was before the damage).
@@ -117,37 +121,50 @@ pub fn fire_alt(
         if !render_impact {
             break;
         }
-        let struck = (trace.entity_number < ENTITY_WORLD && trace.entity_number < MAX_CLIENTS)
-            .then(|| targets.player(trace.entity_number))
+        let struck = trace.entity_number;
+        let player = (struck < MAX_CLIENTS)
+            .then(|| targets.player(struck))
             .flatten();
-        let Some(player) = struck else { break };
-        if player.wields_saber && targets.dodges(trace.entity_number) {
+        if player.is_some_and(|player| player.wields_saber) && targets.dodges(struck) {
             start = trace.end_position;
-            skip = trace.entity_number;
+            skip = struck;
             continue;
         }
-        if player.counts {
+        // A solid that takes no damage stops the beam; what takes damage is hurt, and a
+        // mover (glass, a breakable brush, a door) stops it after the blow.
+        let target = targets.target(struck);
+        if !target.takes_damage && !target.glass_or_mover {
+            break;
+        }
+        if player.is_some_and(|player| player.counts) {
             targets.count_hit();
         }
-        let request = DamageRequest {
-            level_time,
-            attacker: Some(attacker),
-            direction: Some(forward),
-            point: Some(trace.end_position),
-            damage: CONC_ALT_DAMAGE,
-            flags: DAMAGE_NO_KNOCKBACK | DAMAGE_NO_HIT_LOC,
-            means: MOD_CONC_ALT,
-        };
-        targets.hurt(trace.entity_number, request);
-        targets.shove(
-            trace.entity_number,
-            player.no_knockback,
-            forward,
-            shooter,
-            shooter_origin,
-        );
+        if target.takes_damage {
+            let request = DamageRequest {
+                level_time,
+                attacker: Some(attacker),
+                direction: Some(forward),
+                point: Some(trace.end_position),
+                damage: CONC_ALT_DAMAGE,
+                flags: DAMAGE_NO_KNOCKBACK | DAMAGE_NO_HIT_LOC,
+                means: MOD_CONC_ALT,
+            };
+            targets.hurt(struck, request);
+        }
+        if let Some(player) = player {
+            targets.shove(
+                struck,
+                player.no_knockback,
+                forward,
+                shooter,
+                shooter_origin,
+            );
+        }
+        if target.glass_or_mover {
+            break;
+        }
         start = trace.end_position;
-        skip = trace.entity_number;
+        skip = struck;
     }
     let direction: [f32; 3] = std::array::from_fn(|axis| trace.end_position[axis] - muzzle[axis]);
     let mut event = EventEntity {

@@ -3008,10 +3008,13 @@ impl ConcussionTargets for InstantTargets<'_> {
             shooter.accuracy.0 += 1;
         }
     }
+    fn target(&mut self, number: u16) -> jkr_game_jka::shot_target::ShotTarget {
+        self.game.shot_target(number)
+    }
     fn hurt(&mut self, number: u16, request: DamageRequest) {
-        let _ = self
-            .game
-            .strike(self.shooter, usize::from(number), request, false);
+        // A player's accuracy is counted by the beam itself; an NPC's here, by `strike`.
+        let count = self.game.npcs.roster.is_npc(number);
+        let _ = self.game.shot_hurt(self.shooter, number, request, count);
     }
     fn shove(
         &mut self,
@@ -3120,10 +3123,11 @@ impl DisruptorTargets for InstantTargets<'_> {
         defender.movement.set_saber_blocked(raised);
         blocked
     }
+    fn target(&mut self, number: u16) -> jkr_game_jka::shot_target::ShotTarget {
+        self.game.shot_target(number)
+    }
     fn hurt(&mut self, number: u16, request: DamageRequest) -> Blow {
-        let (damaged, _) = self
-            .game
-            .strike(self.shooter, usize::from(number), request, true);
+        let damaged = self.game.shot_hurt(self.shooter, number, request, true);
         Blow {
             killed: damaged.died.is_some(),
         }
@@ -3374,6 +3378,8 @@ mod bridge_npcs;
 mod bridge_path_movers;
 #[path = "bridge_sabers.rs"]
 mod bridge_sabers;
+#[path = "bridge_shot_target.rs"]
+mod bridge_shot_target;
 #[path = "bridge_siege.rs"]
 mod bridge_siege;
 #[path = "bridge_siege_clients.rs"]
