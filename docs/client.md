@@ -301,6 +301,7 @@ directory. The client creates it automatically. Important files include:
 | File or folder | Contents |
 | --- | --- |
 | `config.cfg` | Settings and key bindings |
+| `autoexec.cfg` | Optional script run after `config.cfg` at startup, as stock does (also read from `GameData/base/`) |
 | `marks.txt` | Marked map positions, views and notes |
 | `favorites.json`, `chat-friends.txt` | Favorite servers and friend names |
 | `jakey` | Persistent client identity key |

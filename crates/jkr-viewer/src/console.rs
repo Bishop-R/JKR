@@ -203,6 +203,13 @@ impl ViewerConsole {
         self.shell.push_log_quiet(text);
     }
 
+    /// Queue script text (`Cbuf_AddText`); errors land in the console log.
+    pub(crate) fn queue_script(&mut self, text: &str) {
+        if let Err(error) = self.shell.queue_script(text) {
+            self.shell.push_log(format!("^1{error}"));
+        }
+    }
+
     /// Queue a bound script through the same frame-buffered path as cfg text.
     pub(crate) fn queue_bound_script(&mut self, key: &str, pressed: bool) {
         let time = self.input_millis();
