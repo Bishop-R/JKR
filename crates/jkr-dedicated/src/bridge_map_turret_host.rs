@@ -185,7 +185,11 @@ impl TurretHost for ServerTurretHost<'_> {
     }
 
     fn move_entity(&mut self, number: u16, origin: [f32; 3]) {
-        if let Some(moved) = self.obstacles.iter_mut().find(|known| known.entity == number) {
+        if let Some(moved) = self
+            .obstacles
+            .iter_mut()
+            .find(|known| known.entity == number)
+        {
             moved.linked_box = Some(moved.absolute_box());
             moved.origin = origin;
         }

@@ -534,6 +534,6 @@ fn turbolaser_bolt(
 
 #[path = "map_turret_g2_life.rs"]
 mod life;
-pub(crate) use life::{bone_anim, set_bone_angles};
 use life::respawn;
+pub(crate) use life::{bone_anim, set_bone_angles};
 pub use life::{damage, spawn, used};

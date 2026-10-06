@@ -226,7 +226,11 @@ pub fn create(
     let ahead = host.trace_box(start, BOUNDS, at, user.number, CONTENTS);
     if ahead.all_solid || ahead.start_solid || ahead.fraction != 1.0 {
         // "can't spawn here, we are in solid".
-        host.raise(crate::weapon_fire::sound_event(user.origin, CHAN_AUTO, fail));
+        host.raise(crate::weapon_fire::sound_event(
+            user.origin,
+            CHAN_AUTO,
+            fail,
+        ));
         return None;
     }
     let mut down = at;
@@ -238,7 +242,11 @@ pub fn create(
         || ground.entity_number < ENTITYNUM_WORLD
     {
         // "didn't hit ground."
-        host.raise(crate::weapon_fire::sound_event(user.origin, CHAN_AUTO, fail));
+        host.raise(crate::weapon_fire::sound_event(
+            user.origin,
+            CHAN_AUTO,
+            fail,
+        ));
         return None;
     }
     at = ground.end_position;
@@ -347,9 +355,10 @@ pub fn run(
     host: &mut dyn TurretHost,
 ) -> Outcome {
     let owner = eweb.owner;
-    let moved = crate::item_physics::fall(&mut eweb.state, &mut eweb.origin, level_time, |from, to| {
-        host.trace_box(from, BOUNDS, to, owner, CONTENTS)
-    });
+    let moved =
+        crate::item_physics::fall(&mut eweb.state, &mut eweb.origin, level_time, |from, to| {
+            host.trace_box(from, BOUNDS, to, owner, CONTENTS)
+        });
     let ItemMove::Moved(moved) = moved else {
         return run_think(eweb, user, level_time, host);
     };
@@ -446,18 +455,35 @@ fn think(
 
 /// `EWebUpdateBoneAngles` (`g_items.c:1765-1798`): the cannon turned toward the view (four
 /// degrees at most), the owner placed behind it, and — still on it — the barrel pitched.
-fn update_bone_angles(eweb: &mut EWeb, user: &mut User, level_time: i32, host: &mut dyn TurretHost) {
+fn update_bone_angles(
+    eweb: &mut EWeb,
+    user: &mut User,
+    level_time: i32,
+    host: &mut dyn TurretHost,
+) {
     let angles = read3(&eweb.state, es::ANGLES);
     let ideal = angle_subtract(user.view[1], angles[1]);
     let increment = angle_subtract(ideal, eweb.yaw).clamp(-TURN_CAP, TURN_CAP);
     eweb.yaw += increment;
-    set_bone_angles(&mut eweb.state, eweb.number, b"cannon_Yrot", [eweb.yaw, 0.0, 0.0], host);
+    set_bone_angles(
+        &mut eweb.state,
+        eweb.number,
+        b"cannon_Yrot",
+        [eweb.yaw, 0.0, 0.0],
+        host,
+    );
     position_user(eweb, user, level_time, host);
     if user.kit.index == 0 {
         return;
     }
     let pitch = angle_subtract(user.view[0], angles[0]) * 0.8;
-    set_bone_angles(&mut eweb.state, eweb.number, b"cannon_Xrot", [0.0, 0.0, pitch], host);
+    set_bone_angles(
+        &mut eweb.state,
+        eweb.number,
+        b"cannon_Xrot",
+        [0.0, 0.0, pitch],
+        host,
+    );
 }
 
 /// `EWebPositionUser` (`g_items.c:1697-1762`): the owner moved to 32 units behind the
@@ -617,7 +643,12 @@ pub fn after_blast(
     level_time: i32,
     host: &mut dyn TurretHost,
 ) {
-    play_effect(host, EFFECT_EXPLOSION_DETPACK, blast.origin, [1.0, 0.0, 0.0]);
+    play_effect(
+        host,
+        EFFECT_EXPLOSION_DETPACK,
+        blast.origin,
+        [1.0, 0.0, 0.0],
+    );
     let Some(user) = user.filter(|user| user.in_use) else {
         return;
     };

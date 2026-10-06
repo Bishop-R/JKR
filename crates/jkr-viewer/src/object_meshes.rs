@@ -160,7 +160,11 @@ fn load_parsed(
         ];
         let pose = vec![identity; model.bone_count];
         let flash = model.surface_bolt_matrix(muzzle_flash::FLASH_BOLT, 0, &pose)?;
-        (append_static_glm_mesh(flattened, &model)?, flash, Some(model))
+        (
+            append_static_glm_mesh(flattened, &model)?,
+            flash,
+            Some(model),
+        )
     } else {
         let model = Md3::parse(&asset.bytes)?;
         (append_md3_mesh(flattened, &model)?, None, None)

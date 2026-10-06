@@ -35,7 +35,11 @@ impl NativeGame {
             Use::PutAway => {
                 let index = self.eweb_index(user.kit.index);
                 let mut held = index.map(|index| self.map_turrets.ewebs.remove(index));
-                eweb::disattach(&mut user, held.as_mut().map(|(_, placed)| placed), level_time);
+                eweb::disattach(
+                    &mut user,
+                    held.as_mut().map(|(_, placed)| placed),
+                    level_time,
+                );
                 if let (Some(index), Some(held)) = (index, held) {
                     self.map_turrets.ewebs.insert(index, held);
                 }
@@ -68,7 +72,10 @@ impl NativeGame {
             }
             None => {
                 self.pool.free(id, level_time);
-                self.map_turrets.work.instances.retain(|known| known.number != number);
+                self.map_turrets
+                    .work
+                    .instances
+                    .retain(|known| known.number != number);
             }
         }
     }
@@ -185,7 +192,10 @@ impl NativeGame {
     /// The entity and the server's Ghoul2 instance let go.
     fn free_eweb(&mut self, id: EntityId, level_time: i32) {
         let number = id.legacy_number();
-        self.map_turrets.work.instances.retain(|known| known.number != number);
+        self.map_turrets
+            .work
+            .instances
+            .retain(|known| known.number != number);
         self.pool.free(id, level_time);
     }
 

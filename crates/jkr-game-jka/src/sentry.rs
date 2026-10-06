@@ -18,11 +18,11 @@
 //! Left out: `pas_think`'s own aim (`speed`, `random`), which changes nothing but a loop
 //! sound nothing sets; `G_RunObject`'s push triggers after a shot.
 
+use crate::item_physics::{TR_GRAVITY, TR_STATIONARY};
 use crate::map_turret_world::{
     CONTENTS_BODY, CONTENTS_LIGHTSABER, DAMAGE_DEATH_KNOCKBACK, ET_GENERAL, FRAMETIME, MASK_SHOT,
     Shot, Sighted, TurretHost, WP_TURRET, body_sound, es, find, length_squared, play_effect, sub,
 };
-use crate::item_physics::{TR_GRAVITY, TR_STATIONARY};
 use crate::means_of_death::{MOD_SENTRY, MOD_UNKNOWN};
 use jkr_protocol::{EntityState, LEGACY_ENTITY_FIELDS};
 

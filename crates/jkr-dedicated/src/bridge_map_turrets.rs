@@ -16,10 +16,10 @@
 
 use super::*;
 use bridge_map_turret_host::{Blast, ServerTurretHost, TurretWork};
+use jkr_game_jka::eweb::EWeb;
 use jkr_game_jka::map_turret::{MiscTurret, Part};
 use jkr_game_jka::map_turret_g2::TurretG2;
 use jkr_game_jka::map_turret_world::{BlowAttacker, FL_NOTARGET, ObjectBlow, Sighted};
-use jkr_game_jka::eweb::EWeb;
 use jkr_game_jka::sentry::Sentry;
 
 #[path = "bridge_map_turret_host.rs"]
@@ -73,7 +73,10 @@ impl MapTurrets {
                 .sentries
                 .iter()
                 .any(|(id, _)| id.legacy_number() == number)
-            || self.ewebs.iter().any(|(id, _)| id.legacy_number() == number)
+            || self
+                .ewebs
+                .iter()
+                .any(|(id, _)| id.legacy_number() == number)
     }
 
     /// The turrets' boxes for a trace of entity `pass`: not its own, nor what it owns — a
@@ -686,9 +689,9 @@ impl NativeGame {
     }
 }
 
-#[path = "bridge_sentries.rs"]
-mod bridge_sentries;
 #[path = "bridge_ewebs.rs"]
 mod bridge_ewebs;
+#[path = "bridge_sentries.rs"]
+mod bridge_sentries;
 #[path = "bridge_map_turret_damage.rs"]
 mod damage;

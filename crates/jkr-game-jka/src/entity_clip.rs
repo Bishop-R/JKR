@@ -34,7 +34,8 @@ impl BoxObstacle {
     /// `r.absmin`, `r.absmax`: the box it was linked with, grown by a unit "because movement
     /// is clipped an epsilon away from an actual edge".
     pub fn absolute_box(&self) -> ([f32; 3], [f32; 3]) {
-        self.linked_box.unwrap_or_else(|| linked_box(self.origin, self.bounds))
+        self.linked_box
+            .unwrap_or_else(|| linked_box(self.origin, self.bounds))
     }
 }
 

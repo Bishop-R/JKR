@@ -130,7 +130,11 @@ pub(crate) fn bounce(
 pub(crate) fn set_origin(state: &mut EntityState, current: &mut [f32; 3], origin: [f32; 3]) {
     write(state, ES_POS_BASE, origin);
     write(state, ES_POS_DELTA, [0.0; 3]);
-    for (index, value) in [(ES_POS_TYPE, TR_STATIONARY), (ES_POS_TIME, 0), (ES_POS_DURATION, 0)] {
+    for (index, value) in [
+        (ES_POS_TYPE, TR_STATIONARY),
+        (ES_POS_TIME, 0),
+        (ES_POS_DURATION, 0),
+    ] {
         state.set_raw_field(index, value);
     }
     *current = origin;
@@ -143,9 +147,12 @@ pub(crate) fn item_move(
     world: &dyn MovementCollision,
 ) -> ItemMove {
     let (bounds, mask) = (missile.bounds, missile.clip_mask);
-    fall(&mut missile.state, &mut missile.current, level_time, |from, to| {
-        world.trace(from, bounds.0, bounds.1, to, mask)
-    })
+    fall(
+        &mut missile.state,
+        &mut missile.current,
+        level_time,
+        |from, to| world.trace(from, bounds.0, bounds.1, to, mask),
+    )
 }
 
 /// [`bounce`] for a missile-shaped object.
