@@ -76,6 +76,8 @@ struct ServerFlags<'a> {
     level_time: i32,
     /// `AddScore` runs: no warmup is on.
     scoring: bool,
+    /// jaPRO's `g_allowFlagThrow`.
+    flag_throw: bool,
 }
 
 impl FlagWorld for ServerFlags<'_> {
@@ -156,6 +158,10 @@ impl FlagWorld for ServerFlags<'_> {
     fn flag_status(&mut self, value: Vec<u8>) {
         *self.status = Some(value);
     }
+
+    fn flag_throw(&self) -> bool {
+        self.flag_throw
+    }
 }
 
 impl NativeGame {
@@ -186,6 +192,7 @@ impl NativeGame {
         let mut status = None;
         let mut flags = self.flags;
         let scoring = self.scoring();
+        let flag_throw = self.flag_rules().throw;
         let Self {
             server,
             world,
@@ -207,6 +214,7 @@ impl NativeGame {
             status: &mut status,
             level_time,
             scoring,
+            flag_throw,
         };
         let result = run(&mut flags, &mut flag_world);
         self.flags = flags;
@@ -228,6 +236,9 @@ impl NativeGame {
             pickup.dropped.is_some(),
         );
         let (gametype, intermission) = (self.gametype, self.match_end.intermission_time != 0);
+        if self.flag_locked_out(client, row.tag, level_time) {
+            return false;
+        }
         let Some(peer) = self.peer(client) else {
             return false;
         };

@@ -5,7 +5,8 @@
 use super::*;
 use crate::admin::{self, Found, Login};
 
-/// The levels' options: name, jaPRO's default, description (all archived).
+/// The levels' options: name, jaPRO's default, description (all archived; only the team
+/// size's changes are announced).
 const OPTIONS: [(&[u8], &[u8], &[u8]); 7] = [
     (
         b"g_juniorAdminLevel",
@@ -53,8 +54,12 @@ impl NativeGame {
     /// The admin levels' options, with jaPRO's defaults: no powers, no passwords.
     pub(super) fn register_admin(&mut self) {
         for (name, value, about) in OPTIONS {
-            self.cvars
-                .get(name, value, crate::cvars::CVAR_ARCHIVE, Some(about));
+            let flags = crate::cvars::CVAR_ARCHIVE;
+            if name == b"sv_maxTeamSize" {
+                self.cvars.get_announced(name, value, flags, Some(about));
+            } else {
+                self.cvars.get(name, value, flags, Some(about));
+            }
         }
     }
 

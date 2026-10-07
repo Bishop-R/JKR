@@ -22,7 +22,7 @@ impl NativeGame {
     /// `g_damageNumbers`, archived, off by default (jaPRO's).
     pub(super) fn register_damage_numbers(&mut self) {
         let about: &[u8] = b"jaPRO: damage numbers (1 line, 2 total, 3 plum, 4 chat, 5 1+2, 6 1+3, 7 total kept, 8 to all)";
-        self.cvars.get(
+        self.cvars.get_announced(
             DAMAGE_NUMBERS,
             b"0",
             crate::cvars::CVAR_ARCHIVE,

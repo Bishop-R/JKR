@@ -163,6 +163,9 @@ pub struct DeathRequest {
     /// The player is in space (`client->inSpaceIndex`, [`crate::vehicle_triggers`]): it
     /// dies choking (`BOTH_CHOKE3`).
     pub in_space: bool,
+    /// jaPRO's flag options: how a carried flag drops, and whether a suicide sends it
+    /// home ([`crate::flag_throw`]).
+    pub flag_rules: crate::flag_throw::FlagRules,
 }
 
 impl DeathRequest {
@@ -193,6 +196,7 @@ impl DeathRequest {
             duel_opponent: None,
             jedi_master: None,
             in_space: false,
+            flag_rules: crate::flag_throw::FlagRules::default(),
         }
     }
 }
@@ -467,12 +471,13 @@ pub fn kill(
     if saber_lost.is_some() {
         state.set_raw_field(PS_JEDI_MASTER, 0);
     }
-    // A suicide or a fall to death does not drop the flag: it goes home
-    // (`g_combat.c:2654-2688`).
+    // A suicide (unless jaPRO's `g_fixFlagSuicide` says otherwise) or a fall to death
+    // does not drop the flag: it goes home (`g_combat.c:2654-2688`).
     let carried_flags = [state.powerups[PW_REDFLAG], state.powerups[PW_BLUEFLAG]];
     let falling = read(state, crate::triggers::PS_FALLING_TO_DEATH) != 0;
+    let suicide = request.means == crate::means_of_death::MOD_SUICIDE;
     let mut returned_flag = None;
-    if request.means == crate::means_of_death::MOD_SUICIDE || falling {
+    if (suicide && !request.flag_rules.suicide_drops) || falling {
         returned_flag = [PW_REDFLAG, PW_BLUEFLAG]
             .into_iter()
             .find(|flag| state.powerups[*flag] != 0);
@@ -491,6 +496,7 @@ pub fn kill(
             request.gametype,
             request.level_time,
             rng,
+            request.flag_rules,
         )
     } else {
         crate::dropped_items::Tossed::default()

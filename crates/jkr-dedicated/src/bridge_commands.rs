@@ -17,6 +17,7 @@ impl NativeGame {
         }
         if self.emote_command(client, command, server_time)
             || self.admin_command(client, text, server_time)
+            || self.flag_throw_command(client, command, server_time)
         {
             return;
         }

@@ -755,6 +755,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             gametype,
             level_time,
             self.host.rng(),
+            // A rancor carries no flag.
+            crate::flag_throw::FlagRules::default(),
         );
         if let Some(bolt2) = tossed.bolt2 {
             self.actors[me].state.set_raw_field(ES_BOLT2, bolt2);

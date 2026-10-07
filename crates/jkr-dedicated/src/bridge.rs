@@ -1739,6 +1739,7 @@ impl NativeGame {
         }
         self.log_kill(client, request.attacker, request.means);
         request.gametype = self.gametype;
+        request.flag_rules = self.flag_rules();
         request.duel_opponent = self.duel_opponent(client);
         request.jedi_master = self.jedi_masters(
             request
@@ -2625,6 +2626,7 @@ impl NativeGame {
                 duel_opponent: None,
                 jedi_master: None,
                 in_space: false,
+                flag_rules: Default::default(),
             };
             self.die(target, request);
         }
@@ -3519,6 +3521,8 @@ mod bridge_damage_numbers;
 mod bridge_doors;
 #[path = "bridge_emotes.rs"]
 mod bridge_emotes;
+#[path = "bridge_flag_throw.rs"]
+mod bridge_flag_throw;
 #[path = "bridge_holdables.rs"]
 mod bridge_holdables;
 #[path = "bridge_links.rs"]

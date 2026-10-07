@@ -168,6 +168,7 @@ impl NativeGame {
         self.scripts_client_left(client);
         self.siege_carrier_left(client);
         let mut launched = Vec::new();
+        let flag_rules = self.flag_rules();
         if let (Some(handle), Some(world)) = (
             self.players.release(client),
             self.server.world_mut(self.world),
@@ -187,6 +188,7 @@ impl NativeGame {
                     gametype,
                     level_time,
                     &mut self.deaths.rng,
+                    flag_rules,
                 );
                 if let Some(event) = tossed.event {
                     let _ = self.pool.spawn_temporary(event.state(), level_time, None);

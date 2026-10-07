@@ -18,7 +18,7 @@ impl NativeGame {
     /// `g_emotesDisable`, archived, none off by default (jaPRO's).
     pub(super) fn register_emotes(&mut self) {
         let about: &[u8] = b"jaPRO: emote families refused, a bit each";
-        self.cvars.get(
+        self.cvars.get_announced(
             EMOTES_DISABLE,
             b"0",
             crate::cvars::CVAR_ARCHIVE,

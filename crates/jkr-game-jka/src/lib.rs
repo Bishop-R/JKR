@@ -250,6 +250,7 @@ pub mod text_parse;
 
 pub mod breakables;
 pub mod dropped_items;
+pub mod flag_throw;
 pub mod generic_commands;
 pub mod give;
 pub mod japro_emotes;

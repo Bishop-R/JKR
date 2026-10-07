@@ -142,6 +142,20 @@ impl Cvars {
         }
     }
 
+    /// [`Self::get`] for a game variable whose changes everyone is told about
+    /// (`G_UpdateCvars`' announce flag), as [`Self::register_server`]'s are.
+    pub fn get_announced(
+        &mut self,
+        name: &[u8],
+        value: &[u8],
+        flags: u32,
+        description: Option<&[u8]>,
+    ) -> usize {
+        let index = self.get(name, value, flags, description);
+        self.vars[index].announced = true;
+        index
+    }
+
     fn find(&self, name: &[u8]) -> Option<usize> {
         self.vars
             .iter()

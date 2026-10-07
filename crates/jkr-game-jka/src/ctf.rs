@@ -158,6 +158,11 @@ pub trait FlagWorld {
     fn in_pvs(&mut self, from: [f32; 3], to: [f32; 3]) -> bool;
     /// `CS_FLAGSTATUS` changed to `value`.
     fn flag_status(&mut self, value: Vec<u8>);
+    /// jaPRO's `g_allowFlagThrow` is on: taking the enemy flag scores nothing
+    /// ([`crate::flag_throw`]). Off, as in stock, unless the server says so.
+    fn flag_throw(&self) -> bool {
+        false
+    }
 }
 
 /// A flag touched: whose it is, whether it lies dropped, and where it stands.
@@ -414,7 +419,9 @@ fn touch_enemy_flag(
         }] = i32::MAX as u32;
     }
     set_flag_status(flags, world, team, FLAG_TAKEN);
-    world.add_score(other, CTF_FLAG_BONUS);
+    if !world.flag_throw() {
+        world.add_score(other, CTF_FLAG_BONUS);
+    }
     if let Some(player) = world.player(other) {
         player.team_state.flag_since = level_time;
     }

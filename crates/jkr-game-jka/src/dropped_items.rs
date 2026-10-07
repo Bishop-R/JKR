@@ -5,7 +5,8 @@
 //! running, at death) and `TossClientWeapon` (a Force pull taking the weapon away).
 //!
 //! A dropped item is an [`items::Pickup`](crate::items::Pickup) with a [`Dropped`] part,
-//! touched and taken as a placed one is.
+//! touched and taken as a placed one is. jaPRO's flag throwing changes how flags fly
+//! ([`crate::flag_throw`]).
 
 use crate::event_entity::EventEntity;
 use crate::items::{ITEMS, Kind, Pickup};
@@ -57,10 +58,10 @@ const ES_POWERUPS: usize = 77;
 const ES_WEAPON: usize = 14;
 const ES_POS_TYPE: usize = 23;
 const ES_POS_TIME: usize = 0;
-const ES_POS_BASE: [usize; 3] = [2, 1, 4];
+pub(crate) const ES_POS_BASE: [usize; 3] = [2, 1, 4];
 const ES_POS_DELTA: [usize; 3] = [6, 7, 10];
-const ES_APOS_BASE: [usize; 3] = [5, 3, 33];
-const ES_ANGLES: [usize; 3] = [25, 9, 24];
+pub(crate) const ES_APOS_BASE: [usize; 3] = [5, 3, 33];
+pub(crate) const ES_ANGLES: [usize; 3] = [25, 9, 24];
 
 /// What a dropped item keeps beyond a placed one.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,6 +73,9 @@ pub struct Dropped {
     pub count: i32,
     /// Picked up: freed at the next frame (`freeAfterEvent` with no event of its own).
     pub taken: bool,
+    /// `physicsBounce`: the share of its speed a bounce keeps — none (it stops dead), but
+    /// for a flag thrown under jaPRO's rules ([`crate::flag_throw`]).
+    pub bounce: f32,
 }
 
 /// `LaunchItem` (`g_items.c:2693-2771`): an `ET_ITEM` entity thrown from `origin` at
@@ -114,6 +118,7 @@ pub fn launch(item: usize, origin: [f32; 3], velocity: [f32; 3], level_time: i32
         free_at: level_time + LIFETIME,
         count: 0,
         taken: false,
+        bounce: 0.0,
     };
     Pickup {
         state,
@@ -159,7 +164,7 @@ pub fn item_for_weapon(weapon: u32) -> Option<usize> {
 }
 
 /// `BG_FindItemForPowerup`: a powerup or a team item with the powerup's tag.
-fn item_for_powerup(powerup: usize) -> Option<usize> {
+pub fn item_for_powerup(powerup: usize) -> Option<usize> {
     ITEMS
         .iter()
         .position(|row| matches!(row.kind, Kind::Powerup | Kind::Team) && row.tag == powerup as i32)
@@ -180,6 +185,8 @@ pub struct Tossed {
 /// (the one being switched to, if the pistol is being put away) unless it is the saber,
 /// the pistol or fists, or has no ammo; and, outside team games, every powerup still
 /// running, each 45 degrees further round, counting its seconds left. Nothing in siege.
+/// Under jaPRO's flag throwing a flag keeps its carrier's momentum
+/// ([`crate::flag_throw::drop_carried`]).
 pub fn toss_client_items(
     state: &PlayerState,
     entity: &EntityState,
@@ -187,6 +194,7 @@ pub fn toss_client_items(
     gametype: i32,
     level_time: i32,
     rng: &mut Rng,
+    rules: crate::flag_throw::FlagRules,
 ) -> Tossed {
     let mut tossed = Tossed::default();
     if gametype == GT_SIEGE {
@@ -234,7 +242,14 @@ pub fn toss_client_items(
             let Some(item) = item_for_powerup(powerup) else {
                 continue;
             };
-            let mut drop = drop_item(item, entity, angle, level_time, rng);
+            let mut drop = if rules.throw && ITEMS[item].kind == Kind::Team {
+                crate::flag_throw::drop_carried(item, entity, state.velocity(), angle, level_time)
+            } else {
+                drop_item(item, entity, angle, level_time, rng)
+            };
+            if rules.throw && rules.suicide_drops && ITEMS[item].kind == Kind::Team {
+                drop.contents = crate::flag_throw::THROWN_CONTENTS;
+            }
             if let Some(dropped) = drop.dropped.as_mut() {
                 dropped.count = ((until - level_time) / 1_000).max(1);
             }
@@ -316,6 +331,8 @@ pub fn toss_client_weapon(
 pub enum DroppedRun {
     /// It is where it is.
     Stays,
+    /// It came to rest this frame.
+    Landed,
     /// Freed: it was picked up.
     Freed,
     /// It came to rest in a no-drop volume (`CONTENTS_NODROP`).
@@ -329,13 +346,16 @@ pub enum DroppedRun {
 /// is traced along its trajectory through the world (`trace` passes client 0, the entity
 /// `LaunchItem` leaves as its owner), and where it strikes something it stops dead
 /// (`G_BounceItem`: `physicsBounce` is never set, so the bounce keeps no speed) — at rest
-/// a unit above a floor, or dropping straight down from a wall.
+/// a unit above a floor, or dropping straight down from a wall. With jaPRO's
+/// `flag_throw` a flag bounces on ([`crate::flag_throw::stops`]), and a flag flying
+/// fast is slowed ([`crate::flag_throw::drag`]).
 pub fn run(
     pickup: &mut Pickup,
     level_time: i32,
     previous_time: i32,
     trace: &mut dyn FnMut([f32; 3], [f32; 3], [f32; 3], [f32; 3], u32) -> MovementTrace,
     contents: &dyn Fn([f32; 3]) -> u32,
+    flag_throw: bool,
 ) -> DroppedRun {
     let Some(dropped) = pickup.dropped else {
         return DroppedRun::Stays;
@@ -357,6 +377,14 @@ pub fn run(
         } else {
             DroppedRun::Stays
         };
+    }
+    let flag = ITEMS[pickup.item].kind == Kind::Team;
+    if flag {
+        let mut delta = ES_POS_DELTA.map(|index| f32::from_bits(read(state, index)));
+        crate::flag_throw::drag(&mut delta);
+        for axis in 0..2 {
+            state.set_raw_field(ES_POS_DELTA[axis], delta[axis].to_bits());
+        }
     }
     let base = ES_POS_BASE.map(|index| f32::from_bits(read(state, index)));
     let delta = ES_POS_DELTA.map(|index| f32::from_bits(read(state, index)));
@@ -385,17 +413,24 @@ pub fn run(
         return DroppedRun::Lost;
     }
     // `G_BounceItem`: the velocity reflected on the plane and scaled by `physicsBounce`,
-    // which is 0 — the signs survive as negative zeroes.
+    // 0 but for a thrown flag — the signs survive as negative zeroes.
     let hit_time = previous_time + ((level_time - previous_time) as f32 * found.fraction) as i32;
     let velocity =
         crate::trajectory::legacy_evaluate_trajectory_delta(delta, kind, start, 0, hit_time);
     let normal = found.plane_normal;
     let along = velocity[0] * normal[0] + velocity[1] * normal[1] + velocity[2] * normal[2];
+    let mut bounced = [0.0; 3];
     for axis in 0..3 {
         let reflected = velocity[axis] + normal[axis] * (-2.0 * along);
-        state.set_raw_field(ES_POS_DELTA[axis], (reflected * 0.0).to_bits());
+        bounced[axis] = reflected * dropped.bounce;
+        state.set_raw_field(ES_POS_DELTA[axis], bounced[axis].to_bits());
     }
-    if normal[2] > 0.0 {
+    let stops = if flag && flag_throw {
+        crate::flag_throw::stops(bounced[2])
+    } else {
+        normal[2] > 0.0 && bounced[2] < 40.0
+    };
+    if stops {
         let mut rest = found.end_position;
         rest[2] += 1.0;
         let rest = rest.map(|axis| axis as i32 as f32);
@@ -408,7 +443,7 @@ pub fn run(
         }
         pickup.origin = rest;
         state.set_raw_field(ES_GROUND_ENTITY, u32::from(found.entity_number));
-        return DroppedRun::Stays;
+        return DroppedRun::Landed;
     }
     let moved: [f32; 3] = std::array::from_fn(|axis| pickup.origin[axis] + normal[axis]);
     pickup.origin = moved;

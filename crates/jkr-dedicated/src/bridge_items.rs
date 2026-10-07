@@ -65,7 +65,9 @@ impl NativeGame {
         // `G_RunItem` for the dropped ones: their flight through the map, their end.
         let previous_time = self.previous_frame_time;
         let flag_game = bridge_ctf::flag_game(self.gametype);
+        let flag_throw = self.flag_rules().throw;
         let mut gone_flags = Vec::new();
+        let mut landed_flags = Vec::new();
         let Self {
             items, pool, map, ..
         } = self;
@@ -87,6 +89,7 @@ impl NativeGame {
                             world.trace(start, mins, maxs, end, mask)
                         },
                         &|point| world.point_contents(point),
+                        flag_throw,
                     )
                 }
                 None => jkr_game_jka::dropped_items::run(
@@ -95,8 +98,11 @@ impl NativeGame {
                     previous_time,
                     &mut |_, _, _, end, _| jkr_game_jka::pmove::MovementTrace::miss(end),
                     &|_| 0,
+                    flag_throw,
                 ),
             };
+            let is_flag =
+                jkr_game_jka::items::ITEMS[pickup.item].kind == jkr_game_jka::items::Kind::Team;
             // A dropped flag whose time is up, or that is lost, goes home instead
             // (`Team_DroppedFlagThink`, `Team_FreeEntity`), which frees it.
             let gone = matches!(
@@ -104,19 +110,24 @@ impl NativeGame {
                 jkr_game_jka::dropped_items::DroppedRun::Expired
                     | jkr_game_jka::dropped_items::DroppedRun::Lost
             );
-            if gone
-                && flag_game
-                && jkr_game_jka::items::ITEMS[pickup.item].kind == jkr_game_jka::items::Kind::Team
-            {
+            if gone && flag_game && is_flag {
                 gone_flags.push((
                     pickup.item,
                     run == jkr_game_jka::dropped_items::DroppedRun::Lost,
                 ));
                 return true;
             }
-            if run != jkr_game_jka::dropped_items::DroppedRun::Stays {
-                pool.free(*number, server_time);
-                return false;
+            match run {
+                jkr_game_jka::dropped_items::DroppedRun::Stays => {}
+                jkr_game_jka::dropped_items::DroppedRun::Landed => {
+                    if is_flag {
+                        landed_flags.push(*number);
+                    }
+                }
+                _ => {
+                    pool.free(*number, server_time);
+                    return false;
+                }
             }
             pool.set_state(*number, &pickup.state);
             true
@@ -124,6 +135,7 @@ impl NativeGame {
         for (item, lost) in gone_flags {
             self.flag_expired(item, lost, server_time);
         }
+        self.flags_in_death_pits(&landed_flags, server_time);
         for index in 0..self.items.len() {
             let (_, pickup) = &self.items[index];
             if pickup.respawn_at == 0 || pickup.respawn_at > server_time {
