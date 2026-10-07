@@ -90,6 +90,7 @@ pub(crate) fn build_actor_mesh(
         mouth_draw,
         surfaces,
         cuts: Default::default(),
+        speed_trail: Default::default(),
         trick: Default::default(),
         body: Default::default(),
     })

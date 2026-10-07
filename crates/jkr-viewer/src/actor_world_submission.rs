@@ -36,6 +36,9 @@ mod bolted;
 #[path = "actor_limbs.rs"]
 mod limbs;
 
+#[path = "actor_speed_trail.rs"]
+mod speed_trail;
+
 #[path = "special_entities.rs"]
 mod special_entities;
 
@@ -89,6 +92,8 @@ struct Sinks<'a> {
     own_body: BodyDraw,
     /// How the actor being submitted is drawn, its bolted parts with it.
     body: BodyDraw,
+    /// `cg_speedTrail`: Force Speed's afterimages.
+    speed_trails: bool,
 }
 
 /// Submit all presented actor-like entities without allocating frame storage.
@@ -128,6 +133,12 @@ pub(crate) fn submit(
         .console
         .as_ref()
         .and_then(|console| console.integer_cvar("cg_saberTrail"))
+        .unwrap_or(1)
+        != 0;
+    let speed_trails = gpu
+        .console
+        .as_ref()
+        .and_then(|console| console.integer_cvar("cg_speedTrail"))
         .unwrap_or(1)
         != 0;
     let own_body = body_draw::own(
@@ -200,6 +211,7 @@ pub(crate) fn submit(
         detached_camera: gpu.detached_camera,
         own_body,
         body: BodyDraw::Opaque,
+        speed_trails,
     };
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
@@ -632,6 +644,15 @@ fn submit_actor(
         } else {
             sinks.actor_groups[mesh].push(instance);
         }
+        let tricking = !local && matches!(sinks.body, BodyDraw::Faded(_));
+        speed_trail::submit(
+            sinks,
+            mesh,
+            instance,
+            (state, snapshot),
+            tricking,
+            presentation_time,
+        );
         sinks.actor_meshes[mesh]
             .retained_pose
             .mark_drawn(entity.id, presentation_time);

@@ -258,6 +258,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Third-person look-target easing per 50 ms; 1 or more snaps",
         ),
+        // `cg_xcvar.h:131`.
+        CvarDefinition::new(
+            "cg_speedTrail",
+            1_i64,
+            archive,
+            "Draw afterimages behind players running with Force Speed",
+        ),
         // `cg_xcvar.h:82`: no cut limbs by default; 1 shows arms, hands and legs, 2 heads
         // and trunks too.
         CvarDefinition::new(

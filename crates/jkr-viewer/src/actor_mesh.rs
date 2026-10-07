@@ -39,6 +39,8 @@ pub(crate) struct ActorMesh {
     pub(crate) surfaces: crate::actor_surfaces::Surfaces,
     /// What cuts did to it: limbs lost, or the limb it is.
     pub(crate) cuts: crate::actor_dismember::Cuts,
+    /// Force Speed's afterimages trailing it.
+    pub(crate) speed_trail: std::cell::Cell<jkr_client::speed_trail::SpeedTrail>,
     /// How far a player who mind-tricks the viewer has faded from its sight.
     pub(crate) trick: jkr_client::trick_fade::TrickFade,
     /// How much of the model this frame draws, for its trick.
