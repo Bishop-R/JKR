@@ -49,6 +49,8 @@ impl NativeGame {
         // last one life.
         peer.riding.flags = 0;
         peer.switch_class_time = 0;
+        // jaPRO's held emote lives in the client, which `ClientSpawn` clears.
+        peer.emote = Default::default();
         // `ClientSpawn`'s siege branch: what the class hands its player.
         if let Some(class) = siege_class.as_ref() {
             class_speed = class.speed;

@@ -15,6 +15,9 @@ impl NativeGame {
         if self.command_refused(client, command) {
             return;
         }
+        if self.emote_command(client, command, server_time) {
+            return;
+        }
         // jaPRO's `ammotd` (`CMD_NOINTERMISSION`): the message of the day again.
         if command.eq_ignore_ascii_case(b"ammotd") {
             if !self.refused_at_intermission(client, command) {

@@ -8,9 +8,9 @@ use super::*;
 use jkr_game_jka::cheat_flags::{FL_GODMODE, FL_NOTARGET};
 
 /// `CMD_NOINTERMISSION`, `CMD_CHEAT`, `CMD_ALIVE` (`g_cmds.c:3378-3380`).
-const NO_INTERMISSION: u8 = 1;
+pub(super) const NO_INTERMISSION: u8 = 1;
 const CHEAT: u8 = 2;
-const ALIVE: u8 = 4;
+pub(super) const ALIVE: u8 = 4;
 
 /// The reference's table: every stock command and its gates.
 const COMMANDS: &[(&str, u8)] = &[
@@ -123,7 +123,7 @@ impl NativeGame {
 
     /// `ClientCommand`'s gates (`g_cmds.c:3460-3480`), in its order, having told the
     /// client why when one refuses.
-    fn passes_gates(&mut self, client: usize, command: &[u8], flags: u8) -> bool {
+    pub(super) fn passes_gates(&mut self, client: usize, command: &[u8], flags: u8) -> bool {
         if flags & NO_INTERMISSION != 0 && self.refused_at_intermission(client, command) {
             return false;
         }

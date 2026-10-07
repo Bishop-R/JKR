@@ -252,6 +252,7 @@ pub mod breakables;
 pub mod dropped_items;
 pub mod generic_commands;
 pub mod give;
+pub mod japro_emotes;
 pub mod noclip;
 pub mod siege;
 pub mod siege_class;

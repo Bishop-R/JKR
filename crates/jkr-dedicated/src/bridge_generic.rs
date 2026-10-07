@@ -3,6 +3,8 @@
 //! powers' keys and the taunts ([`jkr_game_jka::generic_commands`]).
 
 use super::NativeGame;
+use crate::peer::Peer;
+use jkr_game_jka::entity_pool::EntityPool;
 use jkr_game_jka::event_entity::EventEntity;
 use jkr_game_jka::force_powers::{
     FP_ABSORB, FP_HEAL, FP_PROTECT, FP_PULL, FP_PUSH, FP_RAGE, FP_SEE, FP_SPEED, FP_TEAM_FORCE,
@@ -123,31 +125,45 @@ impl NativeGame {
             peer.entity.event_raised(level_time);
         }
         peer.movement = peer.movement.reseeded(&peer.state);
-        // Each saber's own sounds (`saber[n].soundOn`, `soundOff`).
-        let Some(hands) = self.peer(client).map(|peer| {
-            peer.sabers
-                .hands
-                .each_ref()
-                .map(|saber| (saber.sound_on, saber.sound_off, saber.is_held()))
-        }) else {
+        let Some(hands) = self.peer(client).map(saber_sound_hands) else {
             return;
         };
-        for played in sounds.into_iter().filter(|sound| sound.plays(hands[1].2)) {
-            let (on, off, _) = hands[usize::from(played.hand)];
-            let index = if played.on { on } else { off };
-            if index == 0 {
-                continue;
-            }
-            let mut sound = EventEntity {
-                event: EV_GENERAL_SOUND,
-                parameter: u32::from(index),
-                origin,
-                client: None,
-                broadcast: false,
-                extra: [(0, 0); 12],
-            };
-            sound.extra[0] = (ES_SABER_ENTITY, channel);
-            let _ = self.pool.spawn_temporary(sound.state(), level_time, None);
+        play_saber_sounds(&mut self.pool, hands, sounds, (channel, origin), level_time);
+    }
+}
+
+/// Each hand's saber sounds (`saber[n].soundOn`, `soundOff`) and whether it holds a saber.
+pub(super) fn saber_sound_hands(peer: &Peer) -> [(u16, u16, bool); 2] {
+    peer.sabers
+        .hands
+        .each_ref()
+        .map(|saber| (saber.sound_on, saber.sound_off, saber.is_held()))
+}
+
+/// `G_Sound(ent, channel, saber[n].soundOn / soundOff)` for each of `sounds` at `origin`,
+/// with `hands` from [`saber_sound_hands`]: the second hand's only where it holds a saber.
+pub(super) fn play_saber_sounds(
+    pool: &mut EntityPool,
+    hands: [(u16, u16, bool); 2],
+    sounds: impl IntoIterator<Item = SaberSound>,
+    (channel, origin): (u32, [f32; 3]),
+    level_time: i32,
+) {
+    for played in sounds.into_iter().filter(|sound| sound.plays(hands[1].2)) {
+        let (on, off, _) = hands[usize::from(played.hand)];
+        let index = if played.on { on } else { off };
+        if index == 0 {
+            continue;
         }
+        let mut sound = EventEntity {
+            event: EV_GENERAL_SOUND,
+            parameter: u32::from(index),
+            origin,
+            client: None,
+            broadcast: false,
+            extra: [(0, 0); 12],
+        };
+        sound.extra[0] = (ES_SABER_ENTITY, channel);
+        let _ = pool.spawn_temporary(sound.state(), level_time, None);
     }
 }

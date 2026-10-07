@@ -68,6 +68,7 @@ impl NativeGame {
             siege,
             strikes,
             lock_kinds,
+            pool,
             ..
         } = self;
         let (Some(world), Some(own)) = (server.world_mut(*world), players.at(client)) else {
@@ -148,6 +149,9 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         }
+        // jaPRO's held emote, which the chain weighs before the jetpack: the jetpack only
+        // lifts a player standing still on the ground, which a held pose never leaves.
+        bridge_emotes::emote_hold(peer, &command, pool, level_time);
         // What its blows may break (`PM_ClientImpact`): nothing for a spectator or a Siege
         // player waiting for its wave (`Client_CheckImpactBBrush`).
         let round_waiting = bridge_client_impact::round_waiting(

@@ -145,6 +145,8 @@ pub struct Peer {
     pub(crate) time_residual: i32,
     /// jaPRO's centre message of the day, counted down by the once-a-second actions.
     pub(crate) motd: crate::motd::Countdown,
+    /// jaPRO's held emote (`emote_freeze`), which a spawn clears.
+    pub(crate) emote: jkr_game_jka::japro_emotes::Hold,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -281,6 +283,7 @@ impl Peer {
             pain: (0, false),
             time_residual: 0,
             motd: Default::default(),
+            emote: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),

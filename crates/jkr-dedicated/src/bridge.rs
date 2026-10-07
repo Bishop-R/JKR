@@ -3500,6 +3500,8 @@ mod bridge_client_spawn;
 mod bridge_collision_gather;
 #[path = "bridge_doors.rs"]
 mod bridge_doors;
+#[path = "bridge_emotes.rs"]
+mod bridge_emotes;
 #[path = "bridge_holdables.rs"]
 mod bridge_holdables;
 #[path = "bridge_links.rs"]

@@ -147,6 +147,7 @@ impl NativeGame {
         self.config_files = files;
         self.register_stock_rules();
         self.register_motd();
+        self.register_emotes();
         self.open_log();
         self.start_warmup();
         // `G_InitBots`.
