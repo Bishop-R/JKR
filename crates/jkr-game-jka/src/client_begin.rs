@@ -482,16 +482,15 @@ pub fn set_team(
     }
 }
 
-/// `BroadcastTeamChange` (`g_cmds.c:579-623`): everyone is told where the player went —
-/// red, blue, the spectators (from anywhere else) or the battle (not in a duel, where
-/// that line is commented out) — but nothing in Siege.
+/// `BroadcastTeamChange` (`g_cmds.c:579-603`): everyone is told where the player went —
+/// red, blue, the spectators (from anywhere else) or the battle — but nothing in Siege.
 fn team_change_announcement(name: &[u8], team: i32, before: i32, gametype: i32) -> Option<Vec<u8>> {
     let words: &[u8] = match team {
         _ if gametype == GT_SIEGE => return None,
         TEAM_RED => b"@@@JOINEDTHEREDTEAM",
         TEAM_BLUE => b"@@@JOINEDTHEBLUETEAM",
         TEAM_SPECTATOR if before != TEAM_SPECTATOR => b"@@@JOINEDTHESPECTATORS",
-        TEAM_FREE if !matches!(gametype, GT_DUEL | GT_POWER_DUEL) => b"@@@JOINEDTHEBATTLE",
+        TEAM_FREE => b"@@@JOINEDTHEBATTLE",
         _ => return None,
     };
     Some([b"cp \"", name, b"^7 ", words, b"\n\""].concat())
@@ -517,9 +516,9 @@ mod announcement_tests {
         );
         assert!(said(TEAM_SPECTATOR, TEAM_SPECTATOR, 6).is_none());
         assert!(said(TEAM_SPECTATOR, TEAM_RED, 6).is_some());
-        // Nothing in Siege, and no "joined the battle" in the duels.
+        // Nothing in Siege; the battle is announced in a duel as anywhere else.
         assert!(said(TEAM_RED, TEAM_SPECTATOR, GT_SIEGE).is_none());
-        assert!(said(TEAM_FREE, TEAM_SPECTATOR, GT_DUEL).is_none());
+        assert!(said(TEAM_FREE, TEAM_SPECTATOR, GT_DUEL).is_some());
         assert!(said(TEAM_FREE, TEAM_SPECTATOR, 0).is_some());
     }
 }
