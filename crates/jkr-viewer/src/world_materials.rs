@@ -277,6 +277,9 @@ pub(crate) struct Runtime {
     /// distinct program costs the driver about half a second on a cold cache).
     entity_pipelines: Vec<std::cell::OnceCell<wgpu::RenderPipeline>>,
     entity_no_depth_pipelines: Vec<std::cell::OnceCell<wgpu::RenderPipeline>>,
+    /// The entities' variant blended by their own alpha (`RF_FORCE_ENT_ALPHA`), compiled
+    /// on first use: a fading corpse's.
+    entity_alpha_pipelines: Vec<std::cell::OnceCell<wgpu::RenderPipeline>>,
     opaque_order: Vec<PassRef>,
     blended_order: Vec<PassRef>,
     dynamic_light_buffer: wgpu::Buffer,
@@ -448,6 +451,7 @@ fn finish_runtime(
         source_order,
         entity_pipelines: Vec::with_capacity(keys.len()),
         entity_no_depth_pipelines: Vec::with_capacity(keys.len()),
+        entity_alpha_pipelines: Vec::with_capacity(keys.len()),
         opaque_order,
         blended_order,
         dynamic_light_buffer,

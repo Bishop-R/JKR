@@ -15,13 +15,19 @@ use std::ops::Range;
 
 const MAX_ENTITY_DRAWS: usize = 16_384;
 
-/// One entity whose original surface shader is replaced by a cgame override.
+/// One entity drawn again over its ordinary draw: with its surface shaders replaced by a
+/// cgame override (`material`), or with its own and blended by its alpha (`material`
+/// `None`, `forced_alpha`: `RF_FORCE_ENT_ALPHA`).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct OverrideInstance {
     pub(crate) mesh: OverrideMesh,
-    pub(crate) material: usize,
+    pub(crate) material: Option<usize>,
     pub(crate) instance: ActorInstance,
     pub(crate) no_depth: bool,
+    pub(crate) forced_alpha: bool,
+    /// A draw of the mesh left out: a surface the game switched off
+    /// (`G2API_SetSurfaceOnOff`).
+    pub(crate) switched_off: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,9 +40,11 @@ pub(crate) enum OverrideMesh {
 #[derive(Clone, Debug)]
 pub(crate) struct OverrideRange {
     mesh: OverrideMesh,
-    material: usize,
+    material: Option<usize>,
     instances: Range<u32>,
     no_depth: bool,
+    forced_alpha: bool,
+    switched_off: Option<usize>,
 }
 
 /// One surface/instance-range submission consumed by `world_materials`.
@@ -46,6 +54,9 @@ pub(crate) struct Draw {
     pub(crate) material: usize,
     pub(crate) instances: Range<u32>,
     pub(crate) no_depth: bool,
+    /// Every stage blended by the entity's alpha, after all other blended work
+    /// (`RF_FORCE_ENT_ALPHA`, post-rendered in `tr_backend.cpp:736-760`).
+    pub(crate) forced_alpha: bool,
     distance_squared: f32,
     /// Opaque, depth-tested and backed by a registered material.
     pub(crate) stage_major: bool,
@@ -84,10 +95,26 @@ impl Queue {
         self.blended.clear();
         self.dropped = 0;
         for (mesh, range) in actors.iter().zip(actor_ranges) {
-            self.append_mesh(runtime, &mesh.draws, range, None, false, instances, camera);
+            self.append_mesh(
+                runtime,
+                &mesh.draws,
+                range,
+                None,
+                (false, false, None),
+                instances,
+                camera,
+            );
         }
         for (mesh, range) in objects.iter().zip(object_ranges) {
-            self.append_mesh(runtime, &mesh.draws, range, None, false, instances, camera);
+            self.append_mesh(
+                runtime,
+                &mesh.draws,
+                range,
+                None,
+                (false, false, None),
+                instances,
+                camera,
+            );
         }
         for entry in overrides {
             let draws = match entry.mesh {
@@ -99,8 +126,8 @@ impl Queue {
                 runtime,
                 draws,
                 &entry.instances,
-                Some(entry.material),
-                entry.no_depth,
+                entry.material,
+                (entry.no_depth, entry.forced_alpha, entry.switched_off),
                 instances,
                 camera,
             );
@@ -115,10 +142,14 @@ impl Queue {
                 .then(left.material.cmp(&right.material))
         });
         self.blended.sort_unstable_by(|left, right| {
-            runtime
-                .material_order(left.material)
-                .0
-                .total_cmp(&runtime.material_order(right.material).0)
+            left.forced_alpha
+                .cmp(&right.forced_alpha)
+                .then(
+                    runtime
+                        .material_order(left.material)
+                        .0
+                        .total_cmp(&runtime.material_order(right.material).0),
+                )
                 .then(right.distance_squared.total_cmp(&left.distance_squared))
                 .then(left.material.cmp(&right.material))
         });
@@ -130,18 +161,21 @@ impl Queue {
         draws: &[ActorDraw],
         instances_range: &Range<u32>,
         override_material: Option<usize>,
-        no_depth: bool,
+        (no_depth, forced_alpha, switched_off): (bool, bool, Option<usize>),
         instances: &[ActorInstance],
         camera: Vec3,
     ) {
         if instances_range.is_empty() {
             return;
         }
-        for surface in draws {
+        for (index, surface) in draws.iter().enumerate() {
+            if switched_off == Some(index) {
+                continue;
+            }
             let material = override_material.unwrap_or(surface.material);
             let blended = runtime.material_blended(material);
-            let stage_major = !no_depth && blended == Some(false);
-            if blended == Some(true) {
+            let stage_major = !no_depth && !forced_alpha && blended == Some(false);
+            if blended == Some(true) || forced_alpha {
                 for instance in instances_range.clone() {
                     let Some(value) = instances.get(instance as usize) else {
                         continue;
@@ -152,6 +186,7 @@ impl Queue {
                             material,
                             instances: instance..instance + 1,
                             no_depth,
+                            forced_alpha,
                             stage_major,
                             distance_squared: Vec3::from_array(value.position)
                                 .distance_squared(camera),
@@ -166,6 +201,7 @@ impl Queue {
                         material,
                         instances: instances_range.clone(),
                         no_depth,
+                        forced_alpha,
                         stage_major,
                         distance_squared: 0.0,
                     },
@@ -216,6 +252,8 @@ pub(crate) fn append_override_ranges(
             material: entry.material,
             instances: start..start + 1,
             no_depth: entry.no_depth,
+            forced_alpha: entry.forced_alpha,
+            switched_off: entry.switched_off,
         });
     }
 }

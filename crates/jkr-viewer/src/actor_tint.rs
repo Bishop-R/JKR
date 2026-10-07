@@ -22,6 +22,14 @@ impl ActorInstance {
         self
     }
 
+    /// Apply rd-vanilla's `RF_FORCE_ENT_ALPHA` alone: every stage's alpha becomes `alpha`
+    /// (`ForceAlpha`, `tr_shade.cpp:1742-1753`), its colour generators untouched.
+    pub(super) fn with_forced_alpha(mut self, alpha: u8) -> Self {
+        self.entity_color[3] = f32::from(alpha) / 255.0;
+        self.entity_control[1] = 1.0;
+        self
+    }
+
     /// Apply rd-vanilla's RGB and alpha render-effect overrides.
     pub(super) fn with_rgba_tint(mut self, color: [f32; 4]) -> Self {
         self.entity_color = color;

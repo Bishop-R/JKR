@@ -466,6 +466,8 @@ fn submit_actor(
     if dissolving == Some(actor_dissolve::Phase::Gone) {
         return 0;
     }
+    // `EV_BODYFADE`: a fading corpse is drawn only through the fade's passes.
+    let fading = mesh.and_then(|index| sinks.actor_meshes[index].fade.current());
     let mut equipment = if Some(entity.id.get()) == local_entity_id {
         local_actor_state::equipment(
             entity.equipment(),
@@ -492,7 +494,10 @@ fn submit_actor(
                 held
             });
     }
-    if let Some((equipment, held_mesh)) = equipment.zip(mesh).filter(|_| dissolving.is_none()) {
+    if let Some((equipment, held_mesh)) = equipment
+        .zip(mesh)
+        .filter(|_| dissolving.is_none() && fading.is_none())
+    {
         submit_equipment(
             sinks,
             entity,
@@ -529,6 +534,21 @@ fn submit_actor(
                 since,
                 presentation_time,
             );
+        }
+        if let Some(passes) = fading {
+            let light_side = sinks.actor_meshes[mesh]
+                .body_identity
+                .as_ref()
+                .is_some_and(|body| body.light_side);
+            fade_passes(
+                sinks,
+                mesh,
+                instance,
+                (light_side, transform.translation, entity.id.get()),
+                passes,
+                presentation_time,
+            );
+            return 0;
         }
         sinks.actor_groups[mesh].push(instance);
         sinks.actor_meshes[mesh]
@@ -593,12 +613,82 @@ fn burning(
     if let Some(material) = sinks.material_overrides.force("gfx/effects/burn") {
         sinks.overrides.push(entity_materials::OverrideInstance {
             mesh: entity_materials::OverrideMesh::Actor(mesh),
-            material,
+            material: Some(material),
             instance: instance.with_dissolve(2, center, radius),
             no_depth: false,
+            forced_alpha: false,
+            switched_off: None,
         });
     }
     instance.with_dissolve(1, center, radius)
+}
+
+/// A fading corpse's passes ([`corpse_fade`], `cg_ents.c:1500-1631`): the body blended
+/// by its own alpha, the shield's or the red glow tinted over it (burning away from its
+/// origin once it holds), a dark-sided body's electric shell tinted red, and the fade's
+/// sounds. `owner` is the body's side, origin and entity.
+fn fade_passes(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    instance: ActorInstance,
+    (light_side, origin, entity): (bool, [f32; 3], u64),
+    passes: corpse_fade::Passes,
+    now: i64,
+) {
+    let actor = entity_materials::OverrideMesh::Actor(mesh);
+    // The fade switches the inside of the face off for every pass (`cg_event.c:2785-2789`).
+    let mouth = sinks.actor_meshes[mesh].mouth_draw;
+    let push = |sinks: &mut Sinks<'_>, material, instance, forced_alpha| {
+        sinks.overrides.push(entity_materials::OverrideInstance {
+            mesh: actor,
+            material,
+            instance,
+            no_depth: false,
+            forced_alpha,
+            switched_off: mouth,
+        });
+    };
+    if let Some(alpha) = passes.body_alpha {
+        push(sinks, None, instance.with_forced_alpha(alpha), true);
+    }
+    let glow = if light_side {
+        "gfx/misc/personalshield"
+    } else {
+        "gfx/effects/sabers/red_glow"
+    };
+    if let Some(material) = sinks.material_overrides.force(glow) {
+        let grey = f32::from(passes.glow) / 255.0;
+        let mut tinted = instance.with_rgb_tint([grey; 4]);
+        if let Some(since) = passes.burning_since {
+            tinted = tinted.with_dissolve(2, [0.0; 3], (now - since) as f32 * 0.045);
+        }
+        push(sinks, Some(material), tinted, false);
+    }
+    let electric = passes.electric.map(|second| {
+        if second {
+            "gfx/misc/fullbodyelectric2"
+        } else {
+            "gfx/misc/electric"
+        }
+    });
+    if let Some(material) = electric.and_then(|shader| sinks.material_overrides.force(shader)) {
+        push(
+            sinks,
+            Some(material),
+            instance.with_rgb_tint([1.0, 0.0, 0.0, 1.0]),
+            false,
+        );
+    }
+    if let Some(audio) = sinks.game_audio.as_mut() {
+        for (path, _) in corpse_fade::SOUNDS
+            .iter()
+            .zip(passes.sounds)
+            .filter(|(_, starts)| *starts)
+        {
+            let source = jkr_audio::SourceId(entity.saturating_sub(1) as u32);
+            audio.play(sinks.vfs, path, 1.0, origin, source);
+        }
+    }
 }
 
 /// The disruptor's death smoke this frame for the actor drawn with `mesh`

@@ -84,9 +84,11 @@ pub(crate) fn submit(
         shell.view_flags = instance.view_flags;
         output.push(OverrideInstance {
             mesh: OverrideMesh::Object(mesh),
-            material,
+            material: Some(material),
             instance: shell,
             no_depth: false,
+            forced_alpha: false,
+            switched_off: None,
         });
     }
     for request in requests.iter() {
@@ -104,9 +106,11 @@ pub(crate) fn submit(
         };
         output.push(OverrideInstance {
             mesh: OverrideMesh::Actor(mesh),
-            material,
+            material: Some(material),
             instance,
             no_depth: request.no_depth,
+            forced_alpha: false,
+            switched_off: None,
         });
     }
     output.len() - start

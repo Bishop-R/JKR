@@ -20,6 +20,7 @@ mod chat;
 mod client_guid;
 mod client_state;
 mod clientinfo_refresh;
+mod corpse_fade;
 
 mod shader_image;
 

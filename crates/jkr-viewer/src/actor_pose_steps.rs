@@ -50,6 +50,22 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         crate::actor_dissolve::entity_flags(mesh.entity_id, local_entity, predicted, snapshot);
     crate::actor_dissolve::hold_pose(mesh, flags, presentation_time, &mut state);
     if mesh.corpse_pool {
+        let event = crate::corpse_fade::entity_event(mesh.entity_id, snapshot);
+        mesh.fade.observe(mesh.entity_id, event, presentation_time);
+        let light_side = mesh
+            .body_identity
+            .as_ref()
+            .is_some_and(|body| body.light_side);
+        let mut seed =
+            (mesh.entity_id.map_or(1, |id| id.get() as u32) ^ (presentation_time as u32)) | 1;
+        mesh.fade.update(presentation_time, light_side, move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            (seed >> 8) as f32 / (1 << 24) as f32
+        });
+    }
+    if mesh.corpse_pool {
         state.lower.forced_frame =
             jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);
         state.upper.forced_frame =

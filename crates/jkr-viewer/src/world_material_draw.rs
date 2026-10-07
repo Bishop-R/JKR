@@ -320,7 +320,7 @@ impl Runtime {
         draw: &crate::entity_materials::Draw,
         levels: Range<usize>,
         live_emission: bool,
-        last_pipeline: &mut Option<(usize, bool)>,
+        last_pipeline: &mut Option<(usize, u8)>,
         last_bind_group: &mut Option<PassRef>,
     ) {
         let Some(runtime_material_index) = self
@@ -336,7 +336,10 @@ impl Runtime {
         };
         // Depth-tested stages on the stage table: the table group stays bound and an
         // immediate names the record, in place of a bind-group switch per draw.
-        let table = self.stage_table.as_ref().filter(|_| !draw.no_depth);
+        let table = self
+            .stage_table
+            .as_ref()
+            .filter(|_| !draw.no_depth && !draw.forced_alpha);
         for (stage_index, stage) in material
             .stages
             .iter()
@@ -353,7 +356,7 @@ impl Runtime {
                 .and_then(|table| Some((table, table.record(runtime_material_index, stage_index)?)))
             {
                 if let Some(tabled) = table.pipeline(&self.forge, index, true) {
-                    let pipeline = (index | TABLE_PIPELINE, false);
+                    let pipeline = (index | TABLE_PIPELINE, 0);
                     if *last_pipeline != Some(pipeline) {
                         pass.set_pipeline(tabled);
                         *last_pipeline = Some(pipeline);
@@ -368,9 +371,18 @@ impl Runtime {
                     continue;
                 }
             }
-            let pipeline = (index, draw.no_depth);
+            let variant = if draw.forced_alpha {
+                2
+            } else {
+                u8::from(draw.no_depth)
+            };
+            let pipeline = (index, variant);
             if *last_pipeline != Some(pipeline) {
-                pass.set_pipeline(self.entity_pipeline(index, !draw.no_depth));
+                pass.set_pipeline(if draw.forced_alpha {
+                    self.entity_alpha_pipeline(index)
+                } else {
+                    self.entity_pipeline(index, !draw.no_depth)
+                });
 
                 *last_pipeline = Some(pipeline);
             }

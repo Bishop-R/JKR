@@ -45,6 +45,7 @@ pub(crate) fn build_actor_mesh(
     let sample = (frame, frame, 0.0);
     let weapon_attachments = saber::actor_attachments(&preview, sample, sample);
     let (draws, vertex_ranges) = append_actor_mesh(scene, &preview, frame)?;
+    let mouth_draw = surface_draw(&preview.mesh, &vertex_ranges, "head_eyes_mouth");
     let pose_vertex_capacity = vertex_ranges
         .iter()
         .map(|range| range.vertices.len())
@@ -74,6 +75,26 @@ pub(crate) fn build_actor_mesh(
         gpu_palette: None,
         retained_pose,
         dissolve: Default::default(),
+        fade: Default::default(),
+        mouth_draw,
+    })
+}
+
+/// The draw of `mesh`'s surface `name` (the names `G2API_SetSurfaceOnOff` takes), when the
+/// skin draws it. Draws and `ranges` run in step, one for each drawn surface; a range counts
+/// the surfaces skinning keeps, the model's switched-off ones left out (as GPU skinning
+/// reads it).
+fn surface_draw(mesh: &Glm, ranges: &[PreviewVertexRange], name: &str) -> Option<usize> {
+    let kept: Vec<&str> = mesh
+        .hierarchy
+        .iter()
+        .take(mesh.lods.first()?.surfaces.len())
+        .filter(|surface| surface.flags & 2 == 0)
+        .map(|surface| surface.name.as_str())
+        .collect();
+    ranges.iter().position(|range| {
+        kept.get(range.surface_index)
+            .is_some_and(|surface| surface.eq_ignore_ascii_case(name))
     })
 }
 
@@ -226,4 +247,53 @@ pub(crate) fn load_actor_meshes(
         )?);
     }
     Ok(meshes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jkr_model::{GlmLod, GlmSurface, GlmSurfaceHierarchy};
+
+    #[test]
+    fn the_mouth_is_found_among_the_drawn_surfaces() {
+        let surface = |(name, flags): (&str, u32)| GlmSurfaceHierarchy {
+            name: name.into(),
+            flags,
+            shader: String::new(),
+            parent: None,
+            children: Vec::new(),
+        };
+        let lod = |hierarchy_index| GlmSurface {
+            hierarchy_index,
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+            bone_references: Vec::new(),
+        };
+        let mesh = Glm {
+            name: "model".into(),
+            animation_name: String::new(),
+            bone_count: 0,
+            // The model switches the cap off; the skin hides the torso.
+            hierarchy: [
+                ("hips", 0),
+                ("head_cap_torso_off", 2),
+                ("torso", 0),
+                ("head_eyes_mouth", 0),
+            ]
+            .map(surface)
+            .to_vec(),
+            lods: vec![GlmLod {
+                surfaces: (0..4).map(lod).collect(),
+            }],
+        };
+        // Skinning keeps hips, torso and mouth; the torso has no shader, so it is not drawn
+        // and the mouth is the second draw.
+        let ranges = [0, 2].map(|surface_index| PreviewVertexRange {
+            surface_index,
+            vertices: 0..0,
+        });
+        assert_eq!(surface_draw(&mesh, &ranges, "HEAD_eyes_mouth"), Some(1));
+        assert_eq!(surface_draw(&mesh, &ranges, "head_cap_torso_off"), None);
+        assert_eq!(surface_draw(&mesh, &ranges, "torso"), None);
+    }
 }
