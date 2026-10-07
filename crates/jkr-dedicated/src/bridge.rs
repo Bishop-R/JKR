@@ -72,6 +72,7 @@ pub enum SpawnOrder {
 /// deactivated it.
 #[derive(Clone, Copy, Debug, Default)]
 struct MapTarget {
+    /// A delay's firing time; for a print, until when it stays quiet.
     next_think: i32,
     inactive: bool,
 }

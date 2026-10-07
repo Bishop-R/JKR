@@ -1109,11 +1109,14 @@ pub fn fire_multiple(
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
     /// `target_print`: the message, and who is told — the activator alone (spawnflag 4),
-    /// a team (1 or 2), or everyone.
+    /// the red team (1) and the blue team (2), or everyone — and how long, in
+    /// milliseconds, it stays quiet after printing (`wait`).
     Print {
         message: String,
         to_activator: bool,
-        team: Option<u8>,
+        /// Spawnflags 1 and 2: bit 0 the red team, bit 1 the blue.
+        teams: u8,
+        wait: f32,
     },
     /// `target_speaker`: the sound, and how it is played (a looping toggle at 3, on the
     /// activator at 8, everywhere at 4, else on itself).
@@ -1130,6 +1133,18 @@ pub enum Target {
     /// `target_activate` and `target_deactivate`: clear or set `FL_INACTIVE` on
     /// everything of that name.
     SetActive { target: String, active: bool },
+}
+
+/// The command `Use_Target_Print` sends (`g_target.c:146-260`): a message that is one
+/// string-table reference (`@` but not `@@`) goes as `cps`, which the client looks up
+/// whole; anything else as `cp`.
+pub fn print_command(message: &str) -> Vec<u8> {
+    let command = if message.starts_with('@') && !message.starts_with("@@") {
+        "cps"
+    } else {
+        "cp"
+    };
+    format!("{command} \"{message}\"").into_bytes()
 }
 
 /// Every target of a map's entity lump, by the name things fire it with. `sound` names
@@ -1156,11 +1171,8 @@ pub fn map_targets(
             "target_print" => Target::Print {
                 message: entity.get("message").unwrap_or_default().to_owned(),
                 to_activator: spawnflags & 4 != 0,
-                team: match spawnflags & 3 {
-                    1 => Some(1),
-                    2 => Some(2),
-                    _ => None,
-                },
+                teams: (spawnflags & 3) as u8,
+                wait: number("wait"),
             },
             "target_speaker" => Target::Speaker {
                 noise: entity.get("noise").map_or(0, |noise| sound(noise)),
@@ -1194,4 +1206,19 @@ pub fn map_targets(
         targets.push((name, target));
     }
     targets
+}
+
+#[cfg(test)]
+mod print_tests {
+    use super::*;
+
+    #[test]
+    fn a_string_reference_prints_as_cps_and_everything_else_as_cp() {
+        assert_eq!(
+            print_command("@SIEGE_HOTH_PRINT_8"),
+            b"cps \"@SIEGE_HOTH_PRINT_8\"".to_vec()
+        );
+        assert_eq!(print_command("@@@NOCLASS"), b"cp \"@@@NOCLASS\"".to_vec());
+        assert_eq!(print_command("Doors open"), b"cp \"Doors open\"".to_vec());
+    }
 }

@@ -155,6 +155,33 @@ impl NativeGame {
         self.fire_targets(&fired.target, client, level_time);
     }
 
+    /// `Use_Target_Print`'s recipients: the activator alone when it is a client, the
+    /// players of the flagged teams (`G_TeamCommand`: connected, by session team), or
+    /// everyone.
+    fn print_to(&mut self, message: &str, activator: Option<usize>, teams: u8) {
+        let command = jkr_game_jka::triggers::print_command(message);
+        if let Some(client) = activator {
+            if client < self.players.places() && self.peer(client).is_some() {
+                self.told.push(Told::One(client, command));
+            }
+            return;
+        }
+        if teams == 0 {
+            self.told.push(Told::Everyone(command));
+            return;
+        }
+        for view in self.client_views() {
+            let flagged = match view.team {
+                jkr_game_jka::ctf::TEAM_RED => teams & 1 != 0,
+                jkr_game_jka::ctf::TEAM_BLUE => teams & 2 != 0,
+                _ => false,
+            };
+            if flagged && view.connection == jkr_game_jka::client_view::Connection::Connected {
+                self.told.push(Told::One(view.client, command.clone()));
+            }
+        }
+    }
+
     /// `G_UseTargets`: everything of that name, in the map's order.
     pub(super) fn fire_targets(&mut self, name: &str, client: usize, level_time: i32) {
         if name.is_empty() {
@@ -174,9 +201,21 @@ impl NativeGame {
                 continue;
             }
             match target {
-                jkr_game_jka::triggers::Target::Print { message, .. } => {
-                    self.told
-                        .push(Told::Everyone(format!("cp \"{message}\"").into_bytes()));
+                jkr_game_jka::triggers::Target::Print {
+                    message,
+                    to_activator,
+                    teams,
+                    wait,
+                } => {
+                    // `wait`: quiet for that many milliseconds after printing
+                    // (`genericValue14`).
+                    if wait != 0.0 {
+                        if state.next_think >= level_time {
+                            continue;
+                        }
+                        self.targets[index].2.next_think = (level_time as f32 + wait) as i32;
+                    }
+                    self.print_to(&message, to_activator.then_some(client), teams);
                 }
                 // Speakers are entities of their own (`use_map_effects`, below).
                 jkr_game_jka::triggers::Target::Speaker { .. } => {}
