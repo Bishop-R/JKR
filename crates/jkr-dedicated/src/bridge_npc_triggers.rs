@@ -261,6 +261,10 @@ impl NativeGame {
     /// then its firing with the NPC as the activator.
     fn npc_touch_multiples(&mut self, number: u16, level_time: i32) {
         for index in 0..self.multiples.len() {
+            // A fired `trigger_once` is no trigger any more.
+            if !rules::touchable(&self.multiples[index]) {
+                continue;
+            }
             let Some((origin, bounds)) = self.npc_box(number) else {
                 return;
             };

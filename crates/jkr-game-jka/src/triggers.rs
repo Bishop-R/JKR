@@ -947,6 +947,12 @@ pub struct NoHooks;
 
 impl TouchHooks for NoHooks {}
 
+/// Whether anything can touch the trigger at all: `G_TouchTriggers` passes over whatever
+/// is not `CONTENTS_TRIGGER` (`g_active.c:563-565`), as a fired `trigger_once` no longer is.
+pub fn touchable(trigger: &Multiple) -> bool {
+    trigger.contents & CONTENTS_TRIGGER != 0
+}
+
 /// [`touch_multiple_as`] with a game type's [`TouchHooks`].
 pub fn touch_multiple_as_with(
     trigger: &mut Multiple,

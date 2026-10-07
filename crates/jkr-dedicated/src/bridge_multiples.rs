@@ -38,6 +38,10 @@ impl NativeGame {
         }
         for index in 0..self.multiples.len() {
             let trigger = self.multiples[index].clone();
+            // A fired `trigger_once` is no trigger any more.
+            if !jkr_game_jka::triggers::touchable(&trigger) {
+                continue;
+            }
             // `Touch_Multi`'s `FL_INACTIVE` as a script set it, and its team gate.
             if self.scripts.multiple_switched_off(index) {
                 continue;
