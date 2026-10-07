@@ -318,6 +318,7 @@ pub(crate) fn update(
             })
         });
     if let Some((snapshot, game, _, extended)) = source {
+        gpu.hud.update_meters(&snapshot.player, &snapshot.entities);
         let console = gpu.console.as_ref();
         let identifies = gpu.hud.targeting.identifies(snapshot.player.weapon());
         gpu.hud.update_crosshair_bars(hud::CrosshairBarInputs {
