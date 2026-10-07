@@ -187,4 +187,21 @@ mod tests {
         shell.execute_line("cg_thirdperson !").unwrap();
         assert_eq!(value(&shell), "0");
     }
+
+    #[test]
+    fn a_cvar_is_found_by_any_spelling() {
+        let mut cvars = CvarRegistry::new();
+        cvars
+            .register(CvarDefinition::new(
+                "cg_speedTrail",
+                1_i64,
+                CvarFlags::ARCHIVE,
+                "",
+            ))
+            .unwrap();
+        for name in ["cg_speedtrail", "cg_speedTrail", "CG_SPEEDTRAIL"] {
+            assert!(cvars.get(name).is_some(), "{name}");
+        }
+        assert!(cvars.get("cg_speedTrails").is_none());
+    }
 }

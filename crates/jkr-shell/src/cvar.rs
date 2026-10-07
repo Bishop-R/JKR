@@ -266,13 +266,24 @@ impl CvarRegistry {
         Ok(())
     }
 
-    /// Look up a cvar case-insensitively.
+    /// Look up a cvar case-insensitively, without allocating for any name of a cvar's
+    /// length, so per-frame reads may spell names as the game does (`cg_thirdPerson`).
     pub fn get(&self, name: &str) -> Option<&Cvar> {
-        // Runtime consumers use normalized names; do not allocate on every frame read.
         if !name.bytes().any(|byte| byte.is_ascii_uppercase()) {
             return self
                 .entries
                 .get(self.canonical_key(name))
+                .map(|entry| &entry.cvar);
+        }
+        let mut lowered = [0_u8; 64];
+        if let Some(lowered) = lowered.get_mut(..name.len()) {
+            lowered.copy_from_slice(name.as_bytes());
+            lowered.make_ascii_lowercase();
+            // Lowercasing ASCII letters keeps the bytes UTF-8.
+            let lowered = std::str::from_utf8(lowered).ok()?;
+            return self
+                .entries
+                .get(self.canonical_key(lowered))
                 .map(|entry| &entry.cvar);
         }
         self.entries
