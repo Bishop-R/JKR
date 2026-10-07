@@ -453,6 +453,19 @@ fn submit_actor(
             sinks, mesh, *transform, snapshot, state, local, draw_actor, visual_now,
         );
     }
+    // `EF_DISINTEGRATION`: smoke at the waist for the first second, no weapon or Force
+    // shells while it burns, and nothing at all once a player is gone.
+    let dissolving = mesh.and_then(|index| {
+        sinks.actor_meshes[index]
+            .dissolve
+            .phase(presentation_time, entity.kind == EntityKind::Corpse)
+    });
+    if let (Some(index), Some(_)) = (mesh, dissolving) {
+        dissolve_smoke(sinks, index, *transform, entity.id.get(), visual_now);
+    }
+    if dissolving == Some(actor_dissolve::Phase::Gone) {
+        return 0;
+    }
     let mut equipment = if Some(entity.id.get()) == local_entity_id {
         local_actor_state::equipment(
             entity.equipment(),
@@ -479,7 +492,7 @@ fn submit_actor(
                 held
             });
     }
-    if let Some((equipment, held_mesh)) = equipment.zip(mesh) {
+    if let Some((equipment, held_mesh)) = equipment.zip(mesh).filter(|_| dissolving.is_none()) {
         submit_equipment(
             sinks,
             entity,
@@ -506,7 +519,7 @@ fn submit_actor(
         sinks.actor_meshes[mesh]
             .retained_pose
             .mark_drawn(entity.id, presentation_time);
-        if let (Some(snapshot), Some(game_state)) = (snapshot, game_state) {
+        if let (Some(snapshot), Some(game_state), None) = (snapshot, game_state, dissolving) {
             return force_overlay_submission::submit(
                 sinks.overrides,
                 mesh,
@@ -537,6 +550,41 @@ fn submit_actor(
         });
     }
     0
+}
+
+/// The disruptor's death smoke this frame for the actor drawn with `mesh`
+/// (`cgs.effects.mDisruptorDeathSmoke`, [`actor_dissolve`]).
+fn dissolve_smoke(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    transform: jkr_runtime::Transform,
+    entity: u64,
+    now: Instant,
+) {
+    let meshes = sinks.actor_meshes;
+    let puffs = meshes[mesh].dissolve.puffs();
+    let Some(waist) = actor_dissolve::waist(&meshes[mesh], transform).filter(|_| puffs > 0) else {
+        return;
+    };
+    let forward = actor_dissolve::camera_forward(sinks.camera_yaw, sinks.camera_pitch);
+    for puff in 0..puffs {
+        let seed = (entity as u32) ^ (sinks.presentation_time as u32).rotate_left(7) ^ puff;
+        // `Q_flrand(-1, 1)` for the height, from the puff's own seed.
+        let height = ((seed.wrapping_mul(2_654_435_761) >> 8) as f32 / (1 << 23) as f32) - 1.0;
+        effect_runtime::spawn_effect(
+            sinks.particles,
+            sinks.effect_aux,
+            sinks.effects,
+            sinks.vfs,
+            "disruptor/death_smoke",
+            actor_dissolve::smoke_origin(waist, forward, height),
+            now,
+            seed,
+            0,
+            sinks.game_audio,
+            combat_effects::rotation_from_direction([0.0, 1.0, 0.0]),
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -45,6 +45,10 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         return Ok(());
     };
     let mut state = state;
+    // `EF_DISINTEGRATION`: the pose holds the legs frame it had when the flag was first seen.
+    let flags =
+        crate::actor_dissolve::entity_flags(mesh.entity_id, local_entity, predicted, snapshot);
+    crate::actor_dissolve::hold_pose(mesh, flags, presentation_time, &mut state);
     if mesh.corpse_pool {
         state.lower.forced_frame =
             jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);

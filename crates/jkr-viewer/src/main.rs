@@ -1,3 +1,4 @@
+mod actor_dissolve;
 mod actor_instance;
 mod actor_load;
 mod actor_mesh;

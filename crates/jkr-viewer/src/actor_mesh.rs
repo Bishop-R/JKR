@@ -25,4 +25,6 @@ pub(crate) struct ActorMesh {
     /// This frame's CPU skinning result, shared with visual point queries after upload.
     pub(crate) retained_pose: crate::actor_pose::RetainedPose,
     pub(crate) force_bones: crate::actor_pose::ForceBones,
+    /// A disintegration as this client saw it begin (`EF_DISINTEGRATION`).
+    pub(crate) dissolve: crate::actor_dissolve::Dissolve,
 }
