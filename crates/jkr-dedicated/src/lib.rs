@@ -8,6 +8,7 @@ pub mod collision;
 pub mod command_buffer;
 pub mod config_files;
 pub mod cvars;
+pub(crate) mod damage_numbers;
 pub mod frame_clock;
 pub mod map;
 pub mod master;

@@ -70,7 +70,7 @@ impl NativeGame {
         let mut portals = false;
         for (index, entity) in self.pool.linked().enumerate() {
             sent.push(false);
-            if entity.permanent || entity.not_for == Some(client as u16) {
+            if entity.permanent || entity.withheld_from(client as u16) {
                 continue;
             }
             // Beyond what a legacy client can represent: never aliased onto a number it
@@ -108,7 +108,7 @@ impl NativeGame {
                 for (index, entity) in self.pool.linked().enumerate() {
                     if sent[index]
                         || entity.permanent
-                        || entity.not_for == Some(client as u16)
+                        || entity.withheld_from(client as u16)
                         || entity.legacy_number().is_none()
                     {
                         continue;

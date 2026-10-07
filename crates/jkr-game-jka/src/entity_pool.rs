@@ -76,6 +76,8 @@ struct Slot {
     free_after_event: bool,
     /// `SVF_NOTSINGLECLIENT`'s `singleClient`: everyone but this wire client is sent it.
     not_for: Option<u16>,
+    /// `SVF_SINGLECLIENT`'s `singleClient`: only this wire client is sent it.
+    only_for: Option<u16>,
     linked: bool,
     /// `timestamp` of a body: when it fell; `None` for anything else.
     body_since: Option<i32>,
@@ -123,6 +125,8 @@ pub struct PoolEntity<'a> {
     pub state: &'a EntityState,
     /// The one wire client that is not sent it, if any.
     pub not_for: Option<u16>,
+    /// The one wire client that alone is sent it, if any.
+    pub only_for: Option<u16>,
     /// `r.mins`, `r.maxs`.
     pub bounds: ([f32; 3], [f32; 3]),
     /// `SVF_BROADCAST`: sent to everyone wherever they are — set for the entity, or for
@@ -133,6 +137,12 @@ pub struct PoolEntity<'a> {
 }
 
 impl PoolEntity<'_> {
+    /// Whether wire client `client` is kept from it: everyone but it, or it alone, is sent
+    /// it (`SVF_NOTSINGLECLIENT`, `SVF_SINGLECLIENT`).
+    pub fn withheld_from(&self, client: u16) -> bool {
+        self.not_for == Some(client) || self.only_for.is_some_and(|only| only != client)
+    }
+
     /// The number a legacy client knows it by, or `None` when it lies beyond what a
     /// legacy client can represent: the snapshot adapter withholds it and counts it.
     pub fn legacy_number(&self) -> Option<u16> {
@@ -291,6 +301,7 @@ impl EntityPool {
             event_time,
             free_after_event,
             not_for,
+            only_for: None,
             linked,
             body_since: None,
             body_rid_at: None,
@@ -568,6 +579,7 @@ impl EntityPool {
                     id: EntityId::new(ordinal as u32, slot.generation),
                     state: &slot.state,
                     not_for: slot.not_for,
+                    only_for: slot.only_for,
                     bounds: slot.bounds,
                     broadcast: slot.broadcast
                         || broadcast_event(&slot.state)
@@ -607,6 +619,14 @@ impl EntityPool {
     pub fn set_bounds(&mut self, id: EntityId, bounds: ([f32; 3], [f32; 3])) {
         if let Some(slot) = self.slot_mut(id) {
             slot.bounds = bounds;
+        }
+    }
+
+    /// `SVF_SINGLECLIENT`: an entity in use sent to wire client `client` alone, or to
+    /// whoever may see it again (`None`).
+    pub fn set_only_for(&mut self, id: EntityId, client: Option<u16>) {
+        if let Some(slot) = self.slot_mut(id) {
+            slot.only_for = client;
         }
     }
 
@@ -668,6 +688,7 @@ impl Slot {
             event_time: 0,
             free_after_event: false,
             not_for: None,
+            only_for: None,
             linked: false,
             body_since: None,
             body_rid_at: None,

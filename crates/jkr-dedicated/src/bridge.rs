@@ -2531,6 +2531,7 @@ impl NativeGame {
             return Damaged::default();
         };
         let was_dead = victim.health <= 0;
+        let alive_before = !was_dead && victim.state.stats[0] as i32 > 0;
         let (bottom, top) = victim.movement.box_bounds();
         let origin = victim.state.origin();
         let bounds = (
@@ -2569,6 +2570,11 @@ impl NativeGame {
             && let Some(attacker) = request.attacker
         {
             self.blow_landed(usize::from(attacker.client), target, level_time);
+        }
+        // jaPRO's damage numbers, for a player's blow on one alive before it.
+        if alive_before && let Some(attacker) = request.attacker.filter(|attacker| !attacker.npc) {
+            let dealt = damaged.take + damaged.absorbed;
+            self.tell_damage(usize::from(attacker.client), target, dealt, level_time);
         }
         if damaged.died.is_some()
             && was_dead
@@ -3498,6 +3504,8 @@ use bridge_throw::init_saber_entity;
 mod bridge_client_spawn;
 #[path = "bridge_collision_gather.rs"]
 mod bridge_collision_gather;
+#[path = "bridge_damage_numbers.rs"]
+mod bridge_damage_numbers;
 #[path = "bridge_doors.rs"]
 mod bridge_doors;
 #[path = "bridge_emotes.rs"]
