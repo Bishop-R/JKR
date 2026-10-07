@@ -295,21 +295,7 @@ impl NativeGame {
         if gametype == GT_SIEGE && allied != 0 && allied == peer.session.team {
             return true;
         }
-        if matches!(
-            peer.state.torso_animation(),
-            jkr_game_jka::try_heal::BOTH_BUTTON_HOLD | jkr_game_jka::try_heal::BOTH_CONSOLE1
-        ) {
-            peer.state.set_raw_field(20, 500);
-        } else {
-            peer.movement.set_animation_parts(
-                SETANIM_TORSO,
-                jkr_game_jka::try_heal::BOTH_BUTTON_HOLD,
-                OVERRIDE_HOLD,
-            );
-            peer.movement.write_player_state(&mut peer.state);
-        }
-        let torso_timer = peer.state.torso_timer();
-        peer.state.set_raw_field(10, torso_timer as u32);
+        super::super::bridge_use::hold_use_pose(peer, true);
         let Self {
             server,
             world,

@@ -71,6 +71,7 @@ pub mod ctf;
 pub mod damage;
 pub(crate) mod death_animation;
 pub mod demp2;
+pub mod dispensers;
 pub mod disruptor;
 pub mod duel;
 pub mod emplaced;

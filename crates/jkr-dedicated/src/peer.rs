@@ -20,6 +20,8 @@ pub(crate) const TEAM_SPECTATOR: u8 = 3;
 pub(crate) const EFLAGS: usize = 17;
 /// `EF_CONNECTION`: draw the connection-trouble sprite over this player.
 pub(crate) const EF_CONNECTION: u32 = 1 << 14;
+/// `ps.loopSound`.
+const PS_LOOP_SOUND: usize = 75;
 /// Wire field `eventSequence`.
 const EVENT_SEQUENCE: usize = 19;
 
@@ -147,6 +149,9 @@ pub struct Peer {
     pub(crate) knockdown: jkr_game_jka::knockdown::Knockdown,
     /// `jediKickIndex`, `jediKickTime`: what this player's kick last hit, till the kick ends.
     pub(crate) kick: jkr_game_jka::saber_kick::KickMemory,
+    /// The dispensers' marks on this player (`isMedHealed`, `isMedSupplied`) and its own
+    /// pace as their user (`medSupplyDebounce`).
+    pub(crate) service: jkr_game_jka::dispensers::Service,
     /// The Force no client is sent (`forcedata_t`'s levels, timers and sound trackers).
     pub(crate) force: jkr_game_jka::force_powers::ForcePowers,
     /// `pushEffectTime`: until when a Force push's full-body effect shows.
@@ -271,6 +276,7 @@ impl Peer {
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),
+            service: jkr_game_jka::dispensers::Service::default(),
             force: jkr_game_jka::force_powers::ForcePowers::with_levels(
                 [0; jkr_game_jka::force_powers::NUM_FORCE_POWERS],
             ),
@@ -589,6 +595,17 @@ impl Peer {
         // `ent->client->ps.stats[STAT_HEALTH] = ent->health`.
         self.state.stats[0] = self.health as u32;
         self.movement.set_health(self.health);
+        // `G_SetClientSound`: hacking, being served by a dispenser, or frying.
+        let movement = self.movement.state();
+        let loop_sound = jkr_game_jka::dispensers::loop_sound(
+            self.siege_hands.hack.trigger != 0,
+            &self.service,
+            movement.water_level,
+            movement.water_type,
+            server_time,
+        );
+        self.state
+            .set_raw_field(PS_LOOP_SOUND, u32::from(loop_sound));
         let client = self.entity.state().number();
         if let Some(overflow) = self.entity.frame_ended(&self.state, false) {
             let _ = pool.spawn_temporary(overflow.clone(), server_time, Some(client));

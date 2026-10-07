@@ -89,6 +89,7 @@ impl NativeGame {
         );
         peer.saber_cut = Default::default();
         peer.kick = Default::default();
+        peer.service = Default::default();
         peer.gear = Default::default();
         peer.time_residual = 0;
         peer.block_time = 0;
