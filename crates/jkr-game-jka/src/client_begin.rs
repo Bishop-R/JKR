@@ -438,15 +438,17 @@ pub fn set_team(
     // side already two ahead, is off by default and is not ported.)
     if gametype >= GT_TEAM {
         let wanted_team = team_for_word(wanted, sides);
-        let before = std::mem::replace(&mut session.team, wanted_team);
-        if wanted_team == before {
+        // `g_cmds.c:849`: only a spectator may "change" to where it already is (its
+        // spectator state can still change).
+        if wanted_team == session.team && wanted_team != TEAM_SPECTATOR {
             return TeamCommand::Unchanged;
         }
+        let before = std::mem::replace(&mut session.team, wanted_team);
         (session.spectator_state, session.spectator_client) = spectating;
         session.team_command_done(before, level_time);
         return TeamCommand::Changed {
-            announcement: None,
-            queued: wanted_team == TEAM_SPECTATOR,
+            announcement: team_change_announcement(name, wanted_team, before, gametype),
+            queued: wanted_team == TEAM_SPECTATOR && before != TEAM_SPECTATOR,
         };
     }
     let spectate = [
@@ -474,16 +476,50 @@ pub fn set_team(
     (session.spectator_state, session.spectator_client) = spectating;
     // A player who leaves for the spectators dies first in the reference (its body
     // stays, it is sent the scores); death is not ported, so here it simply leaves.
-    let words = if team == TEAM_SPECTATOR {
-        "@@@JOINEDTHESPECTATORS"
-    } else {
-        "@@@JOINEDTHEBATTLE"
-    };
-    let announced = team != before;
-    let queued = team == TEAM_SPECTATOR && before != TEAM_SPECTATOR;
     TeamCommand::Changed {
-        announcement: announced
-            .then(|| [b"cp \"", name, b"^7 ", words.as_bytes(), b"\n\""].concat()),
-        queued,
+        announcement: team_change_announcement(name, team, before, gametype),
+        queued: team == TEAM_SPECTATOR && before != TEAM_SPECTATOR,
+    }
+}
+
+/// `BroadcastTeamChange` (`g_cmds.c:579-623`): everyone is told where the player went —
+/// red, blue, the spectators (from anywhere else) or the battle (not in a duel, where
+/// that line is commented out) — but nothing in Siege.
+fn team_change_announcement(name: &[u8], team: i32, before: i32, gametype: i32) -> Option<Vec<u8>> {
+    let words: &[u8] = match team {
+        _ if gametype == GT_SIEGE => return None,
+        TEAM_RED => b"@@@JOINEDTHEREDTEAM",
+        TEAM_BLUE => b"@@@JOINEDTHEBLUETEAM",
+        TEAM_SPECTATOR if before != TEAM_SPECTATOR => b"@@@JOINEDTHESPECTATORS",
+        TEAM_FREE if !matches!(gametype, GT_DUEL | GT_POWER_DUEL) => b"@@@JOINEDTHEBATTLE",
+        _ => return None,
+    };
+    Some([b"cp \"", name, b"^7 ", words, b"\n\""].concat())
+}
+
+#[cfg(test)]
+mod announcement_tests {
+    use super::*;
+
+    #[test]
+    fn a_team_change_is_announced_as_broadcast_team_change_words_it() {
+        let said = |team, before, gametype| {
+            team_change_announcement(b"Kyle", team, before, gametype)
+                .map(|line| String::from_utf8(line).unwrap())
+        };
+        assert_eq!(
+            said(TEAM_RED, TEAM_SPECTATOR, 8).as_deref(),
+            Some("cp \"Kyle^7 @@@JOINEDTHEREDTEAM\n\"")
+        );
+        assert_eq!(
+            said(TEAM_BLUE, TEAM_RED, 6).as_deref(),
+            Some("cp \"Kyle^7 @@@JOINEDTHEBLUETEAM\n\"")
+        );
+        assert!(said(TEAM_SPECTATOR, TEAM_SPECTATOR, 6).is_none());
+        assert!(said(TEAM_SPECTATOR, TEAM_RED, 6).is_some());
+        // Nothing in Siege, and no "joined the battle" in the duels.
+        assert!(said(TEAM_RED, TEAM_SPECTATOR, GT_SIEGE).is_none());
+        assert!(said(TEAM_FREE, TEAM_SPECTATOR, GT_DUEL).is_none());
+        assert!(said(TEAM_FREE, TEAM_SPECTATOR, 0).is_some());
     }
 }
