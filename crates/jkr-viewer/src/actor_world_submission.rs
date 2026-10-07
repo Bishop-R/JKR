@@ -47,6 +47,8 @@ mod special_entities;
 
 /// `bg_itemlist`'s `item_seeker`.
 const ITEM_SEEKER: usize = 4;
+/// `WP_SABER`, which keeps the viewer's own body in view from its eyes.
+const WP_SABER: u8 = 3;
 
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
@@ -88,6 +90,10 @@ struct Sinks<'a> {
     predicted_vehicle: Option<crate::vehicle_pose::Predicted>,
     authoritative_local_saber_move: Option<u32>,
     third_person: bool,
+    /// The viewer's own body is drawn in the main view: from behind, or holding a saber.
+    /// Stock marks it mirror-only (`RF_THIRD_PERSON`) only while it sees from its eyes with
+    /// any other weapon (`cg_players.c:8900-8911`); a saber is seen so with `cg_fpls`.
+    own_body_shown: bool,
     portal_view: bool,
     entity_view_flags: u32,
     detached_camera: bool,
@@ -212,6 +218,11 @@ pub(crate) fn submit(
             .and_then(|_| gpu.local_prediction.vehicle_pose()),
         authoritative_local_saber_move: snapshot.map(|value| value.player.saber_move()),
         third_person: gpu.third_person,
+        own_body_shown: gpu.third_person
+            || gpu.local_prediction.predicted_state().map_or_else(
+                || snapshot.is_some_and(|snapshot| snapshot.player.weapon() == WP_SABER),
+                |state| state.weapon == WP_SABER,
+            ),
         portal_view: gpu.scene_views.has_portal_view(),
         entity_view_flags: 0,
         detached_camera: gpu.detached_camera,
@@ -417,7 +428,7 @@ fn submit_actor(
     aura_shell: bool,
     trails: bool,
 ) -> usize {
-    let draw_actor = sinks.third_person || Some(entity.id.get()) != local_entity_id;
+    let draw_actor = sinks.own_body_shown || Some(entity.id.get()) != local_entity_id;
     if Some(entity.id.get()) == local_entity_id && !sinks.detached_camera {
         let (translation, rotation) =
             camera::local_actor_root(sinks.camera_position, sinks.view_height, sinks.camera_yaw);

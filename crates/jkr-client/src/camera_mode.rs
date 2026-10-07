@@ -1,8 +1,9 @@
 //! Whether stock's client draws the view from behind the player (`CG_DrawActiveFrame`,
 //! OpenJK `codemp/cgame/cg_view.c:2571-2611`): when `cg_thirdPerson` asks or the player is
 //! dead; whatever the cvar says, while alive at an emplaced gun or an E-Web, holding a saber
-//! or bare fists, in a grapple, knocked down, falling to its death or on a vehicle; never
-//! while zoomed (and none of those), nor for a spectator.
+//! or bare fists, in a grapple, knocked down, falling to its death or on a vehicle (but a
+//! saber stays in the eyes with `cg_fpls`); never while zoomed (and none of those), nor for
+//! a spectator.
 
 use jkr_game_jka::pmove_hand_extend::in_knockdown;
 
@@ -42,8 +43,9 @@ pub struct ViewInputs {
     pub vehicle: u16,
 }
 
-/// `cg.renderingThirdPerson` for `cg_thirdPerson` and the player as `view` holds it.
-pub fn rendering_third_person(cvar: bool, view: &ViewInputs) -> bool {
+/// `cg.renderingThirdPerson` for `cg_thirdPerson`, `cg_fpls` (the first-person saber) and
+/// the player as `view` holds it.
+pub fn rendering_third_person(cvar: bool, fpls: bool, view: &ViewInputs) -> bool {
     let mut third = cvar || view.snapshot_health <= 0;
     if view.snapshot_health > 0 {
         if view.weapon == WP_EMPLACED_GUN && view.emplaced_index != 0 {
@@ -57,7 +59,7 @@ pub fn rendering_third_person(cvar: bool, view: &ViewInputs) -> bool {
             || view.vehicle != 0
             || in_knockdown(view.legs_anim, view.legs_timer)
         {
-            third = true;
+            third = !(fpls && view.weapon == WP_SABER);
         } else if view.snapshot_zoom_mode != 0 {
             third = false;
         }
@@ -98,43 +100,46 @@ mod tests {
     #[test]
     fn the_cvar_chooses_unless_the_player_is_dead_armed_with_a_blade_or_spectating() {
         let gun = alive(5);
-        assert!(!rendering_third_person(false, &gun));
-        assert!(rendering_third_person(true, &gun));
+        assert!(!rendering_third_person(false, false, &gun));
+        assert!(rendering_third_person(true, false, &gun));
         // A saber, fists or an emplaced gun force it; a zoomed gun forbids it.
-        assert!(rendering_third_person(false, &alive(WP_SABER)));
-        assert!(rendering_third_person(false, &alive(WP_MELEE)));
+        assert!(rendering_third_person(false, false, &alive(WP_SABER)));
+        // `cg_fpls` keeps a saber in the eyes, and only a saber.
+        assert!(!rendering_third_person(false, true, &alive(WP_SABER)));
+        assert!(rendering_third_person(false, true, &alive(WP_MELEE)));
+        assert!(rendering_third_person(false, false, &alive(WP_MELEE)));
         let emplaced = ViewInputs {
             emplaced_index: 40,
             ..alive(WP_EMPLACED_GUN)
         };
-        assert!(rendering_third_person(false, &emplaced));
+        assert!(rendering_third_person(false, false, &emplaced));
         let zoomed = ViewInputs {
             snapshot_zoom_mode: 1,
             ..alive(6)
         };
-        assert!(!rendering_third_person(true, &zoomed));
+        assert!(!rendering_third_person(true, false, &zoomed));
         // Dead: behind the body; spectating: never.
         let dead = ViewInputs {
             snapshot_health: 0,
             ..gun
         };
-        assert!(rendering_third_person(false, &dead));
+        assert!(rendering_third_person(false, false, &dead));
         let spectator = ViewInputs {
             movement_type: PM_SPECTATOR,
             ..alive(WP_SABER)
         };
-        assert!(!rendering_third_person(true, &spectator));
+        assert!(!rendering_third_person(true, false, &spectator));
         // Grappled, or lying in a knockdown.
         let grappled = ViewInputs {
             torso_anim: BOTH_PLAYER_PA_1,
             ..gun
         };
-        assert!(rendering_third_person(false, &grappled));
+        assert!(rendering_third_person(false, false, &grappled));
         let down = ViewInputs {
             legs_anim: 1_219,
             ..gun
         };
-        assert!(rendering_third_person(false, &down));
+        assert!(rendering_third_person(false, false, &down));
     }
 
     #[test]

@@ -313,6 +313,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Swing the camera round to watch saber special moves",
         ),
         CvarDefinition::new(
+            "cg_fpls",
+            false,
+            CvarFlags::NONE,
+            "First-person saber: keep the view in the eyes with a saber, the body drawn",
+        ),
+        CvarDefinition::new(
             "com_maxfps",
             1000_i64,
             archive,

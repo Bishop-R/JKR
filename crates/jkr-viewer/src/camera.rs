@@ -89,12 +89,18 @@ fn third_person_now(state: &GpuState, presentation_time: i64) -> Option<bool> {
         view.falling_to_death = predicted.falling_to_death != 0;
         view.vehicle = predicted.vehicle_entity_num;
     }
-    let cvar = state
-        .console
-        .as_ref()
-        .and_then(|console| console.bool_cvar("cg_thirdPerson"))
-        .unwrap_or(false);
-    Some(jkr_client::camera_mode::rendering_third_person(cvar, &view))
+    let cvar = |name| {
+        state
+            .console
+            .as_ref()
+            .and_then(|console| console.bool_cvar(name))
+            .unwrap_or(false)
+    };
+    Some(jkr_client::camera_mode::rendering_third_person(
+        cvar("cg_thirdPerson"),
+        cvar("cg_fpls"),
+        &view,
+    ))
 }
 
 /// Keep the local actor at its predicted root with yaw-only orientation.
