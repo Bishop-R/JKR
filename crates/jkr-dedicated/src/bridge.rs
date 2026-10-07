@@ -159,6 +159,9 @@ pub struct NativeGame {
     /// The blows a player's move dealt on glass and weak breakables (`PM_ClientImpact`),
     /// dealt once the move is over; kept for its room.
     strikes: jkr_game_jka::client_impact::Strikes,
+    /// The body queue's bodies beside their wire states: their fall, their box, the health
+    /// each slot holds ([`jkr_game_jka::corpses`]).
+    corpses: jkr_game_jka::corpses::Corpses,
     /// Its targets: the name they are fired by, what they are, and what each is doing.
     targets: Vec<(String, jkr_game_jka::triggers::Target, MapTarget)>,
     /// `G_ModelIndex`'s table.
@@ -415,6 +418,7 @@ impl NativeGame {
             door_portals: Vec::new(),
             breakables: Vec::new(),
             strikes: Default::default(),
+            corpses: Default::default(),
             models: ModelTable::default(),
             previous_frame_time: 0,
             deaths: Deaths {
@@ -1582,6 +1586,7 @@ impl NativeGame {
             world,
             players,
             pool,
+            corpses,
             told,
             ..
         } = self;
@@ -1589,12 +1594,12 @@ impl NativeGame {
             .at(client)
             .and_then(|handle| server.world_mut(*world)?.entity_mut(handle));
         let Some(peer) = peer else { return };
-        Self::leave_body_of(peer, pool, told, client, level_time);
+        Self::leave_body_of(peer, (pool, corpses), told, client, level_time);
     }
 
     fn leave_body_of(
         peer: &Peer,
-        pool: &mut EntityPool,
+        (pool, corpses): (&mut EntityPool, &mut jkr_game_jka::corpses::Corpses),
         told: &mut Vec<Told>,
         client: usize,
         level_time: i32,
@@ -1604,6 +1609,23 @@ impl NativeGame {
         {
             Some(body) => {
                 let number = pool.spawn_body(body.state.clone(), level_time);
+                // `CopyToBodyQue`: the dead player's box, its owner, and whether it takes
+                // damage (a gibbed player's does not).
+                let (bottom, mut top) = peer.movement.box_bounds();
+                if let Some((_, corpse_top)) = peer.corpse {
+                    top[2] = corpse_top;
+                }
+                pool.set_bounds(number, (bottom, top));
+                if let Some(slot) = pool.body_slot(number) {
+                    corpses.copied(
+                        slot,
+                        client as u16,
+                        (bottom, top),
+                        &body.state,
+                        peer.health,
+                        level_time,
+                    );
+                }
                 told.push(Told::Everyone(
                     body.command(client as u16, number.legacy_number()),
                 ));
@@ -2561,6 +2583,7 @@ impl NativeGame {
         self.update_saber_entities(server_time);
         self.saber_thinks(server_time);
         self.run_emplaced(server_time);
+        self.run_corpses(server_time);
         self.run_missiles(server_time);
         self.run_spheres(server_time);
         self.run_charges(server_time);
@@ -3465,3 +3488,6 @@ mod bridge_det_packs;
 
 #[path = "bridge_client_impact.rs"]
 mod bridge_client_impact;
+
+#[path = "bridge_corpses.rs"]
+mod bridge_corpses;

@@ -67,6 +67,7 @@ pub mod tri_tri;
 
 pub mod client_timer;
 pub mod concussion;
+pub mod corpses;
 pub mod crt_rand;
 pub mod ctf;
 pub mod damage;

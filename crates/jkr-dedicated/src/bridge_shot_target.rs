@@ -11,8 +11,8 @@ const ES_TYPE: usize = 8;
 
 impl NativeGame {
     /// `g_entities[number]` as the shot reads it: a player in the game or an NPC is a
-    /// client; glass, breakable brushes and the other movers stop the shot. Doors and
-    /// buttons a map gave health take no damage here yet.
+    /// client; glass, breakable brushes and the other movers stop the shot; a body takes
+    /// damage until it fades. Doors and buttons a map gave health take no damage here yet.
     pub(super) fn shot_target(&mut self, number: u16) -> ShotTarget {
         if number >= ENTITY_WORLD {
             return ShotTarget::default();
@@ -47,6 +47,13 @@ impl NativeGame {
                 client: false,
                 takes_damage: brush.takes_damage,
                 glass_or_mover: true,
+            };
+        }
+        if let Some(slot) = self.corpse_slot(number) {
+            return ShotTarget {
+                client: false,
+                takes_damage: self.corpses.takes_damage(slot, self.last_frame_time),
+                glass_or_mover: false,
             };
         }
         // Turrets, emplaced guns and shields, as a blast finds them.

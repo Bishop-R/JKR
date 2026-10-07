@@ -34,7 +34,10 @@ impl NativeGame {
             flags: missile.damage_flags,
             means: missile.method_of_death,
         };
-        if self.strike_siege_item(number, request) || self.strike_shield(number, request) {
+        if self.strike_siege_item(number, request)
+            || self.strike_shield(number, request)
+            || self.strike_body(number, request)
+        {
             return;
         }
         if !self.map_turrets.owns(number) {

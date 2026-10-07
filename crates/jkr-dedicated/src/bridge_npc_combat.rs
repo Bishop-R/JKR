@@ -126,6 +126,7 @@ impl NativeGame {
                 self.strike_turret(target, request)
                     || self.strike_siege_item(target, request)
                     || self.strike_shield(target, request)
+                    || self.strike_body(target, request)
             })
         {
             return (Damaged::default(), false);
@@ -393,7 +394,7 @@ impl NativeGame {
                 request.level_time,
             );
             let _ = self.strike_at(owner, usize::from(target), request, location, false);
-        } else {
+        } else if !self.strike_body(target, request) {
             let _ = self.hurt_brush(
                 target,
                 request.damage,

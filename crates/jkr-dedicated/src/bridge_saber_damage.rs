@@ -555,20 +555,6 @@ impl NativeGame {
         }
         for blow in hits.blows(&|number| usize::from(number) < peers || npcs.contains(&number)) {
             let target = usize::from(blow.victim);
-            let location = if target < peers {
-                self.surface_location(target, blow.flags, blow.spot, level_time)
-            } else if self.npcs.roster.is_npc(blow.victim) {
-                self.npc_surface_location(blow.victim, blow.flags, blow.spot, level_time)
-            } else {
-                let _ = self.hurt_brush(
-                    blow.victim,
-                    blow.damage,
-                    MOD_SABER,
-                    client as u16,
-                    level_time,
-                );
-                continue;
-            };
             let request = DamageRequest {
                 level_time,
                 attacker: Some(attacker),
@@ -577,6 +563,23 @@ impl NativeGame {
                 damage: blow.damage,
                 flags: blow.flags,
                 means: MOD_SABER,
+            };
+            let location = if target < peers {
+                self.surface_location(target, blow.flags, blow.spot, level_time)
+            } else if self.npcs.roster.is_npc(blow.victim) {
+                self.npc_surface_location(blow.victim, blow.flags, blow.spot, level_time)
+            } else {
+                // A body through `G_Damage`, a breakable brush through its own damage.
+                if !self.strike_body(blow.victim, request) {
+                    let _ = self.hurt_brush(
+                        blow.victim,
+                        blow.damage,
+                        MOD_SABER,
+                        client as u16,
+                        level_time,
+                    );
+                }
+                continue;
             };
             let _ = self.strike_at(client, target, request, location, false);
         }
@@ -778,6 +781,15 @@ impl SaberTargets for BladeTargets<'_> {
         if usize::from(number) >= game.players.places() {
             if let Some(npc) = game.npc_saber_victim(number, self.swinger) {
                 return Some(npc);
+            }
+            // A body (`takedamage` until it fades, cut until it burns away).
+            if let Some(slot) = game.corpse_slot(number) {
+                return Some(SaberVictim {
+                    takes_damage: game.corpses.takes_damage(slot, self.level_time),
+                    health: game.corpses.health(slot),
+                    disintegrated: game.corpses.burnt(slot),
+                    ..SaberVictim::default()
+                });
             }
             // A breakable brush; a saber entity is not a victim but a saber owner.
             return game

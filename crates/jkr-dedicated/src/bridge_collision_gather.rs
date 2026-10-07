@@ -25,6 +25,7 @@ impl NativeGame {
             stock,
             mounted,
             scripts,
+            corpses,
             ..
         } = self;
         obstacles.clear();
@@ -111,6 +112,7 @@ impl NativeGame {
                 }),
         );
         Self::add_npc_bodies(npcs, obstacles, body_legs, client);
+        obstacles.extend(Self::corpse_obstacles(pool, corpses, client));
         obstacles.extend(
             mounted.obstacles(
                 client as u16,
@@ -166,5 +168,10 @@ impl NativeGame {
         map_turrets.add_splash_targets(splash_targets);
         splash_targets.extend(mounted.splash_targets());
         splash_targets.extend(self.stock.shields.splash_targets());
+        splash_targets.extend(Self::corpse_splash_targets(
+            &self.pool,
+            &self.corpses,
+            self.last_frame_time,
+        ));
     }
 }

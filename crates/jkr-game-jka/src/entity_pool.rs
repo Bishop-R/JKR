@@ -23,8 +23,9 @@ use jkr_protocol::{EntityState, LEGACY_ENTITY_FIELDS, LEGACY_GAME_ENTITIES, Lega
 pub const JKA_PROFILE_BUDGET: usize = LEGACY_GAME_ENTITIES;
 /// `EVENT_VALID_MSEC`.
 const EVENT_VALID_MS: i32 = 300;
-/// `BODY_QUEUE_SIZE`: how many bodies lie around before the oldest is reused.
-const BODIES: usize = 8;
+/// `BODY_QUEUE_SIZE`: how many bodies lie around before the oldest is reused. They hold the
+/// pool's first slots, in turn.
+pub const BODIES: usize = 8;
 /// `BODY_SINK_TIME`: a body fades this long after it fell, and is unlinked 18 s later.
 const BODY_SINK_MS: i32 = 30_000;
 const BODY_FADE_THINK_MS: i32 = 18_000;
@@ -78,6 +79,8 @@ struct Slot {
     linked: bool,
     /// `timestamp` of a body: when it fell; `None` for anything else.
     body_since: Option<i32>,
+    /// `BodyRid`'s time for a body burnt away (`body_die`), which thinks no more of fading.
+    body_rid_at: Option<i32>,
     /// `r.mins`, `r.maxs`: the box `SV_LinkEntity` links around it (a point for most
     /// temp entities).
     bounds: ([f32; 3], [f32; 3]),
@@ -290,6 +293,7 @@ impl EntityPool {
             not_for,
             linked,
             body_since: None,
+            body_rid_at: None,
             bounds: ([0.0; 3], [0.0; 3]),
             broadcast: false,
             ground_residue: None,
@@ -469,12 +473,22 @@ impl EntityPool {
             if !slot.in_use {
                 continue;
             }
-            // `BodySink`: a body's think, `BODY_SINK_TIME` after it fell, fades it
-            // (`EV_BODYFADE`) and thinks again 18 s later, when it is unlinked.
-            if let Some(since) = slot.body_since
-                && slot.linked
-            {
-                if level_time - since > BODY_SINK_MS + BODY_FADE_THINK_MS {
+            // A body's event shown long enough is taken off it first, as off any entity
+            // (`g_main.c:3080-3090`). Then `BodySink`, its think `BODY_SINK_TIME` after it
+            // fell, fades it (`EV_BODYFADE`) and thinks again 18 s later, when it is
+            // unlinked; a body burnt away thinks `BodyRid` instead, unlinked when due.
+            if let Some(since) = slot.body_since {
+                if level_time - slot.event_time > EVENT_VALID_MS
+                    && slot.state.raw_field(ES_EVENT) != Some(0)
+                {
+                    slot.state.set_raw_field(ES_EVENT, 0);
+                }
+                if !slot.linked {
+                    continue;
+                }
+                if let Some(at) = slot.body_rid_at {
+                    slot.linked = level_time < at;
+                } else if level_time - since > BODY_SINK_MS + BODY_FADE_THINK_MS {
                     slot.linked = false;
                 } else if level_time - since >= BODY_SINK_MS
                     && slot.event_time < since + BODY_SINK_MS
@@ -563,6 +577,32 @@ impl EntityPool {
             })
     }
 
+    /// The body lying in body-queue slot `slot`, linked or not.
+    pub fn body(&self, slot: usize) -> Option<EntityId> {
+        let entry = self
+            .slots
+            .get(slot)
+            .filter(|entry| slot < BODIES && entry.in_use && entry.body_since.is_some())?;
+        Some(EntityId::new(slot as u32, entry.generation))
+    }
+
+    /// The body-queue slot body `id` lies in.
+    pub fn body_slot(&self, id: EntityId) -> Option<usize> {
+        self.slot(id)
+            .filter(|entry| entry.in_use && entry.body_since.is_some())
+            .map(|_| id.ordinal())
+    }
+
+    /// `body_die`'s `think = BodyRid` for body `id`, due at `at`: unlinked then, and never
+    /// faded.
+    pub fn rid_body(&mut self, id: EntityId, at: i32) {
+        if let Some(entry) = self.slot_mut(id)
+            && entry.body_since.is_some()
+        {
+            entry.body_rid_at = Some(at);
+        }
+    }
+
     /// `r.mins`/`r.maxs` of an entity in use: the box it is linked by.
     pub fn set_bounds(&mut self, id: EntityId, bounds: ([f32; 3], [f32; 3])) {
         if let Some(slot) = self.slot_mut(id) {
@@ -630,6 +670,7 @@ impl Slot {
             not_for: None,
             linked: false,
             body_since: None,
+            body_rid_at: None,
             bounds: ([0.0; 3], [0.0; 3]),
             broadcast: false,
             ground_residue: None,

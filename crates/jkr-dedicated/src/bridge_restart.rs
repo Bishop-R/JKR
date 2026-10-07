@@ -77,6 +77,7 @@ impl NativeGame {
     /// of the new.
     pub(super) fn spawn_level_entities(&mut self) {
         self.pool = EntityPool::with_budget(0, self.entity_budget());
+        self.corpses = Default::default();
         self.missiles.clear();
         self.fired.clear();
         self.husks.clear();
