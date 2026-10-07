@@ -15,7 +15,9 @@ impl NativeGame {
         if self.command_refused(client, command) {
             return;
         }
-        if self.emote_command(client, command, server_time) || self.admin_command(client, text) {
+        if self.emote_command(client, command, server_time)
+            || self.admin_command(client, text, server_time)
+        {
             return;
         }
         // jaPRO's `ammotd` (`CMD_NOINTERMISSION`): the message of the day again.
@@ -105,6 +107,10 @@ impl NativeGame {
             return;
         }
         let sides = self.sides(client);
+        if let Some(refusal) = self.locked_team(client, arguments, sides, server_time) {
+            self.told.push(Told::One(client, refusal.to_vec()));
+            return;
+        }
         let Some(peer) = self.peer_mut(client) else {
             return;
         };

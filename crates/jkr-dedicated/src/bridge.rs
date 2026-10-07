@@ -293,6 +293,8 @@ pub struct NativeGame {
     mounted: bridge_use::bridge_emplaced::Mounted,
     /// Its effect runners and speakers, and the effect and soundset tables (`bridge_map_effects`).
     map_effects: bridge_map_effects::MapEffects,
+    /// jaPRO's team locks (`amLockTeam`), cleared with each map.
+    team_locks: crate::admin::TeamLocks,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -489,6 +491,7 @@ impl NativeGame {
             npcs: Default::default(),
             mounted: Default::default(),
             map_effects: Default::default(),
+            team_locks: Default::default(),
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),

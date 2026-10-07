@@ -6,7 +6,7 @@ use super::*;
 use crate::admin::{self, Found, Login};
 
 /// The levels' options: name, jaPRO's default, description (all archived).
-const OPTIONS: [(&[u8], &[u8], &[u8]); 6] = [
+const OPTIONS: [(&[u8], &[u8], &[u8]); 7] = [
     (
         b"g_juniorAdminLevel",
         b"0",
@@ -37,7 +37,17 @@ const OPTIONS: [(&[u8], &[u8], &[u8]); 6] = [
         b"",
         b"jaPRO: told to everyone when a full admin logs in",
     ),
+    (
+        b"sv_maxTeamSize",
+        b"0",
+        b"jaPRO: the most players a team game's side takes (0: no limit)",
+    ),
 ];
+/// `GT_FFA`, `GT_DUEL`, `GT_POWERDUEL`, `GT_TEAM`.
+const GT_FFA: i32 = 0;
+const GT_DUEL: i32 = 3;
+const GT_POWERDUEL: i32 = 4;
+const GT_TEAM: i32 = 6;
 
 impl NativeGame {
     /// The admin levels' options, with jaPRO's defaults: no powers, no passwords.
@@ -49,7 +59,7 @@ impl NativeGame {
     }
 
     /// jaPRO's admin commands from `client`: whether `text`'s command was one.
-    pub(super) fn admin_command(&mut self, client: usize, text: &[u8]) -> bool {
+    pub(super) fn admin_command(&mut self, client: usize, text: &[u8], level_time: i32) -> bool {
         let words: Vec<&[u8]> = text
             .split(|byte| byte.is_ascii_whitespace())
             .filter(|word| !word.is_empty())
@@ -72,6 +82,12 @@ impl NativeGame {
                 self.told.push(Told::One(client, text.to_vec()));
             }
             b"amkick" => self.admin_kick(client, &words),
+            b"amlockteam" => self.admin_lock_team(client, &words),
+            b"amforceteam" => {
+                if !self.refused_at_intermission(client, b"amforceteam") {
+                    self.admin_force_team(client, &words, level_time);
+                }
+            }
             b"ampsay" => {
                 if !self.refused_at_intermission(client, b"ampsay")
                     && self.admin_allowed(client, admin::A_CSPRINT, "amPsay")
@@ -218,5 +234,142 @@ impl NativeGame {
         };
         self.told.push(Told::One(client, told));
         None
+    }
+
+    /// `Cmd_Amlockteam_f`: a team locked, or opened again, for everyone to hear.
+    fn admin_lock_team(&mut self, client: usize, words: &[&[u8]]) {
+        if !self.admin_allowed(client, admin::A_LOCKTEAM, "amLockTeam") {
+            return;
+        }
+        if self.gametype < GT_TEAM && self.gametype != GT_FFA {
+            let line = b"print \"You can not use this command in this gametype (amLockTeam).\n\"";
+            self.told.push(Told::One(client, line.to_vec()));
+            return;
+        }
+        let team = (words.len() == 2)
+            .then(|| admin::team_word(words[1]))
+            .flatten();
+        let Some(team) = team else {
+            let usage = b"print \"Usage: /amLockTeam <team>\n\"".to_vec();
+            self.told.push(Told::One(client, usage));
+            return;
+        };
+        let locked = self.team_locks.toggle(team);
+        let name = ["Free", "Red", "Blue", "Spectator"][team as usize];
+        let line = match (team, locked) {
+            // (sic: jaPRO's unlocked spectators are lower case)
+            (admin::TEAM_SPECTATOR, false) => {
+                "print \"The spectator team is now unlocked.\n\"".to_owned()
+            }
+            (_, true) => format!("print \"The {name} team is now locked.\n\""),
+            (_, false) => format!("print \"The {name} team is now unlocked.\n\""),
+        };
+        self.told.push(Told::Everyone(line.into_bytes()));
+    }
+
+    /// `Cmd_Amforceteam_f`: a player, or everyone (`-1`), sent to a team past its locks
+    /// and limits (`SetTeam(ent, team, qtrue)`).
+    fn admin_force_team(&mut self, client: usize, words: &[&[u8]], level_time: i32) {
+        if !self.admin_allowed(client, admin::A_FORCETEAM, "amForceTeam") {
+            return;
+        }
+        let usage = b"print \"Usage: amForceTeam <client> <team>\n\"";
+        if words.len() != 3 {
+            self.told.push(Told::One(client, usage.to_vec()));
+            return;
+        }
+        let team_game = self.gametype >= GT_TEAM;
+        if !team_game && self.gametype != GT_FFA {
+            let line = b"print \"You can not use this command in this gametype (amForceTeam).\n\"";
+            self.told.push(Told::One(client, line.to_vec()));
+            return;
+        }
+        let everyone = words[1] == b"-1";
+        let target = if everyone {
+            None
+        } else {
+            let Some(target) = self.admin_target(client, words[1]) else {
+                return;
+            };
+            let their_flags = self
+                .peer(target)
+                .map_or(0, |peer| peer.session.account_flags);
+            if !admin::usable_on(their_flags, target == client, admin::A_FORCETEAM) {
+                return;
+            }
+            Some(target)
+        };
+        let team = admin::team_word(words[2])
+            .filter(|&team| team_game || !matches!(team, admin::TEAM_RED | admin::TEAM_BLUE));
+        let Some(team) = team else {
+            self.told.push(Told::One(client, usage.to_vec()));
+            return;
+        };
+        let (word, shown): (&[u8], &str) = match team {
+            admin::TEAM_RED => (b"red", "^1Red"),
+            admin::TEAM_BLUE => (b"blue", "^4Blue"),
+            admin::TEAM_SPECTATOR => (b"spectator", "^3Spectator"),
+            _ => (b"free", "^2Free"),
+        };
+        let moved: Vec<usize> = match target {
+            Some(target) => vec![target],
+            None => (0..self.players.places())
+                .filter(|&slot| self.peer(slot).is_some_and(|peer| peer.begun))
+                .collect(),
+        };
+        for slot in moved {
+            let Some((on, name)) = self
+                .peer(slot)
+                .map(|peer| (peer.session.team, peer.name.clone()))
+            else {
+                continue;
+            };
+            if on == team {
+                continue;
+            }
+            self.set_team_to(slot, word, level_time);
+            if !everyone {
+                let tail = format!(" ^7has been forced to the {shown} ^7team.\n\"");
+                let line = [b"print \"".as_slice(), &name, tail.as_bytes()].concat();
+                self.told.push(Told::Everyone(line));
+            }
+        }
+    }
+
+    /// jaPRO's `SetTeam` refusals for `client`'s own `team` command, where stock's
+    /// `Cmd_Team_f` would go on to `SetTeam`: a locked team, or a full one.
+    pub(super) fn locked_team(
+        &mut self,
+        client: usize,
+        arguments: &[&[u8]],
+        sides: jkr_game_jka::client_begin::Sides,
+        level_time: i32,
+    ) -> Option<&'static [u8]> {
+        let [word] = arguments else {
+            return None;
+        };
+        let peer = self.peer(client)?;
+        // `Cmd_Team_f`'s own checks come first: the switch timer and the duels.
+        if peer.session.switch_team_time > level_time
+            || (self.gametype == GT_DUEL && peer.session.team == admin::TEAM_FREE)
+            || self.gametype == GT_POWERDUEL
+        {
+            return None;
+        }
+        let team_game = self.gametype >= GT_TEAM;
+        let named = jkr_game_jka::client_begin::team_for_word(word, sides);
+        let team = if team_game || named == admin::TEAM_SPECTATOR {
+            named
+        } else {
+            admin::TEAM_FREE
+        };
+        let on_team = (0..self.players.places())
+            .filter(|&slot| {
+                self.peer(slot)
+                    .is_some_and(|peer| peer.session.team == team)
+            })
+            .count() as i32;
+        let max_size = self.cvars.integer(b"sv_maxTeamSize");
+        admin::team_refusal(team, team_game, self.team_locks, max_size, on_team)
     }
 }

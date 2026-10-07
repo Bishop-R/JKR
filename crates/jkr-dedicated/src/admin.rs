@@ -9,8 +9,91 @@ pub const ADMIN_BITS: u32 = (1 << 23) - 1;
 /// `JAPRO_ACCOUNTFLAG_A_ADMINKICK`, `JAPRO_ACCOUNTFLAG_A_CSPRINT`.
 pub const A_ADMINKICK: u32 = 1 << 4;
 pub const A_CSPRINT: u32 = 1 << 9;
+/// `JAPRO_ACCOUNTFLAG_A_FORCETEAM`, `JAPRO_ACCOUNTFLAG_A_LOCKTEAM`.
+pub const A_FORCETEAM: u32 = 1 << 10;
+pub const A_LOCKTEAM: u32 = 1 << 11;
+/// `TEAM_FREE`, `TEAM_RED`, `TEAM_BLUE`, `TEAM_SPECTATOR`.
+pub const TEAM_FREE: i32 = 0;
+pub const TEAM_RED: i32 = 1;
+pub const TEAM_BLUE: i32 = 2;
+pub const TEAM_SPECTATOR: i32 = 3;
 /// `MAX_NAME_LENGTH`: `SanitizeString2` reads no further.
 const MAX_NAME_LENGTH: usize = 32;
+
+/// The team `amLockTeam` and `amForceTeam` name with `word`, any case.
+pub fn team_word(word: &[u8]) -> Option<i32> {
+    let is = |words: &[&[u8]]| words.iter().any(|name| word.eq_ignore_ascii_case(name));
+    if is(&[b"red", b"r"]) {
+        Some(TEAM_RED)
+    } else if is(&[b"blue", b"b"]) {
+        Some(TEAM_BLUE)
+    } else if is(&[b"s", b"spectator", b"spec", b"spectate"]) {
+        Some(TEAM_SPECTATOR)
+    } else if is(&[b"f", b"free", b"join", b"j", b"enter"]) {
+        Some(TEAM_FREE)
+    } else {
+        None
+    }
+}
+
+/// The level's team locks (`level.isLockedfree` .. `isLockedspec`), which a map clears.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TeamLocks([bool; 4]);
+
+impl TeamLocks {
+    /// `amLockTeam`: `team` locked if it was open, opened if it was locked; whether it is
+    /// locked now.
+    pub fn toggle(&mut self, team: i32) -> bool {
+        let lock = &mut self.0[team as usize & 3];
+        *lock = !*lock;
+        *lock
+    }
+
+    pub fn locked(self, team: i32) -> bool {
+        self.0[team as usize & 3]
+    }
+}
+
+/// jaPRO's `SetTeam` refusals for a player's own request (`g_cmds.c:1185-1270`), the team
+/// its word leads to being `team` (in a team game `PickTeam`'s choice for any other word):
+/// that team locked, or in a team game full (`sv_maxTeamSize`, `max_size` > 0, against the
+/// players `on_team` already there).
+pub fn team_refusal(
+    team: i32,
+    team_game: bool,
+    locks: TeamLocks,
+    max_size: i32,
+    on_team: i32,
+) -> Option<&'static [u8]> {
+    if team == TEAM_SPECTATOR {
+        return locks
+            .locked(team)
+            .then_some(b"print \"^7The ^3Spectator ^7Access has been locked!\n\"".as_slice());
+    }
+    if !team_game {
+        return locks
+            .locked(TEAM_FREE)
+            .then_some(b"print \"^7The ^3Free ^7team is locked!\n\"".as_slice());
+    }
+    let (locked, full): (&[u8], &[u8]) = if team == TEAM_RED {
+        (
+            b"print \"^7The ^1Red ^7team is locked!\n\"",
+            b"print \"^7The ^1Red ^7team is full!\n\"",
+        )
+    } else {
+        (
+            b"print \"^7The ^4Blue ^7team is locked!\n\"",
+            b"print \"^7The ^4Blue ^7team is full!\n\"",
+        )
+    };
+    if locks.locked(team) {
+        Some(locked)
+    } else if max_size != 0 && on_team >= max_size {
+        Some(full)
+    } else {
+        None
+    }
+}
 
 /// What `amlogin <password>` came to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,5 +320,28 @@ mod tests {
             usable_on(A_ADMINKICK, true, A_ADMINKICK)
                 && !usable_on(A_ADMINKICK, false, A_ADMINKICK)
         );
+    }
+
+    /// A locked team refuses whoever asks for it; a full one only in team games.
+    #[test]
+    fn locked_and_full_teams_refuse_a_join() {
+        let mut locks = TeamLocks::default();
+        assert_eq!(team_word(b"SPECTATE"), Some(TEAM_SPECTATOR));
+        assert_eq!(team_word(b"enter"), Some(TEAM_FREE));
+        assert_eq!(team_word(b"green"), None);
+        assert!(locks.toggle(TEAM_RED));
+        assert_eq!(
+            team_refusal(TEAM_RED, true, locks, 0, 0),
+            Some(b"print \"^7The ^1Red ^7team is locked!\n\"".as_slice())
+        );
+        assert_eq!(team_refusal(TEAM_BLUE, true, locks, 0, 9), None);
+        assert_eq!(
+            team_refusal(TEAM_BLUE, true, locks, 2, 2),
+            Some(b"print \"^7The ^4Blue ^7team is full!\n\"".as_slice())
+        );
+        assert_eq!(team_refusal(TEAM_FREE, false, locks, 1, 5), None);
+        assert!(!locks.toggle(TEAM_RED));
+        locks.toggle(TEAM_FREE);
+        assert!(team_refusal(TEAM_FREE, false, locks, 0, 0).is_some());
     }
 }

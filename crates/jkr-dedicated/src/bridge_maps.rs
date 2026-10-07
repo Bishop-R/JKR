@@ -138,6 +138,7 @@ impl NativeGame {
         self.told
             .retain(|told| !matches!(told, Told::ConfigString { .. }));
         self.map_effects = Default::default();
+        self.team_locks = Default::default();
         // Entity registries and collision owners belong to the outgoing map.
         self.map_turrets = Default::default();
         self.stock = Default::default();
