@@ -1880,6 +1880,14 @@ impl NativeGame {
                 killer.mortality.last_kill_time = server_time;
             }
         }
+        // jaPRO's heal on a kill (`g_startingItems` bit 15), outside Jedi Master.
+        if let Some(score) = died.killer_score
+            && score.kill
+            && usize::from(score.killer) != client
+            && self.gametype != GAMETYPE_JEDIMASTER
+        {
+            self.kill_heal(usize::from(score.killer));
+        }
         self.jedi_master_died(client, died.master_point, died.saber_lost);
         // "Give them back a point since they didn't really die" (`g_combat.c:2691-2699`).
         let team_change = request.means == jkr_game_jka::means_of_death::MOD_TEAM_CHANGE;
@@ -3587,6 +3595,8 @@ mod bridge_siege_clients;
 mod bridge_siege_items;
 #[path = "bridge_siege_triggers.rs"]
 mod bridge_siege_triggers;
+#[path = "bridge_starting_items.rs"]
+mod bridge_starting_items;
 #[path = "bridge_stock_rules.rs"]
 mod bridge_stock_rules;
 #[path = "bridge_teleport.rs"]

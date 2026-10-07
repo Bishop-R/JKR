@@ -23,6 +23,7 @@ impl NativeGame {
             None
         };
         let duel_fraglimit = self.limits.duel_fraglimit;
+        let starting_items = self.starting_items();
         let Self {
             server,
             world,
@@ -56,6 +57,9 @@ impl NativeGame {
             class_speed = class.speed;
             class_sabers = Some((class.saber1.clone(), class.saber2.clone()));
             bridge_siege_clients::apply_siege_kit(&mut peer.state, class, playing);
+        } else {
+            // jaPRO's `GiveClientItems`: `g_startingItems`' holdables (none, as stock).
+            super::bridge_starting_items::give_starting_items(&mut peer.state, starting_items);
         }
         jkr_game_jka::power_duel::spawned(
             &mut peer.state,

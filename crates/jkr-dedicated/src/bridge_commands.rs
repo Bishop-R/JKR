@@ -19,6 +19,7 @@ impl NativeGame {
             || self.admin_command(client, text, server_time)
             || self.flag_throw_command(client, command, server_time)
             || self.ignore_command(client, text)
+            || self.jetpack_command(client, command)
         {
             return;
         }
