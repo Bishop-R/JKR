@@ -103,7 +103,7 @@ impl State {
         let local = snapshot.player.client_num();
         let mut hit = None;
         for entity in &snapshot.entities {
-            if entity.number() == local {
+            if entity.number() == local || Some(entity.number()) == ray.ignore {
                 continue;
             }
             if let Some(collider) = crate::local_prediction::movers::Collider::from_entity(
