@@ -151,7 +151,7 @@ pub(crate) fn flipping(animation: u16) -> bool {
 }
 
 /// `BG_InDeathAnim` (`bg_panimate.c:855-940`): dying, lying dead, flopping, dismembered.
-pub(crate) fn death(animation: u16) -> bool {
+pub fn death(animation: u16) -> bool {
     name(animation).is_some_and(|name| {
         ["BOTH_DEATH", "BOTH_DEAD", "BOTH_LYINGDEA", "BOTH_STUMBLEDEA", "BOTH_FALLDEA", "BOTH_DISMEMBER_"]
             .iter()

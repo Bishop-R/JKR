@@ -29,18 +29,26 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         presentation_time,
     } = *frame;
     let frame_millis = mesh.angle_controller.begin_frame(presentation_time);
-    let requested = mesh
-        .entity_id
-        .and_then(|entity_id| world.entity(entity_id))
-        .map(|entity| {
-            let pose = entity.sample_pose(presentation_time);
-            if mesh.entity_id == local_entity {
-                let animation = local_animation.or_else(|| entity.animation());
-                (animation, crate::local_actor_state::pose(pose, predicted))
-            } else {
-                (entity.animation(), pose)
-            }
-        });
+    // A limb's copy plays on the animation its owner had when it was cut, with none of
+    // the owner's turning (`CG_General` resets those bones before copying the model).
+    let limb = mesh
+        .cuts
+        .limb
+        .as_ref()
+        .map(|limb| (Some(limb.animation), None));
+    let requested = limb.or_else(|| {
+        mesh.entity_id
+            .and_then(|entity_id| world.entity(entity_id))
+            .map(|entity| {
+                let pose = entity.sample_pose(presentation_time);
+                if mesh.entity_id == local_entity {
+                    let animation = local_animation.or_else(|| entity.animation());
+                    (animation, crate::local_actor_state::pose(pose, predicted))
+                } else {
+                    (entity.animation(), pose)
+                }
+            })
+    });
     let Some((Some(state), pose)) = requested else {
         return Ok(());
     };
@@ -158,31 +166,24 @@ pub(super) fn apply(
     mesh.force_bones.update(&mesh.preview.animation, matrices);
     mesh.weapon_attachments = crate::saber::attachments_from_matrices(&mesh.preview, matrices);
     mesh.driver_seat = crate::vehicle_pose::driver_seat(&mesh.preview, matrices);
-    for range in &mesh.vertex_ranges {
-        if mesh.gpu_palette.is_some() {
-            break;
+    if mesh.gpu_palette.is_none() {
+        for range in &mesh.vertex_ranges {
+            let surface = surfaces
+                .get(range.surface_index)
+                .ok_or("animated actor surface disappeared")?;
+            let scratch = (&mesh.preview, &mut mesh.pose_vertices);
+            upload_range(scratch, range, surface, (queue, vertex_buffer))?;
         }
-        let surface = surfaces
-            .get(range.surface_index)
-            .ok_or("animated actor surface disappeared")?;
-        if surface.vertices.len() != range.vertices.len() {
-            return Err("animated actor vertex count changed".into());
+        if !mesh.surfaces.caps.is_empty() {
+            let caps = mesh
+                .preview
+                .mesh
+                .skin_switched_off(&mesh.preview.skin, 0, matrices)?;
+            for (range, (_, surface)) in mesh.surfaces.caps.iter().zip(&caps) {
+                let scratch = (&mesh.preview, &mut mesh.pose_vertices);
+                upload_range(scratch, range, surface, (queue, vertex_buffer))?;
+            }
         }
-        mesh.pose_vertices.clear();
-        mesh.pose_vertices.extend(
-            surface
-                .vertices
-                .iter()
-                .map(|vertex| preview_gpu_vertex(&mesh.preview, vertex)),
-        );
-        let byte_offset = u64::try_from(range.vertices.start)?
-            .checked_mul(u64::try_from(std::mem::size_of::<GpuVertex>())?)
-            .ok_or("animated actor buffer offset overflow")?;
-        queue.write_buffer(
-            vertex_buffer,
-            byte_offset,
-            bytemuck::cast_slice(&mesh.pose_vertices),
-        );
     }
     mesh.current_frames = (
         state.lower.forced_frame.unwrap_or(state.lower.clip),
@@ -242,4 +243,28 @@ fn mind_tricked(entity: Option<EntityId>, snapshot: Option<&Snapshot>) -> bool {
         .entities
         .binary_search_by_key(&number, |state| state.number())
         .is_ok_and(|index| snapshot.entities[index].client_bitflag(snapshot.player.client_num()))
+}
+
+/// One range's vertices skinned on the CPU, written over its share of the vertex buffer.
+fn upload_range(
+    (preview, scratch): (&crate::PlayerPreview, &mut Vec<GpuVertex>),
+    range: &crate::player_animation::PreviewVertexRange,
+    surface: &jkr_model::SkinnedSurface,
+    (queue, vertex_buffer): (&crate::frame_queue::FrameQueue, &wgpu::Buffer),
+) -> Result<(), Box<dyn Error>> {
+    if surface.vertices.len() != range.vertices.len() {
+        return Err("animated actor vertex count changed".into());
+    }
+    scratch.clear();
+    scratch.extend(
+        surface
+            .vertices
+            .iter()
+            .map(|vertex| preview_gpu_vertex(preview, vertex)),
+    );
+    let byte_offset = u64::try_from(range.vertices.start)?
+        .checked_mul(u64::try_from(std::mem::size_of::<GpuVertex>())?)
+        .ok_or("animated actor buffer offset overflow")?;
+    queue.write_buffer(vertex_buffer, byte_offset, bytemuck::cast_slice(scratch));
+    Ok(())
 }

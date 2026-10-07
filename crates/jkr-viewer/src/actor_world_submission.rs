@@ -33,6 +33,9 @@ mod body_draw;
 #[path = "bolted_items.rs"]
 mod bolted;
 
+#[path = "actor_limbs.rs"]
+mod limbs;
+
 #[path = "special_entities.rs"]
 mod special_entities;
 
@@ -237,6 +240,8 @@ pub(crate) fn submit(
             );
         } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform) {
             // The flying hilt is owned by this branch, including its blades.
+        } else if limbs::submit(&mut sinks, entity, transform) {
+            // A cut limb, drawn from its copy of the owner.
         } else if let Some(mesh) = entity.appearance().and_then(|appearance| {
             sinks
                 .object_meshes
@@ -495,9 +500,12 @@ fn submit_actor(
             presentation_time as i32,
             visual_now,
         );
-        jetpack::submit(
-            sinks, mesh, *transform, snapshot, state, local, draw_actor, visual_now,
-        );
+        // A cut takes the jetpack along (`CG_General` removes its model).
+        if !sinks.actor_meshes[mesh].cuts.stripped {
+            jetpack::submit(
+                sinks, mesh, *transform, snapshot, state, local, draw_actor, visual_now,
+            );
+        }
     }
     // `EF_DISINTEGRATION`: smoke at the waist for the first second, no weapon or Force
     // shells while it burns, and nothing at all once a player is gone.
@@ -543,9 +551,11 @@ fn submit_actor(
     // A player hidden by a trick keeps only the blade of a second saber while the first
     // is thrown (`cg_players.c:10027-10041`).
     let hidden = sinks.body == BodyDraw::Hidden;
+    // A cut through the sword arm, hand or waist takes the weapon (`cg_ents.c:1238-1245`).
+    let disarmed = mesh.is_some_and(|index| sinks.actor_meshes[index].cuts.disarmed);
     if let Some((equipment, held_mesh)) = equipment
         .zip(mesh)
-        .filter(|_| dissolving.is_none() && fading.is_none())
+        .filter(|_| dissolving.is_none() && fading.is_none() && !disarmed)
         .filter(|(equipment, _)| !hidden || equipment.primary_in_flight)
     {
         submit_equipment(
@@ -820,8 +830,11 @@ fn submit_equipment(
         entity.id.get(),
         std::array::from_fn(|hand| {
             let mesh = &sinks.actor_meshes[actor_mesh];
+            // A cut takes the second saber along.
+            let kept = hand == 0 || !mesh.cuts.stripped;
             mesh.saber_names[hand]
                 .as_deref()
+                .filter(|_| kept)
                 .zip(mesh.weapon_attachments[hand])
         }),
         equipment,

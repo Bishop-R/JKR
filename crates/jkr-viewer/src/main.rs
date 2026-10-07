@@ -1,9 +1,11 @@
+mod actor_dismember;
 mod actor_dissolve;
 mod actor_instance;
 mod actor_load;
 mod actor_marks;
 mod actor_mesh;
 mod actor_pose;
+mod actor_surfaces;
 mod actor_tint;
 mod actor_world_submission;
 mod animation_timing;
@@ -189,8 +191,8 @@ use player_assets::{PlayerPreview, load_player_preview};
 use render_helpers::{angle_to_short, append_instance_group, mesh_center, texture_layout_entry};
 
 use scene_flatten::{
-    ActorDraw, DrawBatch, FlattenedScene, ViewerMaterial, append_actor_mesh, append_md3_mesh,
-    append_static_glm_mesh, preview_gpu_vertex,
+    ActorDraw, DrawBatch, FlattenedScene, ViewerMaterial, append_actor_caps, append_actor_mesh,
+    append_md3_mesh, append_static_glm_mesh, preview_gpu_vertex,
 };
 use shared_geometry::SharedGeometry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};

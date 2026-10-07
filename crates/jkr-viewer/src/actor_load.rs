@@ -44,8 +44,17 @@ pub(crate) fn build_actor_mesh(
     let frame = preview.sequence.first_frame;
     let sample = (frame, frame, 0.0);
     let weapon_attachments = saber::actor_attachments(&preview, sample, sample);
-    let (draws, vertex_ranges) = append_actor_mesh(scene, &preview, frame)?;
+    let (mut draws, vertex_ranges) = append_actor_mesh(scene, &preview, frame)?;
     let mouth_draw = surface_draw(&preview.mesh, &vertex_ranges, "head_eyes_mouth");
+    // The caps a cut leaves, drawn after the rest and hidden until a cut shows one.
+    let (caps, cap_ranges) = append_actor_caps(scene, &preview, frame)?;
+    draws.extend(caps);
+    let surfaces = crate::actor_surfaces::Surfaces::new(
+        &preview.mesh,
+        &preview.skin,
+        &vertex_ranges,
+        cap_ranges,
+    );
     let pose_vertex_capacity = vertex_ranges
         .iter()
         .map(|range| range.vertices.len())
@@ -57,6 +66,7 @@ pub(crate) fn build_actor_mesh(
     Ok(ActorMesh {
         entity_id,
         corpse_pool,
+        limb_pool: false,
         body_identity: None,
         appearance,
         angle_controller: actor_pose::angle_storage(&preview.animation),
@@ -78,6 +88,8 @@ pub(crate) fn build_actor_mesh(
         fade: Default::default(),
         marks: Default::default(),
         mouth_draw,
+        surfaces,
+        cuts: Default::default(),
         trick: Default::default(),
         body: Default::default(),
     })

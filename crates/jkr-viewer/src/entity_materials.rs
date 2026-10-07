@@ -100,7 +100,7 @@ impl Queue {
                 &mesh.draws,
                 range,
                 None,
-                (false, false, None),
+                (false, false, None, mesh.surfaces.hidden()),
                 instances,
                 camera,
             );
@@ -111,23 +111,34 @@ impl Queue {
                 &mesh.draws,
                 range,
                 None,
-                (false, false, None),
+                (false, false, None, &[]),
                 instances,
                 camera,
             );
         }
         for entry in overrides {
-            let draws = match entry.mesh {
-                OverrideMesh::Actor(index) => actors.get(index).map(|mesh| mesh.draws.as_slice()),
-                OverrideMesh::Object(index) => objects.get(index).map(|mesh| mesh.draws.as_slice()),
+            // A shell or fade drawn over an actor hides what its body hides.
+            let (draws, hidden) = match entry.mesh {
+                OverrideMesh::Actor(index) => match actors.get(index) {
+                    Some(mesh) => (mesh.draws.as_slice(), mesh.surfaces.hidden()),
+                    None => continue,
+                },
+                OverrideMesh::Object(index) => match objects.get(index) {
+                    Some(mesh) => (mesh.draws.as_slice(), &[][..]),
+                    None => continue,
+                },
             };
-            let Some(draws) = draws else { continue };
             self.append_mesh(
                 runtime,
                 draws,
                 &entry.instances,
                 entry.material,
-                (entry.no_depth, entry.forced_alpha, entry.switched_off),
+                (
+                    entry.no_depth,
+                    entry.forced_alpha,
+                    entry.switched_off,
+                    hidden,
+                ),
                 instances,
                 camera,
             );
@@ -161,7 +172,7 @@ impl Queue {
         draws: &[ActorDraw],
         instances_range: &Range<u32>,
         override_material: Option<usize>,
-        (no_depth, forced_alpha, switched_off): (bool, bool, Option<usize>),
+        (no_depth, forced_alpha, switched_off, hidden): (bool, bool, Option<usize>, &[u64]),
         instances: &[ActorInstance],
         camera: Vec3,
     ) {
@@ -169,7 +180,7 @@ impl Queue {
             return;
         }
         for (index, surface) in draws.iter().enumerate() {
-            if switched_off == Some(index) {
+            if switched_off == Some(index) || crate::actor_surfaces::is_hidden(hidden, index) {
                 continue;
             }
             let material = override_material.unwrap_or(surface.material);

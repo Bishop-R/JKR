@@ -9,6 +9,7 @@ mod animation_selection;
 mod asset_catalog;
 mod base_server_commands;
 pub mod breakage;
+pub mod dismember;
 mod shader_remaps;
 pub use shader_remaps::{SHADER_STATE_CONFIG, ShaderRemapTable, ShaderRemaps, shader_name};
 mod catalog_tokens;

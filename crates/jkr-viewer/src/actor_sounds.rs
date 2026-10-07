@@ -55,9 +55,9 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
             audio.absorb_animation_prefetch(&prefetch);
         }
         let entity = mesh.entity_id.and_then(|id| world.entity(id));
-        let Some(entity) =
-            entity.filter(|_| !paused && !mesh.corpse_pool && mesh.animator.requested.is_some())
-        else {
+        let Some(entity) = entity.filter(|_| {
+            !paused && !mesh.corpse_pool && !mesh.limb_pool && mesh.animator.requested.is_some()
+        }) else {
             mesh.audio_events.cursor.reset();
             mesh.audio_events.last_time = None;
             continue;

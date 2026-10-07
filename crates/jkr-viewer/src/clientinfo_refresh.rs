@@ -270,6 +270,7 @@ impl GpuState {
             placement,
             material_base,
         );
+        relocate(&mut [], &mut mesh.surfaces.caps, placement, material_base);
         // Palette-skin the new mesh like the actors known at world load; on a topology
         // mismatch this one mesh keeps the CPU path.
         match self

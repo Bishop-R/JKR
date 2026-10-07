@@ -5,6 +5,8 @@ use super::*;
 pub(crate) struct ActorMesh {
     pub(crate) entity_id: Option<EntityId>,
     pub(crate) corpse_pool: bool,
+    /// A copy kept for cut limbs ([`crate::actor_dismember`]).
+    pub(crate) limb_pool: bool,
     pub(crate) body_identity: Option<jkr_client::BodyIdentity>,
     pub(crate) appearance: Appearance,
     pub(crate) preview: PlayerPreview,
@@ -33,6 +35,10 @@ pub(crate) struct ActorMesh {
     pub(crate) marks: crate::actor_marks::Marks,
     /// The draw of `head_eyes_mouth`, the inside of the face a corpse's fade switches off.
     pub(crate) mouth_draw: Option<usize>,
+    /// Its surface switches (caps, cut limbs) and the draws they hide.
+    pub(crate) surfaces: crate::actor_surfaces::Surfaces,
+    /// What cuts did to it: limbs lost, or the limb it is.
+    pub(crate) cuts: crate::actor_dismember::Cuts,
     /// How far a player who mind-tricks the viewer has faded from its sight.
     pub(crate) trick: jkr_client::trick_fade::TrickFade,
     /// How much of the model this frame draws, for its trick.

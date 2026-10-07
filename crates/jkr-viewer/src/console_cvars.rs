@@ -258,6 +258,14 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Third-person look-target easing per 50 ms; 1 or more snaps",
         ),
+        // `cg_xcvar.h:82`: no cut limbs by default; 1 shows arms, hands and legs, 2 heads
+        // and trunks too.
+        CvarDefinition::new(
+            "cg_dismember",
+            0_i64,
+            archive,
+            "Show limbs cut off: 0 none, 1 arms and legs, 2 heads and trunks too",
+        ),
         // `cg_xcvar.h:136,142`: stock marks the alpha a cheat.
         CvarDefinition::new(
             "cg_thirdPersonAlpha",
