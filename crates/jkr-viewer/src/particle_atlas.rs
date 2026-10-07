@@ -77,7 +77,9 @@ pub(crate) fn create(
                     if name.starts_with('$') || name == "-" {
                         continue;
                     }
-                    if let Some(path) = shaders.resolve_image(vfs, name)?
+                    // A stage's `map` names an image, never a shader: `saberglowmark`'s glow
+                    // stage names the very picture its shader is called after.
+                    if let Some(path) = shaders.resolve_stage_image(vfs, name)?
                         && !paths.contains(&path)
                     {
                         paths.push(path);

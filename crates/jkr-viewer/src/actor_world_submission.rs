@@ -240,7 +240,6 @@ pub(crate) fn submit(
             }
         }
     }
-    crate::actor_marks::frame(gpu, presentation_time);
     overlay_count
 }
 
@@ -558,7 +557,7 @@ fn submit_actor(
                 .marks
                 .place(crate::actor_marks::Placement::of(
                     entity,
-                    state,
+                    (state, local),
                     lerp_origin,
                     &instance,
                     draw_actor,

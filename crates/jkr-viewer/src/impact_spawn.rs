@@ -73,14 +73,31 @@ pub(crate) fn observe_snapshot(
         };
         flare_latches += usize::from(latch_clash_flare(clash_flare, impact, snapshot.server_time));
         visual_requests += spawn_impact(impact, local, &mut sinks, now);
-        // `CG_G2MarkEvent`: a flagged missile's mark on the model it struck.
-        if let Some(mark) = snapshot
+        let Some(state) = snapshot
             .entities
             .binary_search_by_key(&impact.entity_number, |state| state.number())
             .ok()
-            .and_then(|index| jkr_client::ghoul2_marks::missile_mark(&snapshot.entities[index]))
-        {
+            .map(|index| &snapshot.entities[index])
+        else {
+            continue;
+        };
+        // The event as decoded: a temporary event entity carries it in its type.
+        let event = impact.event & !0x300;
+        // `CG_G2MarkEvent`: a flagged missile's mark on the model it struck.
+        if let Some(mark) = jkr_client::ghoul2_marks::missile_mark(state, event) {
             sinks.auxiliary.marks.request(mark);
+        }
+        // The owner's blades keep showing the hit for a while (`serverSaberHitTime`).
+        if let Some((owner, hit)) = jkr_client::saber_compensation::server_hit(
+            state,
+            event,
+            i64::from(snapshot.server_time),
+        ) {
+            sinks
+                .auxiliary
+                .saber_contacts
+                .compensation
+                .observe(owner, hit);
         }
     }
     Observation {

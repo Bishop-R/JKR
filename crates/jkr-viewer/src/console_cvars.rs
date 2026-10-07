@@ -322,6 +322,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Saber contact marks and sparks",
         ),
         CvarDefinition::new("cg_marks", true, archive, "Leave impact marks on the world"),
+        // `cg_xcvar.h:114`: not archived.
+        CvarDefinition::new(
+            "cg_saberClientVisualCompensation",
+            true,
+            CvarFlags::NONE,
+            "Keep showing a saber's hit between the server's reports",
+        ),
         // `cg_xcvar.h:96`: not archived.
         CvarDefinition::new(
             "cg_ghoul2Marks",

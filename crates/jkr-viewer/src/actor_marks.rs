@@ -13,7 +13,7 @@
 
 use super::*;
 use crate::decal_marks::DecalVertex;
-use jkr_client::ghoul2_marks::{self, MissileMark};
+use jkr_client::ghoul2_marks::{self, MarkRequest};
 use jkr_model::g2_collision::{self, CollisionRecord, CollisionScratch, GHOUL2_ROOT, PosedModel};
 use jkr_model::g2_gore::{self, GoreLod, GoreProjection, GoreScratch, GoreSurface};
 use jkr_protocol::EntityState;
@@ -22,6 +22,9 @@ use jkr_protocol::EntityState;
 const MAX_PENDING: usize = 64;
 /// `SOLID_BMODEL`: an entity clipped by its brush model, not a box.
 const SOLID_BMODEL: u32 = 0x00ff_ffff;
+/// The box `CG_BuildSolidList` gives the viewer's own player, which the snapshot never
+/// carries (`cg_predict.c:105-139`): 15 across, `DEFAULT_MINS_2` down, `DEFAULT_MAXS_2` up.
+const LOCAL_PLAYER_SOLID: u32 = ((40 + 32) << 16) | (24 << 8) | 15;
 
 /// Where an actor was drawn this frame, as its marks need it.
 #[derive(Clone, Copy, Debug)]
@@ -45,10 +48,11 @@ pub(crate) struct Placement {
 }
 
 impl Placement {
-    /// Where `entity` was drawn this frame as `instance`, standing at `lerp_origin`.
+    /// Where `entity` was drawn this frame as `instance`, standing at `lerp_origin`;
+    /// `local` for the viewer's own player.
     pub(crate) fn of(
         entity: &jkr_runtime::SceneEntity,
-        state: Option<&EntityState>,
+        (state, local): (Option<&EntityState>, bool),
         lerp_origin: [f32; 3],
         instance: &ActorInstance,
         shown: bool,
@@ -63,7 +67,10 @@ impl Placement {
             } else {
                 percent as f32 / 100.0
             },
-            solid: state.map_or(0, EntityState::solid),
+            solid: state.map_or(
+                if local { LOCAL_PLAYER_SOLID } else { 0 },
+                EntityState::solid,
+            ),
             position: Vec3::from_array(instance.position),
             rotation: Quat::from_array(instance.rotation),
             drawn_scale: Vec3::from_array(instance.scale),
@@ -119,8 +126,8 @@ impl Marks {
 
 /// Requests, limits and scratch storage shared by every actor.
 pub(crate) struct Runtime {
-    pending: Vec<MissileMark>,
-    taken: Vec<MissileMark>,
+    pending: Vec<MarkRequest>,
+    taken: Vec<MarkRequest>,
     /// `cg_ghoul2Marks`: a model carrying this many records takes no more; 0 lays none.
     pub(crate) limit: usize,
     shaders: [Arc<str>; 3],
@@ -154,9 +161,9 @@ impl Default for Runtime {
 }
 
 impl Runtime {
-    /// A missile's mark, laid once this frame's poses are ready; past [`MAX_PENDING`]
-    /// a frame's further requests are dropped.
-    pub(crate) fn request(&mut self, mark: MissileMark) {
+    /// A mark, laid once this frame's poses are ready; past [`MAX_PENDING`] a frame's
+    /// further requests are dropped.
+    pub(crate) fn request(&mut self, mark: MarkRequest) {
         if self.pending.len() < MAX_PENDING {
             self.pending.push(mark);
         }
@@ -190,11 +197,7 @@ pub(crate) fn frame(gpu: &mut GpuState, now: i64) {
             continue;
         }
         let target = EntityId::new(u64::from(mark.target) + 1);
-        // `lerpAngles[YAW]`.
-        let yaw = world
-            .entity(target)
-            .and_then(|entity| entity.sample_pose(now))
-            .map_or(0.0, |pose| pose.view_angles_degrees[1]);
+        let yaw = view_yaw(world, target, now);
         let Some(mesh) = gpu.actor_meshes.iter_mut().find(|mesh| {
             mesh.marks
                 .placement
@@ -229,8 +232,8 @@ pub(crate) fn frame(gpu: &mut GpuState, now: i64) {
     }
 }
 
-/// `CG_G2MarkEvent` and `CG_AddGhoul2Mark` for one missile's mark on `mesh`.
-fn lay(runtime: &mut Runtime, mesh: &mut ActorMesh, mark: &MissileMark, yaw: f32, now: i64) {
+/// `CG_AddGhoul2Mark` (after `CG_G2MarkEvent`'s trace, for a missile) on `mesh`.
+fn lay(runtime: &mut Runtime, mesh: &mut ActorMesh, mark: &MarkRequest, yaw: f32, now: i64) {
     let style = mark.style;
     let Some(placement) = mesh.marks.placed(now) else {
         return;
@@ -238,13 +241,7 @@ fn lay(runtime: &mut Runtime, mesh: &mut ActorMesh, mark: &MissileMark, yaw: f32
     if mesh.marks.records.len() >= runtime.limit {
         return;
     }
-    let posed = PosedModel {
-        glm: &mesh.preview.mesh,
-        bones: mesh.animator.matrices(),
-        placement: GHOUL2_ROOT,
-        overrides: &[],
-        scale: [placement.scale; 3],
-    };
+    let posed = posed(mesh, &placement);
     let axes = jkr_game_jka::pmove::flight::angles_to_axis([0.0, yaw, 0.0]);
     let start = surface_point(runtime, &posed, &placement, axes, mark);
     let mut direction = Vec3::from_array(mark.end) - Vec3::from_array(start);
@@ -304,47 +301,132 @@ fn surface_point(
     posed: &PosedModel<'_>,
     placement: &Placement,
     axes: [[f32; 3]; 3],
-    mark: &MissileMark,
+    mark: &MarkRequest,
 ) -> [f32; 3] {
     if !mark.trace {
         return mark.origin;
     }
-    if !touches_box(mark.origin, mark.end, placement.origin, placement.solid) {
-        return mark.end;
-    }
-    let traced = g2_collision::collision_detect(
+    model_hit(runtime, posed, placement, axes, mark.origin, mark.end)
+        .map_or(mark.end, |record| record.position)
+}
+
+/// `CG_G2TraceCollide` on the model of `target` as drawn at `now`: where the segment first
+/// meets it, and the surface's normal there, in the world. `None` when the target was not
+/// drawn this frame or the segment misses it.
+pub(crate) fn trace_model(
+    meshes: &[ActorMesh],
+    world: &World,
+    runtime: &mut Runtime,
+    target: u16,
+    (start, end): ([f32; 3], [f32; 3]),
+    now: i64,
+) -> Option<([f32; 3], [f32; 3])> {
+    let id = EntityId::new(u64::from(target) + 1);
+    let (mesh, placement) = meshes.iter().find_map(|mesh| {
+        let placement = mesh.marks.placement.get()?;
+        (placement.entity == id && placement.time == now).then_some((mesh, placement))
+    })?;
+    let axes = jkr_game_jka::pmove::flight::angles_to_axis([0.0, view_yaw(world, id, now), 0.0]);
+    model_hit(
+        runtime,
+        &posed(mesh, &placement),
+        &placement,
+        axes,
+        start,
+        end,
+    )
+    .map(|record| (record.position, record.normal))
+}
+
+/// The segment against the placed model: its box first (`CG_ClipMoveToEntities`), then
+/// the model at `cg_g2TraceLod`; the nearest hit.
+fn model_hit(
+    runtime: &mut Runtime,
+    posed: &PosedModel<'_>,
+    placement: &Placement,
+    axes: [[f32; 3]; 3],
+    start: [f32; 3],
+    end: [f32; 3],
+) -> Option<CollisionRecord> {
+    box_trace(start, end, placement.origin, placement.solid)?;
+    g2_collision::collision_detect(
         std::slice::from_ref(posed),
         placement.origin,
-        mark.origin,
-        mark.end,
+        start,
+        end,
         ghoul2_marks::TRACE_LOD,
         0.0,
         axes,
         &mut runtime.collision,
         &mut runtime.records,
-    );
-    match (traced, runtime.records.first()) {
-        (Ok(()), Some(record)) => record.position,
-        _ => mark.end,
+    )
+    .ok()?;
+    runtime.records.first().copied()
+}
+
+/// The actor's body as Ghoul2 traces it: this frame's pose, the quarter-turn root and
+/// `modelScale`.
+fn posed<'a>(mesh: &'a ActorMesh, placement: &Placement) -> PosedModel<'a> {
+    PosedModel {
+        glm: &mesh.preview.mesh,
+        bones: mesh.animator.matrices(),
+        placement: GHOUL2_ROOT,
+        overrides: &[],
+        scale: [placement.scale; 3],
     }
 }
 
-/// Whether the segment touches the entity's encoded box at `origin` (or starts in it).
-fn touches_box(start: [f32; 3], end: [f32; 3], origin: [f32; 3], solid: u32) -> bool {
+/// `lerpAngles[YAW]`: the entity's view yaw as presented at `now`.
+fn view_yaw(world: &World, id: EntityId, now: i64) -> f32 {
+    world
+        .entity(id)
+        .and_then(|entity| entity.sample_pose(now))
+        .map_or(0.0, |pose| pose.view_angles_degrees[1])
+}
+
+/// A point trace through an entity's encoded box (`CM_TempModel` in
+/// `CG_ClipMoveToEntities`, `cg_predict.c:260-300`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct BoxTrace {
+    /// Where the segment enters the box; 1 for one that starts inside and leaves.
+    pub(crate) fraction: f32,
+    pub(crate) start_solid: bool,
+    /// The segment never leaves the box.
+    pub(crate) all_solid: bool,
+}
+
+/// The segment against the entity's encoded box at `origin`; `None` when it misses.
+pub(crate) fn box_trace(
+    start: [f32; 3],
+    end: [f32; 3],
+    origin: [f32; 3],
+    solid: u32,
+) -> Option<BoxTrace> {
     if solid == 0 || solid == SOLID_BMODEL {
-        return false;
+        return None;
     }
     let x = (solid & 255) as f32;
     let down = ((solid >> 8) & 255) as f32;
     let up = ((solid >> 16) & 255) as f32 - 32.0;
     let low = [origin[0] - x, origin[1] - x, origin[2] - down];
     let high = [origin[0] + x, origin[1] + x, origin[2] + up];
+    let inside =
+        |point: [f32; 3]| (0..3).all(|axis| (low[axis]..=high[axis]).contains(&point[axis]));
+    if inside(start) {
+        // Leaving a solid is no hit; never leaving it is.
+        let all_solid = inside(end);
+        return Some(BoxTrace {
+            fraction: if all_solid { 0.0 } else { 1.0 },
+            start_solid: true,
+            all_solid,
+        });
+    }
     let (mut enter, mut leave) = (0.0_f32, 1.0_f32);
     for axis in 0..3 {
         let delta = end[axis] - start[axis];
         if delta.abs() < f32::EPSILON {
             if start[axis] < low[axis] || start[axis] > high[axis] {
-                return false;
+                return None;
             }
             continue;
         }
@@ -355,10 +437,41 @@ fn touches_box(start: [f32; 3], end: [f32; 3], origin: [f32; 3], solid: u32) -> 
         enter = enter.max(a.min(b));
         leave = leave.min(a.max(b));
         if enter > leave {
-            return false;
+            return None;
         }
     }
-    true
+    Some(BoxTrace {
+        fraction: enter,
+        start_solid: false,
+        all_solid: false,
+    })
+}
+
+/// A body drawn this frame as `CG_ClipMoveToEntities` clips against it: its entity number,
+/// `lerpOrigin` and encoded box.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Body {
+    pub(crate) number: u16,
+    pub(crate) origin: [f32; 3],
+    pub(crate) solid: u32,
+}
+
+/// Every body drawn at `now`, by entity number.
+pub(crate) fn bodies(meshes: &[ActorMesh], now: i64, out: &mut Vec<Body>) {
+    out.clear();
+    out.extend(meshes.iter().filter_map(|mesh| {
+        let placement = mesh
+            .marks
+            .placement
+            .get()
+            .filter(|placement| placement.time == now)?;
+        Some(Body {
+            number: u16::try_from(placement.entity.get().checked_sub(1)?).ok()?,
+            origin: placement.origin,
+            solid: placement.solid,
+        })
+    }));
+    out.sort_unstable_by_key(|body| body.number);
 }
 
 /// This frame's polygons of every mark on one actor: each marked vertex skinned once with
@@ -484,28 +597,25 @@ mod tests {
     }
 
     #[test]
-    fn a_shot_touches_a_players_box_or_starts_inside_it() {
-        // A player's box: 15 across, 24 down, 40 up (`solid` 0x480f0f... encoded).
+    fn a_shot_enters_a_players_box_starts_inside_it_or_misses_it() {
+        // A player's box: 15 across, 24 down, 40 up.
         let solid = 15 | (24 << 8) | ((40 + 32) << 16);
         let origin = [100.0, 0.0, 0.0];
-        assert!(touches_box(
-            [0.0, 0.0, 0.0],
-            [200.0, 0.0, 0.0],
-            origin,
-            solid
-        ));
-        assert!(!touches_box(
-            [0.0, 50.0, 0.0],
-            [200.0, 50.0, 0.0],
-            origin,
-            solid
-        ));
-        assert!(touches_box(
-            [100.0, 0.0, 10.0],
-            [101.0, 0.0, 10.0],
-            origin,
-            solid
-        ));
-        assert!(!touches_box([0.0; 3], [200.0, 0.0, 0.0], origin, 0));
+        let through = box_trace([0.0, 0.0, 0.0], [200.0, 0.0, 0.0], origin, solid).unwrap();
+        assert!((through.fraction - 85.0 / 200.0).abs() < 1e-6);
+        assert!(!through.start_solid && !through.all_solid);
+        assert_eq!(
+            box_trace([0.0, 50.0, 0.0], [200.0, 50.0, 0.0], origin, solid),
+            None
+        );
+        // Starting inside: leaving is no hit, staying is.
+        let leaving = box_trace([100.0, 0.0, 10.0], [200.0, 0.0, 10.0], origin, solid).unwrap();
+        assert_eq!(
+            (leaving.fraction, leaving.start_solid, leaving.all_solid),
+            (1.0, true, false)
+        );
+        let staying = box_trace([100.0, 0.0, 10.0], [101.0, 0.0, 10.0], origin, solid).unwrap();
+        assert_eq!((staying.fraction, staying.all_solid), (0.0, true));
+        assert_eq!(box_trace([0.0; 3], [200.0, 0.0, 0.0], origin, 0), None);
     }
 }

@@ -65,31 +65,51 @@ pub fn saber_style() -> MarkStyle {
     }
 }
 
-/// A missile's mark request, read from its impact event (`CG_G2MarkEvent`).
+/// A mark to lay: on which entity's model, from where, toward where, and how it looks.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MissileMark {
+pub struct MarkRequest {
     /// The struck entity, whose model takes the mark (`otherEntityNum`).
     pub target: u16,
-    /// Where the missile struck (`s.origin`).
+    /// Where it was struck (a missile's `s.origin`).
     pub origin: [f32; 3],
-    /// Where it would have flown on (`origin2`): the shot runs from the struck point here.
+    /// A point further along the shot (a missile's `origin2`): the mark is laid along the
+    /// line from where it starts to here.
     pub end: [f32; 3],
-    /// `eventParm` set: trace from `origin` to `end` for the point on the model first.
+    /// Find the point on the model first, tracing from `origin` to `end` (a missile's
+    /// `eventParm` set).
     pub trace: bool,
     pub style: MarkStyle,
 }
 
-/// The mark an impact event entity asks for, if any: a missile's hit or miss with the
-/// server's mark flag, from a weapon that leaves one.
-pub fn missile_mark(state: &EntityState) -> Option<MissileMark> {
-    let event = state.event() & !0x300;
+/// A blade's mark where it met the model at `hit`, laid along `along` (from the hit
+/// toward the blade's end): 4 units on, as `CG_SaberCompWork` aims it.
+pub fn saber_mark(target: u16, hit: [f32; 3], along: [f32; 3]) -> MarkRequest {
+    let length = along.iter().map(|value| value * value).sum::<f32>().sqrt();
+    let unit = if length > 0.0 {
+        along.map(|value| value / length)
+    } else {
+        along
+    };
+    MarkRequest {
+        target,
+        origin: hit,
+        end: std::array::from_fn(|axis| hit[axis] + 4.0 * unit[axis]),
+        trace: false,
+        style: saber_style(),
+    }
+}
+
+/// The mark an impact event entity asks for, if any: a missile's hit or miss (`event`,
+/// as the event was decoded, its sequence bits off) with the server's mark flag, from a
+/// weapon that leaves one.
+pub fn missile_mark(state: &EntityState, event: u16) -> Option<MarkRequest> {
     if !matches!(event, EV_MISSILE_HIT | EV_MISSILE_MISS) || state.tracked_entity_num() == 0 {
         return None;
     }
     if state.e_flags() & EF_JETPACK_ACTIVE != 0 {
         return None;
     }
-    Some(MissileMark {
+    Some(MarkRequest {
         target: state.other_entity_num(),
         origin: state.event_origin(),
         end: state.origin2(),
@@ -120,16 +140,14 @@ mod tests {
     use jkr_protocol::LEGACY_ENTITY_FIELDS;
 
     /// `entityState_t` field indices (`LEGACY_ENTITY_FIELDS`).
-    const ES_EVENT: usize = 28;
     const ES_EVENT_PARM: usize = 42;
     const ES_WEAPON: usize = 14;
     const ES_OTHER_ENTITY_NUM: usize = 59;
     const ES_TRICKED: usize = 58;
     const ES_EFLAGS: usize = 19;
 
-    fn impact(event: u32, weapon: u32, flagged: bool) -> EntityState {
+    fn impact(weapon: u32, flagged: bool) -> EntityState {
         let mut state = EntityState::zero(300, &LEGACY_ENTITY_FIELDS);
-        state.set_raw_field(ES_EVENT, event | 0x100);
         state.set_raw_field(ES_EVENT_PARM, 5);
         state.set_raw_field(ES_WEAPON, weapon);
         state.set_raw_field(ES_OTHER_ENTITY_NUM, 3);
@@ -139,24 +157,34 @@ mod tests {
 
     #[test]
     fn a_flagged_bolt_or_rocket_marks_its_target_and_nothing_else_does() {
-        let bolt = missile_mark(&impact(85, 5, true)).unwrap();
+        let bolt = missile_mark(&impact(5, true), 85).unwrap();
         assert_eq!((bolt.target, bolt.trace), (3, true));
         assert_eq!(
             (bolt.style.shader, bolt.style.size),
             (BODY_BURN, (4.0, 4.0))
         );
-        let rocket = missile_mark(&impact(86, 11, true)).unwrap();
+        let rocket = missile_mark(&impact(11, true), 86).unwrap();
         assert_eq!(
             (rocket.style.shader, rocket.style.size),
             (BIG_BURN, (24.0, 24.0))
         );
         // No flag, a weapon that leaves no mark, another event: nothing.
-        assert_eq!(missile_mark(&impact(85, 5, false)), None);
-        assert_eq!(missile_mark(&impact(85, 10, true)), None);
-        assert_eq!(missile_mark(&impact(87, 5, true)), None);
+        assert_eq!(missile_mark(&impact(5, false), 85), None);
+        assert_eq!(missile_mark(&impact(10, true), 85), None);
+        assert_eq!(missile_mark(&impact(5, true), 87), None);
         // A vehicle's projectile is left to the vehicle weapon table.
-        let mut vehicle = impact(85, 5, true);
+        let mut vehicle = impact(5, true);
         vehicle.set_raw_field(ES_EFLAGS, EF_JETPACK_ACTIVE);
-        assert_eq!(missile_mark(&vehicle), None);
+        assert_eq!(missile_mark(&vehicle, 85), None);
+    }
+
+    #[test]
+    fn a_saber_mark_is_laid_from_the_hit_four_units_on_along_the_blade() {
+        let mark = saber_mark(4, [10.0, 0.0, 0.0], [0.0, 0.0, -30.0]);
+        assert_eq!(
+            (mark.target, mark.origin, mark.end, mark.trace),
+            (4, [10.0, 0.0, 0.0], [10.0, 0.0, -4.0], false)
+        );
+        assert_eq!(mark.style, saber_style());
     }
 }

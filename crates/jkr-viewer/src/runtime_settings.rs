@@ -32,6 +32,9 @@ impl GpuState {
             .set_marks_enabled(console.bool_cvar("cg_marks").unwrap_or(true));
         self.effect_aux.saber_contacts.enabled =
             console.bool_cvar("cg_saberContact").unwrap_or(true);
+        self.effect_aux.saber_contacts.compensation.enabled = console
+            .bool_cvar("cg_saberClientVisualCompensation")
+            .unwrap_or(true);
         self.effect_aux.marks.limit = console
             .integer_cvar("cg_ghoul2Marks")
             .map_or(jkr_client::ghoul2_marks::DEFAULT_LIMIT, |limit| {
