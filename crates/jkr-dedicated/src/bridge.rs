@@ -156,6 +156,9 @@ pub struct NativeGame {
     door_portals: Vec<bool>,
     /// The breakable brushes the map placed, by the entity number each was given.
     breakables: Vec<(EntityId, jkr_game_jka::breakables::Breakable)>,
+    /// The blows a player's move dealt on glass and weak breakables (`PM_ClientImpact`),
+    /// dealt once the move is over; kept for its room.
+    strikes: jkr_game_jka::client_impact::Strikes,
     /// Its targets: the name they are fired by, what they are, and what each is doing.
     targets: Vec<(String, jkr_game_jka::triggers::Target, MapTarget)>,
     /// `G_ModelIndex`'s table.
@@ -411,6 +414,7 @@ impl NativeGame {
             doors: Vec::new(),
             door_portals: Vec::new(),
             breakables: Vec::new(),
+            strikes: Default::default(),
             models: ModelTable::default(),
             previous_frame_time: 0,
             deaths: Deaths {
@@ -718,6 +722,23 @@ impl NativeGame {
         if self.hurt_glass(number, damage, owner, level_time) {
             return true;
         }
+        let from = self
+            .peer_mut(usize::from(owner))
+            .map(|peer| peer.state.origin());
+        self.hurt_breakable_from(number, damage, means, owner, from, level_time)
+    }
+
+    /// `G_Damage` on the breakable brush `number` by `owner`, standing at `from` (what its
+    /// chunks are thrown from; `None` for no player). `false` when `number` is none.
+    fn hurt_breakable_from(
+        &mut self,
+        number: u16,
+        damage: i32,
+        means: u32,
+        owner: u16,
+        from: Option<[f32; 3]>,
+        level_time: i32,
+    ) -> bool {
         let Some(index) = self
             .breakables
             .iter()
@@ -725,9 +746,6 @@ impl NativeGame {
         else {
             return false;
         };
-        let from = self
-            .peer_mut(usize::from(owner))
-            .map(|peer| peer.state.origin());
         let hit = jkr_game_jka::breakables::hurt(
             &mut self.breakables[index].1,
             damage,
@@ -3444,3 +3462,6 @@ mod bridge_kicks;
 
 #[path = "bridge_det_packs.rs"]
 mod bridge_det_packs;
+
+#[path = "bridge_client_impact.rs"]
+mod bridge_client_impact;

@@ -32,6 +32,7 @@ pub mod chat;
 pub mod cheat_flags;
 pub mod client_begin;
 pub mod client_idle;
+pub mod client_impact;
 pub mod client_spawn;
 pub mod client_view;
 pub mod follow;

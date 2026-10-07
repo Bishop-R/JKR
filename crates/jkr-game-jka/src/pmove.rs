@@ -167,6 +167,14 @@ pub trait MovementCollision {
     fn point_contents(&self, _point: [f32; 3]) -> u32 {
         0
     }
+    /// `PM_ClientImpact` (`bg_slidemove.c:604-641`), which only the game compiles: a
+    /// player's move struck `entity` moving at `velocity`, last on the ground at
+    /// `last_on_ground`. Returns whether `entity` is out of the way now — broken by the
+    /// blow — so that the move carries on through it. A prediction breaks nothing, which is
+    /// the default.
+    fn client_impact(&self, _entity: u16, _velocity: [f32; 3], _last_on_ground: i32) -> bool {
+        false
+    }
     fn trace(
         &self,
         start: [f32; 3],
@@ -342,6 +350,10 @@ pub struct MovementState {
     /// `footstepTime`, which is not on the wire either: until when the last step is heard
     /// (the bots' hearing reads it).
     pub footstep_time: i32,
+    /// `lastOnGround`, no wire field: the command time at which `PM_GroundTrace` last found
+    /// ground to walk on. A player's impact on a breakable reads it ([`MovementCollision::
+    /// client_impact`]).
+    pub last_on_ground: i32,
     pub forced_saber: bool,
     pub weapon: u8,
     pub weapon_state: u8,
@@ -603,6 +615,7 @@ impl MovementState {
             rocket_target_time: f32::from_bits(player.raw_field(71).unwrap_or(0)),
             rocket_last_valid_time: 0.0,
             footstep_time: 0,
+            last_on_ground: 0,
             forced_saber: player.is_jedi_master()
                 || player.is_true_jedi()
                 || player.duel_in_progress(),
@@ -878,6 +891,7 @@ impl Predictor {
         // server's copies are the only ones.
         fresh.state.rocket_last_valid_time = self.state.rocket_last_valid_time;
         fresh.state.footstep_time = self.state.footstep_time;
+        fresh.state.last_on_ground = self.state.last_on_ground;
         fresh.state.saber_anim_level_base = self.state.saber_anim_level_base;
         fresh.copied_to_entity();
         fresh
@@ -1744,6 +1758,7 @@ impl Predictor {
             };
         }
         self.state.ground_entity_number = trace.entity_number;
+        self.state.last_on_ground = command.server_time;
         // `PM_AddTouchEnt(trace.entityNum)` (`bg_pmove.c:4244`): what a player stands on
         // is touched, which is how a lift knows somebody is riding it.
         self.touched.add(trace.entity_number);
@@ -2034,6 +2049,18 @@ impl Predictor {
             self.touched.add(trace.entity_number);
             self.record_vehicle_impact(&trace, &mut velocity, seconds);
             bumped = true;
+            // A player's `PM_ClientImpact` (`bg_slidemove.c:739-746`): what the blow broke
+            // is passed through, the rest of the time left as it was.
+            if self.state.client_num < MAX_CLIENTS
+                && trace.entity_number < ENTITY_NUMBER_WORLD
+                && collision.client_impact(
+                    trace.entity_number,
+                    velocity.to_array(),
+                    self.state.last_on_ground,
+                )
+            {
+                continue;
+            }
             time_left -= time_left * trace.fraction;
             if plane_count >= planes.len() {
                 self.state.velocity = [0.0; 3];

@@ -63,6 +63,10 @@ impl NativeGame {
             last_frame_time,
             deaths,
             npcs,
+            breakables,
+            stock,
+            siege,
+            strikes,
             ..
         } = self;
         let (Some(world), Some(own)) = (server.world_mut(*world), players.at(client)) else {
@@ -143,11 +147,37 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         }
+        // What its blows may break (`PM_ClientImpact`): nothing for a spectator or a Siege
+        // player waiting for its wave (`Client_CheckImpactBBrush`).
+        let round_waiting = bridge_client_impact::round_waiting(
+            *gametype,
+            siege.as_ref().is_some_and(|siege| siege.round.begun),
+        );
+        let brittle = |number: u16| {
+            bridge_client_impact::brittle(
+                breakables,
+                |number| stock.scenery.pane(number),
+                round_waiting,
+                number,
+            )
+        };
+        strikes.clear();
+        let strikes = std::cell::RefCell::new(std::mem::take(strikes));
+        let origin_before = peer.state.origin();
+        let blows = (peer.playing() && peer.temp_spectate < *last_frame_time).then_some(
+            crate::collision::Blows {
+                brittle: &brittle,
+                origin: origin_before,
+                level_time: *last_frame_time,
+                strikes: &strikes,
+            },
+        );
         let others = crate::peer::Others {
             boxes: obstacles,
             legs: body_legs,
             gametype: *gametype,
             ghoul2_time: *last_frame_time,
+            blows,
         };
         if let Some(them) = opponent.as_deref_mut() {
             them.movement = them.movement.reseeded(&them.state);
@@ -205,6 +235,8 @@ impl NativeGame {
             command.generic_command,
             level_time,
         );
+        self.strikes = strikes.into_inner();
+        self.deal_blows(client, origin_before, level_time);
         if vehicle_landing.is_some() {
             self.board_from_ground(client, vehicle_landing, level_time);
         }

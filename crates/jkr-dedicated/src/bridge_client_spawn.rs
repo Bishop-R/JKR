@@ -174,6 +174,8 @@ impl NativeGame {
             legs: body_legs,
             gametype: *gametype,
             ghoul2_time: *last_frame_time,
+            // A player spawns standing still: its first move strikes nothing.
+            blows: None,
         };
         let _ = peer.think(
             command,

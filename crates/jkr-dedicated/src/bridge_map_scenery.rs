@@ -55,6 +55,14 @@ impl Scenery {
             .map(|(_, pane)| pane.takes_damage)
     }
 
+    /// The pane at `number`, if one stands there.
+    pub(in crate::bridge) fn pane(&self, number: u16) -> Option<&Glass> {
+        self.glass
+            .iter()
+            .find(|(id, _)| id.legacy_number() == number)
+            .map(|(_, pane)| pane)
+    }
+
     /// The panes still standing, as obstacles to every trace.
     pub(super) fn obstacles(&self) -> impl Iterator<Item = BoxObstacle> + '_ {
         self.glass.iter().map(|(id, pane)| BoxObstacle {
@@ -275,6 +283,19 @@ impl NativeGame {
         owner: u16,
         level_time: i32,
     ) -> bool {
+        self.hurt_glass_by(number, damage, owner, None, level_time)
+    }
+
+    /// [`Self::hurt_glass`] with the blow's point and direction (`G_Damage`'s `pos1` and
+    /// `pos2`, the direction normalized) when they are known.
+    pub(in crate::bridge) fn hurt_glass_by(
+        &mut self,
+        number: u16,
+        damage: i32,
+        owner: u16,
+        blow: Option<([f32; 3], [f32; 3])>,
+        level_time: i32,
+    ) -> bool {
         let Some(index) = self
             .stock
             .scenery
@@ -289,11 +310,14 @@ impl NativeGame {
             .map(|peer| peer.state.origin());
         let pane = &mut self.stock.scenery.glass[index].1;
         let center = pane.center();
-        let mut direction = from.map_or([0.0; 3], |from| {
-            std::array::from_fn(|axis| center[axis] - from[axis])
+        let (point, direction) = blow.unwrap_or_else(|| {
+            let mut direction = from.map_or([0.0; 3], |from| {
+                std::array::from_fn(|axis| center[axis] - from[axis])
+            });
+            jkr_game_jka::player_angle_math::normalize(&mut direction);
+            (center, direction)
         });
-        jkr_game_jka::player_angle_math::normalize(&mut direction);
-        if let Some(shatter) = pane.hurt(damage, center, direction) {
+        if let Some(shatter) = pane.hurt(damage, point, direction) {
             let attacker = (usize::from(owner) < self.players.places())
                 .then_some(usize::from(owner))
                 .unwrap_or(usize::MAX);

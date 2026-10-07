@@ -2,7 +2,7 @@
 //! spawns, its wire state, its movement, the entity the others are shown and the clusters
 //! that entity touches — and the two things that happen to it over and over: a command
 //! (`ClientThink_real`) and the end of a server frame (`ClientEndFrame`).
-use crate::collision::{Void, WithPlayers, WorldCollision};
+use crate::collision::{Blows, Striking, Void, WithPlayers, WorldCollision};
 use crate::map::LoadedMap;
 use crate::visibility::ClusterLink;
 use jkr_game_jka::pmove::{MoveContext, MovementCollision};
@@ -209,6 +209,9 @@ pub(crate) struct Others<'a> {
     pub(crate) gametype: i32,
     /// The Ghoul2 clock the player's own model is read at (`PM_FootSlopeTrace`'s feet).
     pub(crate) ghoul2_time: i32,
+    /// What the player's blows may break (`PM_ClientImpact`); `None` for one that breaks
+    /// nothing, such as a spectator.
+    pub(crate) blows: Option<Blows<'a>>,
 }
 
 /// `FP_SABER_OFFENSE`; defense and throw follow it.
@@ -361,6 +364,7 @@ impl Peer {
             legs,
             gametype,
             ghoul2_time,
+            blows,
         } = others;
         let bodies = |number: u16| legs.get(usize::from(number)).copied().flatten();
         // The NPCs are the bodies past the clients' numbers.
@@ -400,7 +404,13 @@ impl Peer {
                         },
                         players,
                     };
-                    self.run_move(command, &world, &context, lock)
+                    match blows {
+                        Some(blows) => {
+                            let world = Striking { world, blows };
+                            self.run_move(command, &world, &context, lock)
+                        }
+                        None => self.run_move(command, &world, &context, lock),
+                    }
                 }
                 (None, lock) => self.run_move(
                     command,
