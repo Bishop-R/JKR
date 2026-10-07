@@ -112,7 +112,7 @@ const PS_SABER_LOCK_FRAME: usize = 108;
 const PS_SEE_LEVEL: usize = 109;
 const PS_GRIP_CRIPPLE: usize = 111;
 const PS_FORCE_RESTRICTED: usize = 115;
-const PS_TRUE_NON_JEDI: usize = 116;
+const PS_TRUE_NON_JEDI: usize = 117;
 const PS_DUEL_IN_PROGRESS: usize = 119;
 /// The fields an update may change that the movement keeps a copy of: when one changed,
 /// the movement is reseeded from the state.

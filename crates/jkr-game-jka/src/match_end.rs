@@ -447,7 +447,7 @@ pub fn asked_to_leave(old_buttons: i32, buttons: i32) -> bool {
 pub fn move_client_to_intermission(player: &mut PlayerState, origin: [f32; 3], angles: [f32; 3]) {
     /// `eFlags`, `eFlags2` and `rocketLockIndex` in `msg.cpp`'s player-state table.
     const PS_EFLAGS: usize = 17;
-    const PS_EFLAGS2: usize = 90;
+    const PS_EFLAGS2: usize = 103;
     const PS_ROCKET_LOCK_INDEX: usize = 24;
     const PS_ROCKET_LOCK_TIME: usize = 79;
     player.set_origin(origin);

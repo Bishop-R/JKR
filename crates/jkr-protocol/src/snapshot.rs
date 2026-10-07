@@ -700,14 +700,14 @@ impl PlayerState {
         self.fields[108] as u16
     }
 
-    /// Protocol-26 `playerState_t::forceRestricted` (netfield 128).
+    /// Protocol-26 `playerState_t::forceRestricted` (netfield 115).
     pub fn force_restricted(&self) -> bool {
-        self.fields[128] != 0
+        self.fields[115] != 0
     }
 
-    /// Protocol-26 `playerState_t::trueNonJedi` (netfield 130).
+    /// Protocol-26 `playerState_t::trueNonJedi` (netfield 117).
     pub fn true_non_jedi(&self) -> bool {
-        self.fields[130] != 0
+        self.fields[117] != 0
     }
 
     /// Protocol-26 `playerState_t::fallingToDeath` (netfield 97 — `msg.cpp`'s
