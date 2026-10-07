@@ -71,27 +71,28 @@ impl NativeGame {
     /// What `PickTeam` weighs when a player asks for a team game without naming a side:
     /// how many are on each, the asking client excluded, and what each has scored.
     pub(super) fn sides(&mut self, ignore: usize) -> Sides {
-        let mut sides = Sides {
+        Sides {
             red_score: self.team_scores[0],
             blue_score: self.team_scores[1],
             non_spectators: self.non_spectators(),
             power_duel_full: self.power_duel_full(ignore),
-            ..Sides::default()
-        };
-        for other in 0..self.players.places() {
-            if other == ignore {
-                continue;
-            }
-            let Some(peer) = self.peer_mut(other) else {
-                continue;
-            };
-            match peer.session.team {
-                1 => sides.red_players += 1,
-                2 => sides.blue_players += 1,
-                _ => {}
-            }
+            red_players: self.team_count(Some(ignore), 1) as i32,
+            blue_players: self.team_count(Some(ignore), 2) as i32,
         }
-        sides
+    }
+
+    /// `TeamCount` (`g_client.c:1287-1308`): the clients on `team`, `ignore` left out; in
+    /// a siege game also those who want it (`siegeDesiredTeam`) — a spectator waiting for
+    /// the round counts for the side it chose, so the next player is sent to the other.
+    pub(super) fn team_count(&self, ignore: Option<usize>, team: i32) -> usize {
+        let siege = self.gametype == crate::bridge::GAMETYPE_SIEGE;
+        (0..self.players.places())
+            .filter(|&other| Some(other) != ignore)
+            .filter_map(|other| self.peer(other))
+            .filter(|peer| {
+                peer.session.team == team || (siege && peer.session.siege_desired_team == team)
+            })
+            .count()
     }
 
     /// `SetTeam(ent, wanted)` as the game calls it itself.

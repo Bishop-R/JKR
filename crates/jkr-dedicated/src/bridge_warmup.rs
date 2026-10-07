@@ -34,18 +34,10 @@ impl NativeGame {
         if self.limits.warmup_time == 0 {
             return;
         }
-        let team = |team: i32| {
-            (0..self.players.places())
-                .filter(|&client| {
-                    self.peer(client)
-                        .is_some_and(|peer| peer.session.team == team)
-                })
-                .count() as i32
-        };
         let players = Players {
             playing: self.sorted().1 as i32,
-            red: team(1),
-            blue: team(2),
+            red: self.team_count(None, 1) as i32,
+            blue: self.team_count(None, 2) as i32,
         };
         let g_warmup = self.cvars.integer(b"g_warmup");
         match warmup::check(
