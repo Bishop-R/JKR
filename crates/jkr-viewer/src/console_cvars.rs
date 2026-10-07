@@ -258,6 +258,51 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Third-person look-target easing per 50 ms; 1 or more snaps",
         ),
+        // `cg_xcvar.h:42-44`: the view's bob as the player walks.
+        CvarDefinition::new(
+            "cg_bobPitch",
+            0.002_f64,
+            archive,
+            "View pitch bob while walking",
+        ),
+        CvarDefinition::new(
+            "cg_bobRoll",
+            0.002_f64,
+            archive,
+            "View roll bob while walking",
+        ),
+        CvarDefinition::new(
+            "cg_bobUp",
+            0.005_f64,
+            archive,
+            "View height bob while walking",
+        ),
+        // `cg_xcvar.h:85,112-113,148`: the view's lean when running, and the weapon's sway
+        // and its dip on landing.
+        CvarDefinition::new(
+            "cg_runPitch",
+            0.002_f64,
+            archive,
+            "View pitch per unit of forward speed",
+        ),
+        CvarDefinition::new(
+            "cg_runRoll",
+            0.005_f64,
+            archive,
+            "View roll per unit of sideways speed",
+        ),
+        CvarDefinition::new(
+            "cg_weaponBob",
+            1.0_f64,
+            archive,
+            "Sway the first-person weapon",
+        ),
+        CvarDefinition::new(
+            "cg_fallingBob",
+            1.0_f64,
+            archive,
+            "Dip the first-person weapon on landing",
+        ),
         // `cg_xcvar.h:131`.
         CvarDefinition::new(
             "cg_speedTrail",

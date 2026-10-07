@@ -150,12 +150,17 @@ pub(crate) fn frame_inputs(
             .is_some()
             .then(|| state.local_prediction.predicted_state())
             .flatten();
+        let console = state.console.as_ref();
+        let bobs = (
+            crate::cgame_options::scalar(console, "cg_weaponBob", 1.0) != 0.0,
+            crate::cgame_options::scalar(console, "cg_fallingBob", 1.0) != 0.0,
+        );
         inputs_with_weapon(
             &state.first_person_weapon,
             snapshot?,
             state.third_person,
             view,
-            camera.map_or(0.0, |camera| camera.landing),
+            (camera.map_or(0.0, |camera| camera.landing), bobs),
             local_torso_frame(&state.actor_meshes, local_entity, presentation_time),
             presentation_time,
             predicted_weapon,
@@ -176,7 +181,7 @@ fn inputs_with_weapon(
     snapshot: &Snapshot,
     third_person: bool,
     view: View,
-    landing: f32,
+    (landing, bobs): (f32, (bool, bool)),
     torso_frame: Option<f32>,
     presentation_time: i64,
     predicted_weapon: Option<&jkr_client::pmove::MovementState>,
@@ -206,6 +211,7 @@ fn inputs_with_weapon(
             ),
             landing,
             presentation_time,
+            bobs,
         ),
     })
 }
