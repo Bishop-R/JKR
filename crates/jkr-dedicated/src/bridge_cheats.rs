@@ -83,8 +83,8 @@ impl NativeGame {
             return false;
         };
         match name {
-            "give" => self.give_to(client, arguments),
-            "giveother" => self.give_other(client, arguments),
+            "give" => self.give_to(client, arguments, server_time),
+            "giveother" => self.give_other(client, arguments, server_time),
             "god" => self.toggle_flag(client, FL_GODMODE, "godmode"),
             "notarget" => self.toggle_flag(client, FL_NOTARGET, "notarget"),
             "kill" => self.kill(client, server_time),
@@ -153,7 +153,7 @@ impl NativeGame {
     }
 
     /// `G_Give` on `target`: the item's name, then its arguments.
-    fn give_to(&mut self, target: usize, arguments: &[&[u8]]) {
+    fn give_to(&mut self, target: usize, arguments: &[&[u8]], level_time: i32) {
         let spawns = self.item_spawns();
         let Some(peer) = self.peer_mut(target) else {
             return;
@@ -161,13 +161,18 @@ impl NativeGame {
         let (name, rest) = arguments
             .split_first()
             .map_or((&b""[..], &[][..]), |(name, rest)| (*name, rest));
-        if give(&mut peer.state, &mut peer.health, name, rest) == jkr_game_jka::give::Given::Item {
-            give_item(peer, name, spawns);
-        }
+        let powerup = give(&mut peer.state, &mut peer.health, name, rest)
+            == jkr_game_jka::give::Given::Item
+            && give_item(peer, name, spawns, level_time);
         // The weapons and the ammo are the movement's to spend: it restarts from
         // the state as given.
         peer.movement = peer.movement.reseeded(&peer.state);
         peer.movement.set_health(peer.health);
+        // The reference's item stands at the player's feet as it is touched.
+        let at = peer.state.origin();
+        if powerup {
+            self.deny_nearby(target, at);
+        }
     }
 
     /// `ClientNumberFromString` as the other-player cheats use it: the player, or `None`
@@ -202,7 +207,7 @@ impl NativeGame {
     }
 
     /// `Cmd_GiveOther_f` (`g_cmds.c:360-394`): `giveother <player> <give string>`.
-    fn give_other(&mut self, client: usize, arguments: &[&[u8]]) {
+    fn give_other(&mut self, client: usize, arguments: &[&[u8]], level_time: i32) {
         if arguments.len() < 2 {
             self.told.push(Told::One(
                 client,
@@ -214,7 +219,7 @@ impl NativeGame {
             return;
         };
         if self.other_alive(client, other) {
-            self.give_to(other, &arguments[1..]);
+            self.give_to(other, &arguments[1..], level_time);
         }
     }
 
@@ -287,16 +292,32 @@ fn stock_command(command: &[u8]) -> Option<(&'static str, u8)> {
 /// where `spawns` says the server keeps it, and touched at once (`Touch_Item`), then
 /// freed. A flag's own rules (`Pickup_Team`) are not run for a given flag. Stock's
 /// `EV_ITEM_PICKUP` names the freed item's entity, which no client was ever sent, so it
-/// is left out.
-fn give_item(peer: &mut Peer, name: &[u8], spawns: impl Fn(usize) -> bool) {
+/// is left out. Whether a powerup was taken, whose anti-reward the caller hands out.
+fn give_item(
+    peer: &mut Peer,
+    name: &[u8],
+    spawns: impl Fn(usize) -> bool,
+    level_time: i32,
+) -> bool {
     use jkr_game_jka::items::{self, ITEMS, Kind};
     let Some(item) = items::find_named(name) else {
-        return;
+        return false;
     };
     if matches!(ITEMS[item].kind, Kind::Team | Kind::Bad) || !spawns(item) || peer.health < 1 {
-        return;
+        return false;
     }
-    if items::can_be_grabbed(item, &peer.state, false) {
-        let _ = items::pick_up(item, &mut peer.state, &mut peer.health, 0, false);
+    if items::wrong_side(item, u32::from(peer.state.force_side()))
+        || !items::can_be_grabbed(item, &peer.state, false)
+    {
+        return false;
     }
+    let _ = items::pick_up(
+        item,
+        &mut peer.state,
+        &mut peer.health,
+        0,
+        false,
+        level_time,
+    );
+    ITEMS[item].kind == Kind::Powerup
 }

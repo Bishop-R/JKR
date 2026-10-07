@@ -2,6 +2,15 @@
 //! (`FinishSpawningItem`) and run each frame (`G_RunItem`, `RespawnItem`).
 
 use super::*;
+use jkr_game_jka::items::{ITEMS, Kind};
+
+/// `CONTENTS_SOLID`, what a denied player's view of the powerup is traced through.
+const CONTENTS_SOLID: u32 = 1;
+/// `PERS_PLAYEREVENTS` and its `PLAYEREVENT_DENIEDREWARD` bit.
+const PERS_PLAYEREVENTS: usize = 5;
+const PLAYEREVENT_DENIEDREWARD: u32 = 1;
+/// How near a player must stand to be denied a powerup (`Pickup_Powerup`).
+const DENIED_RANGE: f32 = 192.0;
 
 impl NativeGame {
     /// `FinishSpawningItem` for every item the map placed: dropped to the floor (or
@@ -10,6 +19,10 @@ impl NativeGame {
         let spawns = self.item_spawns();
         let Some(map) = self.map.take() else { return };
         for placed in &map.items {
+            // `G_SpawnItem`: a powerup's return sound is registered as it is placed.
+            if ITEMS[placed.item].kind == Kind::Powerup {
+                self.item_sound_index(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
+            }
             let mut trace =
                 |start: [f32; 3], mins: [f32; 3], maxs: [f32; 3], end: [f32; 3], mask: u32| {
                     WorldCollision {
@@ -116,7 +129,81 @@ impl NativeGame {
             if pickup.respawn_at == 0 || pickup.respawn_at > server_time {
                 continue;
             }
+            if ITEMS[pickup.item].kind == Kind::Powerup {
+                let sound = self.item_sound_index(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
+                if let Some(event) = jkr_game_jka::items::respawn_sound(&self.items[index].1, sound)
+                    && let Some(id) = self.pool.spawn_temporary(event.state(), server_time, None)
+                {
+                    self.pool.set_broadcast(id, event.broadcast);
+                }
+            }
             bridge_ctf::respawn_item(&mut self.items, &mut self.pool, index, server_time);
+        }
+    }
+
+    /// `G_SoundIndex` for an item's sound, its config string published when it is new.
+    fn item_sound_index(&mut self, name: &[u8]) -> u16 {
+        let mut registered = None;
+        let index = self.sounds.index(name, &mut |slot, value| {
+            registered = Some((slot, value.to_vec()))
+        });
+        if let Some((slot, value)) = registered {
+            self.publish_config_string(slot, &value);
+        }
+        index
+    }
+
+    /// `Pickup_Powerup`'s anti-reward (`g_items.c:2082-2124`): every other living player
+    /// within 192 units of the powerup at `at`, facing it with no solid brush between (and
+    /// on another team in the team games), is told `taker` denied it them. The reference
+    /// traces against solid entities too; doors in the way are not weighed here.
+    pub(super) fn deny_nearby(&mut self, taker: usize, at: [f32; 3]) {
+        let Some(team) = self.peer(taker).map(|peer| peer.session.team) else {
+            return;
+        };
+        let team_game = self.gametype >= jkr_game_jka::match_end::GT_TEAM;
+        let Some(map) = self.map.as_ref() else {
+            return;
+        };
+        let world = WorldCollision {
+            bsp: &map.bsp,
+            scratch: &map.scratch,
+        };
+        let denied: Vec<usize> = (0..self.players.places())
+            .filter(|&client| client != taker)
+            .filter(|&client| {
+                let Some(peer) = self.peer(client) else {
+                    return false;
+                };
+                if peer.health <= 0 || (team_game && peer.session.team == team) {
+                    return false;
+                }
+                let origin = peer.state.origin();
+                let delta: [f32; 3] = std::array::from_fn(|axis| at[axis] - origin[axis]);
+                let length = delta.iter().map(|axis| axis * axis).sum::<f32>().sqrt();
+                if length > DENIED_RANGE {
+                    return false;
+                }
+                let [pitch, yaw, _] = peer.state.view_angles().map(f32::to_radians);
+                let forward = [
+                    pitch.cos() * yaw.cos(),
+                    pitch.cos() * yaw.sin(),
+                    -pitch.sin(),
+                ];
+                // `VectorNormalize` leaves a zero vector as it is.
+                let scale = if length > 0.0 { 1.0 / length } else { 0.0 };
+                let facing: f32 = (0..3).map(|axis| delta[axis] * scale * forward[axis]).sum();
+                facing >= 0.4
+                    && world
+                        .trace(origin, [0.0; 3], [0.0; 3], at, CONTENTS_SOLID)
+                        .fraction
+                        == 1.0
+            })
+            .collect();
+        for client in denied {
+            if let Some(peer) = self.peer_mut(client) {
+                peer.state.persistent[PERS_PLAYEREVENTS] ^= PLAYEREVENT_DENIEDREWARD;
+            }
         }
     }
 }

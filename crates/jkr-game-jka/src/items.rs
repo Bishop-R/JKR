@@ -136,6 +136,19 @@ const EF_NODRAW: u32 = 1 << 8;
 const EF_ITEMPLACEHOLDER: u32 = 1 << 23;
 pub const EV_ITEM_PICKUP: u32 = 22;
 pub const EV_ITEM_RESPAWN: u32 = 62;
+/// `EV_GENERAL_SOUND`, `EV_GLOBAL_SOUND`: a powerup's return, heard near it or everywhere.
+const EV_GENERAL_SOUND: u32 = 76;
+const EV_GLOBAL_SOUND: u32 = 77;
+/// `PW_FORCE_ENLIGHTENED_LIGHT`, `_DARK`, `PW_FORCE_BOON`, `PW_YSALAMIRI`; the Force sides.
+const PW_FORCE_ENLIGHTENED_LIGHT: i32 = 12;
+const PW_FORCE_ENLIGHTENED_DARK: i32 = 13;
+const PW_FORCE_BOON: i32 = 14;
+const PW_YSALAMIRI: i32 = 15;
+const FORCE_LIGHTSIDE: u32 = 1;
+const FORCE_DARKSIDE: u32 = 2;
+/// The sound a powerup's return makes (`RespawnItem`), registered as one is placed
+/// (`G_SpawnItem`).
+pub const POWERUP_RESPAWN_SOUND: &[u8] = b"sound/items/respawn1";
 /// The stats and the fields a pickup writes.
 const STAT_HOLDABLE_ITEM: usize = 1;
 const STAT_HOLDABLE_ITEMS: usize = 2;
@@ -180,6 +193,8 @@ pub struct Placed {
     pub suspended: bool,
     /// `spawnflags & ITMSF_ALLOWNPC`: NPCs may take it (`Touch_Item`).
     pub allow_npc: bool,
+    /// A powerup's `noglobalsound` (`ent->speed`): its return is heard only near it.
+    pub no_global_sound: bool,
 }
 
 /// Every item dictionary of a map, in the entity lump's order (`G_SpawnItem` through
@@ -204,6 +219,8 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
                 random: number("random"),
                 suspended: number("spawnflags") as i32 & ITMSF_SUSPEND != 0,
                 allow_npc: number("spawnflags") as i32 & ITMSF_ALLOWNPC != 0,
+                no_global_sound: ITEMS[item].kind == Kind::Powerup
+                    && number("noglobalsound") != 0.0,
             })
         })
         .collect()
@@ -230,6 +247,8 @@ pub struct Pickup {
     pub dropped: Option<crate::dropped_items::Dropped>,
     /// `spawnflags & ITMSF_ALLOWNPC`: a placed item NPCs may take.
     pub allow_npc: bool,
+    /// A powerup whose return is heard only near it ([`Placed::no_global_sound`]).
+    pub no_global_sound: bool,
 }
 
 /// `gametype_t` values the spawn filters below test (`bg_public.h`).
@@ -333,6 +352,7 @@ pub fn finish_spawning(
         random: placed.random,
         dropped: None,
         allow_npc: placed.allow_npc,
+        no_global_sound: placed.no_global_sound,
     })
 }
 
@@ -400,7 +420,8 @@ pub fn can_be_grabbed(item: usize, state: &PlayerState, dropped: bool) -> bool {
             };
             (state.stats[0] as i32) < maximum
         }
-        Kind::Powerup => true,
+        // While the ysalamiri lasts, no other powerup can be taken.
+        Kind::Powerup => state.powerups[PW_YSALAMIRI as usize] == 0 || row.tag == PW_YSALAMIRI,
         Kind::Holdable => state.stats[STAT_HOLDABLE_ITEMS] & (1 << row.tag) == 0,
         Kind::Team | Kind::Bad => false,
     }
@@ -443,6 +464,7 @@ pub fn pick_up(
     health: &mut i32,
     count: i32,
     dropped: bool,
+    level_time: i32,
 ) -> Taken {
     let row = ITEMS[item];
     let quantity = if count != 0 { count } else { row.quantity };
@@ -522,10 +544,29 @@ pub fn pick_up(
                 predicted: true,
             }
         }
-        Kind::Powerup => Taken {
-            respawn: RESPAWN_POWERUP,
-            predicted: false,
-        },
+        Kind::Powerup => {
+            // `Pickup_Powerup` (`g_items.c:2052-2080`): a new powerup starts on the whole
+            // second, so several count down together; one held runs on by the quantity.
+            let tag = row.tag as usize;
+            if state.powerups[tag] == 0 {
+                state.powerups[tag] = (level_time - level_time % 1_000) as u32;
+            }
+            state.powerups[tag] = state.powerups[tag].wrapping_add((quantity * 1_000) as u32);
+            // The ysalamiri takes the Force powerups away.
+            if row.tag == PW_YSALAMIRI {
+                for force in [
+                    PW_FORCE_ENLIGHTENED_LIGHT,
+                    PW_FORCE_ENLIGHTENED_DARK,
+                    PW_FORCE_BOON,
+                ] {
+                    state.powerups[force as usize] = 0;
+                }
+            }
+            Taken {
+                respawn: RESPAWN_POWERUP,
+                predicted: false,
+            }
+        }
         Kind::Team | Kind::Bad => Taken {
             respawn: 0,
             predicted: true,
@@ -594,7 +635,7 @@ pub fn taken(pickup: &mut Pickup, respawn: i32, level_time: i32, spread: f32) ->
 }
 
 /// `RespawnItem` (`:2323-2369`): a trigger again, drawn again, with `EV_ITEM_RESPAWN` on
-/// itself; a powerup's return is heard by everyone (not ported: no powerups yet).
+/// itself; a powerup's return is also heard ([`respawn_sound`]).
 pub fn respawn(pickup: &mut Pickup, level_time: i32) -> EventEntity {
     pickup.contents = CONTENTS_TRIGGER;
     let flags = pickup.state.raw_field(ES_EFLAGS).unwrap_or(0);
@@ -613,12 +654,107 @@ pub fn respawn(pickup: &mut Pickup, level_time: i32) -> EventEntity {
     }
 }
 
+/// `RespawnItem`'s sound for a powerup that is back (`:2350-2363`): sound `sound` (the
+/// index of [`POWERUP_RESPAWN_SOUND`]) where it stands, heard everywhere unless the map
+/// asked for it near the item only; sent to every client either way (`SVF_BROADCAST`).
+/// `None` for any other item.
+pub fn respawn_sound(pickup: &Pickup, sound: u16) -> Option<EventEntity> {
+    (ITEMS[pickup.item].kind == Kind::Powerup).then(|| EventEntity {
+        event: if pickup.no_global_sound {
+            EV_GENERAL_SOUND
+        } else {
+            EV_GLOBAL_SOUND
+        },
+        parameter: u32::from(sound),
+        origin: trajectory_base(pickup),
+        client: None,
+        broadcast: true,
+        extra: [(0, 0); 12],
+    })
+}
+
+/// `s.pos.trBase`: where the item rests, or where a dropped one was thrown from.
+pub fn trajectory_base(pickup: &Pickup) -> [f32; 3] {
+    ES_POS_BASE.map(|field| f32::from_bits(pickup.state.raw_field(field).unwrap_or(0)))
+}
+
+/// `Touch_Item`'s Force-side rule (`:2431-2449`): light enlightenment is the light side's
+/// alone, dark enlightenment the dark side's; `side` is `fd.forceSide`.
+pub fn wrong_side(item: usize, side: u32) -> bool {
+    let row = ITEMS[item];
+    row.kind == Kind::Powerup
+        && ((row.tag == PW_FORCE_ENLIGHTENED_LIGHT && side != FORCE_LIGHTSIDE)
+            || (row.tag == PW_FORCE_ENLIGHTENED_DARK && side != FORCE_DARKSIDE))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// `eFlags` in the player state, which `Add_Ammo` reads `EF_DOUBLE_AMMO` from.
     const PS_EFLAGS: usize = 17;
+
+    /// `Pickup_Powerup`: Force Boon for 25 s from the whole second, a second one adding 25
+    /// more; the ysalamiri ends the boon, and while it lasts nothing else is taken.
+    #[test]
+    fn a_powerup_runs_from_the_whole_second_and_the_ysalamiri_ends_the_force_ones() {
+        let boon = find_named(b"item_force_boon").unwrap();
+        let ysalamiri = find_named(b"item_ysalimari").unwrap();
+        let mut state = PlayerState::zero();
+        let mut health = 100;
+        assert!(can_be_grabbed(boon, &state, false));
+        let taken = pick_up(boon, &mut state, &mut health, 0, false, 12_345);
+        assert_eq!(state.powerups[14], 12_000 + 25_000);
+        assert_eq!((taken.respawn, taken.predicted), (RESPAWN_POWERUP, false));
+        pick_up(boon, &mut state, &mut health, 0, false, 20_500);
+        assert_eq!(state.powerups[14], 12_000 + 50_000);
+        pick_up(ysalamiri, &mut state, &mut health, 0, false, 21_000);
+        assert_eq!(
+            (state.powerups[14], state.powerups[15]),
+            (0, 21_000 + 25_000)
+        );
+        assert!(!can_be_grabbed(boon, &state, false));
+        assert!(can_be_grabbed(ysalamiri, &state, false));
+    }
+
+    /// Enlightenment goes to its own side only; a powerup's return is heard everywhere
+    /// unless the map says otherwise, and other items' returns make no such sound.
+    #[test]
+    fn enlightenment_keeps_to_its_side_and_powerups_announce_their_return() {
+        let light = find_named(b"item_force_enlighten_light").unwrap();
+        let dark = find_named(b"item_force_enlighten_dark").unwrap();
+        assert!(!wrong_side(light, FORCE_LIGHTSIDE) && wrong_side(light, FORCE_DARKSIDE));
+        assert!(wrong_side(dark, FORCE_LIGHTSIDE) && !wrong_side(dark, FORCE_DARKSIDE));
+        assert!(!wrong_side(find_named(b"item_force_boon").unwrap(), 0));
+        let placed = |item, no_global_sound| Placed {
+            item,
+            origin: [8.0, 16.0, 32.0],
+            wait: 0.0,
+            random: 0.0,
+            suspended: true,
+            allow_npc: false,
+            no_global_sound,
+        };
+        let mut trace =
+            |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
+                unreachable!("a suspended item is not dropped to {end:?}")
+            };
+        let global = finish_spawning(&placed(light, false), &mut trace).unwrap();
+        let near = finish_spawning(&placed(light, true), &mut trace).unwrap();
+        let armor = finish_spawning(
+            &placed(find_named(b"item_shield_sm_instant").unwrap(), false),
+            &mut trace,
+        )
+        .unwrap();
+        let sound = respawn_sound(&global, 7).unwrap();
+        assert_eq!(
+            (sound.event, sound.parameter, sound.origin),
+            (EV_GLOBAL_SOUND, 7, [8.0, 16.0, 32.0])
+        );
+        assert!(sound.broadcast);
+        assert_eq!(respawn_sound(&near, 7).unwrap().event, EV_GENERAL_SOUND);
+        assert!(respawn_sound(&armor, 7).is_none());
+    }
 
     #[test]
     fn a_double_ammo_class_fills_to_twice_the_maximum() {

@@ -1144,7 +1144,10 @@ impl NativeGame {
             let Some(peer) = self.peer_mut(client) else {
                 return;
             };
-            if !jkr_game_jka::items::can_be_grabbed(item, &peer.state, dropped.is_some()) {
+            // `Touch_Item`: enlightenment only for its own side, then the shared rules.
+            if jkr_game_jka::items::wrong_side(item, u32::from(peer.state.force_side()))
+                || !jkr_game_jka::items::can_be_grabbed(item, &peer.state, dropped.is_some())
+            {
                 continue;
             }
             let taken = jkr_game_jka::items::pick_up(
@@ -1153,6 +1156,7 @@ impl NativeGame {
                 &mut peer.health,
                 dropped.unwrap_or(0),
                 dropped.is_some(),
+                level_time,
             );
             if taken.predicted && peer.accepted.predict_item_pickup {
                 jkr_game_jka::items::add_predictable_event(
@@ -1180,6 +1184,10 @@ impl NativeGame {
                 let _ = jkr_game_jka::items::taken(pickup, taken.respawn, level_time, spread);
             }
             let _ = number;
+            if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Powerup {
+                let at = jkr_game_jka::items::trajectory_base(&self.items[index].1);
+                self.deny_nearby(client, at);
+            }
             self.publish_item(index);
         }
     }
