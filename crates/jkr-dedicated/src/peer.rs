@@ -143,6 +143,8 @@ pub struct Peer {
     pub(crate) pain: (i32, bool),
     /// `timeResidual`: the living player's seconds, for the once-a-second actions.
     pub(crate) time_residual: i32,
+    /// jaPRO's centre message of the day, counted down by the once-a-second actions.
+    pub(crate) motd: crate::motd::Countdown,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -278,6 +280,7 @@ impl Peer {
             lock: Default::default(),
             pain: (0, false),
             time_residual: 0,
+            motd: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),
@@ -488,12 +491,13 @@ impl Peer {
             // entity at the next think.
             if self.playing() && self.health > 0 {
                 let msec = (command.server_time - time_before).min(200);
-                jkr_game_jka::client_timer::timer_actions(
+                let seconds = jkr_game_jka::client_timer::timer_actions(
                     &mut self.state,
                     &mut self.health,
                     &mut self.time_residual,
                     msec,
                 );
+                self.motd.tick(seconds);
                 let (armor, spectating) = (self.state.stats[5] as i32, !self.playing());
                 if jkr_game_jka::client_idle::check_idle(
                     &mut self.idle,

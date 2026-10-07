@@ -11,6 +11,7 @@ pub mod cvars;
 pub mod frame_clock;
 pub mod map;
 pub mod master;
+pub(crate) mod motd;
 pub mod peer;
 pub(crate) mod players;
 pub mod pure_files;

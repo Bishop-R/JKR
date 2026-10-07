@@ -8,11 +8,19 @@ const STAT_ARMOR: usize = 5;
 
 /// One think's worth of the once-a-second actions: `msec` is the think's, `residual`
 /// the player's `timeResidual`. `health` is the entity's, which the frame's end copies
-/// to the stat.
-pub fn timer_actions(state: &mut PlayerState, health: &mut i32, residual: &mut i32, msec: i32) {
+/// to the stat. Returns how many whole seconds passed, for a server's own once-a-second
+/// actions (jaPRO's centre message of the day).
+pub fn timer_actions(
+    state: &mut PlayerState,
+    health: &mut i32,
+    residual: &mut i32,
+    msec: i32,
+) -> u32 {
+    let mut seconds = 0;
     *residual += msec;
     while *residual >= 1_000 {
         *residual -= 1_000;
+        seconds += 1;
         let max_health = state.max_health();
         if *health > max_health {
             *health -= 1;
@@ -22,4 +30,5 @@ pub fn timer_actions(state: &mut PlayerState, health: &mut i32, residual: &mut i
             state.stats[STAT_ARMOR] = state.stats[STAT_ARMOR].wrapping_sub(1);
         }
     }
+    seconds
 }

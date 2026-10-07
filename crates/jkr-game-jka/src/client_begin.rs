@@ -108,6 +108,8 @@ pub struct PlayerSession {
     /// The Force levels of the siege class the player plays (`client->siegeClass`'s),
     /// which `WP_InitForcePowers` takes instead of the userinfo's; `None` without one.
     pub siege_force: Option<[u8; crate::force_config::FORCE_POWERS]>,
+    /// jaPRO's `sess.sawMOTD`: the message of the day was shown this session.
+    pub saw_motd: bool,
 }
 
 /// `spectatorState_t`.

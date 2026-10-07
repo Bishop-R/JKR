@@ -15,6 +15,13 @@ impl NativeGame {
         if self.command_refused(client, command) {
             return;
         }
+        // jaPRO's `ammotd` (`CMD_NOINTERMISSION`): the message of the day again.
+        if command.eq_ignore_ascii_case(b"ammotd") {
+            if !self.refused_at_intermission(client, command) {
+                self.show_motd(client, true);
+            }
+            return;
+        }
         if command.eq_ignore_ascii_case(b"addbot") {
             // `Cmd_AddBot_f`: the menus offer it, but only the server adds bots.
             self.told.push(Told::One(

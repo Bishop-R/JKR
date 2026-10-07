@@ -1557,6 +1557,7 @@ impl NativeGame {
         self.spawned(client, begun, place, command, server_time);
         self.siege_point_fired(siege_place, client, server_time);
         self.log(&jkr_game_jka::game_log::client_begin(client));
+        self.motd_on_begin(client);
     }
 
     /// `ClientRespawn` outside power duels and siege: the body is left behind
@@ -3509,6 +3510,8 @@ mod bridge_map_effects;
 mod bridge_map_logic;
 #[path = "bridge_map_turrets.rs"]
 mod bridge_map_turrets;
+#[path = "bridge_motd.rs"]
+mod bridge_motd;
 #[path = "bridge_npcs.rs"]
 mod bridge_npcs;
 #[path = "bridge_path_movers.rs"]

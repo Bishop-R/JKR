@@ -146,6 +146,7 @@ impl NativeGame {
     pub fn set_config_files(&mut self, files: crate::config_files::ConfigFiles) {
         self.config_files = files;
         self.register_stock_rules();
+        self.register_motd();
         self.open_log();
         self.start_warmup();
         // `G_InitBots`.
