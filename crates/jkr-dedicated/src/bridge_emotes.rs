@@ -98,20 +98,26 @@ impl NativeGame {
     }
 }
 
-/// The held pose's step in `ClientThink_real`'s movement chain, after the jetpack, for a
-/// living player that is neither in noclip, disintegrating nor gripped.
+/// Whether `ClientThink_real`'s movement chain reaches jaPRO's holds (the admin's freeze,
+/// the emote's) for this player: alive, playing, neither in noclip, disintegrating nor
+/// gripped.
+pub(super) fn reaches_holds(peer: &Peer) -> bool {
+    peer.playing()
+        && !peer.noclip
+        && peer.health > 0
+        && peer.state.raw_field(EFLAGS).unwrap_or(0) & EF_DISINTEGRATION == 0
+        && peer.force.grip_movement_type == 0
+}
+
+/// The held pose's step in `ClientThink_real`'s movement chain, after the admin's freeze,
+/// where the chain reaches it ([`reaches_holds`]).
 pub(super) fn emote_hold(
     peer: &mut Peer,
     command: &UserCommand,
     pool: &mut EntityPool,
     level_time: i32,
 ) {
-    let eligible = peer.playing()
-        && !peer.noclip
-        && peer.health > 0
-        && peer.state.raw_field(EFLAGS).unwrap_or(0) & EF_DISINTEGRATION == 0
-        && peer.force.grip_movement_type == 0;
-    if !eligible {
+    if !reaches_holds(peer) {
         return;
     }
     let mut sounds = Vec::new();

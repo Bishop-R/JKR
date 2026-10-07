@@ -21,7 +21,7 @@ impl NativeGame {
         for placed in &map.items {
             // `G_SpawnItem`: a powerup's return sound is registered as it is placed.
             if ITEMS[placed.item].kind == Kind::Powerup {
-                self.item_sound_index(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
+                self.sound_index_for(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
             }
             let mut trace =
                 |start: [f32; 3], mins: [f32; 3], maxs: [f32; 3], end: [f32; 3], mask: u32| {
@@ -130,7 +130,7 @@ impl NativeGame {
                 continue;
             }
             if ITEMS[pickup.item].kind == Kind::Powerup {
-                let sound = self.item_sound_index(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
+                let sound = self.sound_index_for(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
                 if let Some(event) = jkr_game_jka::items::respawn_sound(&self.items[index].1, sound)
                     && let Some(id) = self.pool.spawn_temporary(event.state(), server_time, None)
                 {
@@ -141,8 +141,8 @@ impl NativeGame {
         }
     }
 
-    /// `G_SoundIndex` for an item's sound, its config string published when it is new.
-    fn item_sound_index(&mut self, name: &[u8]) -> u16 {
+    /// `G_SoundIndex`: sound `name`'s index, its config string published when it is new.
+    pub(super) fn sound_index_for(&mut self, name: &[u8]) -> u16 {
         let mut registered = None;
         let index = self.sounds.index(name, &mut |slot, value| {
             registered = Some((slot, value.to_vec()))

@@ -48,16 +48,14 @@ const UNGRABBABLE: [i32; 15] = [
 ];
 /// `CLASS_ATST`.
 const CLASS_ATST: i32 = 1;
-/// `EV_JUMP`, `EV_DEATH1`, `EV_DEATH3`, `EV_SCREENSHAKE`.
+/// `EV_JUMP`, `EV_DEATH1`, `EV_DEATH3`.
 const EV_JUMP: u32 = 16;
 const EV_DEATH1: i32 = 90;
 const EV_DEATH3: i32 = 92;
-const EV_SCREENSHAKE: u32 = 42;
 /// `Q3_INFINITE`.
 const Q3_INFINITE: i32 = 16_777_216;
-/// `s.bolt2`, `s.time` (`entityState_t` wire fields).
+/// `s.bolt2` (an `entityState_t` wire field).
 const ES_BOLT2: usize = 63;
-const ES_TIME: usize = 65;
 
 /// `ANGLE2SHORT`.
 fn angle_to_short(angle: f32) -> i32 {
@@ -732,19 +730,9 @@ impl<H: NpcHost> NpcWorld<'_, H> {
 
     /// `G_ScreenShake(origin, NULL, intensity, duration, qfalse)` (`g_utils.c:1295-1319`).
     fn screen_shake(&mut self, origin: [f32; 3], intensity: f32, duration: i32) {
-        let mut event = crate::event_entity::EventEntity {
-            event: EV_SCREENSHAKE,
-            parameter: 0,
-            origin,
-            client: None,
-            broadcast: false,
-            extra: [(0, 0); 12],
-        };
-        for axis in 0..3 {
-            event.extra[axis] = (es::ORIGIN[axis], origin[axis].to_bits());
-        }
-        event.extra[3] = (es::ANGLES[0], intensity.to_bits());
-        event.extra[4] = (ES_TIME, duration as u32);
+        let event = crate::event_entity::EventEntity::screen_shake(
+            origin, None, intensity, duration, false,
+        );
         self.host.raise(event);
     }
 

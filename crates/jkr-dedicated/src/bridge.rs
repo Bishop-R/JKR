@@ -2506,11 +2506,15 @@ impl NativeGame {
         request: DamageRequest,
         location: Option<HitLocation>,
     ) -> Damaged {
-        // A siege player waiting for its wave cannot be hurt (`takedamage = qfalse`).
+        // A siege player waiting for its wave cannot be hurt (`takedamage = qfalse`), nor
+        // one an admin froze outside a duel (jaPRO's `amfreeze`).
         if self.duel_refuses(target, &request)
-            || self
-                .peer(target)
-                .is_some_and(|peer| peer.temp_spectate != 0)
+            || self.peer(target).is_some_and(|peer| {
+                peer.temp_spectate != 0
+                    || (peer.admin_frozen
+                        && bridge_emotes::reaches_holds(peer)
+                        && !peer.state.duel_in_progress())
+            })
         {
             return Damaged::default();
         }

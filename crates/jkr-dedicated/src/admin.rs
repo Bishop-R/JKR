@@ -12,6 +12,8 @@ pub const A_CSPRINT: u32 = 1 << 9;
 /// `JAPRO_ACCOUNTFLAG_A_CHANGEMAP`, `_FORCETEAM`, `_LOCKTEAM`, `_VSTR`, `_RENAME`,
 /// `_KILLVOTE`.
 pub const A_CHANGEMAP: u32 = 1 << 8;
+/// `JAPRO_ACCOUNTFLAG_A_FREEZE`.
+pub const A_FREEZE: u32 = 1 << 1;
 pub const A_FORCETEAM: u32 = 1 << 10;
 pub const A_LOCKTEAM: u32 = 1 << 11;
 pub const A_VSTR: u32 = 1 << 12;

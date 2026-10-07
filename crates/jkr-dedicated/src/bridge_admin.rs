@@ -89,6 +89,11 @@ impl NativeGame {
                 }
             }
             b"amkillvote" => self.admin_kill_vote(client),
+            b"amfreeze" => {
+                if !self.refused_at_intermission(client, b"amfreeze") {
+                    self.admin_freeze(client, &words, level_time);
+                }
+            }
             b"ammap" => {
                 if !self.refused_at_intermission(client, b"ammap") {
                     self.admin_map(client, &words);
@@ -529,4 +534,150 @@ impl NativeGame {
         self.commands
             .add_text(&command, &mut super::bridge_bots::console);
     }
+
+    /// `Cmd_Amfreeze_f`: a player frozen where it stands and unhurt, or let go again; or
+    /// everyone at once (`+all`, `-all`).
+    fn admin_freeze(&mut self, client: usize, words: &[&[u8]], level_time: i32) {
+        if !self.admin_allowed(client, admin::A_FREEZE, "amFreeze") {
+            return;
+        }
+        if words.len() != 2 {
+            let usage =
+                b"print \"Usage: /amFreeze <client> or /amFreeze +all or /amFreeze -all.\n\"";
+            self.told.push(Told::One(client, usage.to_vec()));
+            return;
+        }
+        let all = if words[1].eq_ignore_ascii_case(b"+all") {
+            Some(true)
+        } else if words[1].eq_ignore_ascii_case(b"-all") {
+            Some(false)
+        } else {
+            None
+        };
+        if let Some(freeze) = all {
+            let usable: Vec<usize> = (0..self.players.places())
+                .filter(|&slot| {
+                    self.peer(slot).is_some_and(|peer| {
+                        admin::usable_on(
+                            peer.session.account_flags,
+                            slot == client,
+                            admin::A_FREEZE,
+                        )
+                    })
+                })
+                .collect();
+            for slot in usable {
+                if freeze {
+                    if let Some(peer) = self.peer_mut(slot) {
+                        peer.admin_frozen = true;
+                    }
+                    // (sic: jaPRO shakes and thunders even for the already frozen)
+                    self.freeze_effects(slot, level_time);
+                } else if self.peer(slot).is_some_and(|peer| peer.admin_frozen) {
+                    self.unfreeze(slot);
+                }
+            }
+            let line: &[u8] = if freeze {
+                b"cp \"You have all been frozen\n\""
+            } else {
+                b"cp \"You have all been unfrozen\n\""
+            };
+            self.told.push(Told::Everyone(line.to_vec()));
+            return;
+        }
+        let Some(target) = self.admin_target(client, words[1]) else {
+            return;
+        };
+        let their_flags = self
+            .peer(target)
+            .map_or(0, |peer| peer.session.account_flags);
+        if !admin::usable_on(their_flags, target == client, admin::A_FREEZE) {
+            return;
+        }
+        let Some(peer) = self.peer_mut(target) else {
+            return;
+        };
+        peer.noclip = false;
+        if peer.admin_frozen {
+            self.unfreeze(target);
+            let line = b"cp \"You have been unfrozen\n\"".to_vec();
+            self.told.push(Told::One(target, line));
+        } else {
+            peer.admin_frozen = true;
+            let line = b"cp \"You have been frozen\n\"".to_vec();
+            self.told.push(Told::One(target, line));
+            self.freeze_effects(target, level_time);
+        }
+    }
+
+    /// A frozen player let go: its saber may be thrown and its Force used again, and it
+    /// moves again (jaPRO's chain ends in `PM_NORMAL` at the next think; nothing else
+    /// here leaves a player in `PM_FREEZE`).
+    fn unfreeze(&mut self, slot: usize) {
+        const PS_SABER_CAN_THROW: usize = 49;
+        const PS_FORCE_RESTRICTED: usize = 115;
+        const PM_NORMAL: u8 = 0;
+        if let Some(peer) = self.peer_mut(slot) {
+            peer.admin_frozen = false;
+            peer.state.set_raw_field(PS_SABER_CAN_THROW, 1);
+            peer.state.set_raw_field(PS_FORCE_RESTRICTED, 0);
+            if peer.state.movement_type() == jkr_game_jka::japro_emotes::PM_FREEZE {
+                peer.state.set_movement_type(PM_NORMAL);
+            }
+            peer.movement = peer.movement.reseeded(&peer.state);
+        }
+    }
+
+    /// The freeze's show: the player's own view shaken (`G_ScreenShake(origin, target, 3,
+    /// 2000, qtrue)`) and a thunderclap where it stands (`G_Sound(target, CHAN_AUTO, ...)`).
+    fn freeze_effects(&mut self, slot: usize, level_time: i32) {
+        const EV_GENERAL_SOUND: u32 = 76;
+        let Some(origin) = self.peer(slot).map(|peer| peer.state.origin()) else {
+            return;
+        };
+        let shake = EventEntity::screen_shake(origin, Some(slot as u16), 3.0, 2_000, true);
+        if let Some(id) = self.pool.spawn_temporary(shake.state(), level_time, None) {
+            self.pool.set_broadcast(id, shake.broadcast);
+        }
+        let sound = self.sound_index_for(b"sound/ambience/thunder_close1");
+        let thunder = EventEntity {
+            event: EV_GENERAL_SOUND,
+            parameter: u32::from(sound),
+            origin,
+            client: None,
+            broadcast: false,
+            extra: [(0, 0); 12],
+        };
+        let _ = self.pool.spawn_temporary(thunder.state(), level_time, None);
+    }
+}
+
+/// jaPRO's admin freeze in `ClientThink_real`'s movement chain, ahead of the emote's hold:
+/// frozen in place (`PM_FREEZE`), its saber's wound times cleared, unable to throw it or
+/// use the Force, its saber put away; not while it duels. Whether the player is frozen,
+/// which takes the chain's place for the emote hold.
+pub(super) fn freeze_hold(peer: &mut Peer) -> bool {
+    const PS_SABER_CAN_THROW: usize = 49;
+    const PS_SABER_HOLSTERED: usize = 81;
+    const PS_WEAPON_TIME: usize = 10;
+    const PS_FORCE_RESTRICTED: usize = 115;
+    const WP_SABER: u8 = 3;
+    if !peer.admin_frozen || !super::bridge_emotes::reaches_holds(peer) {
+        return false;
+    }
+    if peer.state.duel_in_progress() {
+        return true;
+    }
+    peer.state
+        .set_movement_type(jkr_game_jka::japro_emotes::PM_FREEZE);
+    peer.saber_cut.attack_wound = 0;
+    peer.saber_cut.idle_wound = 0;
+    peer.state.set_raw_field(PS_SABER_CAN_THROW, 0);
+    peer.state.set_raw_field(PS_FORCE_RESTRICTED, 1);
+    if peer.state.weapon() == WP_SABER && peer.state.saber_holstered() < 2 {
+        peer.state.set_raw_field(PS_SABER_HOLSTERED, 2);
+        peer.state.set_raw_field(PS_WEAPON_TIME, 400);
+    }
+    peer.movement = peer.movement.reseeded(&peer.state);
+    true
 }

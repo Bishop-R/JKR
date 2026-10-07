@@ -151,7 +151,9 @@ impl NativeGame {
         }
         // jaPRO's held emote, which the chain weighs before the jetpack: the jetpack only
         // lifts a player standing still on the ground, which a held pose never leaves.
-        bridge_emotes::emote_hold(peer, &command, pool, level_time);
+        if !bridge_admin::freeze_hold(peer) {
+            bridge_emotes::emote_hold(peer, &command, pool, level_time);
+        }
         // What its blows may break (`PM_ClientImpact`): nothing for a spectator or a Siege
         // player waiting for its wave (`Client_CheckImpactBBrush`).
         let round_waiting = bridge_client_impact::round_waiting(

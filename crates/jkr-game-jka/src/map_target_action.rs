@@ -43,7 +43,7 @@ impl Action {
         }
     }
 
-    /// `G_ScreenShake`: snapped trajectory position plus the original precise origin.
+    /// `G_ScreenShake` for a `target_screenshake`: anyone near shakes.
     pub fn shake_event(&self, origin: [f32; 3]) -> Option<EventEntity> {
         let Self::Shake {
             intensity,
@@ -53,19 +53,8 @@ impl Action {
         else {
             return None;
         };
-        let mut extra = [(0, 0); 12];
-        for (axis, field) in [11, 12, 13].into_iter().enumerate() {
-            extra[axis] = (field, origin[axis].to_bits());
-        }
-        extra[3] = (25, intensity.to_bits());
-        extra[4] = (65, duration as u32);
-        Some(EventEntity {
-            event: 42,
-            parameter: 0,
-            origin,
-            client: None,
-            broadcast: global,
-            extra,
-        })
+        Some(EventEntity::screen_shake(
+            origin, None, intensity, duration, global,
+        ))
     }
 }

@@ -139,6 +139,12 @@ impl NativeGame {
             .retain(|told| !matches!(told, Told::ConfigString { .. }));
         self.map_effects = Default::default();
         self.team_locks = Default::default();
+        // jaPRO's admin freeze is the client's, which a new level's connect clears.
+        for client in 0..self.players.places() {
+            if let Some(peer) = self.peer_mut(client) {
+                peer.admin_frozen = false;
+            }
+        }
         // Entity registries and collision owners belong to the outgoing map.
         self.map_turrets = Default::default();
         self.stock = Default::default();

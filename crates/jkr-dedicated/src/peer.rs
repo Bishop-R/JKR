@@ -149,6 +149,8 @@ pub struct Peer {
     pub(crate) emote: jkr_game_jka::japro_emotes::Hold,
     /// jaPRO's running total of damage given, for `g_damageNumbers`.
     pub(crate) damage_total: crate::damage_numbers::Total,
+    /// jaPRO's `pers.amfreeze`: an admin froze this player (`amfreeze`); a map clears it.
+    pub(crate) admin_frozen: bool,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -287,6 +289,7 @@ impl Peer {
             motd: Default::default(),
             emote: Default::default(),
             damage_total: Default::default(),
+            admin_frozen: false,
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),

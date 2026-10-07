@@ -63,7 +63,7 @@ pub(crate) struct SaberCut {
     trails: [[Trail; MAX_BLADES]; 2],
     /// `ps.saberAttackWound`, `ps.saberIdleWound`: server-only, cleared at a spawn.
     pub(super) attack_wound: i32,
-    idle_wound: i32,
+    pub(super) idle_wound: i32,
     /// `g2LastSurfaceHit`, `g2LastSurfaceTime`: the surface a blade last struck on this
     /// player, and when.
     last_surface: (usize, i32),
