@@ -1,6 +1,7 @@
 mod actor_dissolve;
 mod actor_instance;
 mod actor_load;
+mod actor_marks;
 mod actor_mesh;
 mod actor_pose;
 mod actor_tint;

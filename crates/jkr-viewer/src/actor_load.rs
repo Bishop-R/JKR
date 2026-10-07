@@ -76,6 +76,7 @@ pub(crate) fn build_actor_mesh(
         retained_pose,
         dissolve: Default::default(),
         fade: Default::default(),
+        marks: Default::default(),
         mouth_draw,
     })
 }

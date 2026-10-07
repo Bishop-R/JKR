@@ -100,7 +100,10 @@ pub(crate) fn create(
                         one_shot: stage.one_shot,
                         blend,
                         rgb_wave: stage.rgb_wave.clone(),
-                        alpha_wave: stage.alpha_wave.clone(),
+                        alpha_wave: stage
+                            .alpha_wave
+                            .clone()
+                            .or_else(|| stage.alpha_constant.map(constant_wave)),
                         tc_scale,
                         tc_scroll,
                     });
@@ -276,5 +279,16 @@ impl GpuState {
             &required,
         )?;
         Ok(())
+    }
+}
+
+/// `alphaGen const`: a flat wave at the constant, which `effect_wave::evaluate` returns as is.
+fn constant_wave(value: f32) -> WaveForm {
+    WaveForm {
+        function: "sin".to_owned(),
+        base: value,
+        amplitude: 0.0,
+        phase: 0.0,
+        frequency: 0.0,
     }
 }

@@ -17,6 +17,16 @@ impl GpuState {
                         crate::log::progress(format_args!("body copy failed: {error}"));
                     }
                 }
+                BaseServerCommandEvent::RestoreGhoul2(restore) => {
+                    // `G2API_ClearSkinGore`: the player comes back unmarked; its body's
+                    // copy shared the marks and loses them with it.
+                    let id = EntityId::new(u64::from(restore.client_num) + 1);
+                    for mesh in &mut self.actor_meshes {
+                        if !mesh.corpse_pool && mesh.entity_id == Some(id) {
+                            mesh.marks.clear();
+                        }
+                    }
+                }
                 BaseServerCommandEvent::KillGhoul2(number) => {
                     let id = EntityId::new(u64::from(number) + 1);
                     for mesh in &mut self.actor_meshes {

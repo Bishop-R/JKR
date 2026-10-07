@@ -3,6 +3,27 @@
 use crate::{Glm, GlmSurface, GlmVertex, ModelError, SkinnedSurface, SkinnedVertex};
 
 impl Glm {
+    /// One vertex of surface `surface` at LOD `lod` skinned by `matrices` with the
+    /// rendering arithmetic: its position in the skeleton's space (Ghoul2's quarter-turn
+    /// root left out). `None` for a vertex or bone the model lacks; allocates nothing.
+    pub fn skinned_position(
+        &self,
+        lod: usize,
+        surface: usize,
+        vertex_index: usize,
+        matrices: &[[[f32; 4]; 3]],
+    ) -> Option<[f32; 3]> {
+        let surface = self.lods.get(lod)?.surfaces.get(surface)?;
+        let source = surface.vertices.get(vertex_index)?;
+        let bones_known = source.weights.iter().all(|weight| {
+            surface
+                .bone_references
+                .get(weight.bone_reference)
+                .is_some_and(|bone| *bone < matrices.len())
+        });
+        bones_known.then(|| vertex(surface, source, matrices).position)
+    }
+
     /// Update positions/normals in an output originally made by `skin_pose_matrices`.
     ///
     /// The caller must retain the same model, skin and LOD. Topology and material names

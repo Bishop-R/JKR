@@ -171,7 +171,9 @@ impl Mesh {
 
             let decal_start = self.counts().1 as u32;
             decals.emit(now, |draw| {
-                if usize::from(draw.slot) == blend_index {
+                if draw.slot == crate::decal_store::ALL_SLOTS
+                    || usize::from(draw.slot) == blend_index
+                {
                     self.append_decal(draw, atlas, global_seconds, blend_index);
                 }
             });

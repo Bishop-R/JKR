@@ -4,6 +4,8 @@ mod bone_angles;
 mod bone_override;
 mod bone_override_timing;
 pub mod g2_collision;
+pub mod g2_gore;
+mod g2_math;
 mod md3_lerp;
 pub mod posed_trace;
 mod reskin;

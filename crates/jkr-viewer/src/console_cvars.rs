@@ -322,6 +322,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Saber contact marks and sparks",
         ),
         CvarDefinition::new("cg_marks", true, archive, "Leave impact marks on the world"),
+        // `cg_xcvar.h:96`: not archived.
+        CvarDefinition::new(
+            "cg_ghoul2Marks",
+            16_i64,
+            CvarFlags::NONE,
+            "Marks a model may carry before it takes no more (0: none)",
+        ),
         CvarDefinition::new("cg_shadows", true, archive, "Draw player shadows"),
         CvarDefinition::new("cg_drawGun", true, archive, "Draw the first-person weapon"),
         CvarDefinition::new("cg_drawCrosshair", true, archive, "Display crosshair"),

@@ -29,6 +29,8 @@ pub(crate) struct ActorMesh {
     pub(crate) dissolve: crate::actor_dissolve::Dissolve,
     /// A corpse's fade as this client saw it begin (`EV_BODYFADE`).
     pub(crate) fade: crate::corpse_fade::CorpseFade,
+    /// The Ghoul2 damage marks it carries, and where it was drawn this frame.
+    pub(crate) marks: crate::actor_marks::Marks,
     /// The draw of `head_eyes_mouth`, the inside of the face a corpse's fade switches off.
     pub(crate) mouth_draw: Option<usize>,
 }

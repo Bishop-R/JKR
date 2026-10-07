@@ -73,6 +73,15 @@ pub(crate) fn observe_snapshot(
         };
         flare_latches += usize::from(latch_clash_flare(clash_flare, impact, snapshot.server_time));
         visual_requests += spawn_impact(impact, local, &mut sinks, now);
+        // `CG_G2MarkEvent`: a flagged missile's mark on the model it struck.
+        if let Some(mark) = snapshot
+            .entities
+            .binary_search_by_key(&impact.entity_number, |state| state.number())
+            .ok()
+            .and_then(|index| jkr_client::ghoul2_marks::missile_mark(&snapshot.entities[index]))
+        {
+            sinks.auxiliary.marks.request(mark);
+        }
     }
     Observation {
         events: count,

@@ -240,6 +240,7 @@ pub(crate) fn submit(
             }
         }
     }
+    crate::actor_marks::frame(gpu, presentation_time);
     overlay_count
 }
 
@@ -394,6 +395,8 @@ fn submit_actor(
         presentation_time,
         sinks.predicted_vehicle,
     );
+    // `cent->lerpOrigin`, before a scaled model is raised to stand on its feet.
+    let lerp_origin = transform.translation;
     if let Some(state) = state {
         model_scale::apply(transform, state.model_scale_percent(), state.npc_class());
     }
@@ -549,6 +552,18 @@ fn submit_actor(
                 presentation_time,
             );
             return 0;
+        }
+        if dissolving.is_none() {
+            sinks.actor_meshes[mesh]
+                .marks
+                .place(crate::actor_marks::Placement::of(
+                    entity,
+                    state,
+                    lerp_origin,
+                    &instance,
+                    draw_actor,
+                    presentation_time,
+                ));
         }
         sinks.actor_groups[mesh].push(instance);
         sinks.actor_meshes[mesh]

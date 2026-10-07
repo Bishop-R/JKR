@@ -30,6 +30,7 @@ mod force_profile_negotiation;
 mod force_rank_reply;
 mod freeze_probe;
 mod gamestate_probe;
+pub mod ghoul2_marks;
 mod ghoul2_pose;
 mod impact_events;
 mod information;

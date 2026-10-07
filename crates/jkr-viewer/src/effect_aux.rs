@@ -79,6 +79,8 @@ pub(crate) struct Runtime {
     pub(crate) continuous: cadence::Cadence,
     /// Glass shards, debris and model explosions (`breakage.rs`).
     pub(crate) breakage: breakage::Runtime,
+    /// Ghoul2 damage marks waiting for this frame's poses (`actor_marks.rs`).
+    pub(crate) marks: crate::actor_marks::Runtime,
 }
 
 impl Default for Runtime {
@@ -95,6 +97,7 @@ impl Default for Runtime {
             saber_contacts: saber_contacts::Runtime::default(),
             continuous: cadence::Cadence::default(),
             breakage: breakage::Runtime::default(),
+            marks: crate::actor_marks::Runtime::default(),
         }
     }
 }

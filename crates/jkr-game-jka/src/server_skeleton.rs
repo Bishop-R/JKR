@@ -25,13 +25,8 @@ use jkr_model::{
     BoneOverridePose, Gla, Glm, ModelError, OverrideEndBehavior,
 };
 
-/// Ghoul2's root "identity" (`tr_ghoul2.cpp:128-135`): a quarter turn about Z, which the
-/// generic evaluator leaves out and every raw Ghoul2 matrix carries.
-pub(crate) const GHOUL2_ROOT: [[f32; 4]; 3] = [
-    [0.0, -1.0, 0.0, 0.0],
-    [1.0, 0.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 0.0],
-];
+/// Ghoul2's root "identity": a quarter turn about Z under every skeleton.
+pub(crate) use jkr_model::g2_collision::GHOUL2_ROOT;
 /// The blend `G_UpdateClientAnims` asks for on every change.
 const BLEND_MILLIS: u16 = 150;
 /// The player's bolts a hilt is bolted to (`G_SetG2PlayerModel`'s bolts 0, 1, 3 and 4):

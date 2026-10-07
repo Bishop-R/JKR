@@ -42,6 +42,9 @@ pub(super) fn consume(
                 {
                     adapter.restore_client_ghoul(session.game_state(), restore);
                 }
+                watch
+                    .body_commands
+                    .push(BaseServerCommandEvent::RestoreGhoul2(restore));
             }
             BaseServerCommandEvent::CopyBody(body) => {
                 if let Some(adapter) = &mut adapter {

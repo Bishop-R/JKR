@@ -32,6 +32,11 @@ impl GpuState {
             .set_marks_enabled(console.bool_cvar("cg_marks").unwrap_or(true));
         self.effect_aux.saber_contacts.enabled =
             console.bool_cvar("cg_saberContact").unwrap_or(true);
+        self.effect_aux.marks.limit = console
+            .integer_cvar("cg_ghoul2Marks")
+            .map_or(jkr_client::ghoul2_marks::DEFAULT_LIMIT, |limit| {
+                limit.max(0) as usize
+            });
         self.player_shadows.set_enabled(
             console.bool_cvar("cg_shadows").unwrap_or(true)
                 && !self.world_materials.sun_shadows_active(),
