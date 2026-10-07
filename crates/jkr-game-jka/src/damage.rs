@@ -299,6 +299,19 @@ pub struct Target<'a> {
     /// A player's jetpack (`jetPackOn`, `jetPackToggleTime`), which a DEMP2 blow puts out
     /// for three to ten seconds; `None` for a target without one.
     pub jetpack: Option<&'a mut crate::holdables::Packs>,
+    /// The share of its own blows it takes ([`self_damage`]).
+    pub self_damage: f32,
+}
+
+/// The share of a blow on oneself that lands (`g_combat.c:4934-4945`): half, or half as
+/// much again in siege — or, outside siege, jaPRO's `g_selfDamageScale` (`scale`, 0.5
+/// by default).
+pub fn self_damage(gametype: i32, scale: f32) -> f32 {
+    if gametype == crate::match_end::GT_SIEGE {
+        1.5
+    } else {
+        scale
+    }
 }
 
 /// What `G_Damage` came to.
@@ -527,12 +540,13 @@ pub fn damage_at(
         damaged.attackee_armor =
             Some(((*target.health as u32) << 8) | target.state.stats[STAT_ARMOR]);
     }
-    // Half damage hurting oneself.
+    // Hurting oneself, unless the blow says not ([`self_damage`]).
     if request
         .attacker
         .is_some_and(|attacker| attacker.client == target.client)
+        && flags & DAMAGE_NO_SELF_PROTECTION == 0
     {
-        damage = (f64::from(damage) * 0.5) as i32;
+        damage = (damage as f32 * target.self_damage) as i32;
     }
     let damage = damage.max(1);
     let mut take = damage;
@@ -1001,4 +1015,20 @@ pub fn radius_damage(
         hit_client |= hurt(target.number, request);
     }
     hit_client
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `g_combat.c:4934-4945`: half outside siege (or jaPRO's scale), half as much again in
+    /// siege whatever the scale.
+    #[test]
+    fn a_blow_on_oneself_lands_by_the_gametype() {
+        assert_eq!(self_damage(0, 0.5), 0.5);
+        assert_eq!(self_damage(0, 0.25), 0.25);
+        assert_eq!(self_damage(crate::match_end::GT_SIEGE, 0.25), 1.5);
+        assert_eq!((75_i32 as f32 * self_damage(0, 0.5)) as i32, 37);
+        assert_eq!((75_i32 as f32 * self_damage(7, 0.5)) as i32, 112);
+    }
 }

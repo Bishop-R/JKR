@@ -271,6 +271,8 @@ impl NativeGame {
                 spared_by_master: false,
                 god_mode,
                 jetpack: None,
+                // Only the shock is applied here.
+                self_damage: 0.5,
             };
             jkr_game_jka::damage::shock(&mut view, request, &mut rng);
             victim.movement = victim.movement.reseeded(&victim.state);

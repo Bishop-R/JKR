@@ -82,18 +82,23 @@ pub struct StruckPlayer {
 /// direction from the muzzle as the angles, the muzzle as `origin2`, the view's forward
 /// as `angles2`. (`W_TraceSetStart` with no box is a no-op for a player; Galak Mech and
 /// breakables are not here.)
+///
+/// The shooter is shoved back 200 — jaPRO's `-400 * g_selfDamageScale`, `self_damage`
+/// (0.5 by default), truncated.
 pub fn fire_alt(
     state: &mut PlayerState,
     muzzle: [f32; 3],
     forward: [f32; 3],
     attacker: Attacker,
     level_time: i32,
+    self_damage: f32,
     targets: &mut dyn ConcussionTargets,
 ) {
     let shooter = state.client_num();
+    let shove = (-400.0 * self_damage) as i32 as f32;
     let mut velocity = state.velocity();
     for axis in 0..3 {
-        velocity[axis] += -200.0 * forward[axis];
+        velocity[axis] += shove * forward[axis];
     }
     state.set_velocity(velocity);
     state.set_ground_entity_num(ENTITY_NONE);

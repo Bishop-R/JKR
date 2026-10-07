@@ -86,6 +86,7 @@ impl NativeGame {
                 "g_flagdrag" => self.flag_drag = var.value(),
                 "g_fixflaghitbox" => self.wide_flag_box = integer != 0,
                 "g_startingitems" => self.starting_items_changed(),
+                "g_selfdamagescale" => self.self_damage_scale = var.value(),
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }

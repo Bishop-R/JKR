@@ -299,6 +299,9 @@ pub struct NativeGame {
     flag_drag: f32,
     /// jaPRO's `g_fixFlagHitbox`, kept from the cvar: flags are taken from further.
     wide_flag_box: bool,
+    /// jaPRO's `g_selfDamageScale`, kept from the cvar: a blow on oneself's share outside
+    /// siege (stock's half).
+    self_damage_scale: f32,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -498,6 +501,7 @@ impl NativeGame {
             team_locks: Default::default(),
             flag_drag: 0.0,
             wide_flag_box: false,
+            self_damage_scale: 0.5,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -2509,6 +2513,7 @@ impl NativeGame {
             team: peer.session.team,
             saber_knockback: [0.0; 4],
         };
+        let self_damage = self.self_damage_scale;
         let mut targets = InstantTargets {
             game: self,
             shooter: client,
@@ -2520,6 +2525,7 @@ impl NativeGame {
             forward,
             attacker,
             level_time,
+            self_damage,
             &mut targets,
         );
         // The shooter's own shove is in the wire state: the movement restarts from it.
@@ -2570,6 +2576,7 @@ impl NativeGame {
         let mut rng = self.deaths.rng;
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
+        let self_damage = jkr_game_jka::damage::self_damage(self.gametype, self.self_damage_scale);
         // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`):
         // only a DEMP2's shock, which comes first, lands.
         let sheltered = self.peer(target).is_some_and(|victim| {
@@ -2601,6 +2608,7 @@ impl NativeGame {
             spared_by_master,
             god_mode,
             jetpack: Some(&mut victim.gear.packs),
+            self_damage,
         };
         let damaged = if sheltered {
             jkr_game_jka::damage::shock(&mut target_view, &request, &mut rng);
@@ -3603,6 +3611,8 @@ mod bridge_stock_rules;
 mod bridge_teleport;
 #[path = "bridge_use.rs"]
 mod bridge_use;
+#[path = "bridge_weapon_options.rs"]
+mod bridge_weapon_options;
 #[path = "bridge_world_effects.rs"]
 mod bridge_world_effects;
 pub(crate) use bridge_saber::PlayerSkeleton;
