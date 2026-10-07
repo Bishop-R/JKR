@@ -39,6 +39,9 @@ mod limbs;
 #[path = "actor_speed_trail.rs"]
 mod speed_trail;
 
+#[path = "actor_spheres.rs"]
+mod spheres;
+
 #[path = "special_entities.rs"]
 mod special_entities;
 
@@ -94,6 +97,10 @@ struct Sinks<'a> {
     body: BodyDraw,
     /// `cg_speedTrail`: Force Speed's afterimages.
     speed_trails: bool,
+    /// Where this frame's view is seen from (`cg.refdef.vieworg`).
+    view_origin: Vec3,
+    /// `g_gametype`.
+    gametype: i64,
 }
 
 /// Submit all presented actor-like entities without allocating frame storage.
@@ -152,14 +159,13 @@ pub(crate) fn submit(
             .and_then(|console| console.float_cvar("cg_thirdPersonAlpha"))
             .unwrap_or(1.0) as f32,
     );
+    let gametype = game_state
+        .and_then(|game| game.config_string(0))
+        .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("g_gametype"))
+        .unwrap_or(0);
     gpu.posed_objects.begin_frame();
     let mut sinks = Sinks {
-        flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(
-            game_state
-                .and_then(|game| game.config_string(0))
-                .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("g_gametype"))
-                .unwrap_or(0),
-        )],
+        flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(gametype)],
         shield_mesh: gpu
             .object_meshes
             .iter()
@@ -212,6 +218,8 @@ pub(crate) fn submit(
         own_body,
         body: BodyDraw::Opaque,
         speed_trails,
+        view_origin: gpu.ground_hud.view_origin(),
+        gametype: gametype.into(),
     };
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
@@ -584,6 +592,10 @@ fn submit_actor(
     }
     if hidden {
         return 0;
+    }
+    if entity.kind == EntityKind::Actor {
+        let bits = spheres::player_bits(state, snapshot.filter(|_| local));
+        spheres::submit(sinks, lerp_origin, bits, sinks.gametype);
     }
     if (draw_actor || sinks.portal_view)
         && let Some(mesh) = mesh

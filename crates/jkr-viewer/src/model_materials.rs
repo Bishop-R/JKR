@@ -14,7 +14,7 @@ pub(crate) struct Overrides {
     pub(crate) placeholder: usize,
     pub(crate) light_disabled: usize,
     pub(crate) dark_disabled: usize,
-    force: [usize; 11],
+    force: [usize; 17],
 }
 
 /// Append or reuse the cgame entity-override materials before the shared Q3
@@ -24,7 +24,7 @@ pub(crate) fn append_overrides(materials: &mut Vec<ViewerMaterial>) -> Overrides
         placeholder: ensure(materials, "powerups/placeholder"),
         light_disabled: ensure(materials, "gfx/misc/mp_light_enlight_disable"),
         dark_disabled: ensure(materials, "gfx/misc/mp_dark_enlight_disable"),
-        force: [0; 11],
+        force: [0; 17],
     };
     for (slot, shader) in result.force.iter_mut().zip(FORCE_SHADERS) {
         *slot = ensure(materials, shader);
@@ -32,7 +32,7 @@ pub(crate) fn append_overrides(materials: &mut Vec<ViewerMaterial>) -> Overrides
     result
 }
 
-const FORCE_SHADERS: [&str; 11] = [
+const FORCE_SHADERS: [&str; 17] = [
     "halfShieldShell",
     // `cgs.media.disruptorShader`, a disintegration's glow (`cg_ents.c:699-700`).
     "gfx/effects/burn",
@@ -46,6 +46,13 @@ const FORCE_SHADERS: [&str; 11] = [
     "powerups/forceshell",
     "powerups/sightshell",
     "powerups/ysalimarishell",
+    // The spheres `CG_DrawPlayerSphere` puts round a player (`cg_main.c:1281-1287`).
+    "powerups/ysaliredshell",
+    "powerups/ysaliblueshell",
+    "powerups/boonshell",
+    "powerups/endarkenmentshell",
+    "powerups/enlightenmentshell",
+    "powerups/invulnerabilityshell",
 ];
 
 impl Overrides {

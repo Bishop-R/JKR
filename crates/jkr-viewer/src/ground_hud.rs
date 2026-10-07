@@ -40,6 +40,11 @@ impl GroundHud {
     }
 
     /// Retain the final main view; called with every scene-camera upload.
+    /// Where this frame's view is seen from (`cg.refdef.vieworg`), as last set.
+    pub(crate) fn view_origin(&self) -> Vec3 {
+        self.view.camera
+    }
+
     pub(crate) fn set_view(&mut self, camera: &CameraUniform) {
         self.view = gpu::View {
             view_projection: glam::Mat4::from_cols_array_2d(&camera.view_projection),
