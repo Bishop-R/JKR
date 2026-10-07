@@ -215,6 +215,9 @@ impl NativeGame {
         for item in launched {
             self.flag_launched(item, level_time);
         }
+        // `ClientDisconnect` ends with `CalculateRanks` (`g_client.c:4028`): the scores,
+        // the leader and everyone's rank without the one who left.
+        self.calculate_ranks();
     }
 
     /// `ClientConnect`'s `BroadcastTeamChange(client, -1)`: in a team game, a newcomer on
