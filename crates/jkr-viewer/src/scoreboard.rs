@@ -27,6 +27,8 @@ pub(super) struct ScoreRow {
     pub(super) deaths: Option<i32>,
     pub(super) ping: i32,
     pub(super) time: i32,
+    /// Its client info carries a bot's `skill` (stock gives players -1 for none).
+    pub(super) bot: bool,
 }
 
 /// Cached scoreboard data and fixed retained presentation storage.
@@ -40,6 +42,8 @@ pub(crate) struct Scoreboard {
     rows: Vec<ScoreRow>,
     ui: MenuCanvas,
     deaths: deaths::Deaths,
+    /// `cg_scoreboardBots`: a bot's ping column reads BOT.
+    pub(crate) show_bots: bool,
 }
 
 impl Scoreboard {
@@ -54,6 +58,7 @@ impl Scoreboard {
             rows: Vec::with_capacity(32),
             ui: MenuCanvas::new(),
             deaths: deaths::Deaths::default(),
+            show_bots: true,
         }
     }
     pub(crate) fn draw_list(&self) -> &DrawList {
@@ -84,6 +89,7 @@ impl Scoreboard {
                 team_scores: session.team_scores(),
                 team_game: self.team_game,
                 local_client: local,
+                show_bots: self.show_bots,
             },
             viewport,
         );
@@ -110,7 +116,7 @@ impl Scoreboard {
         self.team_game = is_team_game(session.game_state());
         self.rows.clear();
         for score in session.scores() {
-            let (name, team) = client_identity(session.game_state(), score.client_num);
+            let (name, team, bot) = client_identity(session.game_state(), score.client_num);
             self.rows.push(ScoreRow {
                 client_num: score.client_num,
                 name,
@@ -119,6 +125,7 @@ impl Scoreboard {
                 deaths: None,
                 ping: score.ping,
                 time: score.time_minutes,
+                bot,
             });
         }
         let server = server_info(session.game_state());
@@ -131,6 +138,11 @@ impl Scoreboard {
 
 /// Append the current server scoreboard.
 pub(crate) fn append_overlay(gpu: &mut crate::GpuState, viewport: [f32; 2], scale: f32) {
+    gpu.scoreboard.show_bots = gpu
+        .console
+        .as_ref()
+        .and_then(|console| console.bool_cvar("cg_scoreboardBots"))
+        .unwrap_or(true);
     if let Some(session) = gpu.resident.session.as_ref().or(gpu.live_session.as_ref()) {
         gpu.scoreboard.append(
             session,
@@ -165,15 +177,15 @@ fn server_info(game_state: &GameState) -> (String, &'static str) {
     (map, mode)
 }
 
-fn client_identity(game_state: &GameState, client_num: u8) -> (String, u8) {
+fn client_identity(game_state: &GameState, client_num: u8) -> (String, u8, bool) {
     game_state
         .config_string(CS_PLAYERS + usize::from(client_num))
         .map_or_else(
-            || (format!("Client {client_num}"), 3),
+            || (format!("Client {client_num}"), 3, false),
             |bytes| client_identity_from_config(bytes, client_num),
         )
 }
-fn client_identity_from_config(bytes: &[u8], client_num: u8) -> (String, u8) {
+fn client_identity_from_config(bytes: &[u8], client_num: u8) -> (String, u8, bool) {
     let info = jkr_client::LegacyClientInfo::new(bytes);
     (
         info.bytes("n")
@@ -187,6 +199,8 @@ fn client_identity_from_config(bytes: &[u8], client_num: u8) -> (String, u8) {
         info.integer("t")
             .and_then(|v| u8::try_from(v).ok())
             .unwrap_or(3),
+        // `CG_NewClientInfo`: any `skill` makes a bot.
+        info.bytes("skill").is_some_and(|skill| !skill.is_empty()),
     )
 }
 
@@ -220,4 +234,18 @@ fn byte_signature(bytes: &[u8]) -> u64 {
 /// Automatic intermission scores and the ordinary held scoreboard share one layout.
 pub(crate) fn requested(gpu: &crate::GpuState, intermission: bool) -> bool {
     intermission || gpu.gameplay_input.held(crate::input::GameButton::Scores)
+}
+
+#[cfg(test)]
+mod tests {
+    /// A client whose info carries a `skill` is a bot (`CG_NewClientInfo`); players have
+    /// none, and an empty one does not count.
+    #[test]
+    fn a_skill_in_the_client_info_marks_a_bot() {
+        let bot = super::client_identity_from_config(b"n\\Tavion\\t\\0\\skill\\4.00", 1);
+        let player = super::client_identity_from_config(b"n\\Padawan\\t\\0", 2);
+        let blank = super::client_identity_from_config(b"n\\Padawan\\t\\0\\skill\\", 3);
+        assert_eq!(bot, ("Tavion".to_owned(), 0, true));
+        assert!(!player.2 && !blank.2);
+    }
 }

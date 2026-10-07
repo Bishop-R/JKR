@@ -64,7 +64,6 @@ const BUFFERED_SPACING_MILLIS: i32 = 750;
 const MAX_LOCAL_SOUNDS_PER_SNAPSHOT: usize = 8;
 /// `cg_chatBeep` and `cg_teamChatsOnly` at their BaseJKA defaults.
 const CG_CHAT_BEEP: bool = true;
-const CG_TEAM_CHATS_ONLY: bool = false;
 
 /// One listener-local playback requested by a snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,6 +118,8 @@ pub(crate) struct LegacyLocalSounds {
     pub(crate) chat_mode: i64,
     /// Fixed-capacity filtering shared with chat presentation policy.
     pub(crate) chat_filter: chat_filter::Filter,
+    /// `cg_teamChatsOnly`: everything but team chat is dropped, its beep with it.
+    pub(crate) team_chats_only: bool,
     media: LocalSoundMedia,
     /// `cgAnnouncerTime`: no announcer line starts before this server time.
     announcer_time: i32,
@@ -180,6 +181,7 @@ impl LegacyLocalSounds {
             time: 0,
             chat_mode: 1,
             chat_filter: chat_filter::Filter::default(),
+            team_chats_only: false,
             pending: Vec::with_capacity(MAX_LOCAL_SOUNDS_PER_SNAPSHOT),
         };
         local.observe_config(game_state);
@@ -267,7 +269,7 @@ impl LegacyLocalSounds {
                 {
                     continue;
                 }
-                b"chat" | b"lchat" if !CG_TEAM_CHATS_ONLY && CG_CHAT_BEEP => {
+                b"chat" | b"lchat" if !self.team_chats_only && CG_CHAT_BEEP => {
                     let private = self.chat_mode == 2
                         && verb == b"chat"
                         && command.command.windows(7).any(|bytes| bytes == b"^7]: ^6");

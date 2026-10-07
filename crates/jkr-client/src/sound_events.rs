@@ -598,6 +598,8 @@ pub struct LegacySoundAdapter {
     loops: LegacyLoopAdapter,
     maintained: MaintainedSounds,
     loop_command_sequence: i32,
+    /// `cg_noTaunt`.
+    no_taunt: bool,
 }
 
 impl LegacySoundAdapter {
@@ -605,6 +607,16 @@ impl LegacySoundAdapter {
     pub fn set_chat_sound_mode(&mut self, mode: i64, clean: bool) {
         self.local.chat_mode = mode;
         self.local.chat_filter.enabled = clean;
+    }
+
+    /// `cg_teamChatsOnly` (`CG_Chat_f`): no beep for chat that is not the team's.
+    pub fn set_team_chats_only(&mut self, on: bool) {
+        self.local.team_chats_only = on;
+    }
+
+    /// `cg_noTaunt` (`cg_event.c:1586`): taunts, gloats, flourishes and bows are silent.
+    pub fn set_no_taunt(&mut self, on: bool) {
+        self.no_taunt = on;
     }
 
     /// Resolve and decode all static tables, CS_SOUNDS, and model custom sounds.
@@ -828,6 +840,7 @@ impl LegacySoundAdapter {
             loops,
             maintained,
             loop_command_sequence: game_state.server_command_sequence,
+            no_taunt: false,
         }
     }
 
@@ -1568,6 +1581,7 @@ impl LegacySoundAdapter {
                     }
                 }
                 75 => self.emit_voice_command(parameter, entity, snapshot),
+                115 if self.no_taunt => {}
                 115 => {
                     let sound = self.taunt_sound(client, parameter);
                     self.emit(

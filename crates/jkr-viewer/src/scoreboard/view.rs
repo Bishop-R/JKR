@@ -13,6 +13,8 @@ pub(super) struct MatchHeader<'a> {
     pub(super) team_scores: [i32; 2],
     pub(super) team_game: bool,
     pub(super) local_client: u16,
+    /// `cg_scoreboardBots`: bots show BOT for their ping (`cg_scoreboard.c:184-187`).
+    pub(super) show_bots: bool,
 }
 
 /// Build every retained row without tinting the world.
@@ -108,7 +110,7 @@ pub(super) fn build(
         {
             player_row(
                 ui,
-                row,
+                (row, header.show_bots && row.bot),
                 header.local_client,
                 Rect::new(x, y, width, row_height),
                 s.min(row_height / 28.0),
@@ -149,7 +151,14 @@ fn column_header(ui: &mut MenuCanvas, table: Rect, scale: f32, deaths: bool) {
     }
 }
 
-fn player_row(ui: &mut MenuCanvas, row: &ScoreRow, local: u16, rect: Rect, s: f32) {
+/// One player's row; `bot_ping` puts BOT where its ping would be.
+fn player_row(
+    ui: &mut MenuCanvas,
+    (row, bot_ping): (&ScoreRow, bool),
+    local: u16,
+    rect: Rect,
+    s: f32,
+) {
     let theme = ui.theme();
     if u16::from(row.client_num) == local {
         ui.accent_bar(
@@ -165,6 +174,18 @@ fn player_row(ui: &mut MenuCanvas, row: &ScoreRow, local: u16, rect: Rect, s: f3
     };
     ui.text(&row.name, name, 22.0 * s, color, FontWeight::Regular, 0.0);
     for (value, target) in [(row.score, score), (row.ping, ping), (row.time, time)] {
+        if target == ping && bot_ping {
+            ui.text_aligned(
+                "BOT",
+                target,
+                22.0 * s,
+                color,
+                FontWeight::Regular,
+                0.0,
+                TextAlign::End,
+            );
+            continue;
+        }
         if target == score
             && let Some(deaths) = row.deaths
         {

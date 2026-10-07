@@ -313,6 +313,24 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Swing the camera round to watch saber special moves",
         ),
         CvarDefinition::new(
+            "cg_teamChatsOnly",
+            false,
+            CvarFlags::ARCHIVE,
+            "Show and print only team chat",
+        ),
+        CvarDefinition::new(
+            "cg_noTaunt",
+            false,
+            CvarFlags::ARCHIVE,
+            "Silence other players' taunts, gloats, flourishes and bows",
+        ),
+        CvarDefinition::new(
+            "cg_scoreboardBots",
+            true,
+            CvarFlags::ARCHIVE,
+            "Show BOT instead of a bot's ping on the scoreboard",
+        ),
+        CvarDefinition::new(
             "cg_fpls",
             false,
             CvarFlags::NONE,

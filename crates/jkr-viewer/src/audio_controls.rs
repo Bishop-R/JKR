@@ -76,6 +76,9 @@ impl GameAudio {
                     .unwrap_or(0)
                     != 0,
             );
+            let flag = |name| console.and_then(|c| c.bool_cvar(name)).unwrap_or(false);
+            adapter.set_team_chats_only(flag("cg_teamChatsOnly"));
+            adapter.set_no_taunt(flag("cg_noTaunt"));
         }
         self.chat_beeps = ["cg_chatBeep", "cg_teamChatBeep"].map(|name| {
             crate::cgame_options::chat_sounds(console)

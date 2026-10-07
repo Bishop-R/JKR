@@ -88,7 +88,16 @@ pub(crate) fn consume_messages(
 ) {
     chat.update_roster(session.game_state());
     chat.configure(console.as_deref());
+    // `cg_teamChatsOnly` (`CG_Chat_f`): chat that is not the team's is neither shown nor
+    // printed.
+    let team_chats_only = console
+        .as_deref()
+        .and_then(|console| console.bool_cvar("cg_teamChatsOnly"))
+        .unwrap_or(false);
     for event in session.drain_events() {
+        if team_chats_only && matches!(event.kind, jkr_client::ServerEventKind::Chat) {
+            continue;
+        }
         if let Some(console) = &mut console {
             console.notify_server_text(&event.kind, &event.text);
         }
