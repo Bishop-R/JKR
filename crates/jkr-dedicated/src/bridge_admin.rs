@@ -82,6 +82,8 @@ impl NativeGame {
                 self.told.push(Told::One(client, text.to_vec()));
             }
             b"amkick" => self.admin_kick(client, &words),
+            b"amban" => self.admin_ban(client, &words),
+            b"amgrantadmin" => self.admin_grant(client, &words),
             b"amlockteam" => self.admin_lock_team(client, &words),
             b"amrename" => {
                 if !self.refused_at_intermission(client, b"amrename") {
@@ -667,6 +669,83 @@ impl NativeGame {
         }
         let message = jkr_game_jka::noclip::toggle(&mut peer.noclip);
         self.told.push(Told::One(target, message.to_vec()));
+    }
+}
+
+impl NativeGame {
+    /// `Cmd_Amban_f`: the player's address added to the bans (`AddIP`, kept in
+    /// `g_banIPs`) and the player kicked; never one holding the power too.
+    fn admin_ban(&mut self, client: usize, words: &[&[u8]]) {
+        if !self.admin_allowed(client, admin::A_ADMINBAN, "amBan") {
+            return;
+        }
+        if words.len() != 2 {
+            let usage = b"print \"Usage: /amBan <client>.\n\"".to_vec();
+            self.told.push(Told::One(client, usage));
+            return;
+        }
+        let Some(target) = self.admin_target(client, words[1]) else {
+            return;
+        };
+        let Some((their_flags, address)) = self
+            .peer(target)
+            .map(|peer| (peer.session.account_flags, peer.address.clone()))
+        else {
+            return;
+        };
+        if !admin::usable_on(their_flags, target == client, admin::A_ADMINBAN) {
+            return;
+        }
+        // `sess.IP`: the address without its port.
+        let ip = address
+            .split(|&byte| byte == b':')
+            .next()
+            .unwrap_or_default();
+        let ban_ips = self.ip_filter.add(ip, &mut super::bridge_bots::console);
+        self.set_cvar("g_banIPs", &String::from_utf8_lossy(&ban_ips));
+        let command = format!("clientkick {target}\n");
+        self.commands
+            .add_text(command.as_bytes(), &mut super::bridge_bots::console);
+    }
+
+    /// `Cmd_Amgrantadmin_f`: the junior level's powers given to a player, or with `none`
+    /// every admin power taken from it.
+    fn admin_grant(&mut self, client: usize, words: &[&[u8]]) {
+        if !self.admin_allowed(client, admin::A_GRANTADMIN, "amGrantAdmin") {
+            return;
+        }
+        if words.len() != 2 && words.len() != 3 {
+            let usage = b"print \"Usage: /amGrantAdmin <client>.\n\"".to_vec();
+            self.told.push(Told::One(client, usage));
+            return;
+        }
+        let Some(target) = self.admin_target(client, words[1]) else {
+            return;
+        };
+        let junior = self.cvars.integer(b"g_juniorAdminLevel") as u32 & admin::ADMIN_BITS;
+        let Some(peer) = self.peer_mut(target) else {
+            return;
+        };
+        if !admin::usable_on(
+            peer.session.account_flags,
+            target == client,
+            admin::A_GRANTADMIN,
+        ) {
+            return;
+        }
+        match words.get(2) {
+            None => {
+                peer.session.account_flags |= junior;
+                if junior != 0 {
+                    let line = b"print \"You have been granted Junior admin privileges.\n\"";
+                    self.told.push(Told::One(target, line.to_vec()));
+                }
+            }
+            Some(word) if word.eq_ignore_ascii_case(b"none") => {
+                peer.session.account_flags &= !admin::ADMIN_BITS;
+            }
+            Some(_) => {}
+        }
     }
 }
 
