@@ -88,6 +88,17 @@ pub(crate) struct HudUniform {
     pub(crate) crosshair_parameters: [f32; 4],
 }
 
+/// The height of the walker numbered `number`, from the vehicle its model was loaded for.
+fn walker_height(gpu: &GpuState, number: u16) -> Option<f32> {
+    let id = jkr_runtime::EntityId::new(u64::from(number) + 1);
+    gpu.actor_meshes
+        .iter()
+        .find(|mesh| mesh.entity_id == Some(id))
+        .map(|mesh| &mesh.preview)
+        .filter(|preview| preview.vehicle == Some(crate::vehicle_assets::VehicleKind::Walker))
+        .map(|preview| preview.vehicle_height)
+}
+
 /// Refresh retained HUD data and project movement guides through this frame's camera.
 pub(crate) fn update(
     gpu: &mut GpuState,
@@ -147,6 +158,12 @@ pub(crate) fn update(
         );
         gpu.lagometer
             .add_frame(presentation_time - snapshot.server_time);
+        let vehicle = crosshair_scan::dynamic::inside(
+            &snapshot.player,
+            &snapshot.entities,
+            gpu.local_prediction.vehicle_pose(),
+            |number| walker_height(gpu, number),
+        );
         let mut ray = crosshair_scan::dynamic::ray(
             gpu.console.as_ref(),
             &snapshot.player,
@@ -156,6 +173,7 @@ pub(crate) fn update(
             camera,
             gpu.third_person,
             snapshot.player.weapon(),
+            vehicle,
         );
         if ray.projected {
             ray.distance = gpu.crosshair_scan.distance_cull.unwrap_or(6000.0);
@@ -235,6 +253,10 @@ pub(crate) fn update(
         );
         gpu.lagometer
             .add_frame(presentation_time - snapshot.server_time);
+        let vehicle =
+            crosshair_scan::dynamic::inside(&snapshot.player, &snapshot.entities, None, |number| {
+                walker_height(gpu, number)
+            });
         let mut ray = crosshair_scan::dynamic::ray(
             gpu.console.as_ref(),
             &snapshot.player,
@@ -244,6 +266,7 @@ pub(crate) fn update(
             camera,
             gpu.third_person,
             snapshot.player.weapon(),
+            vehicle,
         );
         if ray.projected {
             ray.distance = gpu.crosshair_scan.distance_cull.unwrap_or(6000.0);

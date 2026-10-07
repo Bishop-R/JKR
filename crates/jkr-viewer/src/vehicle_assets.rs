@@ -20,13 +20,15 @@ pub(crate) enum VehicleKind {
     Walker,
 }
 
-/// Model directory, skin variant and kind of one vehicle.
+/// Model directory, skin variant, kind and height of one vehicle.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct VehicleLook {
     pub(crate) directory: String,
     pub(crate) variant: String,
     pub(crate) kind: VehicleKind,
     pub(crate) camera: crate::camera::VehicleProfile,
+    /// `height`, which a walker's crosshair is aimed from ([`crate::crosshair_scan`]).
+    pub(crate) height: f32,
 }
 
 /// The look of vehicle `name`, if any mounted `.veh` file defines it. A dozen small text
@@ -61,6 +63,7 @@ pub(crate) fn look(vfs: &VirtualFileSystem, name: &str) -> Option<VehicleLook> {
             _ => VehicleKind::Upright,
         },
         camera: crate::camera::VehicleProfile::from_vehicle(info),
+        height: info.height,
     })
 }
 
