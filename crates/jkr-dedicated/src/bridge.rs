@@ -2696,6 +2696,7 @@ impl NativeGame {
         self.run_spheres(server_time);
         self.run_charges(server_time);
         self.run_items(server_time);
+        self.sample_flag_timers();
         self.run_jedi_master(server_time);
         self.run_holocrons(server_time);
         self.run_siege_items(server_time);

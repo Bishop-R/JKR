@@ -12,6 +12,7 @@ const ALLOW_FLAG_THROW: &[u8] = b"g_allowFlagThrow";
 const FIX_FLAG_SUICIDE: &[u8] = b"g_fixFlagSuicide";
 const FLAG_DRAG: &[u8] = b"g_flagDrag";
 const FIX_FLAG_HITBOX: &[u8] = b"g_fixFlagHitbox";
+const FIX_CTF_SCORES: &[u8] = b"g_fixCTFScores";
 /// `GT_CTF`: the only game `throwflag` works in here (jaPRO's neutral-flag modes are
 /// not ported).
 const GT_CTF: i32 = 8;
@@ -21,7 +22,7 @@ const CONTENTS_TRIGGER: u32 = 0x400;
 impl NativeGame {
     /// The flag options, archived and announced, off (jaPRO's).
     pub(super) fn register_flag_options(&mut self) {
-        let options: [(&[u8], &[u8]); 4] = [
+        let options: [(&[u8], &[u8]); 5] = [
             (
                 ALLOW_FLAG_THROW,
                 b"jaPRO: CTF carriers may throw the flag (throwflag)",
@@ -32,6 +33,10 @@ impl NativeGame {
             ),
             (FLAG_DRAG, b"jaPRO: a flag carrier's drag in the air"),
             (FIX_FLAG_HITBOX, b"jaPRO: flags are taken from further away"),
+            (
+                FIX_CTF_SCORES,
+                b"jaPRO: its CTF points, announcements and flag timer",
+            ),
         ];
         for (name, about) in options {
             self.cvars
@@ -44,6 +49,22 @@ impl NativeGame {
         FlagRules {
             throw: self.cvars.integer(ALLOW_FLAG_THROW) != 0,
             suicide_drops: self.cvars.integer(FIX_FLAG_SUICIDE) != 0,
+            fixed_scores: self.cvars.integer(FIX_CTF_SCORES) != 0,
+        }
+    }
+
+    /// `G_RunFrame`'s sample of jaPRO's flag timers in CTF (under `g_fixCTFScores`
+    /// here): each player's speed across while its timer runs.
+    pub(super) fn sample_flag_timers(&mut self) {
+        if self.gametype != GT_CTF || !self.flag_rules().fixed_scores {
+            return;
+        }
+        let fps = self.cvars.value(b"sv_fps");
+        for client in 0..self.players.places() {
+            if let Some(peer) = self.peer_mut(client) {
+                let velocity = peer.state.velocity();
+                peer.flag_timer.sample(velocity, fps);
+            }
         }
     }
 

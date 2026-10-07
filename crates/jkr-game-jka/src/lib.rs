@@ -253,6 +253,7 @@ pub mod dropped_items;
 pub mod flag_throw;
 pub mod generic_commands;
 pub mod give;
+pub mod japro_ctf;
 pub mod japro_emotes;
 pub mod noclip;
 pub mod siege;

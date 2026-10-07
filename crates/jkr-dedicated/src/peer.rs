@@ -156,6 +156,8 @@ pub struct Peer {
     pub(crate) telemark: ([f32; 3], [f32; 2]),
     /// jaPRO's `lastThrowTime`: when this player last threw a flag (`throwflag`).
     pub(crate) last_flag_throw: i32,
+    /// jaPRO's flag timer (`pers.stats`), run under `g_fixCTFScores`.
+    pub(crate) flag_timer: jkr_game_jka::japro_ctf::FlagTimer,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -297,6 +299,7 @@ impl Peer {
             admin_frozen: false,
             telemark: ([0.0; 3], [0.0; 2]),
             last_flag_throw: 0,
+            flag_timer: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),

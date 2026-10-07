@@ -44,6 +44,9 @@ pub struct FlagRules {
     /// sending it home; with throwing on, such a flag is in the way of shots as a thrown
     /// one is.
     pub suicide_drops: bool,
+    /// `g_fixCTFScores`: jaPRO's CTF points ([`crate::japro_ctf`]); among them, a
+    /// suicide in CTF costs no point.
+    pub fixed_scores: bool,
 }
 
 /// `LaunchItem` for a flag under throwing: it keeps some of its speed at each bounce,
@@ -282,7 +285,7 @@ mod tests {
     fn the_thrower_waits_a_second_and_fast_flags_are_slowed() {
         let on = FlagRules {
             throw: true,
-            suicide_drops: false,
+            ..FlagRules::default()
         };
         assert!(locked_out(on, 5, 1_000, 1_999));
         assert!(!locked_out(on, 5, 1_000, 2_000));

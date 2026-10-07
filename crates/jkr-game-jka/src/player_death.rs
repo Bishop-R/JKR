@@ -411,13 +411,18 @@ pub fn kill(
         }
         Some(attacker) if attacker == request.client => {
             duel_point(request.duel_opponent).or_else(|| {
-                state.persistent[PERS_SCORE] = state.persistent[PERS_SCORE].wrapping_sub(1);
+                // jaPRO's `g_fixCTFScores`: a suicide in CTF costs no point.
+                let free =
+                    request.gametype == crate::ctf::GT_CTF && request.flag_rules.fixed_scores;
+                if !free {
+                    state.persistent[PERS_SCORE] = state.persistent[PERS_SCORE].wrapping_sub(1);
+                }
                 if request.jedi_master.is_some() && was_master {
                     saber_lost = Some(None);
                 }
                 Some(KillerScore {
                     killer: attacker,
-                    points: -1,
+                    points: if free { 0 } else { -1 },
                     excellent: false,
                     gauntlet: false,
                     kill: false,
