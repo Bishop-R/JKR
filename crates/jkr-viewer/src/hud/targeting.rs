@@ -169,9 +169,15 @@ impl Default for State {
 impl State {
     /// Apply the existing trace classification after local-health/style precedence.
     pub(crate) fn classify(&mut self, color: Option<[f32; 4]>, weapon: u8) {
-        if self.policy.identify && !self.policy.health && !(self.policy.style && weapon == 3) {
+        if self.identifies(weapon) {
             self.color = color.unwrap_or([1.0; 4]);
         }
+    }
+
+    /// Whether the crosshair takes its colour from what is under it (`CG_DrawCrosshair`'s
+    /// last branch, the one that names `crossEnt`) rather than from health or saber style.
+    pub(crate) fn identifies(&self, weapon: u8) -> bool {
+        self.policy.identify && !self.policy.health && !(self.policy.style && weapon == 3)
     }
     pub(super) fn update(&mut self, console: Option<&ViewerConsole>, player: &PlayerState) {
         self.policy = Policy::read(console);

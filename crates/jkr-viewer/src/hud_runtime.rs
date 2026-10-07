@@ -295,22 +295,47 @@ pub(crate) fn update(
             &gpu.localization,
         );
     }
-    // The radar of the latest snapshot and the predicted player, or in a demo of the
-    // presented snapshot and its own player, as `cg.predictedPlayerState` is there.
-    let radar = gpu
+    // The bars under the crosshair and the radar read the latest snapshot and the predicted
+    // player, or in a demo the presented snapshot and its own player, as
+    // `cg.predictedPlayerState` is there.
+    let source = gpu
         .live_session
         .as_ref()
         .map(|session| {
             let predicted = gpu.local_prediction.predicted_state();
-            (session.latest_snapshot(), session.game_state(), predicted)
+            let extended = Some(session.siege_extended());
+            (
+                session.latest_snapshot(),
+                session.game_state(),
+                predicted,
+                extended,
+            )
         })
         .or_else(|| {
             gpu.demo_session.as_ref().map(|session| {
                 let snapshot = session.snapshot_at_or_before(presentation_time);
-                (snapshot, session.game_state(), None)
+                (snapshot, session.game_state(), None, None)
             })
         });
-    if let (Some((snapshot, game, predicted)), Some(vfs)) = (radar, gpu.vfs.as_deref()) {
+    if let Some((snapshot, game, _, extended)) = source {
+        let console = gpu.console.as_ref();
+        let identifies = gpu.hud.targeting.identifies(snapshot.player.weapon());
+        gpu.hud.update_crosshair_bars(hud::CrosshairBarInputs {
+            snapshot,
+            game,
+            // `crossEnt` exists only while the crosshair takes the target's colour.
+            target: gpu.crosshair_scan.target.filter(|_| identifies),
+            extended,
+            time: presentation_time,
+            entity_health: console
+                .and_then(|console| console.integer_cvar("cg_drawPlayerNames"))
+                .unwrap_or(0)
+                < 2,
+            size: hud::options::crosshair_size(console, true),
+            vfs: gpu.vfs.as_deref(),
+        });
+    }
+    if let (Some((snapshot, game, predicted, _)), Some(vfs)) = (source, gpu.vfs.as_deref()) {
         gpu.hud.update_radar(
             hud::RadarInputs {
                 snapshot,

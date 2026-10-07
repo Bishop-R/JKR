@@ -398,7 +398,7 @@ impl NativeGame {
     }
 
     /// `G_SiegeClientExData` (`g_saga.c:1935-1979`), once a second for a player whose class
-    /// is a stat viewer (`CFL_STATVIEWER`): each teammate it can see, with its health, its
+    /// is a stat viewer (`CFL_STATVIEWER`): each teammate in its PVS, with its health, its
     /// maximum and the ammunition of the weapon it holds (`sxd`).
     pub(super) fn siege_ex_data(&mut self, client: usize, level_time: i32) {
         let Some(siege) = self.siege.as_ref() else {
@@ -416,15 +416,23 @@ impl NativeGame {
             return;
         }
         let team = peer.session.team;
+        let eye = self.map.as_ref().map(|map| {
+            let eye = crate::visibility::Eye::new(&map.bsp, &map.areas, peer.state.origin());
+            (map, eye)
+        });
         let mut reports = Vec::new();
         for other in 0..self.players.places() {
             if other == client {
                 continue;
             }
-            let Some(them) = self
-                .peer(other)
-                .filter(|them| them.session.team == team && them.playing())
-            else {
+            // A teammate in the game whose origin the viewer's PVS holds (`trap->InPVS`).
+            let Some(them) = self.peer(other).filter(|them| {
+                them.session.team == team
+                    && them.playing()
+                    && eye
+                        .as_ref()
+                        .is_none_or(|(map, eye)| eye.sees_point(&map.bsp, them.state.origin()))
+            }) else {
                 continue;
             };
             let ammo = jkr_game_jka::weapon_data::legacy_weapon_data(them.state.weapon() as u8)

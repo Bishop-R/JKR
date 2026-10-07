@@ -81,6 +81,7 @@ pub mod selection;
 mod server_address;
 mod server_clock;
 mod session_transition;
+pub mod siege_extended;
 pub mod siege_notices;
 pub mod siege_round;
 pub mod sound_commands;
@@ -332,6 +333,8 @@ pub struct ClientSession {
     scores: Vec<ScoreEntry>,
     team_scores: [i32; 2],
     team_info: TeamInfoTable,
+    /// `sxd`: teammates' health and ammunition for a Siege stat viewer.
+    siege_extended: siege_extended::SiegeExtended,
     base_command_events: VecDeque<BaseServerCommandEvent>,
     unknown_command_names: Vec<Vec<u8>>,
     compat_profile: CompatProfile,
@@ -580,6 +583,11 @@ impl ClientSession {
     /// Latest fixed-capacity team-overlay state supplied by `tinfo`.
     pub fn team_info(&self) -> &TeamInfoTable {
         &self.team_info
+    }
+
+    /// Teammates' health and ammunition supplied by `sxd`.
+    pub fn siege_extended(&self) -> &siege_extended::SiegeExtended {
+        &self.siege_extended
     }
 
     /// Pop one typed BaseJKA action while preserving reliable order.
@@ -859,6 +867,7 @@ impl ClientSession {
                     self.compat_profile = CompatProfile::from_game_state(&self.game_state);
                     self.cosmetic_unlocks = CosmeticUnlockTable::default();
                     self.team_info = TeamInfoTable::default();
+                    self.siege_extended = Default::default();
                     self.base_command_events.clear();
                     self.history.clear();
                     self.command_history.begin_gamestate();
@@ -1088,6 +1097,22 @@ impl ClientSession {
         }
         if name == b"tinfo" {
             self.team_info.apply_command(&arguments)?;
+            return Ok(());
+        }
+        if name == b"sxd" {
+            // Dated by the latest snapshot; each report's weapon is the one its client's
+            // entity holds now, as `cg_entities` has it when cgame runs the command.
+            let snapshot = &self.latest_snapshot;
+            self.siege_extended
+                .apply(&arguments, snapshot.server_time, |client| {
+                    snapshot
+                        .entities
+                        .binary_search_by_key(&client, |entity| entity.number())
+                        .map_or((0, 0), |index| {
+                            let entity = &snapshot.entities[index];
+                            (entity.weapon(), entity.e_flags())
+                        })
+                });
             return Ok(());
         }
         if name == b"nfr" {

@@ -13,6 +13,8 @@ pub(crate) mod options;
 mod portrait;
 mod radar;
 pub(crate) use radar::{RadarAssets, RadarInputs};
+mod crosshair_bars;
+pub(crate) use crosshair_bars::CrosshairBarInputs;
 mod selection;
 mod siege;
 pub(crate) use siege::SiegeInputs;
@@ -177,6 +179,8 @@ pub(crate) struct HudOverlay {
     siege: siege::State,
     /// The radar of team games and vehicles.
     radar: radar::State,
+    /// The health, ammunition and hack bars under the crosshair.
+    crosshair_bars: crosshair_bars::State,
     interrupted: bool,
     lagometer: jkr_client::LagometerSamples,
     default_document: HudLayoutDocument,
@@ -261,6 +265,7 @@ impl HudOverlay {
             warmup_text: String::with_capacity(48),
             siege: siege::State::default(),
             radar: radar::State::default(),
+            crosshair_bars: crosshair_bars::State::default(),
             interrupted: false,
             lagometer: jkr_client::LagometerSamples::new(),
             default_document: HudLayoutDocument::from_json(DEFAULT_LAYOUT)
@@ -416,6 +421,11 @@ impl HudOverlay {
                 },
                 &mut output,
             );
+        }
+        if visibility.crosshair {
+            let crosshair = self.targeting.parameters(viewport);
+            self.crosshair_bars
+                .emit(&mut self.draw_list, viewport, crosshair);
         }
         if visibility.hud {
             action_timer::emit(
