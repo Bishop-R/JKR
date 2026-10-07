@@ -9,9 +9,14 @@ pub const ADMIN_BITS: u32 = (1 << 23) - 1;
 /// `JAPRO_ACCOUNTFLAG_A_ADMINKICK`, `JAPRO_ACCOUNTFLAG_A_CSPRINT`.
 pub const A_ADMINKICK: u32 = 1 << 4;
 pub const A_CSPRINT: u32 = 1 << 9;
-/// `JAPRO_ACCOUNTFLAG_A_FORCETEAM`, `JAPRO_ACCOUNTFLAG_A_LOCKTEAM`.
+/// `JAPRO_ACCOUNTFLAG_A_CHANGEMAP`, `_FORCETEAM`, `_LOCKTEAM`, `_VSTR`, `_RENAME`,
+/// `_KILLVOTE`.
+pub const A_CHANGEMAP: u32 = 1 << 8;
 pub const A_FORCETEAM: u32 = 1 << 10;
 pub const A_LOCKTEAM: u32 = 1 << 11;
+pub const A_VSTR: u32 = 1 << 12;
+pub const A_RENAME: u32 = 1 << 14;
+pub const A_KILLVOTE: u32 = 1 << 21;
 /// `TEAM_FREE`, `TEAM_RED`, `TEAM_BLUE`, `TEAM_SPECTATOR`.
 pub const TEAM_FREE: i32 = 0;
 pub const TEAM_RED: i32 = 1;

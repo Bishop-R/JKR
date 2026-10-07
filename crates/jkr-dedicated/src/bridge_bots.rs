@@ -345,6 +345,6 @@ mod bridge_bot_frame;
 #[path = "bridge_bot_views.rs"]
 mod bridge_bot_views;
 #[path = "bridge_minplayers.rs"]
-mod bridge_minplayers;
+pub(in crate::bridge) mod bridge_minplayers;
 #[path = "bridge_routes.rs"]
 mod bridge_routes;

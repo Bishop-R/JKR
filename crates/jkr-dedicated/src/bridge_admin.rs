@@ -83,6 +83,22 @@ impl NativeGame {
             }
             b"amkick" => self.admin_kick(client, &words),
             b"amlockteam" => self.admin_lock_team(client, &words),
+            b"amrename" => {
+                if !self.refused_at_intermission(client, b"amrename") {
+                    self.admin_rename(client, &words, level_time);
+                }
+            }
+            b"amkillvote" => self.admin_kill_vote(client),
+            b"ammap" => {
+                if !self.refused_at_intermission(client, b"ammap") {
+                    self.admin_map(client, &words);
+                }
+            }
+            b"amvstr" => {
+                if !self.refused_at_intermission(client, b"amvstr") {
+                    self.admin_vstr(client, &words);
+                }
+            }
             b"amforceteam" => {
                 if !self.refused_at_intermission(client, b"amforceteam") {
                     self.admin_force_team(client, &words, level_time);
@@ -371,5 +387,146 @@ impl NativeGame {
             .count() as i32;
         let max_size = self.cvars.integer(b"sv_maxTeamSize");
         admin::team_refusal(team, team_game, self.team_locks, max_size, on_team)
+    }
+
+    /// `Cmd_Amrename_f`: a player's name changed as if it had sent it, and kept for five
+    /// seconds.
+    fn admin_rename(&mut self, client: usize, words: &[&[u8]], level_time: i32) {
+        if !self.admin_allowed(client, admin::A_RENAME, "amRename") {
+            return;
+        }
+        if words.len() != 3 {
+            let usage = b"print \"Usage: /amRename <client> <newname>.\n\"".to_vec();
+            self.told.push(Told::One(client, usage));
+            return;
+        }
+        let Some(target) = self.admin_target(client, words[1]) else {
+            return;
+        };
+        let Some(userinfo) = self.peer(target).map(|peer| peer.userinfo.clone()) else {
+            return;
+        };
+        let userinfo = jkr_protocol::info_set_value(&userinfo, b"name", words[2]);
+        self.userinfo_changed(target, &userinfo);
+        if let Some(peer) = self.peer_mut(target) {
+            peer.netname_time = level_time + 5_000;
+        }
+    }
+
+    /// `Cmd_Amkillvote_f`: the running vote ended unpassed, its strings cleared.
+    fn admin_kill_vote(&mut self, client: usize) {
+        if !self.admin_allowed(client, admin::A_KILLVOTE, "amKillVote") {
+            return;
+        }
+        if self.vote.time != 0 {
+            let line = b"print \"^1Vote has been killed!\n\"".to_vec();
+            self.told.push(Told::Everyone(line));
+        }
+        self.vote.execute_time = 0;
+        self.vote.gametype_to = None;
+        self.vote.time = 0;
+        self.vote.display.clear();
+        self.vote.string.clear();
+        let cleared = [
+            jkr_game_jka::vote::CS_VOTE_TIME,
+            jkr_game_jka::vote::CS_VOTE_STRING,
+            jkr_game_jka::vote::CS_VOTE_YES,
+            jkr_game_jka::vote::CS_VOTE_NO,
+        ]
+        .map(|index| jkr_game_jka::vote::Said::ConfigString(index, Vec::new()));
+        self.tell_vote(cleared.into(), None);
+    }
+
+    /// `Cmd_Ammap_f`: the game type and a map this server has, announced and run through
+    /// the console. (jaPRO's game type check never refuses, and reads its first digit only.)
+    fn admin_map(&mut self, client: usize, words: &[&[u8]]) {
+        if !self.admin_allowed(client, admin::A_CHANGEMAP, "amMap") {
+            return;
+        }
+        if words.len() != 3 {
+            let usage = b"print \"Usage: /amMap <gametype #> <map>.\n\"".to_vec();
+            self.told.push(Told::One(client, usage));
+            return;
+        }
+        let map = words[2];
+        if map.iter().any(|byte| matches!(byte, b';' | b'\r' | b'\n')) {
+            let line = b"print \"Invalid map string.\n\"".to_vec();
+            self.told.push(Told::One(client, line));
+            return;
+        }
+        let gametype = words[1]
+            .first()
+            .filter(|digit| digit.is_ascii_digit())
+            .map_or(0, |digit| i32::from(digit - b'0'));
+        let path = format!("maps/{}.bsp", String::from_utf8_lossy(map));
+        if !self.config_files.has(&path) {
+            return;
+        }
+        let Some(name) = self.peer(client).map(|peer| peer.name.clone()) else {
+            return;
+        };
+        let line = [
+            b"print \"^3Map change triggered by ^7".as_slice(),
+            &name,
+            b"\n\"",
+        ]
+        .concat();
+        self.told.push(Told::Everyone(line));
+        self.log(&format!(
+            "Map change triggered by ^7{}\n",
+            String::from_utf8_lossy(&name)
+        ));
+        let commands = [
+            format!("g_gametype {gametype}\n").into_bytes(),
+            [b"map ".as_slice(), map, b"\n"].concat(),
+        ];
+        for command in commands {
+            self.commands
+                .add_text(&command, &mut super::bridge_bots::console);
+        }
+    }
+
+    /// `Cmd_Amvstr_f`: a variable's commands run through the console, if it holds any.
+    fn admin_vstr(&mut self, client: usize, words: &[&[u8]]) {
+        if !self.admin_allowed(client, admin::A_VSTR, "amVstr") {
+            return;
+        }
+        if words.len() != 2 {
+            let usage = b"print \"Usage: /amVstr <vstr>.\n\"".to_vec();
+            self.told.push(Told::One(client, usage));
+            return;
+        }
+        if words[1]
+            .iter()
+            .any(|byte| matches!(byte, b';' | b'\r' | b'\n'))
+        {
+            let line = b"print \"Invalid vstr string.\n\"".to_vec();
+            self.told.push(Told::One(client, line));
+            return;
+        }
+        let name = super::bridge_bots::bridge_minplayers::clean_str(&words[1].to_ascii_lowercase());
+        if self.cvars.string(&name).is_empty() {
+            return;
+        }
+        let Some(by) = self.peer(client).map(|peer| peer.name.clone()) else {
+            return;
+        };
+        let line = [
+            b"print \"^3Vstr (".as_slice(),
+            &name,
+            b"^3) executed by ^7",
+            &by,
+            b"\n\"",
+        ]
+        .concat();
+        self.told.push(Told::Everyone(line));
+        self.log(&format!(
+            "Vstr ({}^7) executed by ^7{}\n",
+            String::from_utf8_lossy(&name),
+            String::from_utf8_lossy(&by)
+        ));
+        let command = [b"vstr ".as_slice(), &name, b"\n"].concat();
+        self.commands
+            .add_text(&command, &mut super::bridge_bots::console);
     }
 }

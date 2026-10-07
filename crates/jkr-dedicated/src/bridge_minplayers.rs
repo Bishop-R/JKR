@@ -9,7 +9,7 @@ use super::*;
 use jkr_game_jka::client_begin::SPECTATOR_FOLLOW;
 
 /// `Q_CleanStr`: colour codes (`^` and a digit) and unprintable bytes taken out.
-fn clean_str(text: &[u8]) -> Vec<u8> {
+pub(in crate::bridge) fn clean_str(text: &[u8]) -> Vec<u8> {
     let mut clean = Vec::with_capacity(text.len());
     let mut at = 0;
     while let Some(&byte) = text.get(at) {
