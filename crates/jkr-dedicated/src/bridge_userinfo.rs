@@ -45,6 +45,9 @@ pub(super) fn judge(
     });
     let session = ClientSession {
         team: session.team,
+        // `SVF_BOT`: a bot's `skill` goes into its string, which is how clients tell bots
+        // from players (`CG_NewClientInfo`).
+        bot: session.bot_force.is_some(),
         duel_record,
         duel_team,
         team_leader,
