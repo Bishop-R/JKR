@@ -302,6 +302,8 @@ pub struct NativeGame {
     /// jaPRO's `g_selfDamageScale`, kept from the cvar: a blow on oneself's share outside
     /// siege (stock's half).
     self_damage_scale: f32,
+    /// jaPRO's `g_showHealth`, kept from the cvar: players' health goes out.
+    show_health: bool,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -502,6 +504,7 @@ impl NativeGame {
             flag_drag: 0.0,
             wide_flag_box: false,
             self_damage_scale: 0.5,
+            show_health: false,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),

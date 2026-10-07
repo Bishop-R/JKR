@@ -303,6 +303,22 @@ pub struct Target<'a> {
     pub self_damage: f32,
 }
 
+/// `G_ScaleNetHealth` (`g_utils.c:1116-1146`): the `s.maxhealth` and `s.health` a health
+/// bar is drawn from — as they are under 1000, else a hundredth of each, never below
+/// nothing, nor nothing while alive.
+pub fn net_health(health: i32, max_health: i32) -> (u32, u32) {
+    let (max, shown) = if max_health < 1_000 {
+        (max_health, health.max(0))
+    } else {
+        let shown = (health / 100).max(0);
+        (
+            max_health / 100,
+            if health > 0 && shown <= 0 { 1 } else { shown },
+        )
+    };
+    (max as u32, shown as u32)
+}
+
 /// The share of a blow on oneself that lands (`g_combat.c:4934-4945`): half, or half as
 /// much again in siege — or, outside siege, jaPRO's `g_selfDamageScale` (`scale`, 0.5
 /// by default).

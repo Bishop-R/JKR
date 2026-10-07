@@ -34,6 +34,7 @@ impl NativeGame {
             }
         }
         self.send_motd();
+        self.show_player_health();
         // `ClientEndFrame` returns before any of this at an intermission
         // (`g_active.c:3742-3749`), which is what leaves `MoveClientToIntermission`'s
         // work standing: a player at the scoreboard is not drawn, sounded or moved.

@@ -88,6 +88,7 @@ impl NativeGame {
                 "g_startingitems" => self.starting_items_changed(),
                 "g_selfdamagescale" => self.self_damage_scale = var.value(),
                 "g_mercyrule" => self.limits.mercy = var.value(),
+                "g_showhealth" => self.show_health_changed(integer != 0),
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }
