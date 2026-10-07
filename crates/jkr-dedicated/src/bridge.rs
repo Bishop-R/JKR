@@ -777,13 +777,66 @@ impl NativeGame {
             }
             // The delay is the map's own; without one it comes apart in the same frame.
             jkr_game_jka::breakables::Hit::Broken { at } if at > level_time => {
+                self.breakables[index].1.enemy = Some(owner);
                 self.publish_breakable(index)
             }
             jkr_game_jka::breakables::Hit::Broken { .. } => {
+                self.breakables[index].1.enemy = Some(owner);
                 self.break_brush(index, from, level_time)
             }
         }
         true
+    }
+
+    /// `funcBBrushUse` for the breakable brushes called `name`, used for `client`: each
+    /// comes apart (after its delay) or, marked so, only fires its targets.
+    pub(super) fn use_breakables(&mut self, name: &str, client: usize, level_time: i32) {
+        let activator = u16::try_from(client).ok();
+        let mut index = 0;
+        while index < self.breakables.len() {
+            if !self.breakables[index]
+                .1
+                .targetname
+                .eq_ignore_ascii_case(name)
+            {
+                index += 1;
+                continue;
+            }
+            let brush = &mut self.breakables[index].1;
+            match jkr_game_jka::breakables::used(brush, level_time, activator) {
+                Some(target) => {
+                    self.fire_targets(&target, client, level_time);
+                    index += 1;
+                }
+                None if brush.thinking == jkr_game_jka::breakables::Thinking::Breaking => {
+                    index += 1;
+                }
+                None => {
+                    let from = self.breaker_origin(index);
+                    self.break_brush(index, from, level_time);
+                }
+            }
+        }
+    }
+
+    /// The breakable brushes whose delay has run out come apart (`funcBBrushDieGo`).
+    fn run_breakables(&mut self, level_time: i32) {
+        let mut index = 0;
+        while index < self.breakables.len() {
+            if jkr_game_jka::breakables::breaking_due(&self.breakables[index].1, level_time) {
+                let from = self.breaker_origin(index);
+                self.break_brush(index, from, level_time);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
+    /// Where the player who broke breakable `index` stands, its debris thrown from there.
+    fn breaker_origin(&mut self, index: usize) -> Option<[f32; 3]> {
+        let enemy = self.breakables[index].1.enemy?;
+        self.peer_mut(usize::from(enemy))
+            .map(|peer| peer.state.origin())
     }
 
     /// `funcBBrushDieGo` on the server: the brush leaves the world, fires what it targets,
@@ -810,8 +863,9 @@ impl NativeGame {
             broken.debris.chunks,
             broken.splash.map(|(damage, radius, _)| (damage, radius))
         );
-        if let Some(target) = &broken.target {
-            self.fire_targets(target, 0, level_time);
+        // For what broke it, and only when something did (`attacker != NULL`).
+        if let (Some(target), Some(enemy)) = (&broken.target, self.breakables[index].1.enemy) {
+            self.fire_targets(target, usize::from(enemy), level_time);
         }
         if let Some(explosion) = &broken.explosion {
             self.raise_event(
@@ -2593,6 +2647,7 @@ impl NativeGame {
         self.saber_thinks(server_time);
         self.run_emplaced(server_time);
         self.run_corpses(server_time);
+        self.run_breakables(server_time);
         self.run_missiles(server_time);
         self.run_spheres(server_time);
         self.run_charges(server_time);

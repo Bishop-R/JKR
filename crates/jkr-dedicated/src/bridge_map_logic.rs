@@ -102,6 +102,7 @@ impl NativeGame {
         self.use_map_logic(name, client, level_time);
         self.use_path_movers(name, client, level_time);
         self.use_glass(name, client, level_time);
+        self.use_breakables(name, client, level_time);
         self.use_named_stations(name, client, level_time);
     }
 
