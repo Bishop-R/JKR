@@ -3,6 +3,7 @@
 //! (`jkr-network`). The executable in `main.rs` adds only the socket, the clocks and
 //! the operator's options.
 
+pub(crate) mod admin;
 pub mod bridge;
 pub mod collision;
 pub mod command_buffer;

@@ -3500,6 +3500,8 @@ mod bridge_items;
 #[path = "bridge_throw.rs"]
 mod bridge_throw;
 use bridge_throw::init_saber_entity;
+#[path = "bridge_admin.rs"]
+mod bridge_admin;
 #[path = "bridge_client_spawn.rs"]
 mod bridge_client_spawn;
 #[path = "bridge_collision_gather.rs"]

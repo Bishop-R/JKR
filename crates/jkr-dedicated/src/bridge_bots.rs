@@ -58,7 +58,7 @@ impl jkr_network::LegacyBotSlots for NoBotSlots {
 }
 
 /// `trap->Print`: the server's console.
-fn console(text: &[u8]) {
+pub(super) fn console(text: &[u8]) {
     let _ = std::io::Write::write_all(&mut std::io::stdout(), text);
 }
 

@@ -110,6 +110,8 @@ pub struct PlayerSession {
     pub siege_force: Option<[u8; crate::force_config::FORCE_POWERS]>,
     /// jaPRO's `sess.sawMOTD`: the message of the day was shown this session.
     pub saw_motd: bool,
+    /// jaPRO's `sess.accountFlags`: the admin powers logged in with (`amlogin`).
+    pub account_flags: u32,
 }
 
 /// `spectatorState_t`.

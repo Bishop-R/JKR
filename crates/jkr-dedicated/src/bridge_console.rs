@@ -149,6 +149,7 @@ impl NativeGame {
         self.register_motd();
         self.register_emotes();
         self.register_damage_numbers();
+        self.register_admin();
         self.open_log();
         self.start_warmup();
         // `G_InitBots`.
