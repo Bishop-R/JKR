@@ -33,4 +33,8 @@ pub(crate) struct ActorMesh {
     pub(crate) marks: crate::actor_marks::Marks,
     /// The draw of `head_eyes_mouth`, the inside of the face a corpse's fade switches off.
     pub(crate) mouth_draw: Option<usize>,
+    /// How far a player who mind-tricks the viewer has faded from its sight.
+    pub(crate) trick: jkr_client::trick_fade::TrickFade,
+    /// How much of the model this frame draws, for its trick.
+    pub(crate) body: jkr_client::trick_fade::BodyDraw,
 }

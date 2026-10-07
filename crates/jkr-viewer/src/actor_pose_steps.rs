@@ -65,6 +65,11 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
             (seed >> 8) as f32 / (1 << 24) as f32
         });
     }
+    // `CG_IsMindTricked`: a player who mind-tricks the viewer fades out of its sight.
+    if !mesh.corpse_pool && mesh.entity_id != local_entity {
+        let tricked = mind_tricked(mesh.entity_id, snapshot);
+        mesh.body = mesh.trick.advance(tricked, presentation_time as i32);
+    }
     if mesh.corpse_pool {
         state.lower.forced_frame =
             jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);
@@ -222,4 +227,19 @@ pub(super) fn failed(mesh: &mut ActorMesh, error: &dyn Error) {
             mesh.appearance.variant,
         ));
     }
+}
+
+/// Whether the actor's entity mind-tricks the client whose view the snapshot holds
+/// (`CG_IsMindTricked(…, cg.snap->ps.clientNum)`).
+fn mind_tricked(entity: Option<EntityId>, snapshot: Option<&Snapshot>) -> bool {
+    let (Some(entity), Some(snapshot)) = (entity, snapshot) else {
+        return false;
+    };
+    let Ok(number) = u16::try_from(entity.get().wrapping_sub(1)) else {
+        return false;
+    };
+    snapshot
+        .entities
+        .binary_search_by_key(&number, |state| state.number())
+        .is_ok_and(|index| snapshot.entities[index].client_bitflag(snapshot.player.client_num()))
 }

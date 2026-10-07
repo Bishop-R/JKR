@@ -258,7 +258,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Third-person look-target easing per 50 ms; 1 or more snaps",
         ),
-        // `cg_xcvar.h:142`.
+        // `cg_xcvar.h:136,142`: stock marks the alpha a cheat.
+        CvarDefinition::new(
+            "cg_thirdPersonAlpha",
+            1.0_f64,
+            CvarFlags::NONE,
+            "See-through amount of your own player in third person (1 is solid)",
+        ),
         CvarDefinition::new(
             "cg_thirdPersonSpecialCam",
             false,

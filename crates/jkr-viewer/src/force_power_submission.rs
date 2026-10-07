@@ -52,9 +52,10 @@ pub(super) fn submit(
     if state.npc_class() == 53 || entity.kind != EntityKind::Actor {
         return;
     }
-    if state.client_bitflag(snapshot.player.client_num()) {
-        return;
-    }
+    // Drawn above stock's mind-trick cut (`cg_players.c:9655`), the beams and the grip
+    // still show a player who tricks the viewer; only the push blur hides itself
+    // (`CG_ForcePushBodyBlur`).
+    let tricked = state.client_bitflag(snapshot.player.client_num());
     let actor = &sinks.actor_meshes[mesh];
     let rotation = weapon_view::actor_world_rotation(transform.rotation);
     let origin = Vec3::from_array(transform.translation);
@@ -87,7 +88,7 @@ pub(super) fn submit(
         );
     }
     let view_left = Vec3::new(-sinks.camera_yaw.sin(), sinks.camera_yaw.cos(), 0.0);
-    if state.e_flags() & (1 << 19) != 0 {
+    if state.e_flags() & (1 << 19) != 0 && !tricked {
         for local in actor.force_bones.origins.iter().flatten() {
             let point = origin + rotation * (*local * Vec3::from_array(transform.scale));
             sprites::pair(

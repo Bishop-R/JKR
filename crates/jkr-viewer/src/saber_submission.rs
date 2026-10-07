@@ -11,7 +11,7 @@ use jkr_runtime::{HeldEquipment, HeldItemKind};
 #[path = "saber_lights.rs"]
 pub(crate) mod lights;
 
-/// Submit both hilts and every numbered blade for one actor.
+/// Submit both hilts, each to `hilts` by its mesh, and every numbered blade for one actor.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn submit(
     entity_id: u64,
@@ -22,7 +22,7 @@ pub(crate) fn submit(
     catalog: Option<&HiltCatalog>,
     states: &mut StateSlab,
     segments: &mut SegmentPool,
-    object_groups: &mut [Vec<ActorInstance>],
+    hilts: &mut dyn FnMut(usize, ActorInstance),
     saber_instances: &mut Vec<Instance>,
     presentation_time: i64,
     trails_enabled: bool,
@@ -57,11 +57,10 @@ pub(crate) fn submit(
         let hilt = catalog.get(name);
         let (grip, weapon_rotation) =
             saber::world_attachment(actor_origin, actor_rotation, attachment);
-        object_groups[hilt.mesh_index].push(ActorInstance::new(
-            grip.to_array(),
-            weapon_rotation.to_array(),
-            [1.0; 3],
-        ));
+        hilts(
+            hilt.mesh_index,
+            ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]),
+        );
         let color = BladeColor::from_rgb(if saber_index == 0 {
             equipment.color
         } else {

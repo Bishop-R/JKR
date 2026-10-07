@@ -1,6 +1,7 @@
 //! Actor, held-weapon, saber, and force-overlay frame submission.
 
 use super::*;
+use jkr_client::trick_fade::BodyDraw;
 
 #[path = "flag_carrier.rs"]
 pub(crate) mod flags;
@@ -25,6 +26,9 @@ pub(crate) mod seeker_drone;
 
 #[path = "jetpack_carrier.rs"]
 pub(crate) mod jetpack;
+
+#[path = "actor_body_draw.rs"]
+mod body_draw;
 
 #[path = "special_entities.rs"]
 mod special_entities;
@@ -75,6 +79,10 @@ struct Sinks<'a> {
     portal_view: bool,
     entity_view_flags: u32,
     detached_camera: bool,
+    /// How the viewer's own player is drawn (`cg_thirdPersonAlpha`).
+    own_body: BodyDraw,
+    /// How the actor being submitted is drawn, its bolted parts with it.
+    body: BodyDraw,
 }
 
 /// Submit all presented actor-like entities without allocating frame storage.
@@ -116,6 +124,17 @@ pub(crate) fn submit(
         .and_then(|console| console.integer_cvar("cg_saberTrail"))
         .unwrap_or(1)
         != 0;
+    let own_body = body_draw::own(
+        gpu.third_person,
+        gpu.local_prediction.predicted_state().map_or_else(
+            || snapshot.map_or(0, |snapshot| snapshot.player.vehicle_entity_num()),
+            |state| state.vehicle_entity_num,
+        ),
+        gpu.console
+            .as_ref()
+            .and_then(|console| console.float_cvar("cg_thirdPersonAlpha"))
+            .unwrap_or(1.0) as f32,
+    );
     gpu.posed_objects.begin_frame();
     let mut sinks = Sinks {
         flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(
@@ -173,6 +192,8 @@ pub(crate) fn submit(
         portal_view: gpu.scene_views.has_portal_view(),
         entity_view_flags: 0,
         detached_camera: gpu.detached_camera,
+        own_body,
+        body: BodyDraw::Opaque,
     };
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
@@ -376,6 +397,11 @@ fn submit_actor(
         mesh.and_then(|index| sinks.actor_meshes.get(index)),
         transform.rotation,
     );
+    sinks.body = match mesh {
+        Some(_) if Some(entity.id.get()) == local_entity_id => sinks.own_body,
+        Some(index) if entity.kind == EntityKind::Actor => sinks.actor_meshes[index].body,
+        _ => BodyDraw::Opaque,
+    };
     let state = snapshot.and_then(|snapshot| {
         snapshot
             .entities
@@ -433,15 +459,18 @@ fn submit_actor(
         );
     }
     if let (Some(mesh), Some(snapshot)) = (mesh, snapshot) {
-        flags::submit(
-            sinks,
-            mesh,
-            entity,
-            *transform,
-            snapshot,
-            presentation_time,
-            draw_actor,
-        );
+        // The carried flag goes with a player hidden by a trick (`CG_PlayerPowerups`).
+        if sinks.body != BodyDraw::Hidden {
+            flags::submit(
+                sinks,
+                mesh,
+                entity,
+                *transform,
+                snapshot,
+                presentation_time,
+                draw_actor,
+            );
+        }
         force_powers::submit(
             sinks,
             mesh,
@@ -496,9 +525,13 @@ fn submit_actor(
                 held
             });
     }
+    // A player hidden by a trick keeps only the blade of a second saber while the first
+    // is thrown (`cg_players.c:10027-10041`).
+    let hidden = sinks.body == BodyDraw::Hidden;
     if let Some((equipment, held_mesh)) = equipment
         .zip(mesh)
         .filter(|_| dissolving.is_none() && fading.is_none())
+        .filter(|(equipment, _)| !hidden || equipment.primary_in_flight)
     {
         submit_equipment(
             sinks,
@@ -511,6 +544,9 @@ fn submit_actor(
             visual_now,
             trails,
         );
+    }
+    if hidden {
+        return 0;
     }
     if (draw_actor || sinks.portal_view)
         && let Some(mesh) = mesh
@@ -564,7 +600,13 @@ fn submit_actor(
                     presentation_time,
                 ));
         }
-        sinks.actor_groups[mesh].push(instance);
+        if let BodyDraw::Faded(alpha) = sinks.body {
+            let faded =
+                body_draw::faded(entity_materials::OverrideMesh::Actor(mesh), instance, alpha);
+            sinks.overrides.push(faded);
+        } else {
+            sinks.actor_groups[mesh].push(instance);
+        }
         sinks.actor_meshes[mesh]
             .retained_pose
             .mark_drawn(entity.id, presentation_time);
@@ -754,6 +796,11 @@ fn submit_equipment(
 ) {
     let rotation = weapon_view::actor_world_rotation(transform.rotation);
     let origin = Vec3::from_array(transform.translation);
+    let body = sinks.body;
+    let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
+    let mut hilt = |mesh: usize, instance: ActorInstance| {
+        body_draw::push_part((&mut *parts.0, &mut *parts.1), body, mesh, instance);
+    };
     if saber_submission::submit(
         entity.id.get(),
         std::array::from_fn(|hand| {
@@ -768,7 +815,7 @@ fn submit_equipment(
         sinks.saber_hilts,
         sinks.saber_states,
         sinks.saber_segments,
-        sinks.object_groups,
+        &mut hilt,
         sinks.saber_instances,
         presentation_time,
         trails,
@@ -799,7 +846,8 @@ fn submit_equipment(
     };
     let mut instance = ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]);
     instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
-    sinks.object_groups[weapon_mesh].push(instance);
+    let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
+    body_draw::push_part(parts, sinks.body, weapon_mesh, instance);
     // The main first-person flash already owns event/audio spawning. A
     // second view must never advance effects or play a second sound.
     if !draw_actor {

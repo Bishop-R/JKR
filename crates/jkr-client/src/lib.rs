@@ -97,6 +97,7 @@ mod taystjk_cosmetics;
 mod team_commands;
 mod team_info;
 mod thrown_sabers;
+pub mod trick_fade;
 mod userinfo_update;
 mod view_bob;
 mod view_weapon;

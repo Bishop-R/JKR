@@ -78,6 +78,8 @@ pub(crate) fn build_actor_mesh(
         fade: Default::default(),
         marks: Default::default(),
         mouth_draw,
+        trick: Default::default(),
+        body: Default::default(),
     })
 }
 
