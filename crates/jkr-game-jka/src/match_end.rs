@@ -127,6 +127,9 @@ pub struct Limits {
     pub no_intermission_wait: bool,
     /// `duel_fraglimit`: the duels a player must win to end the tournament, 0 for none.
     pub duel_fraglimit: i32,
+    /// jaPRO's `g_mercyRule`: past half the frag limit, a team leading by more than this
+    /// share of the limit wins at once; 0 for none.
+    pub mercy: f32,
 }
 
 impl Default for Limits {
@@ -141,6 +144,7 @@ impl Default for Limits {
             warmup_time: 0,
             no_intermission_wait: false,
             duel_fraglimit: 10,
+            mercy: 0.0,
         }
     }
 }
@@ -163,6 +167,8 @@ pub enum Announce {
     TimeLimit,
     /// `print "Red @@@HIT_THE_KILL_LIMIT.\n"` and the blue twin, for a team's score.
     TeamKillLimit(i32),
+    /// jaPRO's `print "Red @@@HIT_THE_KILL_LIMIT (Mercy rule)\n"` and the blue twin.
+    MercyRule(i32),
     /// `print "<name>^7 @@@HIT_THE_KILL_LIMIT.\n"` for the client that reached it.
     ClientKillLimit(usize),
     /// The two prints a capture limit sends: the team's name, then the limit.
@@ -304,6 +310,25 @@ pub fn check_exit_rules(
                         announce: Announce::TeamKillLimit(team),
                     },
                 );
+            }
+        }
+        // jaPRO's mercy rule (`g_main.c`, after the teams' limit): past half the limit, a
+        // lead of more than `mercy` times it ends the match.
+        let limit = limits.fraglimit as f32;
+        let past_half = team_scores.iter().any(|&score| score as f32 > limit * 0.5);
+        if limits.mercy > 0.0 && limits.fraglimit > 5 && past_half {
+            let [red, blue] = team_scores;
+            for (team, lead) in [(TEAM_RED, red - blue), (TEAM_BLUE, blue - red)] {
+                if lead as f32 > limits.mercy * limit {
+                    return log_exit(
+                        state,
+                        level_time,
+                        Ending {
+                            reason: kill_limit,
+                            announce: Announce::MercyRule(team),
+                        },
+                    );
+                }
             }
         }
         // The reference walks the client slots, so where two players cross the limit in
@@ -462,4 +487,51 @@ pub fn move_client_to_intermission(player: &mut PlayerState, origin: [f32; 3], a
         u32::from(jkr_protocol::ENTITY_NUMBER_NONE),
     );
     player.set_raw_field(PS_ROCKET_LOCK_TIME, 0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn player(client: usize, team: i32) -> Contender {
+        Contender {
+            client,
+            team,
+            score: 0,
+            connected: true,
+            bot: false,
+            ready: false,
+            loser: false,
+        }
+    }
+
+    /// jaPRO's `g_mercyRule`: past half of 20, a lead of more than half of 20 ends it.
+    #[test]
+    fn a_crushing_lead_ends_a_team_game_under_the_mercy_rule() {
+        let limits = Limits {
+            gametype: GT_TEAM,
+            mercy: 0.5,
+            ..Limits::default()
+        };
+        let players = [player(0, TEAM_RED), player(1, TEAM_BLUE)];
+        let mut state = MatchEnd::default();
+        let ended = check_exit_rules(&limits, &players, [11, 0], 1_000, 0, &mut state);
+        assert!(matches!(
+            ended,
+            ExitStep::Logged(Ending {
+                announce: Announce::MercyRule(TEAM_RED),
+                ..
+            })
+        ));
+        let mut state = MatchEnd::default();
+        let close = check_exit_rules(&limits, &players, [11, 1], 1_000, 0, &mut state);
+        assert_eq!(close, ExitStep::Playing);
+        let stock = Limits {
+            gametype: GT_TEAM,
+            ..Limits::default()
+        };
+        let mut state = MatchEnd::default();
+        let on = check_exit_rules(&stock, &players, [11, 0], 1_000, 0, &mut state);
+        assert_eq!(on, ExitStep::Playing);
+    }
 }

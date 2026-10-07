@@ -3577,6 +3577,8 @@ mod bridge_duel_options;
 mod bridge_emotes;
 #[path = "bridge_flag_throw.rs"]
 mod bridge_flag_throw;
+#[path = "bridge_game_options.rs"]
+mod bridge_game_options;
 #[path = "bridge_holdables.rs"]
 mod bridge_holdables;
 #[path = "bridge_links.rs"]

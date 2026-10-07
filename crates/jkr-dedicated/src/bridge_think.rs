@@ -514,11 +514,16 @@ impl NativeGame {
     /// `G_Kill` (`g_cmds.c:515-528`), for `kill` and `killother` once their gates passed:
     /// a dueller may not leave a running duel this way unless `g_allowDuelSuicide`.
     pub(super) fn kill(&mut self, client: usize, server_time: i32) {
-        if matches!(self.gametype, GT_DUEL | GT_POWERDUEL)
-            && self.sorted().1 > 1
-            && self.limits.warmup_time == 0
-            && self.integer_cvar(b"g_allowDuelSuicide", 1) == 0
-        {
+        let playing = self.sorted().1 > 1 && self.limits.warmup_time == 0;
+        let duel = matches!(self.gametype, GT_DUEL | GT_POWERDUEL);
+        // jaPRO's `g_allowTeamSuicide`, kept on here so a stock game allows it.
+        let refused = if duel {
+            self.integer_cvar(b"g_allowDuelSuicide", 1) == 0
+        } else {
+            self.gametype >= jkr_game_jka::match_end::GT_TEAM
+                && self.integer_cvar(b"g_allowTeamSuicide", 1) == 0
+        };
+        if playing && refused {
             self.told.push(Told::One(
                 client,
                 b"print \"@@@ATTEMPTDUELKILL\n\"".to_vec(),

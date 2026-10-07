@@ -38,6 +38,10 @@ impl NativeGame {
                 let name = if team == TEAM_RED { "Red" } else { "Blue" };
                 vec![format!("print \"{name} @@@HIT_THE_KILL_LIMIT.\n\"").into_bytes()]
             }
+            Announce::MercyRule(team) => {
+                let name = if team == TEAM_RED { "Red" } else { "Blue" };
+                vec![format!("print \"{name} @@@HIT_THE_KILL_LIMIT (Mercy rule)\n\"").into_bytes()]
+            }
             Announce::ClientKillLimit(client) => {
                 let name = self
                     .peer(client)
