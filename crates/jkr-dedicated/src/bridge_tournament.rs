@@ -214,6 +214,18 @@ impl NativeGame {
                 self.check_power_duel(server_time);
                 self.limits.warmup_time = 0;
             } else {
+                // Every game type but the power duel names its two first, whatever it is
+                // (`g_main.c:2284-2290`).
+                let (sorted, playing) = self.sorted();
+                if playing >= 2 {
+                    self.set_config_string(
+                        CS_CLIENT_DUELISTS,
+                        &tournament::duelists_string(
+                            usize::from(sorted[0]),
+                            usize::from(sorted[1]),
+                        ),
+                    );
+                }
                 self.check_warmup(server_time);
             }
             return;
