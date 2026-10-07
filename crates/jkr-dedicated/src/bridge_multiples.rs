@@ -15,7 +15,13 @@ impl NativeGame {
         self.targets = map
             .targets
             .iter()
-            .map(|(name, target)| (name.clone(), target.clone(), MapTarget::default()))
+            .map(|(name, target)| {
+                let state = MapTarget {
+                    inactive: target.starts_inactive(),
+                    ..MapTarget::default()
+                };
+                (name.clone(), target.clone(), state)
+            })
             .collect();
         self.map = Some(map);
     }
@@ -196,8 +202,9 @@ impl NativeGame {
             .collect();
         for index in matching {
             let (_, target, state) = self.targets[index].clone();
-            // `GlobalUse`: nothing deactivated is used (`FL_INACTIVE`).
-            if state.inactive {
+            // `GlobalUse`: nothing deactivated is used (`FL_INACTIVE`), and a spent relay
+            // is gone.
+            if state.inactive || state.spent {
                 continue;
             }
             match target {
@@ -219,7 +226,28 @@ impl NativeGame {
                 }
                 // Speakers are entities of their own (`use_map_effects`, below).
                 jkr_game_jka::triggers::Target::Speaker { .. } => {}
-                jkr_game_jka::triggers::Target::Relay { target, .. } => {
+                jkr_game_jka::triggers::Target::Relay {
+                    target,
+                    spawnflags,
+                    wait,
+                } => {
+                    let team = self.peer(client).map(|peer| peer.session.team);
+                    if !jkr_game_jka::triggers::relay_passes(spawnflags, team) {
+                        continue;
+                    }
+                    if wait == -1.0 {
+                        self.targets[index].2.spent = true;
+                    }
+                    // `G_PickTarget` chooses one entity of the name among every kind of
+                    // entity; the names here are spread over many lists, so all fire.
+                    if spawnflags & 4 != 0 && !state.warned {
+                        self.targets[index].2.warned = true;
+                        eprintln!(
+                            "map: target_relay {} is RANDOM, which this server does not port: \
+                             it fires every target named {target}",
+                            self.targets[index].0
+                        );
+                    }
                     self.fire_targets(&target, client, level_time)
                 }
                 jkr_game_jka::triggers::Target::Delay {

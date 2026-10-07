@@ -1121,8 +1121,14 @@ pub enum Target {
     /// `target_speaker`: the sound, and how it is played (a looping toggle at 3, on the
     /// activator at 8, everywhere at 4, else on itself).
     Speaker { noise: u16, spawnflags: u32 },
-    /// `target_relay`: fires its own targets, or one of them at random (spawnflag 4).
-    Relay { target: String, spawnflags: u32 },
+    /// `target_relay`: fires its own targets — for a red (spawnflag 1) or a blue (2)
+    /// activator only when flagged, one of them at random (4), not before something
+    /// activates it (128), and only once with `wait` -1.
+    Relay {
+        target: String,
+        spawnflags: u32,
+        wait: f32,
+    },
     /// `target_delay`: fires its targets `wait` seconds on, wandered by `random`.
     Delay {
         target: String,
@@ -1133,6 +1139,24 @@ pub enum Target {
     /// `target_activate` and `target_deactivate`: clear or set `FL_INACTIVE` on
     /// everything of that name.
     SetActive { target: String, active: bool },
+}
+
+impl Target {
+    /// Whether it starts deactivated: a relay with its INACTIVE spawnflag
+    /// (`SP_target_relay`'s `FL_INACTIVE`).
+    pub fn starts_inactive(&self) -> bool {
+        matches!(self, Target::Relay { spawnflags, .. } if spawnflags & 128 != 0)
+    }
+}
+
+/// `target_relay_use`'s team gate (`g_target.c:502-511`): a relay flagged RED_ONLY (1) or
+/// BLUE_ONLY (2) does nothing for a client activator of another session team; an activator
+/// that is no client passes.
+pub fn relay_passes(spawnflags: u32, activator_team: Option<i32>) -> bool {
+    activator_team.is_none_or(|team| {
+        (spawnflags & 1 == 0 || team == crate::ctf::TEAM_RED)
+            && (spawnflags & 2 == 0 || team == crate::ctf::TEAM_BLUE)
+    })
 }
 
 /// The command `Use_Target_Print` sends (`g_target.c:146-260`): a message that is one
@@ -1178,7 +1202,11 @@ pub fn map_targets(
                 noise: entity.get("noise").map_or(0, |noise| sound(noise)),
                 spawnflags,
             },
-            "target_relay" => Target::Relay { target, spawnflags },
+            "target_relay" => Target::Relay {
+                target,
+                spawnflags,
+                wait: number("wait"),
+            },
             // `SP_target_delay`: `delay` for the old maps, else `wait`, and never zero.
             "target_delay" => {
                 let wait = entity
@@ -1220,5 +1248,18 @@ mod print_tests {
         );
         assert_eq!(print_command("@@@NOCLASS"), b"cp \"@@@NOCLASS\"".to_vec());
         assert_eq!(print_command("Doors open"), b"cp \"Doors open\"".to_vec());
+    }
+
+    #[test]
+    fn a_team_relay_ignores_the_other_team_and_starts_inactive_when_flagged() {
+        assert!(relay_passes(0, Some(2)) && relay_passes(1, None));
+        assert!(relay_passes(1, Some(1)) && !relay_passes(1, Some(2)));
+        assert!(relay_passes(2, Some(2)) && !relay_passes(2, Some(0)));
+        let relay = |spawnflags| Target::Relay {
+            target: "t1".to_owned(),
+            spawnflags,
+            wait: -1.0,
+        };
+        assert!(relay(128).starts_inactive() && !relay(4).starts_inactive());
     }
 }

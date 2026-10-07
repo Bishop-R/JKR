@@ -75,6 +75,10 @@ struct MapTarget {
     /// A delay's firing time; for a print, until when it stays quiet.
     next_think: i32,
     inactive: bool,
+    /// A relay used once with `wait` -1: gone (`G_FreeEntity`), past any activation.
+    spent: bool,
+    /// A RANDOM relay has said once that it fires all its targets.
+    warned: bool,
 }
 
 /// What the operator configured; not yet a cvar system.
