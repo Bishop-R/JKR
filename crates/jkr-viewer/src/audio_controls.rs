@@ -93,7 +93,11 @@ impl GameAudio {
         let music = console
             .and_then(|console| console.float_cvar("s_musicVolume"))
             .unwrap_or(0.25) as f32;
-        self.set_gains(effects, music);
+        // `s_musicMult`: held down under a stinger (`CG_SE_UpdateMusic`).
+        let held = self
+            .music_duck
+            .update(self.clock.elapsed().as_millis() as i64);
+        self.set_gains(effects, music * held);
         self.footsteps = console
             .and_then(|console| console.bool_cvar("cg_footsteps"))
             .unwrap_or(true);

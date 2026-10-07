@@ -45,6 +45,7 @@ mod maintained_sounds;
 mod map_effects;
 mod match_info;
 mod missile_effects;
+pub mod music_duck;
 mod muzzle_effects;
 mod npc_identity;
 mod obituary;

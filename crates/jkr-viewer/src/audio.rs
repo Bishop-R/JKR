@@ -12,6 +12,7 @@ use crate::audio_output::{AudioCommand, AudioOutput, LOOPS, SAMPLE_RATE, VOICES}
 use crate::console::ViewerConsole;
 use jkr_audio::{ChannelId, MixerConfig, PlayRequest, SoundHandle, SourceId};
 use jkr_bsp::Bsp;
+use jkr_client::music_duck::{STINGER_MS, STINGER_MULTIPLIER};
 use jkr_client::{
     LegacyMaintainedActionKind, LegacyMusicAction, LegacySoundAdapter, legacy_evaluate_trajectory,
 };
@@ -73,6 +74,9 @@ pub(crate) struct GameAudio {
     transitions: transitions::Transitions,
     /// `JKR_TRACE_AUDIO=1`: when the next level line is due.
     trace_due: Option<Instant>,
+    /// The music held down under a stinger (`s_musicMult`), on the audio's own clock.
+    music_duck: jkr_client::music_duck::MusicDuck,
+    clock: Instant,
 }
 
 impl GameAudio {
@@ -136,6 +140,8 @@ impl GameAudio {
             kill_sounds: 2,
             transitions: transitions::Transitions::default(),
             trace_due: std::env::var_os("JKR_TRACE_AUDIO").map(|_| Instant::now()),
+            music_duck: Default::default(),
+            clock: Instant::now(),
         };
         // `s_volume`/`s_musicvolume` defaults from `S_Init` in
         // codemp/client/snd_dma.cpp:462-466. The console overwrites these on
@@ -228,6 +234,10 @@ impl GameAudio {
             adapter.observe_snapshot(snapshot);
             let footsteps = self.footsteps;
             for decision in adapter.decisions() {
+                if decision.ducks_music() {
+                    let now = self.clock.elapsed().as_millis() as i64;
+                    self.music_duck.set(STINGER_MULTIPLIER, STINGER_MS, now);
+                }
                 if let Some(handle) = self.transitions.handle(decision, snapshot.server_time)
                     && controls::allows_event(decision.event, footsteps, self.chat_beeps)
                     && self
@@ -290,6 +300,10 @@ impl GameAudio {
                 continue;
             }
             for decision in adapter.decisions() {
+                if decision.ducks_music() {
+                    let now = self.clock.elapsed().as_millis() as i64;
+                    self.music_duck.set(STINGER_MULTIPLIER, STINGER_MS, now);
+                }
                 if let Some(handle) = self.transitions.handle(decision, snapshot.server_time)
                     && controls::allows_event(decision.event, self.footsteps, self.chat_beeps)
                     && self

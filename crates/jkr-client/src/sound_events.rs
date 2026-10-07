@@ -347,6 +347,20 @@ pub struct LegacySoundDecision {
     pub request: PlayRequest,
 }
 
+impl LegacySoundDecision {
+    /// Whether this is a stinger that holds the music down: the second voice of the local
+    /// player's death to someone (`dramaticFailure`) or of becoming the Jedi Master
+    /// (`happyMusic`), each beside `CGCam_SetMusicMult(0.3f, 5000)` (`cg_event.c:2434-2437`,
+    /// `3328-3331`; [`crate::music_duck`]).
+    pub fn ducks_music(&self) -> bool {
+        self.additional
+            && matches!(
+                self.event,
+                LegacySoundEvent::Death | LegacySoundEvent::BecomeJediMaster
+            )
+    }
+}
+
 /// Background-track transition requested by `EV_PRIVATE_DUEL`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LegacyMusicAction {
@@ -2032,5 +2046,30 @@ mod tests {
         let baton = Some("sound/weapons/baton/fire.mp3");
         assert_eq!(WEAPON_PATHS[WP_STUN_BATON], [baton, baton]);
         assert_eq!(WEAPON_PATHS[WP_MELEE], [None, None]);
+    }
+
+    #[test]
+    fn only_the_local_stingers_hold_the_music_down() {
+        use super::{LegacySoundDecision, LegacySoundEvent};
+        let decision = |event, additional| LegacySoundDecision {
+            event,
+            sound: None,
+            handle: None,
+            additional,
+            request: jkr_audio::PlayRequest {
+                origin: None,
+                source: jkr_audio::SourceId(0),
+                channel: jkr_audio::ChannelId(0),
+                volume: 1.0,
+                attenuation: jkr_audio::Attenuation::None,
+            },
+        };
+        // The death cry and the saber coming on are anyone's; their second voices are the
+        // local player's `dramaticFailure` and `happyMusic`.
+        assert!(!decision(LegacySoundEvent::Death, false).ducks_music());
+        assert!(decision(LegacySoundEvent::Death, true).ducks_music());
+        assert!(!decision(LegacySoundEvent::BecomeJediMaster, false).ducks_music());
+        assert!(decision(LegacySoundEvent::BecomeJediMaster, true).ducks_music());
+        assert!(!decision(LegacySoundEvent::Pain, true).ducks_music());
     }
 }
