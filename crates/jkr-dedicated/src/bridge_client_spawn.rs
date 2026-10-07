@@ -88,6 +88,7 @@ impl NativeGame {
             server_time + jkr_game_jka::world_effects::AIR_TIME,
         );
         peer.saber_cut = Default::default();
+        peer.kick = Default::default();
         peer.gear = Default::default();
         peer.time_residual = 0;
         peer.block_time = 0;

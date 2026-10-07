@@ -193,6 +193,8 @@ pub struct NativeGame {
     limits: jkr_game_jka::match_end::Limits,
     /// `level.startTime`: when the match began, which the time limit measures from.
     level_start_time: i32,
+    /// `level.framenum`: the level's frames so far, this one counted.
+    level_frames: i32,
     /// `level.teamScores[TEAM_RED]` and `[TEAM_BLUE]`.
     team_scores: [i32; 2],
     /// `level.lastTeamLocationTime`: when the team overlay was last sent.
@@ -428,6 +430,7 @@ impl NativeGame {
             match_end: Default::default(),
             limits: Default::default(),
             level_start_time: 0,
+            level_frames: 0,
             team_scores: [0; 2],
             last_team_info: 0,
             flags: Default::default(),
@@ -2515,6 +2518,7 @@ impl NativeGame {
         self.bot_frame(server_time);
         self.previous_frame_time = self.last_frame_time;
         self.last_frame_time = server_time;
+        self.level_frames = self.level_frames.wrapping_add(1);
         // `level.startTime`, which the time limit is measured from: the first frame.
         if self.level_start_time == 0 {
             self.level_start_time = server_time;
@@ -2580,6 +2584,8 @@ impl NativeGame {
         ) {
             peer.movement = peer.movement.reseeded(&peer.state);
         }
+        // Kicks land first, from the pose of the frame before (`w_saber.c:8149-8152`).
+        self.kick_frame(client, server_time);
         self.pose_saber(client, server_time);
         self.throw_frame(client, server_time);
         self.swing_saber(client, server_time);
@@ -3431,3 +3437,6 @@ mod bridge_script_client;
 
 #[path = "bridge_script_npcs.rs"]
 mod bridge_script_npcs;
+
+#[path = "bridge_kicks.rs"]
+mod bridge_kicks;

@@ -118,6 +118,7 @@ impl NativeGame {
         self.team_scores = [0; 2];
         self.ready_mask = 0;
         self.level_start_time = server_time;
+        self.level_frames = 0;
         // `InitSiegeMode`: the round of the new level, and its entities.
         self.init_siege(server_time);
         self.vote = Default::default();

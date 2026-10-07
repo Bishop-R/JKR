@@ -145,6 +145,8 @@ pub struct Peer {
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
     pub(crate) knockdown: jkr_game_jka::knockdown::Knockdown,
+    /// `jediKickIndex`, `jediKickTime`: what this player's kick last hit, till the kick ends.
+    pub(crate) kick: jkr_game_jka::saber_kick::KickMemory,
     /// The Force no client is sent (`forcedata_t`'s levels, timers and sound trackers).
     pub(crate) force: jkr_game_jka::force_powers::ForcePowers,
     /// `pushEffectTime`: until when a Force push's full-body effect shows.
@@ -268,6 +270,7 @@ impl Peer {
             time_residual: 0,
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
+            kick: jkr_game_jka::saber_kick::KickMemory::default(),
             force: jkr_game_jka::force_powers::ForcePowers::with_levels(
                 [0; jkr_game_jka::force_powers::NUM_FORCE_POWERS],
             ),

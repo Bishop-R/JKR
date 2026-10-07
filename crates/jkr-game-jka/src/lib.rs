@@ -107,6 +107,7 @@ pub mod pmove_hand_extend;
 pub mod power_duel;
 pub mod saber_definition;
 pub mod saber_info;
+pub mod saber_kick;
 pub mod script_world;
 pub mod try_heal;
 
