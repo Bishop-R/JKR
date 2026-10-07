@@ -60,6 +60,7 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "Search commands and cvars and edit cvar values (F3 in the console)",
     ),
     ("togglemenu", "Toggle the in-game menu"),
+    ("briefing", "Show your side's Siege objectives"),
     ("cmd", "Forward arguments as a reliable server command"),
     ("clientinfo", "Print client state and userinfo"),
     ("userinfo", "Print userinfo"),
@@ -359,6 +360,11 @@ impl crate::GpuState {
                 if let Some(console) = &mut self.console {
                     console.set_open(!console.is_open());
                 }
+                self.sync_cursor_policy();
+            }
+            "briefing" => {
+                // As `CG_SiegeBriefing_f`: nothing outside Siege or off a side.
+                self.open_siege_objectives();
                 self.sync_cursor_policy();
             }
             "consolebrowser" => {

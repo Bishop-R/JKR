@@ -31,8 +31,6 @@ const MAX_ICONS: i32 = 64;
 const GT_TEAM: i32 = 6;
 const TEAM_SPECTATOR: u8 = 3;
 const CS_PLAYERS: usize = 1_131;
-/// `CS_SIEGE_OBJECTIVES` (`CS_SIEGE_STATE + 1`).
-const CS_SIEGE_OBJECTIVES: usize = 37 + 256 + 1;
 const WHITE: [f32; 4] = [1.0; 4];
 /// `g_color_table[COLOR_GREEN]`: teammates are always green.
 const TEAM_COLOR: [f32; 4] = [0.0, 1.0, 0.0, 1.0];
@@ -298,7 +296,11 @@ impl Radar {
                 let size = 9.0 * height_scale(rise, 1_024.0, 0.5);
                 let (icon, mut color) = if entity.objective_team != 0 {
                     // An objective's mark goes once it is complete.
-                    if objective_complete(game, entity.objective_team, entity.objective) {
+                    if crate::siege_notices::objective_complete(
+                        game,
+                        entity.objective_team,
+                        entity.objective,
+                    ) {
                         return None;
                     }
                     if entity.icon != 0 && entity.icon < MAX_ICONS {
@@ -415,34 +417,6 @@ fn client_team(game: &GameState, client: u16) -> Option<u8> {
     u8::try_from(team).ok()
 }
 
-/// `team<side>_objective<number>` as `CG_ParseSiegeObjectiveStatus` sets it from
-/// `CS_SIEGE_OBJECTIVES`: each `-` starts the next objective, `1` after it completes it,
-/// and `|` moves on to team two.
-fn objective_complete(game: &GameState, side: u8, objective: i32) -> bool {
-    let Some(status) = game.config_string(CS_SIEGE_OBJECTIVES) else {
-        return false;
-    };
-    let (mut team, mut number) = (1u8, 0i32);
-    let mut bytes = status.iter().peekable();
-    while let Some(&byte) = bytes.next() {
-        match byte {
-            b'|' => {
-                team = 2;
-                number = 0;
-            }
-            b'-' => {
-                number += 1;
-                let done = bytes.next() == Some(&b'1');
-                if team == side && number == objective {
-                    return done;
-                }
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,7 +431,7 @@ mod tests {
         set(CS_PLAYERS, b"\\n\\viewer\\t\\1");
         set(CS_PLAYERS + 1, b"\\n\\mate\\t\\1");
         set(CS_PLAYERS + 2, b"\\n\\enemy\\t\\2");
-        set(CS_SIEGE_OBJECTIVES, objectives);
+        set(jkr_game_jka::siege_class::CS_SIEGE_OBJECTIVES, objectives);
         game
     }
 

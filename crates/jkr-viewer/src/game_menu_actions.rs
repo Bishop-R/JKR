@@ -55,8 +55,16 @@ impl GpuState {
                     self.capture_pointer();
                 }
                 ingame_menu::CallVoteAction::Back => self.back_or_close_game_menu(),
+                ingame_menu::CallVoteAction::Open(GameMenuPage::Objectives) => {
+                    self.open_siege_objectives();
+                }
                 _ => self.game_menu_row = 0,
             },
+            GameMenuPage::Objectives => {
+                if !self.open_siege_classes() {
+                    self.open_game_menu_page(GameMenuPage::Main);
+                }
+            }
             GameMenuPage::About => self.open_game_menu_page(GameMenuPage::Main),
             GameMenuPage::Leave => self.activate_leave_row(),
             page if page.is_vote_page() => self.activate_callvote_row(page),
@@ -213,6 +221,29 @@ impl GpuState {
     fn open_game_menu_page(&mut self, page: GameMenuPage) {
         self.game_menu_page = page;
         self.game_menu_row = 0;
+    }
+
+    /// Stock's `briefing` (`CG_SiegeBriefing_f`): the player's side's objectives, in Siege
+    /// and on a side only.
+    pub(crate) fn open_siege_objectives(&mut self) -> bool {
+        let Some(session) = self.live_session.as_ref() else {
+            return false;
+        };
+        let game = session.game_state();
+        let team = session.latest_snapshot().player.team();
+        if !ingame_menu::siege_data::is_siege(Some(game)) || !matches!(team, 1 | 2) {
+            return false;
+        }
+        self.in_game_menu.refresh_objectives(
+            self.chat.siege_notices(),
+            game,
+            team,
+            &self.localization.strings,
+        );
+        self.release_pointer();
+        self.game_menu = true;
+        self.open_game_menu_page(GameMenuPage::Objectives);
+        true
     }
 
     /// Open the map's selector only in Siege; absent data is reported, never fabricated.

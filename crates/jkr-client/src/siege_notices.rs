@@ -144,6 +144,69 @@ impl SiegeNotices {
     }
 }
 
+/// One of a side's objectives as the briefing lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SiegeObjective {
+    /// `N` of `ObjectiveN`.
+    pub number: i32,
+    /// `goalname` (`CG_SiegeGetObjectiveDescription`); a leading `@` makes it a string
+    /// reference.
+    pub goal: String,
+    /// `final` above zero (`CG_SiegeGetObjectiveFinal`): the objective that wins the round.
+    pub final_objective: bool,
+}
+
+impl SiegeNotices {
+    /// The objectives `CG_SiegeBriefingDisplay` lists for `team` (`Objective1` to
+    /// `Objective15`; team two for any team but one), leaving out those without a
+    /// `goalname`.
+    pub fn objectives(&self, team: u8) -> Vec<SiegeObjective> {
+        let side = self.map.side(i32::from(team));
+        (1..16)
+            .filter_map(|number| {
+                let found = objective_group(side, number)?;
+                let value = |key: &str| siege_text::paired(&found, key).ok().flatten();
+                let goal = value("goalname").filter(|goal| !goal.is_empty())?;
+                let final_objective = value("final")
+                    .is_some_and(|value| jkr_game_jka::userinfo::atoi(value.as_bytes()) > 0);
+                Some(SiegeObjective {
+                    number,
+                    goal,
+                    final_objective,
+                })
+            })
+            .collect()
+    }
+}
+
+/// `team<side>_objective<number>` as `CG_ParseSiegeObjectiveStatus` sets it from
+/// `CS_SIEGE_OBJECTIVES`: each `-` starts the next objective, `1` after it completes it,
+/// and `|` moves on to team two.
+pub fn objective_complete(game: &GameState, side: u8, objective: i32) -> bool {
+    let Some(status) = game.config_string(jkr_game_jka::siege_class::CS_SIEGE_OBJECTIVES) else {
+        return false;
+    };
+    let (mut team, mut number) = (1u8, 0i32);
+    let mut bytes = status.iter().peekable();
+    while let Some(&byte) = bytes.next() {
+        match byte {
+            b'|' => {
+                team = 2;
+                number = 0;
+            }
+            b'-' => {
+                number += 1;
+                let done = bytes.next() == Some(&b'1');
+                if team == side && number == objective {
+                    return done;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// `EV_SIEGE_ROUNDOVER` and `EV_SIEGE_OBJECTIVECOMPLETE` (`bg_public.h`).
 pub(crate) const EV_SIEGE_ROUNDOVER: u16 = 101;
 pub(crate) const EV_SIEGE_OBJECTIVECOMPLETE: u16 = 102;

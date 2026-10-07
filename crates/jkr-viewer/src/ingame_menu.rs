@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 
 mod about;
 mod callvote;
+mod objectives;
 pub(crate) mod shot;
 mod siege;
 pub(crate) mod siege_data;
@@ -25,6 +26,8 @@ pub(crate) enum Page {
     Team,
     /// Map/theme constrained Siege class selection.
     Siege,
+    /// The player's side's Siege objectives (stock's `briefing`).
+    Objectives,
     /// Host, map, game type and limits (`ingame_about` in the stock UI).
     About,
     /// Disconnect or quit, with the choice as the confirmation.
@@ -87,6 +90,7 @@ pub(crate) struct InGameMenu {
     row_count: usize,
     callvote: callvote::State,
     about: about::State,
+    objectives: objectives::State,
     active_page: Page,
     siege: siege::State,
     pub(crate) shot: shot::Panel,
@@ -102,6 +106,7 @@ impl InGameMenu {
             row_count: 0,
             callvote: callvote::State::new(),
             about: about::State::new(),
+            objectives: objectives::State::new(),
             active_page: Page::Main,
             siege: siege::State::default(),
             shot: shot::Panel::default(),
@@ -127,7 +132,7 @@ impl InGameMenu {
             labels: &self.rows[..self.row_count],
             enabled: &self.enabled[..self.row_count],
             scroll: self.callvote.scroll_metrics(view.page),
-            info: info_lines(&self.about, view.page),
+            info: info_lines(&self.about, &self.objectives, view.page),
         };
         view::build(
             &mut self.canvas,
@@ -181,6 +186,17 @@ impl InGameMenu {
     /// Rebuild the server-info page from the live game state.
     pub(crate) fn refresh_about(&mut self, game_state: Option<&GameState>, address: Option<&str>) {
         self.about.refresh(game_state, address);
+    }
+
+    /// Rebuild the objectives page for `team`'s side of the map `notices` describe.
+    pub(crate) fn refresh_objectives(
+        &mut self,
+        notices: Option<&jkr_client::siege_notices::SiegeNotices>,
+        game_state: &GameState,
+        team: u8,
+        strings: &std::collections::HashMap<String, String>,
+    ) {
+        self.objectives.refresh(notices, game_state, team, strings);
     }
 
     pub(crate) fn refresh_callvote(
@@ -260,7 +276,7 @@ impl InGameMenu {
                 self.rows[count].push_str("Leave");
                 count + 1
             }
-            Page::About => {
+            Page::About | Page::Objectives => {
                 self.rows[0].push_str("Back");
                 1
             }
@@ -346,16 +362,21 @@ pub(crate) fn row_count(page: Page, team_game: bool, vote_active: bool) -> usize
         }
         Page::Team if team_game => 5,
         Page::Team => 3,
-        Page::About => 1,
+        Page::About | Page::Objectives => 1,
         Page::Leave => 3,
         _ => 0,
     }
 }
 
-/// Read-only lines above the entries of `page` (the server-info page).
-fn info_lines(about: &about::State, page: Page) -> &[String] {
+/// Read-only lines above the entries of `page` (the server-info and objectives pages).
+fn info_lines<'a>(
+    about: &'a about::State,
+    objectives: &'a objectives::State,
+    page: Page,
+) -> &'a [String] {
     match page {
         Page::About => about.lines(),
+        Page::Objectives => objectives.lines(),
         _ => &[],
     }
 }
