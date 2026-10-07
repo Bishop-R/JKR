@@ -425,10 +425,12 @@ impl NativeGame {
             if other == client {
                 continue;
             }
-            // A teammate in the game whose origin the viewer's PVS holds (`trap->InPVS`).
+            // Any other spawned client of its session team whose origin the viewer's PVS
+            // holds (`trap->InPVS`): `G_SiegeClientExData` asks no more, so spectators of
+            // the same side, the dead and those waiting for a wave are reported too.
             let Some(them) = self.peer(other).filter(|them| {
                 them.session.team == team
-                    && them.playing()
+                    && them.begun
                     && eye
                         .as_ref()
                         .is_none_or(|(map, eye)| eye.sees_point(&map.bsp, them.state.origin()))
