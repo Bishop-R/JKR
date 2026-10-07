@@ -162,7 +162,34 @@ impl MoveContext<'static> {
     };
 }
 
+/// What a rocket lock's trace struck ([`MovementCollision::lock_target`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LockTarget {
+    /// A player or an NPC, a vehicle too (`ET_PLAYER`, `ET_NPC`): it can be locked on.
+    Lockable,
+    /// Anything under a cloak (`PW_CLOAKED`), which drops the lock at once.
+    Cloaked,
+    /// Anything else.
+    Other,
+}
+
+/// [`MovementCollision::lock_target`] without the entities' states: the players by number,
+/// nothing else.
+pub fn players_by_number(number: u16) -> LockTarget {
+    if number < 32 {
+        LockTarget::Lockable
+    } else {
+        LockTarget::Other
+    }
+}
+
 pub trait MovementCollision {
+    /// What `PM_RocketLock` reads of entity `number`, struck by its trace
+    /// (`PM_BGEntForNum`: `s.powerups`' `PW_CLOAKED` first, then `s.eType`). Without the
+    /// entities' states, a client's prediction knows the players by number alone.
+    fn lock_target(&self, number: u16) -> LockTarget {
+        players_by_number(number)
+    }
     /// Contents for PM_SetWaterLevel and ledge probes; dry synthetic worlds may omit it.
     fn point_contents(&self, _point: [f32; 3]) -> u32 {
         0

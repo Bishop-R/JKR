@@ -212,6 +212,8 @@ pub(crate) struct Others<'a> {
     /// What the player's blows may break (`PM_ClientImpact`); `None` for one that breaks
     /// nothing, such as a spectator.
     pub(crate) blows: Option<Blows<'a>>,
+    /// What its rocket lock makes of an entity (`PM_RocketLock`'s `PM_BGEntForNum`).
+    pub(crate) lock_targets: &'a dyn Fn(u16) -> jkr_game_jka::pmove::LockTarget,
 }
 
 /// `FP_SABER_OFFENSE`; defense and throw follow it.
@@ -365,6 +367,7 @@ impl Peer {
             gametype,
             ghoul2_time,
             blows,
+            lock_targets,
         } = others;
         let bodies = |number: u16| legs.get(usize::from(number)).copied().flatten();
         // The NPCs are the bodies past the clients' numbers.
@@ -406,7 +409,11 @@ impl Peer {
                     };
                     match blows {
                         Some(blows) => {
-                            let world = Striking { world, blows };
+                            let world = Striking {
+                                world,
+                                blows,
+                                lock_targets,
+                            };
                             self.run_move(command, &world, &context, lock)
                         }
                         None => self.run_move(command, &world, &context, lock),

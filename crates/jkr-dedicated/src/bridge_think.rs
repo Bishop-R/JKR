@@ -67,6 +67,7 @@ impl NativeGame {
             stock,
             siege,
             strikes,
+            lock_kinds,
             ..
         } = self;
         let (Some(world), Some(own)) = (server.world_mut(*world), players.at(client)) else {
@@ -172,12 +173,20 @@ impl NativeGame {
                 strikes: &strikes,
             },
         );
+        // What its rocket lock makes of an entity: a player or an NPC gathered with the
+        // obstacles, cloaked or not; anything else is no target.
+        let lock_targets = |number: u16| match lock_kinds.iter().find(|(id, _)| *id == number) {
+            Some((_, true)) => jkr_game_jka::pmove::LockTarget::Cloaked,
+            Some((_, false)) => jkr_game_jka::pmove::LockTarget::Lockable,
+            None => jkr_game_jka::pmove::LockTarget::Other,
+        };
         let others = crate::peer::Others {
             boxes: obstacles,
             legs: body_legs,
             gametype: *gametype,
             ghoul2_time: *last_frame_time,
             blows,
+            lock_targets: &lock_targets,
         };
         if let Some(them) = opponent.as_deref_mut() {
             them.movement = them.movement.reseeded(&them.state);

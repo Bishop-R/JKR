@@ -26,9 +26,11 @@ impl NativeGame {
             mounted,
             scripts,
             corpses,
+            lock_kinds,
             ..
         } = self;
         obstacles.clear();
+        lock_kinds.clear();
         body_legs.clear();
         let Some(world) = server.world(*world) else {
             return;
@@ -51,6 +53,7 @@ impl NativeGame {
                         && usize::from(peer.riding.owner) != client
                 });
             if let Some(peer) = peer {
+                lock_kinds.push((other as u16, cloaked(peer.entity.state())));
                 let (mut bounds, mut contents) = (peer.movement.box_bounds(), peer.riding.contents);
                 if let Some((corpse_contents, top)) = peer.corpse {
                     (bounds.1[2], contents) = (top, corpse_contents);
@@ -112,6 +115,13 @@ impl NativeGame {
                 }),
         );
         Self::add_npc_bodies(npcs, obstacles, body_legs, client);
+        // Every NPC is `ET_NPC`, a vehicle too: a rocket lock can lock on it.
+        lock_kinds.extend(
+            npcs.roster
+                .actors
+                .iter()
+                .map(|npc| (npc.number, cloaked(&npc.state))),
+        );
         obstacles.extend(Self::corpse_obstacles(pool, corpses, client));
         obstacles.extend(
             mounted.obstacles(
@@ -174,4 +184,11 @@ impl NativeGame {
             self.last_frame_time,
         ));
     }
+}
+
+/// `s.powerups & (1 << PW_CLOAKED)`.
+fn cloaked(state: &jkr_protocol::EntityState) -> bool {
+    const ES_POWERUPS: usize = 77;
+    const PW_CLOAKED: u32 = 11;
+    state.raw_field(ES_POWERUPS).unwrap_or(0) & (1 << PW_CLOAKED) != 0
 }

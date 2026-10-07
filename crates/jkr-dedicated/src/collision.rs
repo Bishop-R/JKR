@@ -2,7 +2,7 @@
 use jkr_bsp::{Aabb, Bsp, TraceScratch};
 use jkr_game_jka::client_impact::{self, Brittle, Strikes};
 use jkr_game_jka::entity_clip::{BoxObstacle, Move, clip_move_to_entities};
-use jkr_game_jka::pmove::{ENTITY_NUMBER_WORLD, MovementCollision, MovementTrace};
+use jkr_game_jka::pmove::{ENTITY_NUMBER_WORLD, LockTarget, MovementCollision, MovementTrace};
 use jkr_game_jka::saber_block::MissilePaths;
 use std::cell::RefCell;
 
@@ -283,15 +283,20 @@ pub(crate) struct Blows<'a> {
 
 /// A player's own move ([`WithPlayers`]) and its [`Blows`]: a brush a blow broke out of the
 /// world is out of every later trace of the move, as `G_FreeEntity` or `funcBBrushDieGo`
-/// takes it out of the reference's.
+/// takes it out of the reference's. `lock_targets` tells its rocket lock what an entity is.
 pub(crate) struct Striking<'a, W: MovementCollision + BrushSweep> {
     pub(crate) world: WithPlayers<'a, W>,
     pub(crate) blows: Blows<'a>,
+    pub(crate) lock_targets: &'a dyn Fn(u16) -> LockTarget,
 }
 
 impl<W: MovementCollision + BrushSweep> MovementCollision for Striking<'_, W> {
     fn point_contents(&self, point: [f32; 3]) -> u32 {
         self.world.point_contents(point)
+    }
+
+    fn lock_target(&self, number: u16) -> LockTarget {
+        (self.lock_targets)(number)
     }
 
     fn trace(

@@ -102,6 +102,9 @@ pub struct NativeGame {
     settings: ForceServerSettings,
     /// Everyone a moving player can run into, gathered before it moves; kept to be reused.
     obstacles: Vec<BoxObstacle>,
+    /// The players and NPCs gathered with the obstacles, and whether each is cloaked
+    /// (`s.powerups`' `PW_CLOAKED`): what a rocket lock can lock on.
+    lock_kinds: Vec<(u16, bool)>,
     /// Each player's legs by number, gathered with the obstacles, for a move's saber
     /// specials (`PM_BGEntForNum`); kept to be reused.
     body_legs: Vec<Option<u16>>,
@@ -388,6 +391,7 @@ impl NativeGame {
             told: Vec::new(),
             settings: SETTINGS,
             obstacles: Vec::with_capacity(wire_clients),
+            lock_kinds: Vec::with_capacity(wire_clients),
             body_legs: Vec::with_capacity(wire_clients),
             force_scratch: bridge_force::ForceScratch::default(),
             duel_slot: PlayerState::zero(),

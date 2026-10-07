@@ -133,8 +133,9 @@ fn moving(cmd: &UserCommand) -> bool {
 /// passed); a player struck is locked on — at once when nothing was, or once the
 /// target's time is past when another was; the lock's time kept, and its target time
 /// pushed 500 ms on while the lock holds; struck nothing, the lock goes once its target
-/// time is past, and meanwhile its time is remembered and set to -1. Entities that are
-/// not players (a rocket, a husk) are no target; cloaking is not ported.
+/// time is past, and meanwhile its time is remembered and set to -1. A player or an NPC
+/// is a target, a cloaked one drops the lock at once, and anything else (a rocket, a husk)
+/// is no target ([`crate::pmove::MovementCollision::lock_target`]).
 fn rocket_lock(
     state: &mut MovementState,
     cmd: &UserCommand,
@@ -154,7 +155,11 @@ fn rocket_lock(
     let trace = collision.trace(muzzle, [0.0; 3], [0.0; 3], end, MASK_PLAYERSOLID);
     let struck = trace.entity_number;
     if trace.fraction != 1.0 && struck < ENTITY_NONE && struck != state.client_num {
-        if struck < 32 {
+        let target = collision.lock_target(struck);
+        if target == crate::pmove::LockTarget::Cloaked {
+            state.rocket_lock_index = ENTITY_NONE;
+            state.rocket_lock_time = 0.0;
+        } else if target == crate::pmove::LockTarget::Lockable {
             if state.rocket_lock_index == ENTITY_NONE {
                 state.rocket_lock_index = struck;
                 state.rocket_lock_time = cmd.server_time as f32;
@@ -270,4 +275,73 @@ pub(crate) fn charge(
         state.entity_flags |= FIRING | ALT_FIRING;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pmove::{LockTarget, MovementCollision, MovementTrace};
+
+    /// A lock trace that strikes entity `struck`, which is `target`.
+    struct Struck {
+        struck: u16,
+        target: LockTarget,
+    }
+
+    impl MovementCollision for Struck {
+        fn trace(
+            &self,
+            start: [f32; 3],
+            _: [f32; 3],
+            _: [f32; 3],
+            end: [f32; 3],
+            _: u32,
+        ) -> MovementTrace {
+            MovementTrace {
+                fraction: 0.5,
+                end_position: std::array::from_fn(|axis| (start[axis] + end[axis]) * 0.5),
+                entity_number: self.struck,
+                ..MovementTrace::miss(end)
+            }
+        }
+
+        fn lock_target(&self, _: u16) -> LockTarget {
+            self.target
+        }
+    }
+
+    fn locking(struck: u16, target: LockTarget, state: &mut MovementState, time: i32) {
+        let cmd = UserCommand {
+            server_time: time,
+            ..UserCommand::default()
+        };
+        rocket_lock(state, &cmd, &Struck { struck, target });
+    }
+
+    #[test]
+    fn a_rocket_locks_on_an_npc_and_a_cloak_drops_the_lock() {
+        let mut state = MovementState {
+            rocket_lock_index: 1_023,
+            ..MovementState::default()
+        };
+        // An NPC (a walker too) is `ET_NPC`: locked on, its target time pushed on.
+        locking(70, LockTarget::Lockable, &mut state, 1_000);
+        assert_eq!(
+            (state.rocket_lock_index, state.rocket_lock_time),
+            (70, 1_000.0)
+        );
+        assert_eq!(state.rocket_target_time, 1_500.0);
+        // Cloaked, it drops the lock at once, its target time or not.
+        locking(70, LockTarget::Cloaked, &mut state, 1_100);
+        assert_eq!(
+            (state.rocket_lock_index, state.rocket_lock_time),
+            (1_023, 0.0)
+        );
+        // Something else holds no lock either, once the target time is past.
+        locking(80, LockTarget::Lockable, &mut state, 2_000);
+        locking(90, LockTarget::Other, &mut state, 2_100);
+        assert_eq!(state.rocket_lock_index, 80);
+        locking(90, LockTarget::Other, &mut state, 2_600);
+        assert_eq!(state.rocket_lock_index, 1_023);
+    }
 }

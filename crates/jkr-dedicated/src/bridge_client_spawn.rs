@@ -174,8 +174,10 @@ impl NativeGame {
             legs: body_legs,
             gametype: *gametype,
             ghoul2_time: *last_frame_time,
-            // A player spawns standing still: its first move strikes nothing.
+            // A player spawns standing still: its first move strikes nothing, and locks
+            // nothing it would not lock on a client's prediction.
             blows: None,
+            lock_targets: &jkr_game_jka::pmove::players_by_number,
         };
         let _ = peer.think(
             command,
