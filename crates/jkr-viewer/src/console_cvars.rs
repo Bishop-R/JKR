@@ -208,6 +208,14 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Size multiplier for the modern HUD widgets (0.25 to 2)",
         ),
+        // `cg_xcvar.h:135`: first person unless asked; a saber, fists, a turret, a vehicle
+        // or death put the camera behind the player whatever this says.
+        CvarDefinition::new(
+            "cg_thirdPerson",
+            false,
+            archive,
+            "Draw the view from behind the player",
+        ),
         CvarDefinition::new(
             "cg_thirdPersonRange",
             80.0,
@@ -249,6 +257,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             0.5_f64,
             archive,
             "Third-person look-target easing per 50 ms; 1 or more snaps",
+        ),
+        // `cg_xcvar.h:142`.
+        CvarDefinition::new(
+            "cg_thirdPersonSpecialCam",
+            false,
+            CvarFlags::NONE,
+            "Swing the camera round to watch saber special moves",
         ),
         CvarDefinition::new(
             "com_maxfps",

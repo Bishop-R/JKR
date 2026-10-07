@@ -6,6 +6,8 @@ use glam::Vec3;
 #[derive(Default)]
 pub(crate) struct State {
     previous: Option<Previous>,
+    /// The saber-special camera's own easing ([`super::action`]).
+    pub(crate) action: super::action::Smoothing,
 }
 
 struct Previous {

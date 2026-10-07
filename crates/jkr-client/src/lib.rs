@@ -65,6 +65,7 @@ use jkr_game_jka::pmove_saber;
 pub use jkr_game_jka::predicted_events;
 mod prediction_error;
 pub use jkr_game_jka::prediction_items;
+pub mod camera_mode;
 mod presentation;
 mod pure_checksums;
 pub mod radar;

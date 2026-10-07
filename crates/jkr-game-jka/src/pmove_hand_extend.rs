@@ -63,7 +63,7 @@ const ENTITY_NONE: u16 = 1_023;
 /// `PM_InKnockDown` (`bg_panimate.c:1235-1273`): lying in a knockdown pose, or in one of
 /// the get-ups it lists (not the crouched get-ups 1229–1230 nor `BOTH_FORCE_GETUP_B6`)
 /// with the legs timer running.
-pub(crate) fn in_knockdown(legs_anim: u16, legs_timer: i32) -> bool {
+pub fn in_knockdown(legs_anim: u16, legs_timer: i32) -> bool {
     (BOTH_KNOCKDOWN1..=BOTH_KNOCKDOWN5).contains(&legs_anim)
         || legs_timer != 0 && (matches!(legs_anim, 1_224..=1_228 | 1_231..=1_236 | 1_238..=1_246))
 }

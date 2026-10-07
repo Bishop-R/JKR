@@ -322,7 +322,7 @@ impl super::GpuState {
                 self.chat.open(team);
                 self.sync_cursor_policy();
             }
-            Some(InputAction::ToggleCamera) => self.third_person = !self.third_person,
+            Some(InputAction::ToggleCamera) => super::camera::toggle(self),
             Some(InputAction::SaberToggle) => {
                 self.pending_generic_command = GENCMD_SABER_SWITCH;
             }

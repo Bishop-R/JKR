@@ -1235,6 +1235,7 @@ impl GpuState {
         self.advance_resident_movement(delta_seconds);
         net_timing::frame(self, presentation_time);
         clock_trace::tick(self, presentation_time, visual_now);
+        camera::choose_third_person(self, presentation_time);
         let first_person = (!backdrop_view)
             .then(|| first_person_view::camera(self, presentation_time as i32))
             .flatten();
@@ -1257,7 +1258,7 @@ impl GpuState {
         {
             (
                 "third-person",
-                camera::damped_third_person(self, delta_seconds, presentation_time),
+                camera::third_person_view(self, delta_seconds, presentation_time),
             )
         } else if let Some(camera) = first_person {
             self.third_person_camera = camera::State::default();

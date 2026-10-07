@@ -5,12 +5,97 @@ use super::{GpuState, movement_collision};
 use glam::{Quat, Vec3};
 use jkr_runtime::EntityId;
 
+#[path = "camera_action.rs"]
+pub(crate) mod action;
 #[path = "camera_motion.rs"]
 mod motion;
 #[path = "camera_vehicle.rs"]
 mod vehicle;
 pub(crate) use motion::State;
 pub(crate) use vehicle::Profile as VehicleProfile;
+
+/// `togglecamera`: flips `cg_thirdPerson`, which a live view follows from the next frame,
+/// and the view itself at once, which is all a demo's view follows.
+pub(crate) fn toggle(state: &mut GpuState) {
+    state.third_person = !state.third_person;
+    if let Some(console) = &mut state.console {
+        let next = if console.bool_cvar("cg_thirdPerson").unwrap_or(false) {
+            "0"
+        } else {
+            "1"
+        };
+        console.set_cvar("cg_thirdPerson", next);
+    }
+}
+
+/// `cg.renderingThirdPerson`, chosen afresh every frame of a live session.
+pub(crate) fn choose_third_person(state: &mut GpuState, presentation_time: i64) {
+    if let Some(third_person) = third_person_now(state, presentation_time) {
+        state.third_person = third_person;
+    }
+}
+
+/// The third-person view this frame: the saber-special camera where it takes over
+/// ([`action`]), else the ordinary damped one.
+pub(crate) fn third_person_view(
+    state: &mut GpuState,
+    delta_seconds: f32,
+    presentation_time: i64,
+) -> (Vec3, Vec3) {
+    action::view(state, delta_seconds, presentation_time)
+        .unwrap_or_else(|| damped_third_person(state, delta_seconds, presentation_time))
+}
+
+/// Stock's camera choice for this frame of a live session ([`jkr_client::camera_mode`]):
+/// `cg_thirdPerson` weighed against the presented snapshot and the predicted state.
+/// `None` without a snapshot to weigh, or while the shot director frames the view.
+fn third_person_now(state: &GpuState, presentation_time: i64) -> Option<bool> {
+    // A shot the director frames keeps its camera.
+    if state
+        .console
+        .as_ref()
+        .is_some_and(|console| console.director.camera_active())
+    {
+        return None;
+    }
+    let snapshot = crate::first_person_view::presented_snapshot(
+        state.live_session.as_ref(),
+        None,
+        presentation_time as i32,
+    )?;
+    let player = &snapshot.player;
+    let mut view = jkr_client::camera_mode::ViewInputs {
+        snapshot_health: player.health(),
+        snapshot_team: player.team(),
+        snapshot_zoom_mode: player.zoom_mode(),
+        movement_type: player.movement_type(),
+        weapon: player.weapon(),
+        emplaced_index: player.emplaced_index(),
+        torso_anim: player.torso_animation(),
+        legs_anim: player.leg_animation(),
+        legs_timer: player.legs_timer(),
+        force_hand_extend: player.force_hand_extend(),
+        falling_to_death: player.falling_to_death() != 0,
+        vehicle: player.vehicle_entity_num(),
+    };
+    if let Some(predicted) = state.local_prediction.predicted_state() {
+        view.movement_type = predicted.movement_type;
+        view.weapon = predicted.weapon;
+        view.emplaced_index = predicted.emplaced_index;
+        view.torso_anim = predicted.torso_anim;
+        view.legs_anim = predicted.legs_anim;
+        view.legs_timer = predicted.legs_timer;
+        view.force_hand_extend = predicted.force_hand_extend;
+        view.falling_to_death = predicted.falling_to_death != 0;
+        view.vehicle = predicted.vehicle_entity_num;
+    }
+    let cvar = state
+        .console
+        .as_ref()
+        .and_then(|console| console.bool_cvar("cg_thirdPerson"))
+        .unwrap_or(false);
+    Some(jkr_client::camera_mode::rendering_third_person(cvar, &view))
+}
 
 /// Keep the local actor at its predicted root with yaw-only orientation.
 pub(crate) fn local_actor_root(
