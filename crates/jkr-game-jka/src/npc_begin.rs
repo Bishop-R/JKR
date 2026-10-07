@@ -267,12 +267,11 @@ pub fn begin(
     if npc.spawnflags & SFB_STARTINSOLID == 0 {
         check_in_solid(npc, others, host);
     }
-    // No waypoint and no home one (`NPC_spawn.c:1199`).
-    npc.mind.tactics.waypoint = crate::npc_mind::WAYPOINT_NONE;
-    npc.mind.tactics.home_waypoint = crate::npc_mind::WAYPOINT_NONE;
-    // No spawn script. The eyes are where it stands now, and stay there
-    // (`renderInfo.eyePoint`); it is off the ground for the first think, which its caller
-    // runs ([`crate::npc_world::NpcWorld::client_think`]).
+    // Its spawn script, where it has one, is its caller's to run from here
+    // (`NPC_spawn.c:1161-1165`), and the waypoints are forgotten after the first think
+    // ([`crate::npc_roster::NpcRoster::take_script_turn`]). The eyes are where it stands
+    // now, and stay there (`renderInfo.eyePoint`); it is off the ground for the first
+    // think, which its caller runs ([`crate::npc_world::NpcWorld::client_think`]).
     npc.mind.eye_point = npc.current_origin;
     npc.player.set_ground_entity_num(ENTITYNUM_NONE);
     // A vehicle animates with its definition's model (`BG_GetVehicleModelName`).

@@ -18,12 +18,15 @@
 //! server's own; a script's `use` reaches the server's own entities through the same
 //! `fire_targets`.
 //!
+//! An NPC with a spawn script is a script entity from its begin (`bridge_script_npcs`).
+//!
 //! What scripts cannot reach here, with the outcome: an entity of another class that
-//! has a `script_targetname` (a door, a counter, a hurt brush, an NPC) is reported once
-//! per level and is no script target (`affect` fails as for an unknown name); `G_Find`
-//! by name (`kill`, `remove`, `SET_ENEMY`) sees the script entities and the players
-//! only; ROFFs are not played (the reference does nothing without the file); a scripted
-//! mover's turn is not pushed through players (only its travel is).
+//! has a `script_targetname` (a door, a counter, a hurt brush, an NPC spawner) is
+//! reported once per level and is no script target (`affect` fails as for an unknown
+//! name); `G_Find` by name (`kill`, `remove`, `SET_ENEMY`) sees the script entities, the
+//! scripted NPCs and the players only; ROFFs are not played (the reference does nothing
+//! without the file); a scripted mover's turn is not pushed through players (only its
+//! travel is).
 
 use super::*;
 use jkr_game_jka::ref_tags::{Filed, RefTags};
@@ -35,20 +38,21 @@ use std::fmt;
 #[path = "bridge_icarus_world.rs"]
 mod world;
 
-/// Who runs a script: a player by client number, or a script entity by its place in
-/// the level's list.
+/// Who runs a script: a player by client number, a script entity by its place in the
+/// level's list, or an NPC by its entity number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ScriptOwner {
     Client(u16),
     Entity(u32),
+    Npc(u16),
 }
 
 impl fmt::Display for ScriptOwner {
     /// The number the debug lines print (`%d` of the entity): a player's client number, a
-    /// script entity's place past the clients.
+    /// script entity's place past the clients, an NPC's entity number.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let number = match *self {
-            Self::Client(client) => u32::from(client),
+            Self::Client(client) | Self::Npc(client) => u32::from(client),
             Self::Entity(index) => index + 32,
         };
         fmt::Display::fmt(&number, f)
@@ -112,6 +116,8 @@ pub(super) struct Scripts {
     pub(super) slots: Vec<Option<ScriptSlot>>,
     /// Each client's script entity, by client number.
     pub(super) clients: Vec<Option<ScriptEntity<ScriptOwner>>>,
+    /// Each scripted NPC's script entity, by its entity number, in the order they began.
+    pub(super) npcs: Vec<(u16, ScriptEntity<ScriptOwner>)>,
     pub(super) tags: RefTags,
     /// For each trigger of the triggers module, its script entity if it has one.
     multiple_slots: Vec<Option<u32>>,
@@ -133,6 +139,7 @@ impl Default for Scripts {
             }))),
             slots: Vec::new(),
             clients: Vec::new(),
+            npcs: Vec::new(),
             tags: RefTags::default(),
             multiple_slots: Vec::new(),
             pending: Vec::new(),
@@ -168,6 +175,22 @@ impl Scripts {
     fn multiple_slot(&self, index: usize) -> Option<&ScriptSlot> {
         let slot = self.multiple_slots.get(index).copied().flatten()?;
         self.slots.get(slot as usize).and_then(Option::as_ref)
+    }
+
+    /// The script entity of the NPC numbered `number`, where it is scripted.
+    pub(super) fn npc(&self, number: u16) -> Option<&ScriptEntity<ScriptOwner>> {
+        self.npcs
+            .iter()
+            .find(|(known, _)| *known == number)
+            .map(|(_, ent)| ent)
+    }
+
+    /// [`Self::npc`], to change.
+    pub(super) fn npc_mut(&mut self, number: u16) -> Option<&mut ScriptEntity<ScriptOwner>> {
+        self.npcs
+            .iter_mut()
+            .find(|(known, _)| *known == number)
+            .map(|(_, ent)| ent)
     }
 
     /// The solid script brushes, where their last frame left them: what a player runs
@@ -231,6 +254,7 @@ impl NativeGame {
         for client in self.scripts.clients.iter_mut() {
             *client = None;
         }
+        self.scripts.npcs.clear();
         let Some(map) = self.map.take() else { return };
         let entities = map.entities.clone();
         // `SV_SetBrushModel`: an inline model's bounds and `CM_ModelContents`.
@@ -243,12 +267,18 @@ impl NativeGame {
             if !jkr_game_jka::bot_routes::spawns_in(entity, self.gametype) {
                 continue;
             }
+            // An NPC spawner's spawn script is its NPCs' (`bridge_script_npcs`).
+            let spawner = entity
+                .classname()
+                .and_then(|class| class.get(..4))
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("npc_"));
             if let Some(slot) = self.script_slot_of(entity, &bsp_bounds) {
                 spawned.push(self.scripts.slots.len() as u32);
                 self.scripts.slots.push(Some(slot));
             } else if entity.get("script_targetname").is_some()
                 || jkr_game_jka::script_entity::BSET_KEYS
                     .iter()
+                    .filter(|(key, _)| !(spawner && *key == "spawnscript"))
                     .any(|(key, _)| entity.get(key).is_some())
             {
                 let class = entity.classname().unwrap_or_default().to_owned();

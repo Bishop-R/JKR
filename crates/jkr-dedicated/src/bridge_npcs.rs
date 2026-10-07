@@ -188,19 +188,23 @@ impl NativeGame {
             .npcs
             .roster
             .next_due()
-            .is_none_or(|due| due > level_time)
+            .is_some_and(|due| due <= level_time)
         {
-            return;
+            let _ = self.with_roster(|roster, _, host| roster.frame_begin(level_time, host));
+            while let Some(_number) = self.npcs.roster.pending() {
+                let fired = self
+                    .with_roster(|roster, files, host| roster.run_pending(level_time, files, host));
+                let Some(fired) = fired else { break };
+                self.fire_from_npcs(fired, level_time);
+                self.vehicle_outcomes(level_time);
+                // A begin stopped at its spawn script, which runs before the begin goes on.
+                if let Some(number) = self.npcs.roster.take_script_turn() {
+                    self.npc_spawn_script(number);
+                }
+            }
+            self.tell_unported();
         }
-        let _ = self.with_roster(|roster, _, host| roster.frame_begin(level_time, host));
-        while let Some(_number) = self.npcs.roster.pending() {
-            let fired =
-                self.with_roster(|roster, files, host| roster.run_pending(level_time, files, host));
-            let Some(fired) = fired else { break };
-            self.fire_from_npcs(fired, level_time);
-            self.vehicle_outcomes(level_time);
-        }
-        self.tell_unported();
+        self.run_npc_scripts();
     }
 
     /// Names, once per NPC, the reference function its behaviour reached that no step has

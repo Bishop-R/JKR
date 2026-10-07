@@ -33,7 +33,7 @@ pub(in crate::bridge) struct ServerWorld<'a> {
 
 impl ServerWorld<'_> {
     /// The script entities of the level in the reference's number order: the players,
-    /// then the rest in map order.
+    /// then the rest in map order, then the NPCs, which spawn after the map's entities.
     fn owners(&self) -> impl Iterator<Item = ScriptOwner> + '_ {
         let scripts = &self.game.scripts;
         let clients = (0..scripts.clients.len())
@@ -42,7 +42,11 @@ impl ServerWorld<'_> {
         let slots = (0..scripts.slots.len())
             .filter(|&index| scripts.slots[index].is_some())
             .map(|index| ScriptOwner::Entity(index as u32));
-        clients.chain(slots)
+        let npcs = scripts
+            .npcs
+            .iter()
+            .map(|(number, _)| ScriptOwner::Npc(*number));
+        clients.chain(slots).chain(npcs)
     }
 
     fn slot(&self, id: ScriptOwner) -> Option<&ScriptSlot> {
@@ -53,8 +57,32 @@ impl ServerWorld<'_> {
                 .slots
                 .get(index as usize)
                 .and_then(Option::as_ref),
-            ScriptOwner::Client(_) => None,
+            ScriptOwner::Client(_) | ScriptOwner::Npc(_) => None,
         }
+    }
+
+    /// The NPC numbered `number`.
+    fn npc(&self, number: u16) -> Option<&jkr_game_jka::npc_spawn::NpcActor> {
+        self.game
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == number)
+    }
+
+    /// Reports once a level what a script asked of `target` that this server does not do.
+    fn unapplied(&mut self, target: &str, what: String) {
+        let kind = what
+            .split(['(', ' ', '{'])
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        self.game
+            .scripts
+            .report_once(&format!("{target} {kind}"), || {
+                format!("{what} on {target}: not applied by this server yet")
+            });
     }
 
     /// `G_UseTargets2`'s part for the script entities, for every name fired while the
@@ -108,6 +136,9 @@ impl ServerWorld<'_> {
                     slot.pool.map(|pool| pool.legacy_number()),
                 )
             }),
+            ScriptOwner::Npc(number) => self
+                .npc(number)
+                .map(|npc| (npc.current_origin, Some(number))),
         }
     }
 
@@ -256,6 +287,7 @@ impl ScriptWorld for ServerWorld<'_> {
                 .get(index as usize)
                 .and_then(Option::as_ref)
                 .map(|slot| &slot.entity),
+            ScriptOwner::Npc(number) => self.game.scripts.npc(number),
         }
     }
 
@@ -274,6 +306,7 @@ impl ScriptWorld for ServerWorld<'_> {
                 .get_mut(index as usize)
                 .and_then(Option::as_mut)
                 .map(|slot| &mut slot.entity),
+            ScriptOwner::Npc(number) => self.game.scripts.npc_mut(number),
         }
     }
 
@@ -313,6 +346,9 @@ impl ScriptWorld for ServerWorld<'_> {
     }
 
     fn free(&mut self, _icarus: &mut Icarus<ScriptOwner>, id: ScriptOwner) {
+        if let ScriptOwner::Npc(_) = id {
+            self.unapplied("an NPC", "G_FreeEntity".to_owned());
+        }
         let ScriptOwner::Entity(index) = id else {
             return;
         };
@@ -362,13 +398,15 @@ impl ScriptWorld for ServerWorld<'_> {
     }
 
     fn die(&mut self, _icarus: &mut Icarus<ScriptOwner>, victim: ScriptOwner, damage: i32) {
-        if let ScriptOwner::Client(client) = victim {
-            self.player_die(
+        match victim {
+            ScriptOwner::Client(client) => self.player_die(
                 usize::from(client),
                 0,
                 damage,
                 jkr_game_jka::means_of_death::MOD_UNKNOWN,
-            );
+            ),
+            ScriptOwner::Npc(_) => self.unapplied("an NPC", "G_Damage".to_owned()),
+            ScriptOwner::Entity(_) => {}
         }
     }
 
@@ -531,26 +569,28 @@ impl ScriptWorld for ServerWorld<'_> {
     fn run_own_think(&mut self, _icarus: &mut Icarus<ScriptOwner>, _id: ScriptOwner) {}
 
     fn client(&self, id: ScriptOwner) -> Option<ClientView> {
-        let ScriptOwner::Client(client) = id else {
-            return None;
-        };
-        let peer = self.game.peer(usize::from(client))?;
-        let stat = |index: usize| peer.state.stats[index] as i32;
-        Some(ClientView {
-            health: peer.health,
-            stat_health: stat(STAT_HEALTH),
-            armor: stat(STAT_ARMOR),
-            max_health: stat(STAT_MAX_HEALTH),
-            velocity: peer.state.velocity(),
-            legs_timer: peer.state.legs_timer(),
-            torso_timer: peer.state.torso_timer(),
-            view_height: peer.state.view_height(),
-            spectator: !peer.playing(),
-            temp_spectating: false,
-            saber_holstered: i32::from(peer.state.saber_holstered()),
-            sabers_off: peer.state.saber_holstered() != 0,
-            eye_point: peer.state.origin(),
-        })
+        match id {
+            ScriptOwner::Client(client) => {
+                let peer = self.game.peer(usize::from(client))?;
+                let origin = peer.state.origin();
+                Some(client_view(
+                    &peer.state,
+                    peer.health,
+                    !peer.playing(),
+                    origin,
+                ))
+            }
+            ScriptOwner::Npc(number) => {
+                let npc = self.npc(number)?;
+                Some(client_view(
+                    &npc.player,
+                    npc.health,
+                    false,
+                    npc.mind.eye_point,
+                ))
+            }
+            ScriptOwner::Entity(_) => None,
+        }
     }
 
     fn client_action(
@@ -559,10 +599,11 @@ impl ScriptWorld for ServerWorld<'_> {
         id: ScriptOwner,
         action: ClientAction,
     ) {
-        let ScriptOwner::Client(client) = id else {
-            return;
+        let client = match id {
+            ScriptOwner::Client(client) => usize::from(client),
+            ScriptOwner::Npc(_) => return self.unapplied("an NPC", format!("{action:?}")),
+            ScriptOwner::Entity(_) => return,
         };
-        let client = usize::from(client);
         match action {
             ClientAction::SetHealth { health, stat } => {
                 if let Some(peer) = self.game.peer_mut(client) {
@@ -583,23 +624,12 @@ impl ScriptWorld for ServerWorld<'_> {
                 self.player_die(client, -999, 100_000, jkr_game_jka::damage::MOD_FALLING);
             }
             other => {
-                if self
+                if !self
                     .game
                     .script_client_action(client, &other, self.game.last_frame_time)
                 {
-                    return;
+                    self.unapplied("a player", format!("{other:?}"));
                 }
-                let what = format!("{other:?}");
-                let kind = what
-                    .split(['(', ' ', '{'])
-                    .next()
-                    .unwrap_or_default()
-                    .to_owned();
-                self.game
-                    .scripts
-                    .report_once(&format!("client {kind}"), || {
-                        format!("{what} on a player: not applied by this server yet")
-                    });
             }
         }
     }
@@ -608,12 +638,42 @@ impl ScriptWorld for ServerWorld<'_> {
         &mut self,
         _icarus: &mut Icarus<ScriptOwner>,
         _task: i32,
-        _id: ScriptOwner,
+        id: ScriptOwner,
         action: NpcAction,
     ) -> bool {
-        self.game.scripts.report_once("npc", || {
-            format!("{action:?}: NPCs are no script entities on this server yet")
-        });
-        true
+        match id {
+            ScriptOwner::Npc(number) => self.game.script_npc_action(number, action),
+            // A player's leader or look target (`Q3_SetLeader`, `Q3_LookTarget`).
+            _ => {
+                self.unapplied("a player", format!("{action:?}"));
+                true
+            }
+        }
+    }
+}
+
+/// A client's state as a script reads it, from its player state, its `health`, whether
+/// it spectates and its eyes.
+fn client_view(
+    state: &jkr_protocol::PlayerState,
+    health: i32,
+    spectator: bool,
+    eye_point: [f32; 3],
+) -> ClientView {
+    let stat = |index: usize| state.stats[index] as i32;
+    ClientView {
+        health,
+        stat_health: stat(STAT_HEALTH),
+        armor: stat(STAT_ARMOR),
+        max_health: stat(STAT_MAX_HEALTH),
+        velocity: state.velocity(),
+        legs_timer: state.legs_timer(),
+        torso_timer: state.torso_timer(),
+        view_height: state.view_height(),
+        spectator,
+        temp_spectating: false,
+        saber_holstered: i32::from(state.saber_holstered()),
+        sabers_off: state.saber_holstered() != 0,
+        eye_point,
     }
 }

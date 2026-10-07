@@ -3428,3 +3428,6 @@ mod bridge_target_actions;
 
 #[path = "bridge_script_client.rs"]
 mod bridge_script_client;
+
+#[path = "bridge_script_npcs.rs"]
+mod bridge_script_npcs;
