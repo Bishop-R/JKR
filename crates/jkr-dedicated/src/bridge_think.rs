@@ -36,6 +36,11 @@ impl NativeGame {
         self.board_from_ground(client, None, level_time);
         self.riding_move(client);
         self.space_gravity(client);
+        // jaPRO's `g_flagDrag`, which only the server's `Pmove` runs.
+        let flag_drag = self.flag_drag;
+        if let Some(peer) = self.peer_mut(client) {
+            peer.movement.set_flag_drag(flag_drag);
+        }
         // Whom a rocket's lock may hold on: a living foe (`OnSameTeam` in team games only).
         let own_team = self.peer_mut(client).map_or(0, |peer| peer.session.team);
         let mut foes = 0_u64;

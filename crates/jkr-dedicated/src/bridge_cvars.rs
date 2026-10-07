@@ -83,6 +83,8 @@ impl NativeGame {
                 | "g_weapondisable"
                 | "g_duelweapondisable" => self.refresh_rule_settings(),
                 "sv_cheats" => self.settings.cheats = integer != 0,
+                "g_flagdrag" => self.flag_drag = var.value(),
+                "g_fixflaghitbox" => self.wide_flag_box = integer != 0,
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }

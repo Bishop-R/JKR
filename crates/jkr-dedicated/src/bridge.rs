@@ -295,6 +295,10 @@ pub struct NativeGame {
     map_effects: bridge_map_effects::MapEffects,
     /// jaPRO's team locks (`amLockTeam`), cleared with each map.
     team_locks: crate::admin::TeamLocks,
+    /// jaPRO's `g_flagDrag`, kept from the cvar: a flag carrier's drag in the air.
+    flag_drag: f32,
+    /// jaPRO's `g_fixFlagHitbox`, kept from the cvar: flags are taken from further.
+    wide_flag_box: bool,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -492,6 +496,8 @@ impl NativeGame {
             mounted: Default::default(),
             map_effects: Default::default(),
             team_locks: Default::default(),
+            flag_drag: 0.0,
+            wide_flag_box: false,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -1112,6 +1118,7 @@ impl NativeGame {
         {
             return;
         }
+        let wide_flag_box = self.wide_flag_box;
         for index in 0..self.items.len() {
             let (number, pickup) = &self.items[index];
             let (number, item, origin, contents, dropped) = (
@@ -1127,7 +1134,13 @@ impl NativeGame {
             let Some(peer) = self.peer_mut(client) else {
                 return;
             };
-            if !jkr_game_jka::items::touches(peer.state.origin(), origin) {
+            let flag = jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Team;
+            let touched = if flag && wide_flag_box {
+                jkr_game_jka::items::touches_flag(peer.state.origin(), origin)
+            } else {
+                jkr_game_jka::items::touches(peer.state.origin(), origin)
+            };
+            if !touched {
                 continue;
             }
             // A flag (`Pickup_Team`); one returned or captured may have changed the items.

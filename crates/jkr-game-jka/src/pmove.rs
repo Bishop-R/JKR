@@ -234,6 +234,10 @@ pub struct MovementConfig {
     /// (`g_fixSaberMoveData`, `g_fixWeaponAttackAnim`, `g_fixRunWalkAnims`, bits 0-2).
     /// A retail server publishes none and runs none.
     pub legacy_fixes: u32,
+    /// jaPRO's `g_flagDrag`: a flag carrier off the ground loses this tenth of its speed a
+    /// second ([`Predictor::set_flag_drag`]); 0, as everywhere but on such a server's own
+    /// `Pmove` (`#ifdef _GAME`), is none.
+    pub flag_drag: f32,
 }
 
 impl Default for MovementConfig {
@@ -249,6 +253,7 @@ impl Default for MovementConfig {
             authoritative: false,
             // The reference server's cvar defaults: every fix on.
             legacy_fixes: 0b111,
+            flag_drag: 0.0,
         }
     }
 }
@@ -839,6 +844,11 @@ impl Predictor {
     /// Update server-advertised roll policy without changing predicted state.
     pub fn set_roll_rules(&mut self, rules: crate::pmove_roll::RollRules) {
         self.config.roll_rules = rules;
+    }
+
+    /// jaPRO's `g_flagDrag` for the server's own moves ([`MovementConfig::flag_drag`]).
+    pub fn set_flag_drag(&mut self, drag: f32) {
+        self.config.flag_drag = drag;
     }
 
     /// Refresh movement policy without discarding the replay state.

@@ -379,6 +379,18 @@ pub fn touches(player: [f32; 3], item: [f32; 3]) -> bool {
         || player[2] - item[2] < -36.0)
 }
 
+/// jaPRO's `g_fixFlagHitbox` box for a flag (`BG_PlayerTouchesItem`): 52 each way across,
+/// 68 above the flag and 36 below. jaPRO matches the flags' tags whatever the item, which
+/// also widens the pistol's, blaster's and disruptor's boxes; here it is the flags alone.
+pub fn touches_flag(player: [f32; 3], item: [f32; 3]) -> bool {
+    !(player[0] - item[0] > 52.0
+        || player[0] - item[0] < -52.0
+        || player[1] - item[1] > 52.0
+        || player[1] - item[1] < -52.0
+        || player[2] - item[2] > 68.0
+        || player[2] - item[2] < -36.0)
+}
+
 /// `BG_CanItemBeGrabbed` (`bg_misc.c:2068-2210`) for an ordinary deathmatch player: a
 /// weapon it already has is left (the thrown ones go by their ammo), ammo and armour and
 /// health only below their maxima (the small and mega healths up to twice the maximum),

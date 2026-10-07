@@ -1,7 +1,8 @@
-//! jaPRO's flag throwing on this server ([`jkr_game_jka::flag_throw`]): its options
-//! (`g_allowFlagThrow`, `g_fixFlagSuicide`, both off as in jaPRO), `throwflag`, the
-//! thrower's second before touching a flag again, and a flag that comes to rest in a
-//! death pit going home.
+//! jaPRO's flag options on this server: throwing ([`jkr_game_jka::flag_throw`];
+//! `g_allowFlagThrow`, `g_fixFlagSuicide`), `throwflag`, the thrower's second before
+//! touching a flag again, a flag that comes to rest in a death pit going home, thrown
+//! flags knocked and punted; and the carriers' air drag (`g_flagDrag`) and the flags'
+//! wider pickup box (`g_fixFlagHitbox`), which the cvar hook keeps. All off, as in jaPRO.
 
 use super::bridge_cheats::{ALIVE, NO_INTERMISSION};
 use super::*;
@@ -9,6 +10,8 @@ use jkr_game_jka::flag_throw::{self, FlagRules};
 
 const ALLOW_FLAG_THROW: &[u8] = b"g_allowFlagThrow";
 const FIX_FLAG_SUICIDE: &[u8] = b"g_fixFlagSuicide";
+const FLAG_DRAG: &[u8] = b"g_flagDrag";
+const FIX_FLAG_HITBOX: &[u8] = b"g_fixFlagHitbox";
 /// `GT_CTF`: the only game `throwflag` works in here (jaPRO's neutral-flag modes are
 /// not ported).
 const GT_CTF: i32 = 8;
@@ -16,9 +19,9 @@ const GT_CTF: i32 = 8;
 const CONTENTS_TRIGGER: u32 = 0x400;
 
 impl NativeGame {
-    /// `g_allowFlagThrow` and `g_fixFlagSuicide`, archived and announced, off (jaPRO's).
-    pub(super) fn register_flag_throw(&mut self) {
-        let options: [(&[u8], &[u8]); 2] = [
+    /// The flag options, archived and announced, off (jaPRO's).
+    pub(super) fn register_flag_options(&mut self) {
+        let options: [(&[u8], &[u8]); 4] = [
             (
                 ALLOW_FLAG_THROW,
                 b"jaPRO: CTF carriers may throw the flag (throwflag)",
@@ -27,6 +30,8 @@ impl NativeGame {
                 FIX_FLAG_SUICIDE,
                 b"jaPRO: a suicide drops the flag instead of sending it home",
             ),
+            (FLAG_DRAG, b"jaPRO: a flag carrier's drag in the air"),
+            (FIX_FLAG_HITBOX, b"jaPRO: flags are taken from further away"),
         ];
         for (name, about) in options {
             self.cvars

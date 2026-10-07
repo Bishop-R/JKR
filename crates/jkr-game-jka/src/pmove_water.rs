@@ -98,6 +98,15 @@ impl Predictor {
         } else if self.state.ground_entity_number < 32 {
             drop = 0.0;
         }
+        // jaPRO's `g_flagDrag` (the server's own `Pmove`): a flag carrier whose ground
+        // trace met nothing is slowed by its share of the speed, in place of any other
+        // drop (`speed * g_flagDrag.value * 0.1 * pml.frametime`, a double product).
+        let carrying = self.state.powerup_deadlines[4..=6]
+            .iter()
+            .any(|&until| until != 0);
+        if self.config.flag_drag != 0.0 && carrying && ground.trace.fraction == 1.0 {
+            drop = (f64::from(speed * self.config.flag_drag) * 0.1 * f64::from(seconds)) as f32;
+        }
         velocity *= (speed - drop).max(0.0) / speed;
         self.state.velocity = velocity.to_array();
     }
@@ -189,5 +198,65 @@ impl Predictor {
             .to_array();
         }
         self.slide_move(false, seconds, bounds, ground, collision);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::pmove::{MovementCollision, MovementConfig, MovementTrace, Predictor};
+    use jkr_protocol::{PlayerState, UserCommand};
+
+    struct Open;
+
+    impl MovementCollision for Open {
+        fn trace(
+            &self,
+            _: [f32; 3],
+            _: [f32; 3],
+            _: [f32; 3],
+            end: [f32; 3],
+            _: u32,
+        ) -> MovementTrace {
+            MovementTrace::miss(end)
+        }
+    }
+
+    /// A player flying at 400 for 50 ms, with or without a flag, under `drag`.
+    fn flown(drag: f32, flag: bool) -> [f32; 3] {
+        let mut state = PlayerState::default();
+        state.stats[0] = 100;
+        state.set_speed(250.0);
+        state.set_gravity(800);
+        state.set_velocity([400.0, 0.0, 0.0]);
+        state.set_ground_entity_num(1_023);
+        if flag {
+            state.powerups[4] = i32::MAX as u32;
+        }
+        let config = MovementConfig {
+            authoritative: true,
+            flag_drag: drag,
+            ..Default::default()
+        };
+        let mut movement = Predictor::from_player_state(&state, config);
+        let command = UserCommand {
+            server_time: 50,
+            ..Default::default()
+        };
+        movement.predict_command(command, &Open);
+        movement.write_player_state(&mut state);
+        state.velocity()
+    }
+
+    /// jaPRO's `g_flagDrag` (`bg_pmove.c:1381-1385`, its game's `Pmove` only): a carrier
+    /// in the air loses `speed * drag * 0.1` a second; nobody else, and nobody without it.
+    #[test]
+    fn a_flag_carrier_in_the_air_is_dragged() {
+        let free = flown(0.0, true);
+        assert_eq!(flown(2.0, false), free);
+        let dragged = flown(2.0, true);
+        assert!(
+            (free[0] - dragged[0] - 4.0).abs() < 0.01,
+            "{free:?} {dragged:?}"
+        );
     }
 }
