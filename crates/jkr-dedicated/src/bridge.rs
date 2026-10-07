@@ -1655,6 +1655,17 @@ impl NativeGame {
                     peer.session.duel_team,
                 )
             });
+        // jaPRO's `g_duelRespawn`: where it fell, unless a living player stands there.
+        let place = match peer.duel_respawn.take() {
+            Some((spot, yaw)) if spot != [0.0; 3] && !living_player_at(obstacles, spot) => {
+                SpawnPlace {
+                    origin: spot,
+                    angles: [place.angles[0], yaw, place.angles[2]],
+                    ..place
+                }
+            }
+            _ => place,
+        };
         let Some(begun) = client_respawn(
             client as u16,
             &mut peer.session,
@@ -1740,6 +1751,7 @@ impl NativeGame {
         if !self.power_duel_death_begins(server_time) {
             return;
         }
+        self.note_duel_death(client, request.means);
         self.eject_on_death(client, server_time);
         // "Make sure the jetpack is turned off" (`player_die`).
         if let Some(peer) = self.peer_mut(client) {
@@ -3515,7 +3527,7 @@ mod bridge_demos;
 #[path = "bridge_intermission.rs"]
 mod bridge_intermission;
 use bridge_cvars::{SERVERINFO_DEFAULTS, server_info_with};
-use bridge_spawn::spawn_place;
+use bridge_spawn::{living_player_at, spawn_place};
 
 #[path = "bridge_bots.rs"]
 mod bridge_bots;
@@ -3541,6 +3553,8 @@ mod bridge_collision_gather;
 mod bridge_damage_numbers;
 #[path = "bridge_doors.rs"]
 mod bridge_doors;
+#[path = "bridge_duel_options.rs"]
+mod bridge_duel_options;
 #[path = "bridge_emotes.rs"]
 mod bridge_emotes;
 #[path = "bridge_flag_throw.rs"]

@@ -176,10 +176,10 @@ impl NativeGame {
         if hit.fraction == 1.0 || other >= self.players.places() || other == client {
             return;
         }
-        let gametype = self.gametype;
+        let (gametype, rules) = (self.gametype, self.duel_rules());
         let told = self
             .with_duellists(client, other, |me, them| {
-                them.map(|them| duel::engage(me, them, gametype, level_time))
+                them.map(|them| duel::engage(me, them, gametype, level_time, rules))
             })
             .flatten();
         if let Some(told) = told {
@@ -199,8 +199,9 @@ impl NativeGame {
         }
         let other = usize::from(peer.state.duel_index());
         let mut told = duel::Told::default();
+        let distance_limit = self.duel_rules().distance_limit;
         let Some(thought) = self.with_duellists(client, other, |me, them| {
-            duel::think(me, them, level_time, &mut told)
+            duel::think(me, them, level_time, distance_limit, &mut told)
         }) else {
             return;
         };

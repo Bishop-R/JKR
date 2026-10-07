@@ -27,7 +27,30 @@ const PS_SABER_IN_FLIGHT: usize = 88;
 const PS_DUEL_TIME: usize = 118;
 const PS_DUEL_IN_PROGRESS: usize = 119;
 const STAT_HEALTH: usize = 0;
+const STAT_ARMOR: usize = 5;
 const STAT_MAX_HEALTH: usize = 8;
+
+/// jaPRO's duel options (`g_duelStartHealth`, `g_duelStartArmor`, `g_duelDistanceLimit`);
+/// the defaults are stock's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DuelRules {
+    /// The duellists' health once a duel is accepted; 0 leaves it as it is.
+    pub start_health: i32,
+    /// Their armour then (only with a start health).
+    pub start_armor: i32,
+    /// A duel ends when the two are 1024 apart (stock; jaPRO's default lifts it).
+    pub distance_limit: bool,
+}
+
+impl Default for DuelRules {
+    fn default() -> Self {
+        Self {
+            start_health: 0,
+            start_armor: 0,
+            distance_limit: true,
+        }
+    }
+}
 const WP_SABER: u32 = 3;
 const HANDEXTEND_DUELCHALLENGE: u32 = 9;
 const EF_INVULNERABLE: u32 = 1 << 27;
@@ -138,8 +161,15 @@ pub fn may_challenge(
 /// The rest of `Cmd_EngageDuel_f` for `me`, whose trace struck `other` (a client
 /// number): accepted if `other` challenged `me` and its challenge stands, else a
 /// challenge — either way `me` gestures and names `other` for five seconds. Nothing for
-/// one dead, without its saber in hand, duelling or with its saber thrown.
-pub fn engage(me: &mut Duellist, other: &mut Duellist, gametype: i32, level_time: i32) -> Told {
+/// one dead, without its saber in hand, duelling or with its saber thrown. Accepted under
+/// jaPRO's `g_duelStartHealth`, both start with that health and `rules`' armour.
+pub fn engage(
+    me: &mut Duellist,
+    other: &mut Duellist,
+    gametype: i32,
+    level_time: i32,
+    rules: DuelRules,
+) -> Told {
     let mut told = Told::default();
     let field = |state: &PlayerState, index: usize| state.raw_field(index).unwrap_or(0);
     if other.number >= MAX_CLIENTS
@@ -189,6 +219,16 @@ pub fn engage(me: &mut Duellist, other: &mut Duellist, gametype: i32, level_time
                 state.set_raw_field(PS_SABER_HOLSTERED, 2);
             }
         }
+        if rules.start_health != 0 {
+            for (state, health) in [
+                (&mut *me.state, &mut *me.health),
+                (&mut *other.state, &mut *other.health),
+            ] {
+                state.stats[STAT_ARMOR] = rules.start_armor as u32;
+                *health = rules.start_health;
+                state.stats[STAT_HEALTH] = rules.start_health as u32;
+            }
+        }
     } else {
         told.commands.push((
             Some(other.number),
@@ -233,11 +273,12 @@ pub struct Thought {
 /// `ClientThink_real`'s duel for `me`, duelling `against` (`None` for one gone): the
 /// sabers lit once the wait is over; the duel ended when the other is gone or no longer
 /// duels `me`, when it is dead (the winner healed and protected), or when they are 1024
-/// units apart.
+/// units apart (unless jaPRO's `g_duelDistanceLimit 0` lifts that, `distance_limit`).
 pub fn think(
     me: &mut Duellist,
     against: Option<&mut Duellist>,
     level_time: i32,
+    distance_limit: bool,
     told: &mut Told,
 ) -> Thought {
     let mut thought = Thought::default();
@@ -312,10 +353,76 @@ pub fn think(
         .map(|axis| (mine[axis] - theirs[axis]) * (mine[axis] - theirs[axis]))
         .sum::<f32>()
         .sqrt();
-    if apart >= 1_024.0 {
+    if distance_limit && apart >= 1_024.0 {
         end_both(me, other, told);
         told.commands
             .push((None, b"print \"@@@PLDUELSTOP\n\"".to_vec()));
     }
     thought
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two saber players, `b` having challenged `a` (number 0) until 5000.
+    fn pair() -> (PlayerState, PlayerState) {
+        let (mut a, mut b) = (PlayerState::default(), PlayerState::default());
+        for state in [&mut a, &mut b] {
+            state.set_raw_field(PS_WEAPON, WP_SABER);
+            state.stats[STAT_HEALTH] = 100;
+        }
+        b.set_raw_field(PS_DUEL_INDEX, 0);
+        b.set_raw_field(PS_DUEL_TIME, 5_000);
+        (a, b)
+    }
+
+    #[test]
+    fn an_accepted_duel_starts_with_japros_health_and_armour() {
+        for (rules, expected) in [
+            (DuelRules::default(), (100, 0)),
+            (
+                DuelRules {
+                    start_health: 250,
+                    start_armor: 50,
+                    ..DuelRules::default()
+                },
+                (250, 50),
+            ),
+        ] {
+            let (mut a, mut b) = pair();
+            let (mut health_a, mut health_b) = (100, 100);
+            let (mut hand_a, mut hand_b, mut until_a, mut until_b) = (0, 0, 0, 0);
+            let mut me = Duellist {
+                number: 0,
+                state: &mut a,
+                health: &mut health_a,
+                name: b"a",
+                hand_extend_time: &mut hand_a,
+                invulnerable_until: &mut until_a,
+                team: 0,
+            };
+            let mut other = Duellist {
+                number: 1,
+                state: &mut b,
+                health: &mut health_b,
+                name: b"b",
+                hand_extend_time: &mut hand_b,
+                invulnerable_until: &mut until_b,
+                team: 0,
+            };
+            let _ = engage(&mut me, &mut other, 0, 1_000, rules);
+            assert!(a.duel_in_progress() && b.duel_in_progress());
+            for (health, state) in [(health_a, &a), (health_b, &b)] {
+                assert_eq!(
+                    (
+                        health,
+                        state.stats[STAT_HEALTH] as i32,
+                        state.stats[STAT_ARMOR] as i32
+                    ),
+                    (expected.0, expected.0, expected.1)
+                );
+            }
+        }
+    }
 }

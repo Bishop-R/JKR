@@ -158,6 +158,9 @@ pub struct Peer {
     pub(crate) last_flag_throw: i32,
     /// jaPRO's flag timer (`pers.stats`), run under `g_fixCTFScores`.
     pub(crate) flag_timer: jkr_game_jka::japro_ctf::FlagTimer,
+    /// jaPRO's `pers.respawnLocation` and `respawnAngle` (`g_duelRespawn`): where the
+    /// next spawn is, after a death in a duel.
+    pub(crate) duel_respawn: Option<([f32; 3], f32)>,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -300,6 +303,7 @@ impl Peer {
             telemark: ([0.0; 3], [0.0; 2]),
             last_flag_throw: 0,
             flag_timer: Default::default(),
+            duel_respawn: None,
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),
