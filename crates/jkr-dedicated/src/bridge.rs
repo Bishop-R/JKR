@@ -1614,6 +1614,7 @@ impl NativeGame {
         // A carrier's item drops (or goes home) at once; a hack ends.
         self.siege_carrier_gone(client, server_time);
         self.siege_hack_ends(client);
+        self.det_packs_on_death(client, request.means, server_time);
         if let Some(killer) = request
             .attacker
             .filter(|killer| usize::from(*killer) != client)
@@ -3440,3 +3441,6 @@ mod bridge_script_npcs;
 
 #[path = "bridge_kicks.rs"]
 mod bridge_kicks;
+
+#[path = "bridge_det_packs.rs"]
+mod bridge_det_packs;

@@ -431,6 +431,29 @@ pub fn blow_det_packs<K>(
     true
 }
 
+/// `RemoveDetpacks` (`g_weapon.c`), a Siege team change's in place of [`blow_det_packs`]:
+/// with `hasDetPackPlanted`, every det pack of `owner`'s is freed at its next think, now,
+/// and the flag cleared. Returns whether any were.
+pub fn remove_det_packs<K>(
+    state: &mut PlayerState,
+    charges: &mut [(K, Charge)],
+    level_time: i32,
+) -> bool {
+    if state.raw_field(PS_HAS_DETPACK_PLANTED).unwrap_or(0) == 0 {
+        return false;
+    }
+    for (_, charge) in charges.iter_mut() {
+        if charge.kind != Kind::DetPack || charge.missile.owner != state.client_num() {
+            continue;
+        }
+        write_vector(&mut charge.missile.state, ES_ORIGIN, charge.missile.current);
+        charge.phase = Phase::Freeing;
+        charge.next_think = level_time;
+    }
+    state.set_raw_field(PS_HAS_DETPACK_PLANTED, 0);
+    true
+}
+
 /// What a frame's run needs beyond the world: the sound table and where a temp entity
 /// goes.
 pub struct ChargeFrame<'a> {
@@ -964,4 +987,79 @@ pub fn blast_request(charge: &Charge, level_time: i32, attacker: Attacker) -> (D
         },
         charge.missile.splash_radius,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Client `client` with a det pack out, and a det pack each for it and client 7.
+    fn planted(client: u16) -> (PlayerState, Vec<((), Charge)>) {
+        let mut state = PlayerState::zero();
+        state.set_client_num(client);
+        state.set_raw_field(PS_HAS_DETPACK_PLANTED, 1);
+        let mut other = PlayerState::zero();
+        other.set_client_num(7);
+        let mut rand = CrtRand::new(1);
+        let mut drop = |state: &PlayerState, x: f32| {
+            let mut charge = drop_det_pack(state, [x, 0.0, 0.0], [1.0, 0.0, 0.0], 9, 0, &mut rand);
+            charge.phase = Phase::Planted;
+            charge.next_think = 0;
+            ((), charge)
+        };
+        let charges = vec![drop(&state, 10.0), drop(&other, 20.0)];
+        (state, charges)
+    }
+
+    #[test]
+    fn a_death_blows_the_players_det_packs_and_a_siege_team_change_frees_them() {
+        let (mut state, mut charges) = planted(3);
+        let (mut sounds, mut raised) = (Vec::new(), 0);
+        let mut frame = ChargeFrame {
+            sounds: &mut |name| {
+                sounds.push(name.to_vec());
+                5
+            },
+            raise: &mut |_| raised += 1,
+        };
+        assert!(blow_det_packs(
+            &mut state,
+            &mut charges,
+            1_000,
+            &mut Rng(0),
+            &mut frame
+        ));
+        assert_eq!(state.raw_field(PS_HAS_DETPACK_PLANTED), Some(0));
+        // With the flag down there is nothing more to blow.
+        let before = charges.clone();
+        assert!(!blow_det_packs(
+            &mut state,
+            &mut charges,
+            1_000,
+            &mut Rng(0),
+            &mut frame
+        ));
+        assert_eq!(charges, before);
+        let blowing = &charges[0].1;
+        assert_eq!(blowing.phase, Phase::Planted);
+        assert!((1_100..=1_300).contains(&blowing.next_think));
+        assert_eq!(read_vector(&blowing.missile.state, ES_ORIGIN)[0], 6.0);
+        assert_eq!(charges[1].1.next_think, 0);
+        assert_eq!(
+            (sounds, raised),
+            (vec![b"sound/weapons/detpack/warning.wav".to_vec()], 1)
+        );
+
+        let (mut state, mut charges) = planted(3);
+        assert!(remove_det_packs(&mut state, &mut charges, 2_000));
+        assert_eq!(
+            (charges[0].1.phase, charges[0].1.next_think),
+            (Phase::Freeing, 2_000)
+        );
+        assert_eq!(
+            (charges[1].1.phase, charges[1].1.next_think),
+            (Phase::Planted, 0)
+        );
+        assert_eq!(state.raw_field(PS_HAS_DETPACK_PLANTED), Some(0));
+    }
 }
