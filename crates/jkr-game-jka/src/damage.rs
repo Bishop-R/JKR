@@ -777,22 +777,42 @@ const PS_ELECTRIFY_TIME: usize = 73;
 pub const DF_NO_FALLING: u32 = 8;
 
 /// `ClientEvents`' `EV_FALL`/`EV_ROLL` (`g_active.c:949-1010`): what a landing of `delta`
-/// costs — nothing up to 44, else `delta * 0.16` truncated; a player landing while
+/// costs — nothing with `dmflags`' `DF_NO_FALLING` or up to 44, else `delta * 0.16`
+/// truncated, or in siege (`siege`) the whole delta above 60; a player landing while
 /// knocked down (`BG_InKnockDownOnly` on its legs, `knocked_down`) suffers the whole
-/// delta above 14. The caller then damages the player from the world with
-/// `DAMAGE_NO_ARMOR` and `MOD_FALLING`, after setting its `pain_debounce_time` 200 ms on
-/// (no ordinary pain sound), and plays the splat where the fall killed.
-pub fn fall_damage(delta: i32, dmflags: u32, knocked_down: bool) -> Option<i32> {
+/// delta above 14. jaPRO's `g_maxFallDmg` (`cap`, 0 for none) caps a knocked-down
+/// landing and an ordinary one, not siege's long falls. The caller then damages the
+/// player from the world with `DAMAGE_NO_ARMOR` and `MOD_FALLING`, after setting its
+/// `pain_debounce_time` 200 ms on (no ordinary pain sound), and plays the splat where the
+/// fall killed.
+pub fn fall_damage(
+    delta: i32,
+    dmflags: u32,
+    knocked_down: bool,
+    siege: bool,
+    cap: i32,
+) -> Option<i32> {
     if dmflags & DF_NO_FALLING != 0 {
         return None;
     }
     if knocked_down {
-        return (delta > 14).then_some(delta);
+        if delta <= 14 {
+            return None;
+        }
+        return Some(if cap != 0 && delta >= cap { cap } else { delta });
     }
     if delta <= 44 {
         return None;
     }
-    Some((f64::from(delta) * 0.16) as i32)
+    if siege && delta > 60 {
+        return Some(delta);
+    }
+    let damage = f64::from(delta) * 0.16;
+    Some(if cap != 0 && damage >= f64::from(cap) {
+        cap
+    } else {
+        damage as i32
+    })
 }
 
 /// `P_DamageFeedback` (`g_active.c:53-135`), at the end of every frame for a living
@@ -1023,6 +1043,20 @@ mod tests {
 
     /// `g_combat.c:4934-4945`: half outside siege (or jaPRO's scale), half as much again in
     /// siege whatever the scale.
+    /// `g_active.c:949-1010`, with jaPRO's cap.
+    #[test]
+    fn landings_cost_by_the_rules() {
+        assert_eq!(fall_damage(44, 0, false, false, 0), None);
+        assert_eq!(fall_damage(100, 0, false, false, 0), Some(16));
+        assert_eq!(fall_damage(100, DF_NO_FALLING, false, false, 0), None);
+        assert_eq!(fall_damage(100, 0, false, true, 0), Some(100));
+        assert_eq!(fall_damage(60, 0, false, true, 0), Some(9));
+        assert_eq!(fall_damage(20, 0, true, false, 0), Some(20));
+        assert_eq!(fall_damage(100, 0, false, false, 10), Some(10));
+        assert_eq!(fall_damage(100, 0, true, false, 30), Some(30));
+        assert_eq!(fall_damage(100, 0, false, true, 10), Some(100));
+    }
+
     #[test]
     fn a_blow_on_oneself_lands_by_the_gametype() {
         assert_eq!(self_damage(0, 0.5), 0.5);

@@ -463,13 +463,16 @@ impl NativeGame {
     /// ordinary pain sound for 200 ms; a landing that kills plays the splat, whose sound
     /// is registered as it is first needed.
     pub(super) fn fell(&mut self, client: usize, delta: i32, level_time: i32) {
-        let Some(peer) = self.peer_mut(client) else {
+        let Some(peer) = self.peer(client) else {
             return;
         };
         let knocked_down = jkr_game_jka::knockdown::in_knockdown_only(
             peer.state.raw_field(13).unwrap_or(0) as u16,
         );
-        let Some(points) = fall_damage(delta, 0, knocked_down) else {
+        let Some(points) = self.landing_damage(delta, knocked_down) else {
+            return;
+        };
+        let Some(peer) = self.peer_mut(client) else {
             return;
         };
         peer.wounds.pain_debounce_time = level_time + 200;

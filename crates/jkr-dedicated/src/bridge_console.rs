@@ -153,7 +153,7 @@ impl NativeGame {
         self.register_flag_options();
         self.register_duel_options();
         self.register_starting_items();
-        self.register_weapon_options();
+        self.register_damage_options();
         self.open_log();
         self.start_warmup();
         // `G_InitBots`.

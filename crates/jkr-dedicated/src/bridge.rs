@@ -17,7 +17,7 @@ use jkr_game_jka::{
     crt_rand::CrtRand,
     damage::{
         Attacker, DAMAGE_NO_ARMOR, DAMAGE_NO_PROTECTION, DamageRequest, Damaged, HitLocation,
-        MOD_FALLING, SplashTarget, Target, Wounds, damage_at, fall_damage, radius_damage,
+        MOD_FALLING, SplashTarget, Target, Wounds, damage_at, radius_damage,
     },
     demp2::{ShockTarget, Sphere, SphereRun, run_sphere},
     disruptor::{
@@ -3567,6 +3567,8 @@ mod bridge_client_spawn;
 mod bridge_collision_gather;
 #[path = "bridge_damage_numbers.rs"]
 mod bridge_damage_numbers;
+#[path = "bridge_damage_options.rs"]
+mod bridge_damage_options;
 #[path = "bridge_doors.rs"]
 mod bridge_doors;
 #[path = "bridge_duel_options.rs"]
@@ -3611,8 +3613,6 @@ mod bridge_stock_rules;
 mod bridge_teleport;
 #[path = "bridge_use.rs"]
 mod bridge_use;
-#[path = "bridge_weapon_options.rs"]
-mod bridge_weapon_options;
 #[path = "bridge_world_effects.rs"]
 mod bridge_world_effects;
 pub(crate) use bridge_saber::PlayerSkeleton;
