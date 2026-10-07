@@ -331,6 +331,18 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Show BOT instead of a bot's ping on the scoreboard",
         ),
         CvarDefinition::new(
+            "cg_fovViewmodel",
+            0_i64,
+            CvarFlags::ARCHIVE,
+            "Field of view the first-person weapon is drawn at (0: cg_fov)",
+        ),
+        CvarDefinition::new(
+            "cg_fovViewmodelAdjust",
+            true,
+            CvarFlags::ARCHIVE,
+            "Lower the first-person weapon at fields of view over 90",
+        ),
+        CvarDefinition::new(
             "cg_fpls",
             false,
             CvarFlags::NONE,

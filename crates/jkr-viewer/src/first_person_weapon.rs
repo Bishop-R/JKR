@@ -117,6 +117,8 @@ pub(crate) struct Inputs {
     pub(crate) weapon: u8,
     pub(crate) frames: LegacyViewWeaponFrames,
     pub(crate) pose: LegacyViewWeaponPose,
+    /// `cg_fovViewmodel`'s stretch of the hand's forward axis; 1 while it is off.
+    pub(crate) stretch: f32,
 }
 
 /// First-person view of the local player: eye origin and look angles.
@@ -171,6 +173,10 @@ pub(crate) fn frame_inputs(
             (camera.yaw, camera.pitch)
         });
         inputs.pose.origin = offsets::apply(inputs.pose.origin, yaw, pitch, state.console.as_ref());
+        // `cg.refdef.fov_x`, from the vertical field of view the frame keeps.
+        let aspect = state.configuration.width as f32 / state.configuration.height as f32;
+        let fov_x = 2.0 * ((state.field_of_view.to_radians() * 0.5).tan() * aspect).atan();
+        inputs.stretch = offsets::stretch(state.console.as_ref(), fov_x.to_degrees());
         inputs
     })
 }
@@ -213,6 +219,7 @@ fn inputs_with_weapon(
             presentation_time,
             bobs,
         ),
+        stretch: 1.0,
     })
 }
 
@@ -248,14 +255,21 @@ pub(crate) fn submit(
     for (tag, mesh) in
         std::iter::once((entry.tag_weapon, entry.gun_mesh)).chain(entry.barrels.iter().copied())
     {
-        let tag = entry.hand.lerp_tag(
+        let mut tag = entry.hand.lerp_tag(
             tag,
             frames.old_frame as usize,
             frames.frame as usize,
             front_lerp,
         );
+        // A stretched hand axis carries what hangs on its tags: the tag's offset along it,
+        // and each of the part's axes by its share of it (exact for the tags turned by
+        // quarter turns, the nearest per-axis scale for the others).
+        tag.origin[0] *= inputs.stretch;
         let (origin, rotation) = position_on_tag(hand_origin, hand_rotation, &tag);
-        let mut instance = ActorInstance::new(origin.to_array(), rotation.to_array(), [1.0; 3]);
+        let scale = tag
+            .axes
+            .map(|axis| 1.0 + (inputs.stretch - 1.0) * axis[0] * axis[0]);
+        let mut instance = ActorInstance::new(origin.to_array(), rotation.to_array(), scale);
         instance.depth_hack = 1.0;
         object_groups[mesh].push(instance);
         submitted += 1;
