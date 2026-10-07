@@ -460,7 +460,7 @@ fn submit_actor(
             .dissolve
             .phase(presentation_time, entity.kind == EntityKind::Corpse)
     });
-    if let (Some(index), Some(_)) = (mesh, dissolving) {
+    if let (Some(index), Some(_), true) = (mesh, dissolving, actor_dissolve::DEATH_SMOKE) {
         dissolve_smoke(sinks, index, *transform, entity.id.get(), visual_now);
     }
     if dissolving == Some(actor_dissolve::Phase::Gone) {
@@ -515,6 +515,21 @@ fn submit_actor(
         )
         .with_entity_color(entity.color());
         instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
+        if let Some(actor_dissolve::Phase::Burning { since }) = dissolving {
+            instance = burning(
+                sinks,
+                mesh,
+                instance,
+                entity,
+                *transform,
+                (
+                    state,
+                    snapshot.filter(|_| local).map(|snapshot| &snapshot.player),
+                ),
+                since,
+                presentation_time,
+            );
+        }
         sinks.actor_groups[mesh].push(instance);
         sinks.actor_meshes[mesh]
             .retained_pose
@@ -550,6 +565,40 @@ fn submit_actor(
         });
     }
     0
+}
+
+/// A burning actor's two passes (`CG_Disintegration`): `instance` returned as the body
+/// (`RF_DISINTEGRATE1`), and the glow of `gfx/effects/burn` queued over it
+/// (`RF_DISINTEGRATE2`). `hit` holds the entity's state and, for the local player, its own.
+#[allow(clippy::too_many_arguments)]
+fn burning(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    instance: ActorInstance,
+    entity: &jkr_runtime::SceneEntity,
+    transform: jkr_runtime::Transform,
+    hit: (
+        Option<&jkr_protocol::EntityState>,
+        Option<&jkr_protocol::PlayerState>,
+    ),
+    since: i64,
+    now: i64,
+) -> ActorInstance {
+    let view_yaw = entity
+        .sample_pose(now)
+        .map_or(0.0, |pose| pose.view_angles_degrees[1]);
+    let origin = transform.translation;
+    let hit = actor_dissolve::hit_point(hit.0, hit.1).unwrap_or(origin);
+    let (center, radius) = actor_dissolve::burn(hit, origin, view_yaw, since, now);
+    if let Some(material) = sinks.material_overrides.force("gfx/effects/burn") {
+        sinks.overrides.push(entity_materials::OverrideInstance {
+            mesh: entity_materials::OverrideMesh::Actor(mesh),
+            material,
+            instance: instance.with_dissolve(2, center, radius),
+            no_depth: false,
+        });
+    }
+    instance.with_dissolve(1, center, radius)
 }
 
 /// The disruptor's death smoke this frame for the actor drawn with `mesh`

@@ -3,20 +3,28 @@
 //! player's pose holds the legs frame it had then on `model_root`, `lower_lumbar` and
 //! `Motion` (`cg_players.c:10635-10660`); it is drawn without its weapon or Force shells
 //! (`CG_Player` returns before them), with the disruptor's smoke at its waist for the first
-//! second (`CG_Disintegration`, `cg_ents.c:709-727`), and after a second and a half not at
-//! all. A corpse that carries the flag burns the same way but keeps being drawn
+//! second (`CG_Disintegration`, `cg_ents.c:709-727`; see [`DEATH_SMOKE`]), and after a
+//! second and a half not at all. A corpse that carries the flag burns the same way but keeps being drawn
 //! (`CG_General`, `cg_ents.c:1488-1496`); its pose is its death frame already.
 //!
-//! The burn itself — the hole ripped from the hit point and the glowing edge,
-//! `RF_DISINTEGRATE1` and `RF_DISINTEGRATE2` — is not drawn yet: the body is drawn whole
-//! until it goes.
+//! The burn itself is two passes ([`burn`]): the body drawn with a hole ripped from the hit
+//! point and darkened at its edge (`RF_DISINTEGRATE1`), and the glow of
+//! `gfx/effects/burn` over what is left, pushed out where it burns (`RF_DISINTEGRATE2`).
+//! Both skip every colour generator and the lighting (`killGen`), so the body burns unlit;
+//! the body keeps its stages' own blending where the reference forces alpha blending with
+//! a depth write, which only shows at the edge of the hole.
 
 use crate::actor_mesh::ActorMesh;
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use jkr_runtime::EntityId;
 
 /// `EF_DISINTEGRATION` (`bg_public.h`).
 pub(crate) const EF_DISINTEGRATION: u32 = jkr_game_jka::disruptor::EF_DISINTEGRATION;
+/// Whether the death smoke is drawn. Off for now: this client's effect renderer draws
+/// `disruptor/death_smoke` as a bright white column where stock shows a faint haze
+/// (side by side in `target/parity-reports/c5/evidence/`, rd-vanilla against this
+/// renderer); the rolls below are stock's and come back on once it draws as stock does.
+pub(crate) const DEATH_SMOKE: bool = false;
 /// After this long a disintegrating player is drawn no more (`cg_players.c:10643-10647`).
 const GONE_AFTER_MS: i64 = 1_500;
 /// How long the smoke rises (`cg.time - ent->endTime < 1000`).
@@ -222,6 +230,40 @@ pub(crate) fn hold_pose(
         state.lower.transition = None;
         state.upper.transition = None;
     }
+}
+
+/// `CG_Disintegration`'s burn (`cg_ents.c:682-701`) for an actor drawn at `origin` and
+/// facing `view_yaw` degrees (`cent->lerpAngles[YAW]`), hit at `hit`, burning since `since`:
+/// the centre in the model's own space with its scale applied, and the radius at `now`
+/// (`(refdef.time - endTime) * 0.045`, `tr_shade_calc.cpp:1276`).
+pub(crate) fn burn(
+    hit: [f32; 3],
+    origin: [f32; 3],
+    view_yaw: f32,
+    since: i64,
+    now: i64,
+) -> ([f32; 3], f32) {
+    // `oldorigin`: from the origin to the hit, turned by minus the yaw — the reference's
+    // entity space, which turns with the legs while this turns with the view, as there.
+    let offset = Vec3::from_array(hit) - Vec3::from_array(origin);
+    let local = Quat::from_rotation_z(-view_yaw.to_radians()) * offset;
+    // The skinned vertices are a Ghoul2 root turn (+90 degrees about z) short of it.
+    let model = Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2) * local;
+    ((model.to_array()), (now - since) as f32 * 0.045)
+}
+
+/// The point a disintegration burns from: `origin2` (`lastHitLoc`), the local player's
+/// from its own state.
+pub(crate) fn hit_point(
+    state: Option<&jkr_protocol::EntityState>,
+    player: Option<&jkr_protocol::PlayerState>,
+) -> Option<[f32; 3]> {
+    if let Some(player) = player {
+        // `playerState_t.lastHitLoc` (fields 102, 105, 100).
+        let field = |index| player.raw_field(index).map(f32::from_bits);
+        return Some([field(102)?, field(105)?, field(100)?]);
+    }
+    state.map(|state| state.origin2())
 }
 
 /// The legs frame `mesh` is at now (`legs.frame`), for the pose to hold.

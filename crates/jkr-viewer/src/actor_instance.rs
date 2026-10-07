@@ -49,9 +49,11 @@ pub(crate) struct ActorInstance {
     /// submitted to the sky-portal scene (isPortalEnt).
     pub(crate) view_flags: u32,
     pub(crate) light_directed: [f32; 3],
-    _padding4: f32,
+    /// A disintegration's burn radius (`RF_DISINTEGRATE1`/`2`, [`Self::with_dissolve`]).
+    dissolve_radius: f32,
     pub(crate) light_direction: [f32; 3],
-    _padding5: f32,
+    /// The burn's centre in the model's scaled space, packed by [`pack_dissolve_center`].
+    dissolve_center: u32,
 }
 
 impl ActorInstance {
@@ -66,8 +68,9 @@ impl ActorInstance {
         attribute(wgpu::VertexFormat::Float32x2, 64, 9),
         attribute(wgpu::VertexFormat::Float32x2, 72, 10),
         attribute(wgpu::VertexFormat::Float32x3, 80, 11),
-        attribute(wgpu::VertexFormat::Float32x3, 96, 12),
-        attribute(wgpu::VertexFormat::Float32x3, 112, 13),
+        // The fourth components carry a disintegration's radius and packed centre.
+        attribute(wgpu::VertexFormat::Float32x4, 96, 12),
+        attribute(wgpu::VertexFormat::Float32x4, 112, 13),
         attribute(wgpu::VertexFormat::Uint32, 44, 14),
         attribute(wgpu::VertexFormat::Uint32, 92, 15),
     ];
@@ -85,10 +88,25 @@ impl ActorInstance {
             light_ambient: EntityLight::FALLBACK.ambient,
             view_flags: 0,
             light_directed: EntityLight::FALLBACK.directed,
-            _padding4: 0.0,
+            dissolve_radius: 0.0,
             light_direction: EntityLight::FALLBACK.direction,
-            _padding5: 0.0,
+            dissolve_center: 0,
         }
+    }
+
+    /// `view_flags` bits of a disintegration pass: 1 the body (`RF_DISINTEGRATE1`), 2 the
+    /// glow (`RF_DISINTEGRATE2`).
+    pub(crate) const DISSOLVE_SHIFT: u32 = 4;
+
+    /// This instance drawn as a disintegration pass `mode` (1 the body, 2 the glow) burning
+    /// `radius` units out from `center`, a point in the model's own space with its scale
+    /// applied (`RB_CalcDisintegrateColors`, `tr_shade_calc.cpp:1262-1340`).
+    pub(crate) fn with_dissolve(mut self, mode: u32, center: [f32; 3], radius: f32) -> Self {
+        self.view_flags =
+            (self.view_flags & !(3 << Self::DISSOLVE_SHIFT)) | ((mode & 3) << Self::DISSOLVE_SHIFT);
+        self.dissolve_radius = radius;
+        self.dissolve_center = pack_dissolve_center(center);
+        self
     }
 
     /// Replace the entity light consumed by `rgbGen lightingDiffuse`.
@@ -114,6 +132,16 @@ impl ActorInstance {
             attributes: &Self::ATTRIBUTES,
         }
     }
+}
+
+/// A disintegration's centre in a word: each axis a signed ten-bit count of quarter units
+/// (±128 units, well past a body's reach; the burn's bands are seven units and more wide),
+/// x in the low bits. `unpack_dissolve_center` in `vertex_transform.wgsl` reads it back.
+pub(crate) fn pack_dissolve_center(center: [f32; 3]) -> u32 {
+    center.iter().enumerate().fold(0, |packed, (axis, value)| {
+        let quarters = (value * 4.0).round().clamp(-511.0, 511.0) as i32;
+        packed | (((quarters as u32) & 0x3ff) << (10 * axis))
+    })
 }
 
 /// Rendering metadata only; snapshot state takes precedence over baselines.
@@ -154,5 +182,28 @@ const fn attribute(
         format,
         offset,
         shader_location,
+    }
+}
+
+#[cfg(test)]
+mod dissolve_tests {
+    use super::*;
+
+    #[test]
+    fn a_burn_centre_packs_to_quarter_units() {
+        let packed = pack_dissolve_center([1.25, -3.5, 40.0]);
+        let field = |axis: u32| {
+            let raw = ((packed >> (10 * axis)) & 0x3ff) as i32;
+            (if raw >= 512 { raw - 1024 } else { raw }) as f32 / 4.0
+        };
+        assert_eq!([field(0), field(1), field(2)], [1.25, -3.5, 40.0]);
+        // Out of reach clamps rather than wraps.
+        assert_eq!(pack_dissolve_center([500.0, 0.0, 0.0]) & 0x3ff, 511);
+        let instance = ActorInstance::new([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0; 3])
+            .with_dissolve(2, [0.0; 3], 9.0);
+        assert_eq!(
+            (instance.view_flags >> ActorInstance::DISSOLVE_SHIFT) & 3,
+            2
+        );
     }
 }

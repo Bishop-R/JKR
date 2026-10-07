@@ -18,7 +18,8 @@ fn no_entity_light() -> EntityLight {
 }
 
 fn entity_light(instance: InstanceInput) -> EntityLight {
-    return EntityLight(instance.light_ambient, instance.light_directed, instance.light_direction);
+    return EntityLight(instance.light_ambient, instance.light_directed.xyz,
+        instance.light_direction.xyz);
 }
 
 // RB_CalcDiffuseColor (tr_shade_calc.cpp:1141-1191): ambient when the light
@@ -125,9 +126,45 @@ fn vertex_result(input: VertexInput, position: vec3<f32>, normal: vec3<f32>,
     @builtin(vertex_index) index: u32) -> VertexOutput {
     return entity_vertex(input, instance, index);
 }
+// RB_CalcDisintegrateColors and RB_CalcDisintegrateVertDeform (`tr_shade_calc.cpp:1262-1360`):
+// a vertex's squared distance from the burn's centre against the squared radius. The body
+// (1) loses what is inside it, blackened, then darkened, then dimmed at its edge; the glow
+// (2) burns white outside it and nothing inside, its vertices pushed out along their
+// normals. The push is the reference's in its entity space; x and y share a factor, so the
+// Ghoul2 root turn between the two spaces leaves it as it is.
+struct Burn { position: vec3<f32>, color: vec4<f32> };
+fn dissolve_vertex(position: vec3<f32>, normal: vec3<f32>, instance: InstanceInput,
+                   mode: u32) -> Burn {
+    let offset = unpack_dissolve_center(bitcast<u32>(instance.light_direction.w)) -
+        position * instance.scale;
+    let distance = dot(offset, offset);
+    let limit = instance.light_directed.w * instance.light_directed.w;
+    var burn = Burn(position, vec4(1.0));
+    if mode == 1u {
+        if distance < limit { burn.color = vec4(1.0, 1.0, 1.0, 0.0); }
+        else if distance < limit + 60.0 { burn.color = vec4(0.0, 0.0, 0.0, 1.0); }
+        else if distance < limit + 150.0 { burn.color = vec4(vec3(111.0 / 255.0), 1.0); }
+        else if distance < limit + 180.0 { burn.color = vec4(vec3(175.0 / 255.0), 1.0); }
+    } else {
+        if distance < limit {
+            burn.color = vec4(0.0);
+            burn.position = position + normal * vec3(2.0, 2.0, 0.5) / instance.scale;
+        } else if distance < limit + 50.0 {
+            burn.position = position + vec3(normal.xy, 0.0) / instance.scale;
+        }
+    }
+    return burn;
+}
+
 fn entity_vertex(input: VertexInput, instance: InstanceInput, index: u32) -> VertexOutput {
-    let vertex = material_vertex(input, index, instance.position.xyz, instance.rotation,
+    var vertex = material_vertex(input, index, instance.position.xyz, instance.rotation,
         instance.scale);
+    let dissolve = dissolve_mode(instance);
+    var burn = Burn(vertex.position, vec4(1.0));
+    if dissolve != 0u {
+        burn = dissolve_vertex(vertex.position, vertex.normal, instance, dissolve);
+        vertex.position = burn.position;
+    }
     let position = instance_position(vertex, instance);
     let world = (instance.view_flags & 4u) != 0u;
     var light = entity_light(instance);
@@ -137,6 +174,12 @@ fn entity_vertex(input: VertexInput, instance: InstanceInput, index: u32) -> Ver
         instance.entity_color, instance.shader_tex_coord, instance.entity_control,
         light, !world);
     if (instance.view_flags & 8u) != 0u { output.animation_index = i32((instance.view_flags >> 8u) & 65535u); }
+    // killGen: the burn's colours stand in for every generator (`tr_shade.cpp:1140-1192`);
+    // the image clock reads the negative mark as no override.
+    if dissolve != 0u {
+        output.color = burn.color;
+        output.animation_index = -1 - i32(dissolve);
+    }
     // RF_DEPTHHACK: rd-vanilla narrows the depth range to 0..0.3
     // (`tr_backend.cpp:906`) so the view weapon draws over the world.
     output.position = clip_position(position, instance.position.w);
@@ -223,6 +266,7 @@ fn apply_secondary_tcmods(initial: vec2<f32>, position: vec3<f32>,
 // tr_shade.cpp:1175-1348. RB_CalcDiffuseColor is tr_shade_calc.cpp:1138-1191;
 // Legacy evaluation is per vertex. Optional diffuse samples the grid in world space.
 fn generated_color(input: VertexOutput) -> vec4<f32> {
+    if input.animation_index <= -2 { return input.color; }
     var color = vec4(1.0);
     let rgb_kind = i32(stage.generators.x);
     var diffuse = input.lighting_diffuse.rgb;
@@ -306,12 +350,14 @@ fn stage_fragment(input: VertexOutput) -> vec4<f32> {
         }
     }
     var output = apply_lighting_mode(input, texel, secondary_texel);
-    let alpha_test = i32(stage.generators.z);
+    var alpha_test = i32(stage.generators.z);
+    // RF_DISINTEGRATE1 tests every stage at 0xC0 (`GLS_ATEST_GE_C0`, `tr_shade.cpp:1652-1656`).
+    if input.animation_index == -2 { alpha_test = 4; }
     if alpha_test == 1 && output.a <= 0.0 { discard; }
     if alpha_test == 2 && output.a >= (128.0 / 255.0) { discard; }
     if alpha_test == 3 && output.a < (128.0 / 255.0) { discard; }
     if alpha_test == 4 && output.a < (192.0 / 255.0) { discard; }
-    if stage.secondary_control.w > 0.5 {
+    if stage.secondary_control.w > 0.5 && input.animation_index > -2 {
         output = vec4(output.rgb * (vec3(1.0) + dynamic_light_modulation(input)), output.a);
     }
     return output;
