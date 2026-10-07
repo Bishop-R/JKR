@@ -491,3 +491,17 @@ impl ViewerConsole {
             .push_log("^5Server moved you to spectator mode pending the Force profile check");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Every cvar the viewer defines registers once: a second definition of a name (in
+    /// any spelling) stops the viewer at start-up.
+    #[test]
+    fn the_console_builds_with_every_cvar_registered_once() {
+        let directory = std::env::temp_dir().join(format!("jkr-console-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let console = super::ViewerConsole::new(directory.join("config.cfg"));
+        let _ = std::fs::remove_dir_all(&directory);
+        assert!(console.is_ok(), "{}", console.err().unwrap());
+    }
+}
