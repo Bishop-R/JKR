@@ -131,6 +131,7 @@ pub(crate) fn damped_third_person(
     let mut horizontal = cvar("cg_thirdPersonHorzOffset", 0.0);
     let camera_damp = cvar("cg_thirdPersonCameraDamp", 0.3);
     let target_damp = cvar("cg_thirdPersonTargetDamp", 0.5);
+    let smooth = cvar("cg_smoothCamera", 1.0) != 0.0;
     let fallback = [
         cvar("cg_thirdPersonAngle", 0.0),
         cvar("cg_thirdPersonPitchOffset", 0.0),
@@ -233,6 +234,7 @@ pub(crate) fn damped_third_person(
         identity,
         unrestrained,
         hyperspace,
+        smooth,
     };
     // Movers are evaluated at the same presentation time as their drawn geometry.
     // Packed player/vehicle bodies are excluded by stock MASK_CAMERACLIP.

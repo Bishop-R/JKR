@@ -32,14 +32,23 @@ pub(crate) struct Frame {
     pub(crate) identity: (u16, u16, u32),
     pub(crate) unrestrained: bool,
     pub(crate) hyperspace: bool,
+    /// `cg_smoothCamera`: damping by the time elapsed; off, by whole 50 ms steps as
+    /// stock's `Q_powf` takes them.
+    pub(crate) smooth: bool,
 }
 
 /// Fraction remaining after `cg.time - cameraLastFrame`, in milliseconds.
-fn remaining(damp: f32, milliseconds: f32) -> f32 {
+fn remaining(damp: f32, milliseconds: f32, smooth: bool) -> f32 {
     if damp >= 1.0 {
-        0.0
+        return 0.0;
+    }
+    let left = 1.0 - damp.max(0.0);
+    if smooth {
+        left.powf(milliseconds / 50.0)
     } else {
-        (1.0 - damp.max(0.0)).powf(milliseconds / 50.0)
+        // `Q_powf(x, int y)` with the steps truncated: at least one step's worth each
+        // frame, so the camera stiffens as the frame rate climbs (`cg_view.c:464`).
+        left.powi(((milliseconds / 50.0) as i32).max(1))
     }
 }
 
@@ -79,7 +88,7 @@ impl State {
             let target = if target_damp < 0.0 {
                 p.target
             } else {
-                ideal_target + (p.target - ideal_target) * remaining(target_damp, dt)
+                ideal_target + (p.target - ideal_target) * remaining(target_damp, dt, f.smooth)
             };
             let target = trace(f.focus, target);
             let yaw_delta = ((f.yaw - p.yaw).to_degrees() + 180.0).rem_euclid(360.0) - 180.0;
@@ -102,7 +111,7 @@ impl State {
             let position = if damp < 0.0 {
                 p.position
             } else {
-                ideal_position + (p.position - ideal_position) * remaining(damp, dt)
+                ideal_position + (p.position - ideal_position) * remaining(damp, dt, f.smooth)
             };
             (target, trace(target, position))
         } else {
@@ -131,5 +140,22 @@ impl State {
             identity: f.identity,
         });
         (position, position + direction)
+    }
+}
+
+#[cfg(test)]
+mod damping_tests {
+    use super::remaining;
+
+    /// Smooth damping follows the time elapsed; stock's takes whole 50 ms steps, and at
+    /// least one each frame however short.
+    #[test]
+    fn stock_damping_steps_whole_intervals_and_smooth_follows_time() {
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        assert!(close(remaining(0.3, 25.0, true), 0.7_f32.powf(0.5)));
+        assert!(close(remaining(0.3, 25.0, false), 0.7));
+        assert!(close(remaining(0.3, 0.0, false), 0.7));
+        assert!(close(remaining(0.3, 120.0, false), 0.49));
+        assert_eq!(remaining(1.0, 16.0, false), 0.0);
     }
 }

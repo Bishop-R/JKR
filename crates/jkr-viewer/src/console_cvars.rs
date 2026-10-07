@@ -343,6 +343,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Lower the first-person weapon at fields of view over 90",
         ),
         CvarDefinition::new(
+            "cg_smoothCamera",
+            true,
+            CvarFlags::ARCHIVE,
+            "Third-person camera damping by elapsed time (0: per frame, as stock)",
+        ),
+        CvarDefinition::new(
             "cg_fpls",
             false,
             CvarFlags::NONE,
