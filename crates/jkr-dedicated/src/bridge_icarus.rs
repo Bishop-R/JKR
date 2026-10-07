@@ -69,6 +69,9 @@ pub(super) enum SlotKind {
     Unseen,
     /// A `trigger_multiple` of the triggers module, by its index there.
     Multiple(usize),
+    /// A named `misc_turretG2` of the turrets module, which `Q3_Remove` finds by its
+    /// targetname like any entity (`G_Find`); only its removal reaches the turret.
+    Turret,
 }
 
 /// One script entity of the level.
@@ -370,6 +373,14 @@ impl NativeGame {
                 ent.uses = jkr_game_jka::script_entity::Uses::Other;
                 self.scripts.multiple_slots[index] = Some(self.scripts.slots.len() as u32);
                 Some(slot(ent, SlotKind::Multiple(index), None, model))
+            }
+            "misc_turretg2"
+                if entity
+                    .get("targetname")
+                    .is_some_and(|name| !name.is_empty()) =>
+            {
+                let ent = ScriptEntity::from_map(entity, EntityKind::Other);
+                Some(slot(ent, SlotKind::Turret, None, 0))
             }
             _ => None,
         }

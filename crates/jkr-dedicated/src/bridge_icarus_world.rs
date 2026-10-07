@@ -364,6 +364,12 @@ impl ScriptWorld for ServerWorld<'_> {
         if let Some(pool) = slot.pool {
             self.game.pool.free(pool, self.game.last_frame_time);
         }
+        // A freed turret is gone from the turrets too, its model dropped by every client.
+        if slot.kind == SlotKind::Turret
+            && let Some(name) = slot.entity.targetname.as_deref()
+        {
+            self.game.free_named_turret(name);
+        }
         // A freed trigger touches nobody again.
         if let SlotKind::Multiple(trigger) = slot.kind
             && let Some(trigger) = self.game.multiples.get_mut(trigger)

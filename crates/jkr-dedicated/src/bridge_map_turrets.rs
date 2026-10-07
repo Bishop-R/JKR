@@ -658,6 +658,28 @@ impl NativeGame {
         self.splash_targets = targets;
     }
 
+    /// `G_FreeEntity` reaching a `misc_turretG2` by name, as a script's `remove` does
+    /// (`Q3_RemoveEnt`): the first of that name still standing goes, and every client
+    /// drops its Ghoul2 model (`G_KillG2Queue`, `kg2`).
+    pub(super) fn free_named_turret(&mut self, name: &str) {
+        let Some(index) =
+            self.map_turrets.g2.iter().position(|(_, turret)| {
+                !turret.freed && turret.targetname.eq_ignore_ascii_case(name)
+            })
+        else {
+            return;
+        };
+        let (id, _) = self.map_turrets.g2.remove(index);
+        let number = id.legacy_number();
+        self.map_turrets
+            .work
+            .instances
+            .retain(|instance| instance.number != number);
+        self.pool.free(id, self.last_frame_time);
+        self.told
+            .push(Told::Everyone(format!("kg2 {number}").into_bytes()));
+    }
+
     /// `G_UseTargets` reaching the turrets called `name`: each switched on or off.
     pub(super) fn use_map_turrets(&mut self, name: &str) {
         for (_, turret) in self
