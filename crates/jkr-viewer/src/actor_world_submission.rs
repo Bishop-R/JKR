@@ -30,6 +30,9 @@ pub(crate) mod jetpack;
 #[path = "actor_body_draw.rs"]
 mod body_draw;
 
+#[path = "bolted_items.rs"]
+mod bolted;
+
 #[path = "special_entities.rs"]
 mod special_entities;
 
@@ -240,6 +243,18 @@ pub(crate) fn submit(
                 .iter()
                 .position(|mesh| &mesh.appearance == appearance)
         }) {
+            match bolted::place(
+                &sinks,
+                snapshot,
+                entity,
+                transform,
+                local_entity_id,
+                presentation_time,
+            ) {
+                bolted::Placement::Free => {}
+                bolted::Placement::Hidden => continue,
+                bolted::Placement::Held(held) => transform = held,
+            }
             let posed = submit_posed(
                 &mut sinks,
                 mesh,
