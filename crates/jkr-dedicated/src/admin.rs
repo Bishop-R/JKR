@@ -15,6 +15,10 @@ pub const A_CSPRINT: u32 = 1 << 9;
 /// `JAPRO_ACCOUNTFLAG_A_CHANGEMAP`, `_FORCETEAM`, `_LOCKTEAM`, `_VSTR`, `_RENAME`,
 /// `_KILLVOTE`.
 pub const A_CHANGEMAP: u32 = 1 << 8;
+/// `JAPRO_ACCOUNTFLAG_A_ADMINTELE`, `_TELEMARK`, `_SEEHIDDEN`.
+pub const A_ADMINTELE: u32 = 1 << 0;
+pub const A_TELEMARK: u32 = 1 << 2;
+pub const A_SEEHIDDEN: u32 = 1 << 19;
 /// `JAPRO_ACCOUNTFLAG_A_FREEZE`, `_NPC`, `_NOCLIP`.
 pub const A_FREEZE: u32 = 1 << 1;
 pub const A_NPC: u32 = 1 << 5;

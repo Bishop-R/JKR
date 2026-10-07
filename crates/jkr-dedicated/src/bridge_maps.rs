@@ -143,6 +143,7 @@ impl NativeGame {
         for client in 0..self.players.places() {
             if let Some(peer) = self.peer_mut(client) {
                 peer.admin_frozen = false;
+                peer.telemark = ([0.0; 3], [0.0; 2]);
             }
         }
         // Entity registries and collision owners belong to the outgoing map.

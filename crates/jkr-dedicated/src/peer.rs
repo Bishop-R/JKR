@@ -151,6 +151,9 @@ pub struct Peer {
     pub(crate) damage_total: crate::damage_numbers::Total,
     /// jaPRO's `pers.amfreeze`: an admin froze this player (`amfreeze`); a map clears it.
     pub(crate) admin_frozen: bool,
+    /// jaPRO's teleport marker (`pers.telemarkOrigin`, `telemarkAngle`,
+    /// `telemarkPitchAngle`): where `amtele` alone goes; zero for none; a map clears it.
+    pub(crate) telemark: ([f32; 3], [f32; 2]),
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -290,6 +293,7 @@ impl Peer {
             emote: Default::default(),
             damage_total: Default::default(),
             admin_frozen: false,
+            telemark: ([0.0; 3], [0.0; 2]),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),

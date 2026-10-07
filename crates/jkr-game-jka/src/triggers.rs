@@ -593,6 +593,32 @@ pub fn teleport_player(
     }
 }
 
+/// jaPRO's `AmTeleportPlayer` (`g_misc.c:289-392`), its admins' teleport: the player put
+/// eight units above the destination at a standstill (no spit, no hold), its Force jump's
+/// start forgotten, its teleport bit flipped; flashes and the kill box as
+/// [`teleport_player`]'s, a spectator's jump silent.
+pub fn admin_teleport_player(
+    state: &mut PlayerState,
+    destination: [f32; 3],
+    angles: [f32; 3],
+    spectating: bool,
+) -> Teleported {
+    /// `fd.forceJumpZStart`, set far below so no Force jump's fall counts from before.
+    const PS_FORCE_JUMP_Z_START: usize = 74;
+    let origin = [destination[0], destination[1], destination[2] + 8.0];
+    state.set_origin(origin);
+    state.set_velocity([0.0; 3]);
+    state.set_raw_field(PS_FORCE_JUMP_Z_START, (-65_536.0_f32).to_bits());
+    let flags = state.raw_field(PS_EFLAGS).unwrap_or(0);
+    state.set_raw_field(PS_EFLAGS, flags ^ EF_TELEPORT_BIT);
+    Teleported {
+        origin,
+        angles,
+        flashes: !spectating,
+        kill_box: !spectating,
+    }
+}
+
 /// `PMF_TIME_KNOCKBACK`, and `EF_TELEPORT_BIT`, which tells a client not to lerp.
 const PMF_TIME_KNOCKBACK: u16 = 64;
 const EF_TELEPORT_BIT: u32 = 1 << 3;

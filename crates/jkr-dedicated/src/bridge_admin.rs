@@ -82,6 +82,16 @@ impl NativeGame {
                 self.told.push(Told::One(client, text.to_vec()));
             }
             b"amkick" => self.admin_kick(client, &words),
+            b"amtele" => {
+                if !self.refused_at_intermission(client, b"amtele") {
+                    self.admin_tele(client, &words, level_time);
+                }
+            }
+            b"amtelemark" => {
+                if !self.refused_at_intermission(client, b"amtelemark") {
+                    self.admin_telemark(client);
+                }
+            }
             b"amban" => self.admin_ban(client, &words),
             b"amgrantadmin" => self.admin_grant(client, &words),
             b"amlockteam" => self.admin_lock_team(client, &words),
@@ -747,6 +757,168 @@ impl NativeGame {
             Some(_) => {}
         }
     }
+}
+
+impl NativeGame {
+    /// jaPRO's `G_AdminAllowed` for a power cheats may stand in for: allowed with the power;
+    /// otherwise told so and refused. (Without the power jaPRO hands a cheater its race
+    /// teleport, which is not ported.)
+    fn admin_or_cheats(&mut self, client: usize, power: u32) -> bool {
+        if self
+            .peer(client)
+            .is_some_and(|peer| peer.session.account_flags & power != 0)
+        {
+            return true;
+        }
+        if !self.settings.cheats {
+            let line = b"print \"Cheats are not enabled on this server.\n\"".to_vec();
+            self.told.push(Told::One(client, line));
+        }
+        false
+    }
+
+    /// `Cmd_Amtelemark_f`: the teleport marker set where the admin stands (a little higher
+    /// for one following someone), facing as it faces, and told.
+    fn admin_telemark(&mut self, client: usize) {
+        const TEAM_SPECTATOR: i32 = 3;
+        const SPECTATOR_FOLLOW: i32 = 2;
+        if !self.admin_or_cheats(client, admin::A_TELEMARK) {
+            return;
+        }
+        let Some(peer) = self.peer_mut(client) else {
+            return;
+        };
+        let mut origin = peer.state.origin();
+        if peer.session.team == TEAM_SPECTATOR && peer.session.spectator_state == SPECTATOR_FOLLOW {
+            origin[2] += 58.0;
+        }
+        let [pitch, yaw, _] = peer.state.view_angles();
+        peer.telemark = (origin, [yaw, pitch]);
+        let line = format!(
+            "print \"Teleport Marker: ^3<{}, {}, {}> {}, {}\n\"",
+            origin[0] as i32, origin[1] as i32, origin[2] as i32, yaw as i32, pitch as i32
+        );
+        self.told.push(Told::One(client, line.into_bytes()));
+    }
+
+    /// `Cmd_Amtele_f`'s admin forms: to the marker; to a player; one player to another; to
+    /// a place (with a yaw); a player to a place (with a yaw). Never a player holding the
+    /// power, nor to a spectator without the power to see hidden players.
+    fn admin_tele(&mut self, client: usize, words: &[&[u8]], level_time: i32) {
+        const TEAM_SPECTATOR: i32 = 3;
+        const SPECTATOR_FOLLOW: i32 = 2;
+        let following = self.peer(client).is_some_and(|peer| {
+            peer.session.team == TEAM_SPECTATOR && peer.session.spectator_state == SPECTATOR_FOLLOW
+        });
+        if following || !self.admin_or_cheats(client, admin::A_ADMINTELE) {
+            return;
+        }
+        let number = |word: &[u8]| atoi_f32(word);
+        let usable = |game: &Self, target: usize| {
+            game.peer(target).is_some_and(|peer| {
+                admin::usable_on(
+                    peer.session.account_flags,
+                    target == client,
+                    admin::A_ADMINTELE,
+                )
+            })
+        };
+        // A spectator is only found by one who may see hidden players.
+        let visible = |game: &Self, target: usize| {
+            game.peer(target)
+                .is_some_and(|peer| peer.session.team != TEAM_SPECTATOR)
+                || game
+                    .peer(client)
+                    .is_some_and(|peer| peer.session.account_flags & admin::A_SEEHIDDEN != 0)
+        };
+        let above = |game: &Self, target: usize| {
+            game.peer(target).map(|peer| {
+                let origin = peer.state.origin();
+                [origin[0], origin[1], origin[2] + 96.0]
+            })
+        };
+        match words.len() {
+            1 => {
+                let Some((origin, [yaw, pitch])) = self.peer(client).map(|peer| peer.telemark)
+                else {
+                    return;
+                };
+                if origin == [0.0; 3] && yaw == 0.0 {
+                    let line = b"print \"No telemark set!\n\"".to_vec();
+                    self.told.push(Told::One(client, line));
+                    return;
+                }
+                self.admin_teleport(client, origin, [pitch, yaw, 0.0], level_time);
+            }
+            2 => {
+                let Some(target) = self.admin_target(client, words[1]) else {
+                    return;
+                };
+                if !visible(self, target) {
+                    return;
+                }
+                if let Some(origin) = above(self, target) {
+                    self.admin_teleport(client, origin, [0.0; 3], level_time);
+                }
+            }
+            3 => {
+                let first = self.admin_target(client, words[1]);
+                let second = self.admin_target(client, words[2]);
+                let (Some(first), Some(second)) = (first, second) else {
+                    return;
+                };
+                if !visible(self, second) || !usable(self, first) {
+                    return;
+                }
+                if let Some(origin) = above(self, second) {
+                    self.admin_teleport(first, origin, [0.0; 3], level_time);
+                }
+            }
+            4 => {
+                let origin = [number(words[1]), number(words[2]), number(words[3])];
+                self.admin_teleport(client, origin, [0.0; 3], level_time);
+            }
+            5 => match self.admin_target(client, words[1]) {
+                // `amtele x y z yaw`: no player by the first word.
+                None => {
+                    let origin = [number(words[1]), number(words[2]), number(words[3])];
+                    let yaw = number(words[4]);
+                    self.admin_teleport(client, origin, [0.0, yaw, 0.0], level_time);
+                }
+                Some(target) => {
+                    if usable(self, target) {
+                        let origin = [number(words[2]), number(words[3]), number(words[4])];
+                        self.admin_teleport(target, origin, [0.0; 3], level_time);
+                    }
+                }
+            },
+            6 => {
+                let Some(target) = self.admin_target(client, words[1]) else {
+                    return;
+                };
+                if usable(self, target) {
+                    let origin = [number(words[2]), number(words[3]), number(words[4])];
+                    let yaw = number(words[5]);
+                    self.admin_teleport(target, origin, [0.0, yaw, 0.0], level_time);
+                }
+            }
+            _ => {
+                let usage = b"print \"Usage: /amTele or /amTele <client> or /amTele <client> <client> or /amTele <X> <Y> <Z> <YAW> or /amTele <player> <X> <Y> <Z> <YAW>.\n\"";
+                self.told.push(Told::One(client, usage.to_vec()));
+            }
+        }
+    }
+}
+
+/// `atoi` as a float: jaPRO reads teleport coordinates as whole numbers.
+fn atoi_f32(word: &[u8]) -> f32 {
+    let text = String::from_utf8_lossy(word);
+    let text = text.trim_start();
+    let end = text
+        .char_indices()
+        .take_while(|&(index, c)| c.is_ascii_digit() || (index == 0 && (c == '-' || c == '+')))
+        .count();
+    text[..end].parse::<i32>().unwrap_or(0) as f32
 }
 
 /// jaPRO's admin freeze in `ClientThink_real`'s movement chain, ahead of the emote's hold:
