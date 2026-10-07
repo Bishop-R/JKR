@@ -112,6 +112,8 @@ pub struct PlayerSession {
     pub saw_motd: bool,
     /// jaPRO's `sess.accountFlags`: the admin powers logged in with (`amlogin`).
     pub account_flags: u32,
+    /// jaPRO's `sess.ignore`: whose chat this client does not receive (`ignore`).
+    pub ignore: crate::chat_ignore::Ignore,
 }
 
 /// `spectatorState_t`.

@@ -249,7 +249,7 @@ impl NativeGame {
     }
 
     /// `JP_ClientNumberFromString` for `client`'s `text`, having told it why there is none.
-    fn admin_target(&mut self, client: usize, text: &[u8]) -> Option<usize> {
+    pub(super) fn admin_target(&mut self, client: usize, text: &[u8]) -> Option<usize> {
         let present: Vec<(usize, bool, Vec<u8>)> = (0..self.players.places())
             .filter_map(|slot| {
                 self.peer(slot)
@@ -1007,7 +1007,7 @@ impl NativeGame {
                 peer.begun
                     && (other == client || peer.session.account_flags & admin::A_READAMSAY != 0)
             });
-            if reads {
+            if reads && !self.ignores(other, client) {
                 self.told.push(Told::One(other, line.clone()));
             }
         }

@@ -217,6 +217,12 @@ impl NativeGame {
         for item in launched {
             self.flag_launched(item, level_time);
         }
+        // Whoever takes this place next is nobody's ignored player (jaPRO's mask kept it).
+        for other in 0..self.players.places() {
+            if let Some(peer) = self.peer_mut(other) {
+                peer.session.ignore.forget(client);
+            }
+        }
         // `ClientDisconnect` ends with `CalculateRanks` (`g_client.c:4028`): the scores,
         // the leader and everyone's rank without the one who left.
         self.calculate_ranks();
