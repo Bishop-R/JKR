@@ -82,6 +82,7 @@ impl NativeGame {
                 self.told.push(Told::One(client, text.to_vec()));
             }
             b"amkick" => self.admin_kick(client, &words),
+            b"amsay" => self.admin_say(client, text),
             b"amtele" => {
                 if !self.refused_at_intermission(client, b"amtele") {
                     self.admin_tele(client, &words, level_time);
@@ -919,6 +920,93 @@ fn atoi_f32(word: &[u8]) -> f32 {
         .take_while(|&(index, c)| c.is_ascii_digit() || (index == 0 && (c == '-' || c == '+')))
         .count();
     text[..end].parse::<i32>().unwrap_or(0) as f32
+}
+
+impl NativeGame {
+    /// jaPRO's admin-only voting (`Cmd_CallVote_f`, `g_cmds.c:3154-3157`): once either
+    /// admin level holds the call-vote power, only those who hold it call votes. Whether
+    /// `client` was refused (and told). Votes switched off are refused by stock first.
+    pub(super) fn admin_only_vote_refused(&mut self, client: usize) -> bool {
+        let levels =
+            self.cvars.integer(b"g_fullAdminLevel") | self.cvars.integer(b"g_juniorAdminLevel");
+        if self.cvars.integer(b"g_allowVote") == 0 || levels as u32 & admin::A_CALLVOTE == 0 {
+            return false;
+        }
+        !self.admin_allowed(client, admin::A_CALLVOTE, "callVote")
+    }
+
+    /// `Cmd_Amsay_f`: `G_Say(ent, NULL, SAY_ADMIN, text)`, a message the sender and the
+    /// admins holding the power to read it see, marked `<Admin>` in yellow (with the
+    /// sender's place in a team game).
+    fn admin_say(&mut self, client: usize, text: &[u8]) {
+        const ESCAPE: u8 = 0x19;
+        let arguments: Vec<&[u8]> = jkr_network::LegacyTokens::new(text).collect();
+        if arguments.len() < 2 {
+            return;
+        }
+        let mut message = jkr_game_jka::chat::concat_args(&arguments, 1);
+        message.truncate(jkr_game_jka::chat::MAX_SAY_TEXT - 1);
+        let Some(name) = self.peer(client).map(|peer| peer.name.clone()) else {
+            return;
+        };
+        self.log(&format!(
+            "sayadmin: {}: {}\n",
+            String::from_utf8_lossy(&name),
+            String::from_utf8_lossy(&message)
+        ));
+        // `Q_strstrip(text, "\n\r", "  ")`.
+        for byte in &mut message {
+            if matches!(*byte, b'\n' | b'\r') {
+                *byte = b' ';
+            }
+        }
+        let tag = [
+            [ESCAPE].as_slice(),
+            b"^3<Admin>^7(",
+            &name,
+            b"^7",
+            &[ESCAPE],
+            b")",
+            &[ESCAPE],
+            b": ",
+        ]
+        .concat();
+        let location = self.location_of(client);
+        let line = match &location {
+            Some(place) => [
+                b"lchat \"".as_slice(),
+                &tag,
+                b"\" \"",
+                place,
+                b"\" \"3\" \"",
+                &message,
+                format!("\" {client}").as_bytes(),
+            ]
+            .concat(),
+            None => [
+                b"chat \"".as_slice(),
+                &tag,
+                b"^3",
+                &message,
+                format!("\" {client}").as_bytes(),
+            ]
+            .concat(),
+        };
+        println!(
+            "{}{}",
+            String::from_utf8_lossy(&tag),
+            String::from_utf8_lossy(&message)
+        );
+        for other in 0..self.players.places() {
+            let reads = self.peer(other).is_some_and(|peer| {
+                peer.begun
+                    && (other == client || peer.session.account_flags & admin::A_READAMSAY != 0)
+            });
+            if reads {
+                self.told.push(Told::One(other, line.clone()));
+            }
+        }
+    }
 }
 
 /// jaPRO's admin freeze in `ClientThink_real`'s movement chain, ahead of the emote's hold:

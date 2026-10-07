@@ -136,6 +136,9 @@ impl NativeGame {
         if self.refused_at_intermission(client, command) {
             return true;
         }
+        if calling && self.admin_only_vote_refused(client) {
+            return true;
+        }
         let settings = self.vote_settings();
         let voters = self.client_views();
         let said = if calling {

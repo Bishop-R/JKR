@@ -49,7 +49,7 @@ impl NativeGame {
     /// `Team_GetLocationMsg` for a client: the nearest of the map's locations its
     /// position can see, measured and seen from `r.currentOrigin` itself. Only a team game
     /// ever names one, so a free-for-all looks nothing up.
-    fn location_of(&self, client: usize) -> Option<Vec<u8>> {
+    pub(super) fn location_of(&self, client: usize) -> Option<Vec<u8>> {
         if self.gametype < jkr_game_jka::match_end::GT_TEAM {
             return None;
         }
