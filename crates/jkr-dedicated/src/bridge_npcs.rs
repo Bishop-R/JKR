@@ -248,7 +248,11 @@ impl NativeGame {
         {
             return false;
         }
-        if !self.settings.cheats {
+        // jaPRO: the admin power stands in for cheats, and for being alive.
+        let admin = self
+            .peer(client)
+            .is_some_and(|peer| peer.session.account_flags & crate::admin::A_NPC != 0);
+        if !self.settings.cheats && !admin {
             self.told
                 .push(Told::One(client, b"print \"@@@NOCHEATS\n\"".to_vec()));
             return true;
@@ -256,7 +260,7 @@ impl NativeGame {
         let Some(peer) = self.peer(client) else {
             return true;
         };
-        if peer.health <= 0 || !peer.playing() {
+        if !admin && (peer.health <= 0 || !peer.playing()) {
             self.told
                 .push(Told::One(client, b"print \"@@@MUSTBEALIVE\n\"".to_vec()));
             return true;

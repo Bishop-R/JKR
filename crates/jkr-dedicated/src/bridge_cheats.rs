@@ -100,6 +100,15 @@ impl NativeGame {
                 }
             }
             "noclip" => {
+                // jaPRO: an admin with the power may name another player.
+                if let [name] = arguments
+                    && self.peer(client).is_some_and(|peer| {
+                        peer.session.account_flags & crate::admin::A_NOCLIP != 0
+                    })
+                {
+                    self.admin_noclip(client, name);
+                    return true;
+                }
                 // `Cmd_Noclip_f`: the flag toggled and the player told; its next think
                 // puts it in (or takes it out of) `PM_NOCLIP`.
                 if let Some(peer) = self.peer_mut(client) {
@@ -127,12 +136,18 @@ impl NativeGame {
         if flags & NO_INTERMISSION != 0 && self.refused_at_intermission(client, command) {
             return false;
         }
-        if flags & CHEAT != 0 && !self.settings.cheats {
+        // jaPRO: an admin power stands in for cheats (`noclip`, `npc`).
+        let power = crate::admin::cheat_power(command).filter(|&(power, _)| {
+            self.peer(client)
+                .is_some_and(|peer| peer.session.account_flags & power != 0)
+        });
+        if flags & CHEAT != 0 && !self.settings.cheats && power.is_none() {
             self.told
                 .push(Told::One(client, b"print \"@@@NOCHEATS\n\"".to_vec()));
             return false;
         }
         if flags & ALIVE != 0
+            && !power.is_some_and(|(_, any_state)| any_state)
             && self
                 .peer(client)
                 .is_none_or(|peer| peer.health <= 0 || !peer.playing())

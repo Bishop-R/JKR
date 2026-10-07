@@ -12,8 +12,23 @@ pub const A_CSPRINT: u32 = 1 << 9;
 /// `JAPRO_ACCOUNTFLAG_A_CHANGEMAP`, `_FORCETEAM`, `_LOCKTEAM`, `_VSTR`, `_RENAME`,
 /// `_KILLVOTE`.
 pub const A_CHANGEMAP: u32 = 1 << 8;
-/// `JAPRO_ACCOUNTFLAG_A_FREEZE`.
+/// `JAPRO_ACCOUNTFLAG_A_FREEZE`, `_NPC`, `_NOCLIP`.
 pub const A_FREEZE: u32 = 1 << 1;
+pub const A_NPC: u32 = 1 << 5;
+pub const A_NOCLIP: u32 = 1 << 6;
+
+/// The admin power that stands in for cheats for a stock cheat command (jaPRO's
+/// `G_AdminAllowed(ent, power, qtrue, ...)`), and whether it also lifts the command's
+/// "alive" gate (jaPRO dropped it for `npc`).
+pub fn cheat_power(command: &[u8]) -> Option<(u32, bool)> {
+    if command.eq_ignore_ascii_case(b"noclip") {
+        Some((A_NOCLIP, false))
+    } else if command.eq_ignore_ascii_case(b"npc") {
+        Some((A_NPC, true))
+    } else {
+        None
+    }
+}
 pub const A_FORCETEAM: u32 = 1 << 10;
 pub const A_LOCKTEAM: u32 = 1 << 11;
 pub const A_VSTR: u32 = 1 << 12;

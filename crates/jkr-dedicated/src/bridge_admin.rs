@@ -652,6 +652,24 @@ impl NativeGame {
     }
 }
 
+impl NativeGame {
+    /// jaPRO's `noclip <player>` for an admin: that player's noclip toggled, it told; not
+    /// for one riding a vehicle.
+    pub(super) fn admin_noclip(&mut self, client: usize, name: &[u8]) {
+        let Some(target) = self.admin_target(client, name) else {
+            return;
+        };
+        let Some(peer) = self.peer_mut(target) else {
+            return;
+        };
+        if peer.state.vehicle_entity_num() != 0 {
+            return;
+        }
+        let message = jkr_game_jka::noclip::toggle(&mut peer.noclip);
+        self.told.push(Told::One(target, message.to_vec()));
+    }
+}
+
 /// jaPRO's admin freeze in `ClientThink_real`'s movement chain, ahead of the emote's hold:
 /// frozen in place (`PM_FREEZE`), its saber's wound times cleared, unable to throw it or
 /// use the Force, its saber put away; not while it duels. Whether the player is frozen,
