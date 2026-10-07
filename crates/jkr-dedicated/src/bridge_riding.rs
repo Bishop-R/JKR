@@ -554,6 +554,7 @@ impl NativeGame {
             }
         }
         self.map = map;
+        self.blast_thrown_flags(at, damage as f32, radius, level_time);
         self.flush_npc_blows();
         self.splash_targets = targets;
     }

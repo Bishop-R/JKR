@@ -326,6 +326,24 @@ pub fn toss_client_weapon(
     Some(launched)
 }
 
+/// A dropped item set moving from where it is (jaPRO's pushes: a blast, a missile, a
+/// Force push or pull): `s.pos` under gravity from now, from `r.currentOrigin`, with
+/// `velocity` added to its delta (`add`) or in its place.
+pub fn kick(pickup: &mut Pickup, velocity: [f32; 3], add: bool, level_time: i32) {
+    let state = &mut pickup.state;
+    state.set_raw_field(ES_POS_TYPE, TR_GRAVITY);
+    state.set_raw_field(ES_POS_TIME, level_time as u32);
+    for axis in 0..3 {
+        let delta = if add {
+            f32::from_bits(state.raw_field(ES_POS_DELTA[axis]).unwrap_or(0)) + velocity[axis]
+        } else {
+            velocity[axis]
+        };
+        state.set_raw_field(ES_POS_BASE[axis], pickup.origin[axis].to_bits());
+        state.set_raw_field(ES_POS_DELTA[axis], delta.to_bits());
+    }
+}
+
 /// What a frame did to a dropped item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DroppedRun {

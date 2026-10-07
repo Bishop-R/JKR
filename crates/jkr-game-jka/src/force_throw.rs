@@ -79,6 +79,9 @@ pub enum CandidateKind {
     },
     /// A mover the throw works.
     Mover(ThrownMover),
+    /// A dropped item, listed only under jaPRO's flag throwing: pushed or pulled
+    /// ([`ThrowWorld::push_item`]).
+    DroppedItem,
     /// Anything else the throw leaves alone (items, the world, other movers).
     Other,
 }
@@ -157,6 +160,8 @@ pub trait ThrowWorld {
     fn sound_index(&mut self, name: &[u8]) -> u16;
     /// The game's generator (`Q_irand`).
     fn rng(&mut self) -> &mut Rng;
+    /// jaPRO's push on a dropped item: it flies from where it is at `velocity`.
+    fn push_item(&mut self, _item: u16, _velocity: [f32; 3]) {}
 }
 
 const RADIUS: f32 = 1_024.0;
@@ -250,6 +255,14 @@ pub fn throw(context: Throw, world: &mut dyn ThrowWorld) {
             }
             CandidateKind::Mover(mover) => {
                 work_mover(context, &thrower, candidate.number, mover, world)
+            }
+            CandidateKind::DroppedItem => {
+                let speed = if context.pull {
+                    -crate::flag_throw::FORCE_THROW_SPEED
+                } else {
+                    crate::flag_throw::FORCE_THROW_SPEED
+                };
+                world.push_item(candidate.number, thrower.forward.map(|axis| axis * speed));
             }
             CandidateKind::Other => {}
         }
@@ -494,7 +507,7 @@ fn in_reach(
         // A button is never pulled; a door must be at rest.
         CandidateKind::Mover(ThrownMover::Button) if context.pull => return None,
         CandidateKind::Mover(ThrownMover::Door { at_rest: false, .. }) => return None,
-        CandidateKind::Mover(_) => {}
+        CandidateKind::Mover(_) | CandidateKind::DroppedItem => {}
         CandidateKind::Other => return None,
     }
     let centre = thrower.origin;

@@ -135,6 +135,20 @@ impl NativeGame {
         // The solid siege items (`bridge_siege_items`).
         let items = self.siege_item_obstacles();
         self.obstacles.extend(items);
+        // jaPRO's thrown flags (`CONTENTS_TRIGGER|CONTENTS_CORPSE`): shots meet them.
+        self.obstacles.extend(
+            self.items
+                .iter()
+                .filter(|(_, pickup)| pickup.contents & jkr_game_jka::corpses::CONTENTS_CORPSE != 0)
+                .map(|(number, pickup)| BoxObstacle {
+                    entity: number.legacy_number(),
+                    origin: pickup.origin,
+                    bounds: pickup.bounds,
+                    contents: pickup.contents,
+                    model: None,
+                    linked_box: None,
+                }),
+        );
     }
 
     /// The players and NPCs a blast may reach, with their linked boxes.

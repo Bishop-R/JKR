@@ -149,6 +149,11 @@ impl NativeGame {
         let before: Vec<Option<jkr_protocol::PlayerState>> = (0..self.players.places())
             .map(|number| self.peer(number).map(|peer| peer.state.clone()))
             .collect();
+        // jaPRO: with flag throwing on, a throw outside a duel moves dropped items.
+        let items_movable = self.flag_rules().throw
+            && self
+                .peer(client)
+                .is_some_and(|peer| !peer.state.duel_in_progress());
         let Self {
             server,
             world,
@@ -189,6 +194,7 @@ impl NativeGame {
             worked: Vec::new(),
             level_time: server_time,
             gametype: *gametype,
+            items_movable,
         };
         force_throw::throw(context, &mut throw_world);
         let worked = throw_world.worked;
@@ -237,6 +243,8 @@ struct ServerThrow<'a> {
     worked: Vec<(u16, bool)>,
     level_time: i32,
     gametype: i32,
+    /// jaPRO's flag throwing is on and the thrower is in no duel: dropped items move.
+    items_movable: bool,
 }
 
 impl ServerThrow<'_> {
@@ -254,6 +262,9 @@ impl ThrowWorld for ServerThrow<'_> {
         out.clear();
         player_candidates(self.world, self.peers, mins, maxs, out);
         missile_candidates(self.missiles, mins, maxs, out);
+        if self.items_movable {
+            super::bridge_flag_throw::dropped_item_candidates(self.items, mins, maxs, out);
+        }
         out.extend(mover_candidates(self.doors, self.level_time, mins, maxs));
         out.extend(
             self.npcs
@@ -343,6 +354,16 @@ impl ThrowWorld for ServerThrow<'_> {
 
     fn work_mover(&mut self, mover: u16, _thrower: u16, button: bool) {
         self.worked.push((mover, button));
+    }
+
+    fn push_item(&mut self, item: u16, velocity: [f32; 3]) {
+        super::bridge_flag_throw::push_dropped_item(
+            self.items,
+            self.pool,
+            item,
+            velocity,
+            self.level_time,
+        );
     }
 
     fn reflect_missile(&mut self, missile: u16, thrower: u16, forward: [f32; 3]) {
@@ -575,7 +596,7 @@ fn mover_candidates<'a>(
 }
 
 /// Whether the box `absmin`..`absmax` meets `mins`..`maxs`.
-fn overlaps(absmin: [f32; 3], absmax: [f32; 3], mins: [f32; 3], maxs: [f32; 3]) -> bool {
+pub(super) fn overlaps(absmin: [f32; 3], absmax: [f32; 3], mins: [f32; 3], maxs: [f32; 3]) -> bool {
     (0..3).all(|axis| absmin[axis] <= maxs[axis] && absmax[axis] >= mins[axis])
 }
 

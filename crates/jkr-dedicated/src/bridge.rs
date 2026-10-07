@@ -1300,6 +1300,12 @@ impl NativeGame {
             ),
         };
         self.map = map;
+        self.blast_thrown_flags(
+            origin,
+            missile.splash_damage as f32,
+            missile.splash_radius,
+            level_time,
+        );
         self.flush_npc_blows();
         self.splash_targets = targets;
         if hit_client
@@ -2393,6 +2399,7 @@ impl NativeGame {
                 }
             }
             self.map = map;
+            self.blast_thrown_flags(origin, request.damage as f32, radius, server_time);
             self.deaths.rng = rng;
             self.flush_npc_blows();
             self.splash_targets = targets;
@@ -2928,6 +2935,7 @@ impl NativeGame {
                     // brush, a turret, an emplaced gun — damages it, and nothing is counted
                     // for the accuracy.
                     if let MissileRun::HitEntity(other) = run {
+                        self.punt_flag(other, missile, server_time);
                         self.hurt_thing(other, missile, server_time);
                     }
                     let counted = struck.is_some_and(|other| {

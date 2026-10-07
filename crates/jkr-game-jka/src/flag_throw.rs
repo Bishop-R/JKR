@@ -3,10 +3,14 @@
 //! suicide fix (`g_fixFlagSuicide`). With throwing on, a carrier throws its flag along
 //! its view; flags bounce and stand upright; a dead carrier's flag keeps its momentum;
 //! nobody may touch a flag for a second after throwing one; taking the enemy flag scores
-//! nothing ([`crate::ctf`]). Both off is stock.
+//! nothing ([`crate::ctf`]). A thrown flag is in the way of shots: blasts knock it
+//! ([`blast_knock`]), some missiles punt it ([`punt`]), and a Force push or pull moves any
+//! dropped item ([`FORCE_THROW_SPEED`]). Both off is stock.
 
+use crate::damage::{SplashTarget, can_damage, splash_points};
 use crate::dropped_items::{ES_ANGLES, ES_APOS_BASE, ES_POS_BASE, item_for_powerup, launch};
 use crate::items::Pickup;
+use crate::pmove::MovementCollision;
 use crate::pmove::flight::flight_axes;
 use jkr_protocol::{EntityState, PlayerState};
 
@@ -22,6 +26,14 @@ const FLAG_BOUNCE: f32 = 0.6;
 const THROW_SPEED: f32 = 625.0;
 /// Above this speed across, a flag in flight is slowed (`G_RunItem`).
 const DRAG_SPEED: f32 = 800.0;
+/// The speed a Force push gives a dropped item along the pusher's aim (a pull the
+/// opposite way), in place of its own (`ForceThrow`).
+pub const FORCE_THROW_SPEED: f32 = 325.0;
+/// `WP_REPEATER`, `WP_ROCKET_LAUNCHER`, `WP_THERMAL`, `WP_CONCUSSION`.
+const WP_REPEATER: u32 = 8;
+const WP_ROCKET_LAUNCHER: u32 = 11;
+const WP_THERMAL: u32 = 12;
+const WP_CONCUSSION: u32 = 15;
 
 /// jaPRO's flag options; both off is stock.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -130,6 +142,49 @@ pub fn drag(delta: &mut [f32; 3]) {
     }
 }
 
+/// `G_RadiusDamage`'s knock on a thrown flag (jaPRO's "flag knockback splashdamage"): a
+/// blast of `damage` within `radius` of `origin` that reaches `target` and finds a line to
+/// it adds `g_knockback * points / 120` along the way from the blast to it, lifted 24.
+pub fn blast_knock(
+    target: &SplashTarget,
+    origin: [f32; 3],
+    damage: f32,
+    radius: f32,
+    knockback: f32,
+    world: &dyn MovementCollision,
+) -> Option<[f32; 3]> {
+    let points = splash_points(target, origin, damage, radius.max(1.0))?;
+    if !can_damage(target, origin, world) {
+        return None;
+    }
+    let mut direction: [f32; 3] = std::array::from_fn(|axis| target.origin[axis] - origin[axis]);
+    direction[2] += 24.0;
+    let scale = knockback * points / 120.0;
+    Some(normalized(direction).map(|axis| axis * scale))
+}
+
+/// jaPRO's "flag punting" (`G_MissileImpact`): what a missile flying at `velocity` gives
+/// the dropped item it strikes — along its flight, 100 for a repeater's alt-fire blob, 300
+/// for a homing rocket, 250 for a rocket, 200 for a concussion bolt, 150 for a thermal;
+/// nothing for the others.
+pub fn punt(weapon: u32, alt: bool, velocity: [f32; 3]) -> Option<[f32; 3]> {
+    let speed = match (weapon, alt) {
+        (WP_REPEATER, true) => 100.0,
+        (WP_ROCKET_LAUNCHER, true) => 300.0,
+        (WP_ROCKET_LAUNCHER, false) => 250.0,
+        (WP_CONCUSSION, _) => 200.0,
+        (WP_THERMAL, _) => 150.0,
+        _ => return None,
+    };
+    Some(normalized(velocity).map(|axis| axis * speed))
+}
+
+/// `VectorNormalize`, as a value.
+fn normalized(mut v: [f32; 3]) -> [f32; 3] {
+    crate::player_angle_math::normalize(&mut v);
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,6 +236,46 @@ mod tests {
         let velocity = delta(&dropped);
         assert!((velocity[0] - 100.0).abs() < 0.01, "{velocity:?}");
         assert!((velocity[2] - 101.0).abs() < 0.01, "{velocity:?}");
+    }
+
+    struct Open;
+
+    impl MovementCollision for Open {
+        fn trace(
+            &self,
+            _: [f32; 3],
+            _: [f32; 3],
+            _: [f32; 3],
+            end: [f32; 3],
+            _: u32,
+        ) -> crate::pmove::MovementTrace {
+            crate::pmove::MovementTrace::miss(end)
+        }
+    }
+
+    #[test]
+    fn blasts_knock_and_missiles_punt_thrown_flags() {
+        let flag = SplashTarget {
+            number: 70,
+            bounds: ([84.0, -16.0, -16.0], [116.0, 16.0, 16.0]),
+            origin: [100.0, 0.0, 0.0],
+            takes_damage: false,
+        };
+        // 84 from the box's edge of a 168-wide blast: half of 120's damage, 500 of push,
+        // along the way to the flag lifted 24.
+        let knock = blast_knock(&flag, [0.0; 3], 120.0, 168.0, 1_000.0, &Open).expect("knocked");
+        let length = (knock[0] * knock[0] + knock[2] * knock[2]).sqrt();
+        assert!((length - 500.0).abs() < 0.01, "{knock:?}");
+        assert!((knock[2] / knock[0] - 0.24).abs() < 0.001, "{knock:?}");
+        assert_eq!(
+            blast_knock(&flag, [0.0; 3], 120.0, 84.0, 1_000.0, &Open),
+            None
+        );
+        assert_eq!(punt(11, false, [900.0, 0.0, 0.0]), Some([250.0, 0.0, 0.0]));
+        assert_eq!(punt(11, true, [0.0, 0.0, -10.0]), Some([0.0, 0.0, -300.0]));
+        assert_eq!(punt(8, true, [0.0, 50.0, 0.0]), Some([0.0, 100.0, 0.0]));
+        assert_eq!(punt(8, false, [0.0, 50.0, 0.0]), None);
+        assert_eq!(punt(5, false, [0.0, 50.0, 0.0]), None);
     }
 
     #[test]

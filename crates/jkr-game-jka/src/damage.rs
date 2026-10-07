@@ -928,6 +928,35 @@ pub fn can_damage(
         })
 }
 
+/// `G_RadiusDamage`'s reach on one target: within `radius` (already at least 1) of
+/// `origin` (`EntitiesInBox`, then the distance from its box), the `damage` it takes
+/// there, scaled by the distance — before `CanDamage` looks for a line.
+pub fn splash_points(
+    target: &SplashTarget,
+    origin: [f32; 3],
+    damage: f32,
+    radius: f32,
+) -> Option<f32> {
+    let inside = (0..3).all(|axis| {
+        target.bounds.0[axis] <= origin[axis] + radius
+            && target.bounds.1[axis] >= origin[axis] - radius
+    });
+    if !inside {
+        return None;
+    }
+    let v: [f32; 3] = std::array::from_fn(|axis| {
+        if origin[axis] < target.bounds.0[axis] {
+            target.bounds.0[axis] - origin[axis]
+        } else if origin[axis] > target.bounds.1[axis] {
+            origin[axis] - target.bounds.1[axis]
+        } else {
+            0.0
+        }
+    });
+    let distance = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    (distance < radius).then(|| damage * (1.0 - distance / radius))
+}
+
 /// `G_RadiusDamage` (`g_combat.c:5613-5730`): everything within `radius` of `origin`
 /// (`EntitiesInBox`, then the distance from the box) but `ignore` takes `damage` scaled by
 /// the distance, truncated, as `DAMAGE_RADIUS` from `attacker` with the direction from
@@ -951,27 +980,9 @@ pub fn radius_damage(
         if Some(target.number) == ignore || !target.takes_damage {
             continue;
         }
-        let inside = (0..3).all(|axis| {
-            target.bounds.0[axis] <= origin[axis] + radius
-                && target.bounds.1[axis] >= origin[axis] - radius
-        });
-        if !inside {
+        let Some(points) = splash_points(target, origin, damage, radius) else {
             continue;
-        }
-        let v: [f32; 3] = std::array::from_fn(|axis| {
-            if origin[axis] < target.bounds.0[axis] {
-                target.bounds.0[axis] - origin[axis]
-            } else if origin[axis] > target.bounds.1[axis] {
-                origin[axis] - target.bounds.1[axis]
-            } else {
-                0.0
-            }
-        });
-        let distance = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-        if distance >= radius {
-            continue;
-        }
-        let points = damage * (1.0 - distance / radius);
+        };
         if !can_damage(target, origin, world) {
             continue;
         }
