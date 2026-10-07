@@ -385,6 +385,27 @@ pub(crate) fn update(
             },
         );
     }
+    if let Some((snapshot, game, _, _)) = source {
+        // The locked entity where it is drawn (`cent->lerpOrigin`).
+        let locked = snapshot.player.raw_field(24).unwrap_or(1_023);
+        let world = match (&gpu.live_session, &gpu.demo_session) {
+            (Some(_), _) => Some(&gpu.live_world),
+            (None, Some(session)) => Some(session.world()),
+            (None, None) => None,
+        };
+        let target = world
+            .and_then(|world| world.entity(jkr_runtime::EntityId::new(u64::from(locked) + 1)))
+            .map(|entity| {
+                Vec3::from_array(entity.sample(i64::from(presentation_time)).translation)
+            });
+        gpu.hud.update_rocket_lock(hud::RocketLockInputs {
+            snapshot,
+            game,
+            target,
+            camera,
+            time: presentation_time,
+        });
+    }
     let game = gpu
         .live_session
         .as_ref()

@@ -47,24 +47,40 @@ pub(crate) struct Camera {
 impl Camera {
     /// Reject behind-camera/off-screen positions before emitting an overhead HUD element.
     pub(crate) fn project(self, point: Vec3) -> Option<[f32; 2]> {
+        let ([x, y], pixels) = self.screen(point, 0.01)?;
+        (x.abs() <= 1.0 && y.abs() <= 1.0).then_some(pixels)
+    }
+
+    /// `CG_WorldCoordToScreenCoord` (`cg_draw.c:5294-5318`): where `point` falls in pixels,
+    /// on the screen or past its edge; `None` behind the eye.
+    pub(crate) fn project_ahead(self, point: Vec3) -> Option<[f32; 2]> {
+        self.screen(point, 0.001).map(|(_, pixels)| pixels)
+    }
+
+    /// `point` in device coordinates and in pixels, when it is more than `min_depth`
+    /// ahead of the eye.
+    fn screen(self, point: Vec3, min_depth: f32) -> Option<([f32; 2], [f32; 2])> {
         let forward = (self.target - self.eye).normalize_or_zero();
         let right = forward.cross(self.up).normalize_or_zero();
         let up = right.cross(forward);
         let delta = point - self.eye;
         let depth = delta.dot(forward);
-        if depth <= 0.01 {
+        if depth <= min_depth {
             return None;
         }
         let half = (self.fov.to_radians() * 0.5).tan() * depth;
         let x = delta.dot(right) / (half * self.viewport[0] / self.viewport[1]);
         let y = delta.dot(up) / half;
-        if !x.is_finite() || !y.is_finite() || x.abs() > 1.0 || y.abs() > 1.0 {
+        if !x.is_finite() || !y.is_finite() {
             return None;
         }
-        Some([
-            (x + 1.0) * 0.5 * self.viewport[0],
-            (1.0 - y) * 0.5 * self.viewport[1],
-        ])
+        Some((
+            [x, y],
+            [
+                (x + 1.0) * 0.5 * self.viewport[0],
+                (1.0 - y) * 0.5 * self.viewport[1],
+            ],
+        ))
     }
 }
 

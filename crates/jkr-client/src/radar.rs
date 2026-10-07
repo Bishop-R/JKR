@@ -408,7 +408,7 @@ fn driver_color(game: &GameState, viewer: &RadarViewer, vehicle: u16) -> [f32; 4
 }
 
 /// A client's team from its `CS_PLAYERS` string; `None` while it has none (`infoValid`).
-fn client_team(game: &GameState, client: u16) -> Option<u8> {
+pub(crate) fn client_team(game: &GameState, client: u16) -> Option<u8> {
     let info = game.config_string(CS_PLAYERS + usize::from(client))?;
     if info.is_empty() {
         return None;

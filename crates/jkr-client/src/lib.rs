@@ -68,6 +68,7 @@ mod presentation;
 mod pure_checksums;
 pub mod radar;
 pub mod referenced_paks;
+pub mod rocket_lock;
 pub mod string_table;
 pub use permanent_entities::{legacy_permanent_visible, legacy_scene_entities};
 mod presentation_equipment;

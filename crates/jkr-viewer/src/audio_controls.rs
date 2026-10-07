@@ -18,6 +18,12 @@ impl crate::GpuState {
                 glam::Vec3::ZERO,
             );
             audio.sync_gains(self.console.as_ref());
+            // The rocket lock's tick or lock, at its target (`S_StartSound(org, 0, CHAN_AUTO)`).
+            if let Some((path, origin)) = self.hud.take_lock_sound()
+                && let Some(vfs) = self.vfs.as_deref()
+            {
+                audio.play(vfs, path, 1.0, origin, jkr_audio::SourceId(1_022));
+            }
             if self.live_session.is_none() {
                 audio.idle_frame();
             }

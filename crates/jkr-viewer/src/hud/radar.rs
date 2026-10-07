@@ -21,12 +21,15 @@ pub(super) const SIZE: f32 = 200.0;
 const GAP: f32 = 12.0;
 /// Its right edge, as the block above it has.
 const RIGHT: f32 = 40.0;
-/// `cgs.media.radarShader`, `mAutomapPlayerIcon`, `siegeItemShader`, `mAutomapRocketIcon`.
-const STOCK: [&str; 4] = [
+/// `cgs.media.radarShader`, `mAutomapPlayerIcon`, `siegeItemShader`, `mAutomapRocketIcon`,
+/// and the rocket lock's wedge and lock picture ([`super::rocket_lock`]), read with them.
+const STOCK: [&str; 6] = [
     "gfx/menus/radar/radar.png",
     "gfx/menus/radar/arrow_w",
     "gfx/menus/radar/goalitem",
     "gfx/menus/radar/rocket",
+    jkr_client::rocket_lock::WEDGE,
+    jkr_client::rocket_lock::LOCK,
 ];
 const CS_MODELS: usize = 298;
 const CS_ICONS: usize = 1_067;
@@ -35,7 +38,7 @@ const PMF_FOLLOW: u16 = 4_096;
 
 /// One shader stage of a picture as stock's renderer draws it.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Layer {
+pub(super) struct Layer {
     texture: TextureId,
     /// `blendFunc GL_ONE GL_ONE`: added to what is below.
     additive: bool,
@@ -57,10 +60,18 @@ impl Layer {
                 .sum(),
         }
     }
+
+    /// The stage blended over what is below by its alpha, whatever its shader's `blendFunc`.
+    pub(super) fn blended(self) -> Self {
+        Self {
+            additive: false,
+            ..self
+        }
+    }
 }
 
 /// A picture's stages; stock's radar shaders have at most two.
-type Picture = [Option<Layer>; 2];
+pub(super) type Picture = [Option<Layer>; 2];
 
 /// The radar's marks and pictures.
 #[derive(Default)]
@@ -73,7 +84,7 @@ pub(super) struct State {
     time: i32,
     /// The map the pictures were read for, once they have been.
     map: Option<Vec<u8>>,
-    stock: [Option<Picture>; 4],
+    stock: [Option<Picture>; 6],
     /// Pictures read by shader name (`None`: nothing of it can be shown).
     pictures: Vec<(String, Option<Picture>)>,
     /// The image in each radar cell, in cell order.
@@ -134,11 +145,12 @@ impl HudOverlay {
                 in_vehicle,
             },
         };
+        // The pictures, the rocket lock's too, are read for every map, shown or not.
+        state.new_map(input.game, &assets);
         state.shown = input.enabled && Radar::shown(&viewer, input.game);
         if !state.shown {
             return;
         }
-        state.new_map(input.game, &assets);
         let time = input.time;
         state.time = time;
         let entities = input.snapshot.entities.iter().map(|entity| {
@@ -189,6 +201,11 @@ impl HudOverlay {
 }
 
 impl State {
+    /// The rocket lock's wedge and lock picture.
+    pub(super) fn lock_pictures(&self) -> [Option<Picture>; 2] {
+        [self.stock[4], self.stock[5]]
+    }
+
     /// The HUD units the radar takes in the upper-right stack.
     pub(super) fn height(&self) -> f32 {
         if self.shown { SIZE + GAP } else { 0.0 }
@@ -245,7 +262,7 @@ impl State {
 
 /// Each stage of `picture` over `rect` in `color`, turned `degrees` and by the stage's own
 /// spin.
-fn draw(
+pub(super) fn draw(
     list: &mut DrawList,
     picture: &Picture,
     rect: Rect,
