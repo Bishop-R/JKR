@@ -4,8 +4,35 @@ use jkr_shader::ShaderCatalog;
 use jkr_ui::TextureId;
 use jkr_vfs::VirtualFileSystem;
 
-/// Existing item catalogue, then 43 cause-of-death cells, then two CTY flag variants.
-pub(super) const COUNT: usize = 96;
+/// Existing item catalogue, then 43 cause-of-death cells, then two CTY flag variants, then
+/// the Force powers' icons and rage recovery's.
+pub(super) const COUNT: usize = 115;
+const _: () = assert!(COUNT as u32 <= ui_renderer::HUD_CELL_COUNT);
+/// The first Force power icon's slot (`FORCE_ICONS` order); rage recovery follows them.
+pub(super) const FORCE: usize = 96;
+pub(super) const RAGE_RECOVERY: usize = FORCE + 18;
+/// `HolocronIcons` (`ui_shared.c:41-60`), by Force power, and `rageRecShader`.
+const FORCE_ICONS: [&str; 19] = [
+    "gfx/mp/f_icon_lt_heal",
+    "gfx/mp/f_icon_levitation",
+    "gfx/mp/f_icon_speed",
+    "gfx/mp/f_icon_push",
+    "gfx/mp/f_icon_pull",
+    "gfx/mp/f_icon_lt_telepathy",
+    "gfx/mp/f_icon_dk_grip",
+    "gfx/mp/f_icon_dk_l1",
+    "gfx/mp/f_icon_dk_rage",
+    "gfx/mp/f_icon_lt_protect",
+    "gfx/mp/f_icon_lt_absorb",
+    "gfx/mp/f_icon_lt_healother",
+    "gfx/mp/f_icon_dk_forceother",
+    "gfx/mp/f_icon_dk_drain",
+    "gfx/mp/f_icon_sight",
+    "gfx/mp/f_icon_saber_attack",
+    "gfx/mp/f_icon_saber_defend",
+    "gfx/mp/f_icon_saber_throw",
+    "gfx/mp/f_icon_ragerec",
+];
 
 /// Stock weapon ordinals -> existing bg_itemlist entries (bg_misc.c:1241-1619).
 pub(super) const WEAPONS: [usize; 19] = [
@@ -102,7 +129,8 @@ pub(super) fn load(
             0..=50 => items[slot].to_owned(),
             51..=93 => format!("hud/mod/{}", MOD_NAMES[slot - 51]),
             94 => "gfx/hud/mpi_rflag_ys".to_owned(),
-            _ => "gfx/hud/mpi_bflag_ys".to_owned(),
+            95 => "gfx/hud/mpi_bflag_ys".to_owned(),
+            _ => FORCE_ICONS[slot - FORCE].to_owned(),
         };
         if name.is_empty() {
             return None;

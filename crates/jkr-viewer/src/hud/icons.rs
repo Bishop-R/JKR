@@ -75,6 +75,11 @@ pub(crate) struct Icons {
     cty: bool,
     method: usize,
     warned_model: bool,
+    /// `forcePowersActive`, rage recovery running, and whether `CG_DrawActivePowers`
+    /// stands down (zoomed, or a spectator).
+    active_powers: u32,
+    rage_recovery: bool,
+    powers_hidden: bool,
 }
 
 impl Default for Icons {
@@ -92,6 +97,9 @@ impl Default for Icons {
             cty: false,
             method: 0,
             warned_model: false,
+            active_powers: 0,
+            rage_recovery: false,
+            powers_hidden: true,
         }
     }
 }
@@ -130,6 +138,9 @@ impl Icons {
 
         self.weapon = snapshot.player.weapon();
         self.alive = snapshot.player.health() > 0 && snapshot.player.movement_type() != 4;
+        self.active_powers = snapshot.player.force_powers_active();
+        self.rage_recovery = snapshot.player.force_rage_recovery_time() > snapshot.server_time;
+        self.powers_hidden = snapshot.player.zoom_mode() != 0 || snapshot.player.team() == 3;
         self.cty = game
             .config_string(0)
             .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"))
@@ -174,6 +185,9 @@ impl Icons {
         let [w, h] = viewport;
         let s = (h / 1080.0).clamp(0.6, 2.5);
         let white = Color::new(1.0, 1.0, 1.0, 1.0);
+        if visibility.hud && !self.powers_hidden {
+            self.active_powers(list, viewport);
+        }
         if self.enabled && visibility.status && self.alive {
             let item = assets::WEAPONS
                 .get(self.weapon as usize)
@@ -236,6 +250,33 @@ impl Icons {
                     });
                 }
                 y += 86.0 * s;
+            }
+        }
+    }
+
+    /// `CG_DrawActivePowers` (`cg_draw.c:5714-5754`): an icon for each running power that
+    /// lasts (heal, speed, mind trick, rage, protect, absorb, sight), in `forcePowerSorted`
+    /// order along the bottom left and wrapping, then rage recovery's while it runs.
+    fn active_powers(&self, list: &mut DrawList, viewport: [f32; 2]) {
+        /// `forcePowerSorted`, kept to the powers `CG_IsDurationPower` names.
+        const LASTING: [usize; 7] = [5, 0, 10, 9, 2, 14, 8];
+        let [w, h] = viewport;
+        let s = (h / 1080.0).clamp(0.6, 2.5);
+        let (size, step) = (64.0 * s, 68.0 * s);
+        let start = 56.0 * s;
+        let (mut x, mut y) = (start, h - 260.0 * s);
+        let white = Color::new(1.0, 1.0, 1.0, 1.0);
+        let powers = LASTING
+            .iter()
+            .filter(|power| self.active_powers & (1 << **power) != 0)
+            .map(|power| assets::FORCE + power)
+            .chain(self.rage_recovery.then_some(assets::RAGE_RECOVERY));
+        for slot in powers {
+            self.quad(list, slot, Rect::new(x, y, size, size), white);
+            x += step;
+            if x + size >= w - 200.0 * s {
+                x = start;
+                y += step;
             }
         }
     }

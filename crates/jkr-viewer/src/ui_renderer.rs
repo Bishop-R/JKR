@@ -7,8 +7,8 @@ use jkr_ui::{Color, DrawCommand, DrawList, FontWeight, Rect, TextAlign, TextId};
 mod icons;
 use icons::IconAtlas;
 pub(crate) use icons::{
-    BANNER_SIZE, BANNER_TEXTURE, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE, LEVELSHOT_TEXTURE,
-    RADAR_CELL_COUNT, RADAR_CELLS,
+    BANNER_SIZE, BANNER_TEXTURE, HUD_CELL_COUNT, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE,
+    LEVELSHOT_TEXTURE, RADAR_CELL_COUNT, RADAR_CELLS,
 };
 
 /// Main-menu wordmark: the Jedi Knight saber emblem laid horizontal, white

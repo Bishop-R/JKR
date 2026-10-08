@@ -12,14 +12,16 @@ pub(crate) const ICON_SIZE: u32 = 128;
 const COLUMNS: u32 = ATLAS_SIZE / ICON_SIZE;
 /// Cells for the radar's pictures, two rows after the HUD's.
 pub(crate) const RADAR_CELL_COUNT: u32 = 2 * COLUMNS;
-const ATLAS_HEIGHT: u32 = ATLAS_SIZE + 768 + 2 * ICON_SIZE;
+/// Cells for the HUD's icons, eight rows after the menu's.
+pub(crate) const HUD_CELL_COUNT: u32 = 8 * COLUMNS;
+const ATLAS_HEIGHT: u32 = ATLAS_SIZE + HUD_CELL_COUNT / COLUMNS * ICON_SIZE + 2 * ICON_SIZE;
 /// Pixel size of the banner strip (rows of cells it takes: 3).
 pub(crate) const BANNER_SIZE: [u32; 2] = [1_536, 384];
 const BANNER_Y: u32 = ATLAS_HEIGHT - BANNER_SIZE[1];
 /// Original menu-cell reservation; HUD cells follow without reducing menu capacity.
 pub(crate) const ICON_CELLS: u32 = COLUMNS * ((ATLAS_SIZE - BANNER_SIZE[1]) / ICON_SIZE);
 /// The first radar cell.
-pub(crate) const RADAR_CELLS: u32 = ICON_CELLS + 96;
+pub(crate) const RADAR_CELLS: u32 = ICON_CELLS + HUD_CELL_COUNT;
 const TOTAL_CELLS: u32 = RADAR_CELLS + RADAR_CELL_COUNT;
 /// `TexturedQuad` texture naming the banner strip.
 pub(crate) const BANNER_TEXTURE: TextureId = TextureId(u32::MAX);
