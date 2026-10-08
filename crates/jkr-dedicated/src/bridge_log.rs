@@ -47,6 +47,7 @@ impl NativeGame {
             let _ = std::io::stdout().write_all(text.as_bytes());
         };
         self.log_file = None;
+        self.stat_log.reset();
         if name.is_empty() {
             print("Not logging game events to disk.\n".to_owned());
         } else {
@@ -120,6 +121,7 @@ impl NativeGame {
 
     /// `G_ShutdownGame`'s log: the last line, and the file closed.
     pub(super) fn close_log(&mut self) {
+        self.write_stat_log();
         self.log(&game_log::shutdown_game());
         self.log_file = None;
         if self.security_file.is_some() {

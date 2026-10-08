@@ -29,6 +29,8 @@ pub(super) enum NpcOutcome {
     PlayerScore(u16, i32),
     /// A player's kill of an NPC: the stun baton's count and the excellent award.
     CreditKill(u16, u32),
+    /// A player's kill of an NPC, for the statistics log.
+    TallyKill(u16, u32),
     /// `AddScore` on an NPC: its team's score in a team game, and the ranks.
     NpcScored(i32, i32),
     /// `NPC_CheckAttacker`: whom a player is taken to fight.
@@ -626,6 +628,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn credit_kill(&mut self, player: u16, means: u32) {
         self.outcomes.push(NpcOutcome::CreditKill(player, means));
+    }
+
+    fn tally_kill(&mut self, player: u16, means: u32) {
+        self.outcomes.push(NpcOutcome::TallyKill(player, means));
     }
 
     fn npc_scored(&mut self, team: i32, points: i32) {

@@ -52,6 +52,7 @@ impl NativeGame {
             if !self.hurt_glass_by(
                 blow.entity,
                 blow.damage,
+                MOD_CRUSH,
                 owner,
                 Some((origin, direction)),
                 level_time,

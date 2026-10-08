@@ -130,6 +130,9 @@ impl NativeGame {
             sentry::damage(&mut placed, target, take, owner, host)
         });
         self.map = map;
+        if placed.health > 0 {
+            self.tally_object_damage(blow, take);
+        }
         self.settle_sentry(index, id, placed, outcome, level_time);
         self.carry_out_turret_work(level_time);
     }

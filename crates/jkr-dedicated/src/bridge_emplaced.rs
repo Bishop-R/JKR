@@ -431,7 +431,7 @@ impl NativeGame {
         &mut self,
         number: u16,
         damage: i32,
-        attacker: Option<u16>,
+        (attacker, means): (Option<u16>, u32),
         level_time: i32,
     ) -> bool {
         let Some(index) = self.mounted.index(number) else {
@@ -459,8 +459,12 @@ impl NativeGame {
                 }
             }
         }
-        let _ = emplaced::damage(&mut self.mounted.guns[index].1, damage, level_time);
+        let take = emplaced::damage(&mut self.mounted.guns[index].1, damage, level_time);
+        let survived = self.mounted.guns[index].1.health > 0;
         self.publish_gun(index);
+        if survived {
+            self.tally_damage_by(attacker, means, take);
+        }
         true
     }
 

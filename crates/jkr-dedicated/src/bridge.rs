@@ -285,6 +285,8 @@ pub struct NativeGame {
     log_file: Option<std::fs::File>,
     /// `level.security.log`: `security.log`, open while `g_securityLog` asks for it.
     security_file: Option<std::fs::File>,
+    /// `G_WeaponLog*`: the level's weapon statistics, written while `g_statLog` is on.
+    stat_log: jkr_game_jka::stat_log::StatLog,
     /// Server demo files, by wire client number.
     demo_files: Vec<Option<std::fs::File>>,
     /// The console's command buffer (`exec`, `vstr`, `wait`, typed lines).
@@ -528,6 +530,7 @@ impl NativeGame {
             ip_filter: Default::default(),
             log_file: None,
             security_file: None,
+            stat_log: Default::default(),
             demo_files: Vec::new(),
             npcs: Default::default(),
             mounted: Default::default(),
@@ -793,7 +796,7 @@ impl NativeGame {
                     .iter()
                     .any(|(ours, _)| ours.legacy_number() == number);
         }
-        if self.hurt_glass(number, damage, owner, level_time) {
+        if self.hurt_glass(number, damage, means, owner, level_time) {
             return true;
         }
         let from = self
@@ -828,6 +831,9 @@ impl NativeGame {
             from,
             level_time,
         );
+        if matches!(hit, jkr_game_jka::breakables::Hit::Hurt { .. }) {
+            self.tally_damage_by(Some(owner), means, damage);
+        }
         match hit {
             jkr_game_jka::breakables::Hit::Ignored => {}
             jkr_game_jka::breakables::Hit::Hurt { paintarget, .. } => {
@@ -1219,6 +1225,11 @@ impl NativeGame {
             {
                 continue;
             }
+            // `Pickup_Powerup` tallies a powerup the player did not have yet.
+            let had_powerup = usize::try_from(jkr_game_jka::items::ITEMS[item].tag)
+                .ok()
+                .and_then(|tag| peer.state.powerups.get(tag))
+                .is_some_and(|until| *until != 0);
             let taken = jkr_game_jka::items::pick_up(
                 item,
                 &mut peer.state,
@@ -1244,6 +1255,7 @@ impl NativeGame {
                 peer.entity.event_raised(level_time);
             }
             peer.movement = peer.movement.reseeded(&peer.state);
+            self.tally_pickup(client, item, had_powerup);
             if dropped.is_some() {
                 let (_, pickup) = &mut self.items[index];
                 jkr_game_jka::dropped_items::taken(pickup, taken.respawn, level_time);
@@ -1637,6 +1649,7 @@ impl NativeGame {
         self.spawned(client, begun, place, command, server_time);
         self.siege_point_fired(siege_place, client, server_time);
         self.log(&jkr_game_jka::game_log::client_begin(client));
+        self.stat_log.clear(client);
         self.motd_on_begin(client);
     }
 
@@ -1834,6 +1847,8 @@ impl NativeGame {
         }
         self.log_kill(client, request.attacker, request.means);
         self.austrian_kill(client, request.attacker, request.means, server_time);
+        let killer = request.attacker.filter(|_| !request.npc_attacker);
+        self.tally_death(client, killer, request.means);
         request.gametype = self.gametype;
         request.flag_rules = self.flag_rules();
         // jaPRO's gun game drops nothing at a death but a flag; a suicide counts against
@@ -2794,6 +2809,9 @@ impl NativeGame {
             damaged.take + damaged.absorbed,
             had,
         );
+        if damaged.died.is_none() {
+            self.tally_damage(request.attacker, request.means, damaged.take);
+        }
         // jaPRO's damage numbers, for a blow on one alive before it.
         if alive_before && let Some(attacker) = request.attacker {
             let dealt = damaged.take + damaged.absorbed;
@@ -3869,6 +3887,8 @@ mod bridge_siege_triggers;
 mod bridge_spot;
 #[path = "bridge_starting_items.rs"]
 mod bridge_starting_items;
+#[path = "bridge_stat_log.rs"]
+mod bridge_stat_log;
 #[path = "bridge_stock_rules.rs"]
 mod bridge_stock_rules;
 #[path = "bridge_target_laser.rs"]

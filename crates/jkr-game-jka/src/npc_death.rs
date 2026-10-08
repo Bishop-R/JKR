@@ -174,6 +174,9 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             npc.player.raw_field(PS_PM_FLAGS).unwrap_or(0) & !PMF_STUCK_TO_WALL,
         );
         self.log_death(me, attacker, means);
+        if attacker < MAX_CLIENTS && self.body(attacker).is_some() {
+            self.host.tally_kill(attacker, means);
+        }
         let npc = &mut self.actors[me];
         npc.mind.enemy = Some(attacker);
         npc.player.persistent[PERS_KILLED] = npc.player.persistent[PERS_KILLED].wrapping_add(1);

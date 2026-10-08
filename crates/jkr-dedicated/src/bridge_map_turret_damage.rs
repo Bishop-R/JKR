@@ -42,7 +42,8 @@ impl NativeGame {
             return;
         }
         if !self.map_turrets.owns(number) {
-            self.hurt_gun(number, missile.damage, Some(missile.owner), level_time);
+            let attacker = (Some(missile.owner), missile.method_of_death);
+            self.hurt_gun(number, missile.damage, attacker, level_time);
             return;
         }
         let attacker = self.attacker_for(missile.owner);
@@ -222,6 +223,7 @@ impl NativeGame {
             .and_then(|attacker| targets.iter().find(|entry| entry.number == attacker.number))
             .copied();
         let map = self.map.take();
+        let (mut taken, mut survived) = (None, false);
         if let Some(index) = self
             .map_turrets
             .g2
@@ -229,7 +231,7 @@ impl NativeGame {
             .position(|(id, _)| id.legacy_number() == target)
         {
             let (id, mut turret) = self.map_turrets.g2.remove(index);
-            self.with_turret_host(map.as_ref(), usize::MAX, |host| {
+            taken = self.with_turret_host(map.as_ref(), usize::MAX, |host| {
                 jkr_game_jka::map_turret_g2::damage(
                     &mut turret,
                     target,
@@ -239,6 +241,7 @@ impl NativeGame {
                     host,
                 )
             });
+            survived = turret.health > 0;
             self.map_turrets.g2.insert(index, (id, turret));
         } else if let Some(index) = self.map_turrets.misc.iter().position(|(base, top, _)| {
             base.legacy_number() == target || top.legacy_number() == target
@@ -249,7 +252,7 @@ impl NativeGame {
             } else {
                 Part::Top
             };
-            self.with_turret_host(map.as_ref(), usize::MAX, |host| {
+            taken = self.with_turret_host(map.as_ref(), usize::MAX, |host| {
                 jkr_game_jka::map_turret::damage(
                     &mut turret,
                     part,
@@ -260,10 +263,17 @@ impl NativeGame {
                     host,
                 )
             });
+            survived = match part {
+                Part::Base => turret.base.health > 0,
+                Part::Top => turret.top.health > 0,
+            };
             self.map_turrets.misc.insert(index, (base, top, turret));
         }
         self.map = map;
         self.map_turrets.sighted = targets;
+        if let Some(take) = taken.filter(|_| survived) {
+            self.tally_object_damage(&blow, take);
+        }
         self.publish_turret(target);
         self.carry_out_turret_work(level_time);
     }

@@ -63,6 +63,7 @@ pub mod script_set;
 mod script_set_npc;
 mod script_set_tables;
 pub mod server_skeleton;
+pub mod stat_log;
 pub mod tournament;
 pub mod tri_tri;
 

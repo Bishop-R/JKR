@@ -113,7 +113,10 @@ impl NativeGame {
         if self.hurt_gun(
             target as u16,
             request.damage,
-            request.attacker.map(|attacker| attacker.client),
+            (
+                request.attacker.map(|attacker| attacker.client),
+                request.means,
+            ),
             request.level_time,
         ) {
             return (Damaged::default(), false);
@@ -232,6 +235,7 @@ impl NativeGame {
         );
         let level_time = request.level_time;
         let attacker = request.attacker;
+        let means = request.means;
         // Alive before the blow, for jaPRO's damage numbers; what it had, for its
         // statistics.
         let before = self
@@ -267,6 +271,9 @@ impl NativeGame {
         }
         if let Some((health, _, armor)) = before {
             self.count_npc_damage(attacker, hurt.take + hurt.absorbed, (health, armor));
+        }
+        if !hurt.died {
+            self.tally_damage(attacker, means, hurt.take);
         }
         let damaged = Damaged {
             take: hurt.take,
@@ -319,6 +326,7 @@ impl NativeGame {
         for outcome in outcomes {
             match outcome {
                 NpcOutcome::Log(line) => self.log(&line),
+                NpcOutcome::TallyKill(player, means) => self.tally_kill(Some(player), means),
                 // `AddScore` is held off during the warmup.
                 NpcOutcome::PlayerScore(..) | NpcOutcome::NpcScored(..) if !self.scoring() => {}
                 NpcOutcome::PlayerScore(player, points) => {

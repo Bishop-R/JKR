@@ -986,6 +986,8 @@ pub trait NpcHost: SaberParseHost {
     /// A player killed an NPC (`player_die`, `g_combat.c:2600-2622`): the stun baton's count,
     /// the excellent award by its last kill's time, and the time of this one.
     fn credit_kill(&mut self, _player: u16, _means: u32) {}
+    /// A player killed an NPC, for the statistics log (`G_LogWeaponKill`).
+    fn tally_kill(&mut self, _player: u16, _means: u32) {}
     /// `AddScore` on an NPC, beyond its own score: its team's in a team game (by the
     /// player team it counts as), and the ranks.
     fn npc_scored(&mut self, _team: i32, _points: i32) {}

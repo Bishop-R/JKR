@@ -280,10 +280,11 @@ impl NativeGame {
         &mut self,
         number: u16,
         damage: i32,
+        means: u32,
         owner: u16,
         level_time: i32,
     ) -> bool {
-        self.hurt_glass_by(number, damage, owner, None, level_time)
+        self.hurt_glass_by(number, damage, means, owner, None, level_time)
     }
 
     /// Whether `number` is a pane of glass (`func_glass`).
@@ -301,6 +302,7 @@ impl NativeGame {
         &mut self,
         number: u16,
         damage: i32,
+        means: u32,
         owner: u16,
         blow: Option<([f32; 3], [f32; 3])>,
         level_time: i32,
@@ -326,11 +328,14 @@ impl NativeGame {
             jkr_game_jka::player_angle_math::normalize(&mut direction);
             (center, direction)
         });
+        let hurt = pane.takes_damage && !pane.shattered;
         if let Some(shatter) = pane.hurt(damage, point, direction) {
             let attacker = (usize::from(owner) < self.players.places())
                 .then_some(usize::from(owner))
                 .unwrap_or(usize::MAX);
             self.shatter_glass(index, shatter, attacker, level_time);
+        } else if hurt {
+            self.tally_damage_by(Some(owner), means, damage);
         }
         true
     }

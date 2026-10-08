@@ -125,6 +125,9 @@ impl NativeGame {
         let mut user = self.eweb_user(owner);
         let (id, mut placed) = self.map_turrets.ewebs.remove(index);
         let outcome = eweb::damage(&mut placed, user.as_mut(), take);
+        if placed.health > 0 {
+            self.tally_object_damage(blow, take);
+        }
         if let Some(user) = &user {
             self.give_back_user(owner, user);
         }

@@ -220,6 +220,7 @@ impl NativeGame {
     pub(super) fn disconnect_client(&mut self, client: usize) {
         self.forget_queued_bot(client);
         self.log_about(client, jkr_game_jka::game_log::client_disconnect);
+        self.stat_log.clear(client);
         self.clear_votes_of(client);
         let level_time = self.last_frame_time;
 

@@ -370,7 +370,10 @@ impl NativeGame {
         // The disruptor's instant shots strike other players: fired once this player's
         // borrow is over.
         let mut instant = [None; 16];
+        // The shots of this think and their weapon, for the statistics log.
+        let mut shots = (0, peer.state.weapon());
         for (alternate, slot) in fires.into_iter().flatten().zip(instant.iter_mut()) {
+            shots.0 += 1;
             // `FireWeapon` counts the shot for the accuracy of every weapon but the
             // saber, the stun baton and the fists — the flechette's as five, alternate or not.
             if !matches!(peer.state.weapon(), 1..=3) {
@@ -426,6 +429,10 @@ impl NativeGame {
                 // The lock the rocket cleared is the movement's to know too.
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
+        }
+        // `G_LogWeaponFire`, at the end of each `FireWeapon`.
+        for _ in 0..shots.0 {
+            self.stat_log.fire(client, u32::from(shots.1), level_time);
         }
         for alternate in instant.into_iter().flatten() {
             match self.peer_mut(client).map(|peer| peer.state.weapon()) {

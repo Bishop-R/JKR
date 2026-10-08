@@ -544,10 +544,14 @@ impl NativeGame {
             return false;
         };
         let take_damage = siege.items[index].item.take_damage;
+        let health = siege.items[index].item.health;
         let Some(take) = jkr_game_jka::map_turret_world::object_take(number, take_damage, 0, &blow)
         else {
             return true;
         };
+        if health - take > 0 {
+            self.tally_object_damage(&blow, take);
+        }
         self.with_siege_items(level_time, |items, world| {
             let item = &mut items[index].item;
             item.health -= take;
