@@ -143,6 +143,7 @@ pub(crate) fn damped_third_person(
         .as_mut()
         .and_then(|c| c.director.camera(fallback))
         .unwrap_or(fallback);
+    framing[2] = state.scope.third_person_range(framing[2]);
     let snapshot = state
         .live_session
         .as_ref()

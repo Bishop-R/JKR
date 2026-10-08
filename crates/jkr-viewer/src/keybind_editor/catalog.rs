@@ -76,6 +76,7 @@ pub(crate) const ACTIONS: &[BindableAction] = &[
     action(Interaction, "Saber style", "saberAttackCycle", "l"),
     action(Interaction, "Engage duel", "engage_duel", "k"),
     action(Interaction, "Binoculars", "zoom", ""),
+    action(Interaction, "Zoom view (hold)", "+zoom", ""),
     action(Interaction, "Item: Bacta", "use_bacta", ""),
     action(Interaction, "Item: Seeker drone", "use_seeker", ""),
     action(Interaction, "Item: Sentry gun", "use_sentry", ""),

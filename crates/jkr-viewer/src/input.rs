@@ -56,6 +56,8 @@ pub(crate) enum InputAction {
     CenterView,
     /// Apply the current cl_freelook value when the viewer handles mouse-look release.
     MlookReleased,
+    /// EternalJK's `+zoom` (true) and `-zoom`.
+    Zoom(bool),
 }
 
 /// Current logical gameplay-input state.
@@ -148,6 +150,8 @@ impl GameplayInput {
                     | "sabertoggle"
                     | "saberstyle"
                     | "centerview"
+                    | "+zoom"
+                    | "-zoom"
                     | "weapnext"
                     | "weapprev"
                     | "forcenext"
@@ -226,11 +230,16 @@ impl GameplayInput {
 
     /// Apply one command resolved by the bind table.
     pub(crate) fn apply(&mut self, command: &str) -> Option<InputAction> {
+        let mut words = command.split_ascii_whitespace();
+        let name = words.next()?.to_ascii_lowercase();
+        // A release always lands, as a stock key-up's `-` command does, so a zoom held
+        // when the window lost focus does not stay on.
+        if name == "-zoom" {
+            return Some(InputAction::Zoom(false));
+        }
         if !self.focused {
             return None;
         }
-        let mut words = command.split_ascii_whitespace();
-        let name = words.next()?.to_ascii_lowercase();
         if let Some(button) = button_for_command(&name) {
             let pressed = name.starts_with('+');
             let key = words.next().and_then(|word| word.parse().ok());
@@ -257,6 +266,7 @@ impl GameplayInput {
             "sabertoggle" => Some(InputAction::SaberToggle),
             "saberstyle" => Some(InputAction::SaberStyle),
             "centerview" => Some(InputAction::CenterView),
+            "+zoom" => Some(InputAction::Zoom(true)),
             "weapnext" => Some(InputAction::WeaponCycle(1)),
             "weapprev" => Some(InputAction::WeaponCycle(-1)),
             "forcenext" => Some(InputAction::SelectionCycle(false, 1)),
@@ -333,6 +343,7 @@ impl super::GpuState {
             // Camera pitch is already delta-adjusted; wire encoding subtracts delta_angles.
             // Thus physical pitch zero encodes -SHORT2ANGLE(delta), cl_input.cpp:797.
             Some(InputAction::CenterView) => self.camera_pitch = 0.0,
+            Some(InputAction::Zoom(held)) => self.scope.hold(held),
             Some(InputAction::MlookReleased) => {
                 if self
                     .console

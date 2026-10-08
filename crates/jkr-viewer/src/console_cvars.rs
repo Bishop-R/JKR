@@ -176,6 +176,24 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
         ),
         CvarDefinition::new("cg_fov", 90.0_f64, archive, "Horizontal field of view"),
         CvarDefinition::new(
+            "cg_zoomFov",
+            30.0_f64,
+            archive,
+            "EternalJK: the field of view +zoom narrows to (1 to 176)",
+        ),
+        CvarDefinition::new(
+            "cg_zoomSensitivity",
+            0.0_f64,
+            archive,
+            "EternalJK: mouse sensitivity while +zoom is held; 0 slows it with the view",
+        ),
+        CvarDefinition::new(
+            "cg_scopeSensitivity",
+            1.0_f64,
+            archive,
+            "EternalJK: multiplies a weapon zoom's mouse sensitivity; 0 keeps stock's",
+        ),
+        CvarDefinition::new(
             "cg_fovAspectAdjust",
             true,
             archive,

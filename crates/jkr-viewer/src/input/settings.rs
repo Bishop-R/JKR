@@ -54,6 +54,17 @@ pub(crate) fn register_commands(
                 ))
             })?;
     }
+    for name in ["+zoom", "-zoom"] {
+        shell.commands.register(
+            name,
+            "EternalJK: narrow the view to cg_zoomFov while held",
+            |_| {
+                Err(jkr_shell::CommandError::Handler(
+                    "Viewer input dispatcher required".into(),
+                ))
+            },
+        )?;
+    }
     shell.commands.register(
         "centerview",
         "Center pitch using snapshot delta angles",
