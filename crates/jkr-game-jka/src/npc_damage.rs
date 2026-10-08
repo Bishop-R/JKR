@@ -16,17 +16,13 @@
 
 use crate::damage::{
     Attacker, DAMAGE_HALF_ABSORB, DAMAGE_NO_ARMOR, DAMAGE_NO_HIT_LOC, DAMAGE_NO_KNOCKBACK,
-    DAMAGE_NO_PROTECTION, DAMAGE_SABER_KNOCKBACK1, DAMAGE_SABER_KNOCKBACK1_B2,
-    DAMAGE_SABER_KNOCKBACK2, DAMAGE_SABER_KNOCKBACK2_B2, DamageRequest, HitLocation, OtherKiller,
-    hit_location, location_modified,
+    DAMAGE_NO_PROTECTION, DamageRequest, HitLocation, OtherKiller, hit_location, location_modified,
 };
 use crate::event_entity::EventEntity;
 use crate::means_of_death::{MOD_DEMP2, MOD_DEMP2_ALT, MOD_SABER};
 use crate::npc_spawn::NpcHost;
 use crate::npc_world::NpcWorld;
 
-/// `g_knockback`'s default.
-const KNOCKBACK: f32 = 1_000.0;
 /// `ARMOR_PROTECTION`.
 const ARMOR_PROTECTION: f64 = 0.5;
 /// `EV_SHIELD_HIT`.
@@ -116,7 +112,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         let attacker_number = attacker.map_or(ENTITY_WORLD, |attacker| attacker.client);
         let by_another = attacker_number != self.actors[me].number;
         let attacker_body = attacker.and_then(|attacker| self.body(attacker.client));
-        let gametype = self.host.gametype();
+        let (gametype, knockback_rules) = (self.host.gametype(), self.host.knockback_rules());
         // The DEMP2's electrocution, the first thing it does to a client.
         if request.means == MOD_DEMP2
             && (self.actors[me]
@@ -216,10 +212,9 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 attacker,
                 attacker_body.is_some() && by_another,
                 direction,
-                knockback,
-                flags,
-                request.means,
+                (knockback, flags, request.means),
                 level_time,
+                &knockback_rules,
             );
         }
         // A vehicle remembers who shot it for longer, pushed or not.
@@ -435,46 +430,21 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     }
 }
 
-/// The knockback's push (`g_combat.c:4630-4738`): the velocity along the blow — a saber's
-/// scaled by `g_saberDmgVelocityScale`, 0, unless the blow asks for its sabers' own
-/// scales — the attacker (a client) remembered as the one who pushed, and the movement
-/// locked while the push lasts.
+/// The knockback's push (`g_combat.c:4630-4738`): the velocity along the blow
+/// ([`crate::damage::KnockbackRules::push`]), the attacker (a client) remembered as the
+/// one who pushed, and the movement held while the push lasts.
 #[allow(clippy::too_many_arguments)]
 fn push(
     npc: &mut crate::npc_spawn::NpcActor,
     attacker: Option<Attacker>,
     credited: bool,
     direction: [f32; 3],
-    knockback: i32,
-    flags: u32,
-    means: u32,
+    (knockback, flags, means): (i32, u32, u32),
     level_time: i32,
+    rules: &crate::damage::KnockbackRules,
 ) {
-    let saber = means == MOD_SABER;
-    let pushed_by_saber = saber && flags & (DAMAGE_SABER_KNOCKBACK1 | DAMAGE_SABER_KNOCKBACK2) != 0;
-    let scale = if saber {
-        let mut saber_scale = 0.0;
-        if pushed_by_saber {
-            saber_scale = 1.0;
-            let scales = attacker.map_or([0.0; 4], |attacker| attacker.saber_knockback);
-            for (bit, factor) in [
-                DAMAGE_SABER_KNOCKBACK1,
-                DAMAGE_SABER_KNOCKBACK1_B2,
-                DAMAGE_SABER_KNOCKBACK2,
-                DAMAGE_SABER_KNOCKBACK2_B2,
-            ]
-            .into_iter()
-            .zip(scales)
-            {
-                if flags & bit != 0 {
-                    saber_scale *= factor;
-                }
-            }
-        }
-        (KNOCKBACK * knockback as f32 / 200.0) * saber_scale
-    } else {
-        KNOCKBACK * knockback as f32 / 200.0
-    };
+    let saber_knockback = attacker.map(|attacker| attacker.saber_knockback);
+    let (scale, holds) = rules.push(knockback, flags, means == MOD_SABER, saber_knockback);
     let velocity = npc.player.velocity();
     npc.player.set_velocity(std::array::from_fn(|axis| {
         velocity[axis] + direction[axis] * scale
@@ -482,7 +452,7 @@ fn push(
     if credited && let Some(attacker) = attacker {
         npc.mind.fight.other_killer = OtherKiller::credit(attacker.client, level_time);
     }
-    if npc.player.movement_time() == 0 && (!saber || pushed_by_saber) {
+    if npc.player.movement_time() == 0 && holds {
         let lock = (knockback * 2).clamp(50, 200);
         npc.player.set_movement_time(lock as i16);
         npc.player

@@ -51,8 +51,6 @@ pub const DAMAGE_NO_PROTECTION: u32 = 0x8;
 pub const DAMAGE_HALF_ABSORB: u32 = 0x400;
 pub const DAMAGE_NO_HIT_LOC: u32 = 0x2000;
 pub const DAMAGE_NO_SELF_PROTECTION: u32 = 0x4000;
-/// `g_knockback`'s default.
-const KNOCKBACK: f32 = 1_000.0;
 /// `ARMOR_PROTECTION`.
 const ARMOR_PROTECTION: f64 = 0.5;
 /// `EV_PAIN`, `EV_SHIELD_HIT`.
@@ -301,6 +299,74 @@ pub struct Target<'a> {
     pub jetpack: Option<&'a mut crate::holdables::Packs>,
     /// The share of its own blows it takes ([`self_damage`]).
     pub self_damage: f32,
+    /// How hard the blow pushes it.
+    pub knockback: KnockbackRules,
+}
+
+/// How hard blows push (`g_knockback`, `g_saberDmgVelocityScale`); the defaults are
+/// stock's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct KnockbackRules {
+    /// `g_knockback`: the speed a blow of 200 gives a body of mass 200.
+    pub strength: f32,
+    /// `g_saberDmgVelocityScale`: the share of a saber blow's push that lands. At 0 a
+    /// saber pushes nobody unless the blow asks for its saber's own `knockbackScale`.
+    pub saber_scale: f32,
+    /// The same setting's whole part is not 0: every saber blow's push holds the target's
+    /// movement for a while, as other blows' do.
+    pub saber_push_holds: bool,
+}
+
+impl Default for KnockbackRules {
+    fn default() -> Self {
+        Self {
+            strength: 1_000.0,
+            saber_scale: 0.0,
+            saber_push_holds: false,
+        }
+    }
+}
+
+impl KnockbackRules {
+    /// `G_Damage`'s push (`g_combat.c:4651-4741`) of `knockback` points on a body of mass
+    /// 200: the speed added along the blow, and whether it holds the target's movement
+    /// (`PMF_TIME_KNOCKBACK`). A saber's push is scaled by `saber_scale`, or — the blow
+    /// asking for it (`DAMAGE_SABER_KNOCKBACK1`/`2`) — by its saber's own scales, read
+    /// off a client attacker (`saber_knockback`).
+    pub fn push(
+        &self,
+        knockback: i32,
+        flags: u32,
+        saber: bool,
+        saber_knockback: Option<[f32; 4]>,
+    ) -> (f32, bool) {
+        let speed = self.strength * knockback as f32 / 200.0;
+        if !saber {
+            return (speed, true);
+        }
+        let mut scale = self.saber_scale;
+        if flags & (DAMAGE_SABER_KNOCKBACK1 | DAMAGE_SABER_KNOCKBACK2) != 0 {
+            if scale == 0.0 {
+                scale = 1.0;
+            }
+            let bits = [
+                DAMAGE_SABER_KNOCKBACK1,
+                DAMAGE_SABER_KNOCKBACK1_B2,
+                DAMAGE_SABER_KNOCKBACK2,
+                DAMAGE_SABER_KNOCKBACK2_B2,
+            ];
+            for (bit, factor) in bits.into_iter().zip(saber_knockback.unwrap_or([1.0; 4])) {
+                if flags & bit != 0 {
+                    scale *= factor;
+                }
+            }
+        }
+        let asked = DAMAGE_SABER_KNOCKBACK1
+            | DAMAGE_SABER_KNOCKBACK2
+            | DAMAGE_SABER_KNOCKBACK1_B2
+            | DAMAGE_SABER_KNOCKBACK2_B2;
+        (speed * scale, self.saber_push_holds || flags & asked != 0)
+    }
 }
 
 /// `G_ScaleNetHealth` (`g_utils.c:1116-1146`): the `s.maxhealth` and `s.health` a health
@@ -464,36 +530,10 @@ pub fn damage_at(
     }
     // The momentum, even where the damage will not be taken.
     if knockback != 0 {
-        // A saber's is scaled by `g_saberDmgVelocityScale`, 0: no push at all — unless the
-        // blow asks for its saber's `knockbackScale` (`g_combat.c:4659-4700`; the second
-        // blade style's scales count only beside a first one's flag).
-        let pushed_by_saber =
-            saber && flags & (DAMAGE_SABER_KNOCKBACK1 | DAMAGE_SABER_KNOCKBACK2) != 0;
-        let scale = if saber {
-            let mut saber_scale = 0.0;
-            if pushed_by_saber {
-                saber_scale = 1.0;
-                let scales = request
-                    .attacker
-                    .map_or([0.0; 4], |attacker| attacker.saber_knockback);
-                for (bit, factor) in [
-                    DAMAGE_SABER_KNOCKBACK1,
-                    DAMAGE_SABER_KNOCKBACK1_B2,
-                    DAMAGE_SABER_KNOCKBACK2,
-                    DAMAGE_SABER_KNOCKBACK2_B2,
-                ]
-                .into_iter()
-                .zip(scales)
-                {
-                    if flags & bit != 0 {
-                        saber_scale *= factor;
-                    }
-                }
-            }
-            (KNOCKBACK * knockback as f32 / 200.0) * saber_scale
-        } else {
-            KNOCKBACK * knockback as f32 / 200.0
-        };
+        let saber_knockback = request.attacker.map(|attacker| attacker.saber_knockback);
+        let (scale, holds) = target
+            .knockback
+            .push(knockback, flags, saber, saber_knockback);
         let velocity = target.state.velocity();
         target.state.set_velocity(std::array::from_fn(|axis| {
             velocity[axis] + direction[axis] * scale
@@ -501,9 +541,8 @@ pub fn damage_at(
         if by_another && by_a_client {
             target.wounds.other_killer = OtherKiller::credit(attacker_number, level_time);
         }
-        // The other client cannot cancel the push out at once — unless it was a saber's,
-        // which pushes nobody.
-        if target.state.movement_time() == 0 && (!saber || pushed_by_saber) {
+        // "so that the other client can't cancel out the movement immediately".
+        if target.state.movement_time() == 0 && holds {
             let lock = (knockback * 2).clamp(50, 200);
             target.state.set_movement_time(lock as i16);
             target

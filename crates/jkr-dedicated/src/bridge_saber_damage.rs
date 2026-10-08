@@ -216,7 +216,7 @@ impl NativeGame {
     /// this frame and box its saber entity, then sweep every lit blade of its sabers
     /// (`w_saber.c:8786-9092`), their blows dealt once all are swept.
     pub(super) fn swing_saber(&mut self, client: usize, level_time: i32) {
-        let gametype = self.gametype;
+        let (gametype, rules) = (self.gametype, self.saber_damage_rules());
         let more_saber_damage = self.siege_class_flags(client) & MORE_SABER_DAMAGE != 0;
         let Some(peer) = self.peer_mut(client) else {
             return;
@@ -383,6 +383,7 @@ impl NativeGame {
                     more_saber_damage,
                     // A player's `saberEventFlags` are read by nothing on this server.
                     enemy: None,
+                    rules,
                 };
                 let trail = peer.saber_cut.trails[saber][blade];
                 self.gather_obstacles(client);
@@ -535,7 +536,7 @@ impl NativeGame {
     /// `WP_SaberApplyDamage`: each victim's total as one `G_Damage`, a player's placed
     /// by the surface the blade struck on it.
     fn deal_saber_blows(&mut self, client: usize, hits: &SaberHits, level_time: i32) {
-        let peers = self.players.places();
+        let (peers, wall_scale) = (self.players.places(), self.saber_damage_rules().wall_scale);
         let Some(swinger) = self.peer(client) else {
             return;
         };
@@ -548,12 +549,13 @@ impl NativeGame {
         };
         // The NPCs among the victims are clients too: no wall's share of the damage.
         let mut npcs = [u16::MAX; 16];
-        for (slot, blow) in npcs.iter_mut().zip(hits.blows(&|_| true)) {
+        for (slot, blow) in npcs.iter_mut().zip(hits.blows(&|_| true, wall_scale)) {
             if self.npcs.roster.is_npc(blow.victim) {
                 *slot = blow.victim;
             }
         }
-        for blow in hits.blows(&|number| usize::from(number) < peers || npcs.contains(&number)) {
+        let is_client = |number| usize::from(number) < peers || npcs.contains(&number);
+        for blow in hits.blows(&is_client, wall_scale) {
             let target = usize::from(blow.victim);
             let request = DamageRequest {
                 level_time,
@@ -607,6 +609,25 @@ impl NativeGame {
     /// `g_friendlySaber`: blades hurt and clash with teammates' too (off by default).
     pub(super) fn friendly_saber(&self) -> bool {
         self.integer_cvar(b"g_friendlySaber", 0) != 0
+    }
+
+    /// How hard blows push: `g_knockback` and `g_saberDmgVelocityScale`.
+    pub(super) fn knockback_rules(&self) -> jkr_game_jka::damage::KnockbackRules {
+        jkr_game_jka::damage::KnockbackRules {
+            strength: self.cvars.value(b"g_knockback"),
+            saber_scale: self.cvars.value(b"g_saberDmgVelocityScale"),
+            saber_push_holds: self.cvars.integer(b"g_saberDmgVelocityScale") != 0,
+        }
+    }
+
+    /// The saber damage settings: `g_saberDmgDelay_Idle`, `g_saberDmgDelay_Wound` and
+    /// `g_saberWallDamageScale`.
+    pub(super) fn saber_damage_rules(&self) -> jkr_game_jka::saber_damage::SaberDamageRules {
+        jkr_game_jka::saber_damage::SaberDamageRules {
+            idle_delay: self.cvars.integer(b"g_saberDmgDelay_Idle"),
+            wound_delay: self.cvars.integer(b"g_saberDmgDelay_Wound"),
+            wall_scale: self.cvars.value(b"g_saberWallDamageScale"),
+        }
     }
 
     /// The flags of the siege class `client` plays, in a siege.

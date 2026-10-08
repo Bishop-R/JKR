@@ -298,7 +298,10 @@ fn begin(context: Throw, world: &mut dyn ThrowWorld) -> Option<Thrower> {
     if hand != HANDEXTEND_NONE && (hand != HANDEXTEND_KNOCKDOWN || !in_get_up(state)) {
         return None;
     }
-    // `g_useWhileThrowing` is 1: a thrown saber does not keep its thrower from throwing.
+    // `g_useWhileThrowing 0`: a thrown saber keeps its thrower from throwing.
+    if !context.rules.use_while_throwing && state.saber_in_flight() {
+        return None;
+    }
     if field(state, PS_WEAPON_TIME) as i32 > 0
         || player.health <= 0
         || state.powerups[PW_DISINT_4] as i32 > level_time

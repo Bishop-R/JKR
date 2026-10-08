@@ -153,6 +153,10 @@ pub(crate) struct ServerHost<'a> {
     pub(super) saber_locking: bool,
     /// `g_friendlySaber`.
     pub(super) friendly_saber: bool,
+    /// `g_saberDmgDelay_Idle`, `g_saberDmgDelay_Wound`, `g_saberWallDamageScale`.
+    pub(super) saber_damage: jkr_game_jka::saber_damage::SaberDamageRules,
+    /// `g_knockback`, `g_saberDmgVelocityScale`.
+    pub(super) knockback: jkr_game_jka::damage::KnockbackRules,
     /// `g_dismember` and the clients with heavy melee ([`dismember`]).
     pub(super) limbs: dismember::LimbRules,
 }
@@ -1190,6 +1194,14 @@ impl NpcHost for ServerHost<'_> {
 
     fn friendly_saber(&self) -> bool {
         self.friendly_saber
+    }
+
+    fn saber_damage_rules(&self) -> jkr_game_jka::saber_damage::SaberDamageRules {
+        self.saber_damage
+    }
+
+    fn knockback_rules(&self) -> jkr_game_jka::damage::KnockbackRules {
+        self.knockback
     }
 
     fn gunner(&mut self, number: u16) -> Option<jkr_game_jka::vehicle_turrets::Gunner> {

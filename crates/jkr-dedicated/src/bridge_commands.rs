@@ -200,6 +200,7 @@ impl NativeGame {
         self.riding_opening(client, &mut command, self.last_frame_time);
         // `ClientThink_real`'s stance upkeep (`g_active.c:1914-1993`): the style the
         // sabers held allow.
+        let restrict_force = self.cvars.integer(b"g_saberRestrictForce") != 0;
         if let Some(peer) = self.peer_mut(client) {
             jkr_game_jka::saber_stance::upkeep_player(
                 &mut peer.state,
@@ -207,7 +208,7 @@ impl NativeGame {
                 &peer.sabers.hands,
             );
             // The powers the sabers forbid (`WP_ForcePowerUsable`), as they stand now.
-            peer.force.saber_restrictions = peer.sabers.force_restrictions();
+            peer.force.saber_restrictions = peer.sabers.force_restrictions(restrict_force);
         }
         // `G_HeldByMonster` (`g_active.c:2000-2003`): a monster's victim goes where it is held.
         self.held_by_monster(client, &mut command);

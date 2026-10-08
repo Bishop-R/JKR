@@ -73,14 +73,27 @@ impl PlayerSabers {
     }
 
     /// The Force powers these sabers forbid while a blade is lit (`WP_ForcePowerUsable`,
-    /// `w_force.c:754-786`): the first saber's `forceRestrict`, and — the reference testing
+    /// `w_force.c:732-786`): the first saber's `forceRestrict`, and — the reference testing
     /// the first saber's model where it means the second's — the second's, a removed one's
-    /// being none.
-    pub fn force_restrictions(&self) -> u32 {
+    /// being none. With `restrict_force` (`g_saberRestrictForce`) the same test bars push,
+    /// pull, mind trick, grip, lightning and drain, so any saber held bars them.
+    pub fn force_restrictions(&self, restrict_force: bool) -> u32 {
+        use crate::force_powers::{
+            FP_DRAIN, FP_GRIP, FP_LIGHTNING, FP_PULL, FP_PUSH, FP_TELEPATHY,
+        };
+        const BARRED: u32 = 1 << FP_PUSH
+            | 1 << FP_PULL
+            | 1 << FP_TELEPATHY
+            | 1 << FP_GRIP
+            | 1 << FP_LIGHTNING
+            | 1 << FP_DRAIN;
         let [first, second] = &self.hands;
         let mut forbidden = 0;
         if first.flags & SFL_TWO_HANDED != 0 || first.is_held() {
             forbidden |= first.force_restrictions as u32;
+            if restrict_force {
+                forbidden |= BARRED;
+            }
         }
         if first.is_held() {
             forbidden |= second.force_restrictions as u32;

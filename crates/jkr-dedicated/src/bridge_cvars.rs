@@ -87,6 +87,7 @@ impl NativeGame {
                 "sv_cheats" => self.settings.cheats = integer != 0,
                 "g_flagdrag" => self.flag_drag = var.value(),
                 "g_forceregentime" => self.force_rules.regen_time = integer,
+                "g_usewhilethrowing" => self.force_rules.use_while_throwing = integer != 0,
                 "g_debugmelee" => {
                     self.debug_melee = integer != 0;
                     self.force_rules.debug_melee = integer != 0;

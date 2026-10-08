@@ -24,6 +24,10 @@ impl NativeGame {
             None
         };
         let duel_fraglimit = self.limits.duel_fraglimit;
+        let lone_health = (
+            self.cvars.integer(b"g_powerDuelStartHealth"),
+            self.cvars.integer(b"g_powerDuelEndHealth"),
+        );
         let starting_items = self.starting_items();
         let lag_icon = self.lag_icon;
         let gun_rung = self.gun_game_rung(client);
@@ -68,7 +72,7 @@ impl NativeGame {
             &mut peer.state,
             &peer.session,
             *gametype,
-            duel_fraglimit,
+            (duel_fraglimit, lone_health),
         );
         // `ClientSpawn` wipes the client: no longer a loser of the round, nor in noclip.
         (peer.loser, peer.noclip) = (false, false);

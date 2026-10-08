@@ -38,6 +38,9 @@ pub struct Sides {
     /// A power duel with three in play, or this client's duel team full
     /// (`G_PowerDuelCheckFail`): it may only spectate.
     pub power_duel_full: bool,
+    /// `g_teamForceBalance`, without `g_jediVmerc`: a side already two ahead of the other
+    /// takes no one more.
+    pub force_balance: bool,
 }
 
 /// `PickTeam` (`g_client.c:1341-1358`): the side with fewer players; on an equal count,
@@ -444,10 +447,21 @@ pub fn set_team(
         (SPECTATOR_NOT, 0)
     };
     // `SetTeam`'s team-game branch (`g_cmds.c:673-701`): red and blue by name, and
-    // anything else is `PickTeam`'s choice. (`g_teamForceBalance`, which would refuse a
-    // side already two ahead, is off by default and is not ported.)
+    // anything else is `PickTeam`'s choice.
     if gametype >= GT_TEAM {
         let wanted_team = team_for_word(wanted, sides);
+        // `g_teamForceBalance` (`g_cmds.c:702-743`): "we allow a spread of two", and a
+        // player already on the side ahead is refused too.
+        if sides.force_balance {
+            let ahead: Option<&[u8]> = match wanted_team {
+                TEAM_RED if sides.red_players - sides.blue_players > 1 => Some(b"TOOMANYRED"),
+                TEAM_BLUE if sides.blue_players - sides.red_players > 1 => Some(b"TOOMANYBLUE"),
+                _ => None,
+            };
+            if let Some(word) = ahead {
+                return TeamCommand::Told([b"print \"@@@", word, b"\n\""].concat());
+            }
+        }
         // `g_cmds.c:849`: only a spectator may "change" to where it already is (its
         // spectator state can still change).
         if wanted_team == session.team && wanted_team != TEAM_SPECTATOR {
@@ -509,6 +523,41 @@ fn team_change_announcement(name: &[u8], team: i32, before: i32, gametype: i32) 
 #[cfg(test)]
 mod announcement_tests {
     use super::*;
+
+    /// `g_teamForceBalance`: a side two ahead refuses whoever asks for it; the side behind,
+    /// or any side with the switch off, takes them.
+    #[test]
+    fn a_side_two_ahead_takes_no_one_more_under_force_balance() {
+        let sides = Sides {
+            red_players: 3,
+            blue_players: 1,
+            force_balance: true,
+            ..Sides::default()
+        };
+        let spectator = PlayerSession {
+            team: TEAM_SPECTATOR,
+            ..PlayerSession::default()
+        };
+        let mut session = spectator.clone();
+        assert_eq!(
+            set_team(&mut session, b"Kyle", b"red", GT_TEAM, sides, 0),
+            TeamCommand::Told(b"print \"@@@TOOMANYRED\n\"".to_vec())
+        );
+        assert_eq!(session.team, TEAM_SPECTATOR);
+        let joins = |wanted: &[u8], sides| {
+            let mut session = spectator.clone();
+            matches!(
+                set_team(&mut session, b"Kyle", wanted, GT_TEAM, sides, 0),
+                TeamCommand::Changed { .. }
+            )
+        };
+        assert!(joins(b"blue", sides));
+        let lax = Sides {
+            force_balance: false,
+            ..sides
+        };
+        assert!(joins(b"red", lax));
+    }
 
     #[test]
     fn a_team_change_is_announced_as_broadcast_team_change_words_it() {

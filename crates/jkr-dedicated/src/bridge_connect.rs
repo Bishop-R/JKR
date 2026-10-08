@@ -80,12 +80,17 @@ impl NativeGame {
             .server
             .world(self.world)
             .ok_or_else(|| b"No world is running.".to_vec())?;
+        // `g_antiFakePlayer`'s limit of `g_maxConnPerIP` others from one address, for a
+        // newcomer (`g_client.c:2453-2483`); below 0 nobody gets in.
+        let limit = self.cvars.integer(b"g_maxConnPerIP");
         if !bot
-            && too_many_connections(
-                &address,
-                world.entities().map(|(_, peer)| peer.address.as_slice()),
-                CONNECTIONS_PER_ADDRESS,
-            )
+            && self.cvars.integer(b"g_antiFakePlayer") != 0
+            && (limit < 0
+                || too_many_connections(
+                    &address,
+                    world.entities().map(|(_, peer)| peer.address.as_slice()),
+                    limit as usize,
+                ))
         {
             return Err(b"Too many connections from the same IP".to_vec());
         }

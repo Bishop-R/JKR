@@ -278,7 +278,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 || host.players().iter().any(|player| player.number == victim)
         };
         let mut blows = [None; 16];
-        for (slot, blow) in blows.iter_mut().zip(hits.blows(&is_client)) {
+        let wall_scale = host.saber_damage_rules().wall_scale;
+        for (slot, blow) in blows.iter_mut().zip(hits.blows(&is_client, wall_scale)) {
             *slot = Some(blow);
         }
         for blow in blows.into_iter().flatten() {

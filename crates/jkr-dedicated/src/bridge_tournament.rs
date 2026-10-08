@@ -79,6 +79,8 @@ impl NativeGame {
             power_duel_full: self.power_duel_full(ignore),
             red_players: self.team_count(Some(ignore), 1) as i32,
             blue_players: self.team_count(Some(ignore), 2) as i32,
+            force_balance: self.cvars.integer(b"g_teamForceBalance") != 0
+                && self.cvars.integer(b"g_jediVmerc") == 0,
         }
     }
 

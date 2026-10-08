@@ -357,6 +357,8 @@ pub struct ForceRules {
     pub debug_melee: bool,
     /// `g_forceRegenTime`: milliseconds a point of Force takes to come back.
     pub regen_time: i32,
+    /// `g_useWhileThrowing`: push and pull work while the saber is thrown.
+    pub use_while_throwing: bool,
 }
 
 impl Default for ForceRules {
@@ -369,6 +371,7 @@ impl Default for ForceRules {
             disabled_outside_duels: 0,
             debug_melee: false,
             regen_time: 200,
+            use_while_throwing: true,
         }
     }
 }

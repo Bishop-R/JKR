@@ -736,6 +736,15 @@ pub trait NpcHost: SaberParseHost {
     fn friendly_saber(&self) -> bool {
         false
     }
+    /// How hard blows push (`g_knockback`, `g_saberDmgVelocityScale`). Stock's by default.
+    fn knockback_rules(&self) -> crate::damage::KnockbackRules {
+        crate::damage::KnockbackRules::default()
+    }
+    /// The saber damage settings (`g_saberDmgDelay_Idle`, `g_saberDmgDelay_Wound`,
+    /// `g_saberWallDamageScale`). Stock's by default.
+    fn saber_damage_rules(&self) -> crate::saber_damage::SaberDamageRules {
+        crate::saber_damage::SaberDamageRules::default()
+    }
     /// Entity `number`'s wire state as the host keeps it (an NPC's saber entity's, which its
     /// flight writes). None by default.
     fn entity_state(&self, _number: u16) -> Option<&EntityState> {

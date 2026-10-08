@@ -39,17 +39,33 @@ const SABER_EXTRAPOLATE_DIST: f32 = 16.0;
 const MAX_SABER_SWING_INC: f32 = 0.33;
 /// `SABER_NONATTACK_DAMAGE`: an idle touch.
 const SABER_NONATTACK_DAMAGE: i32 = 1;
-/// `g_saberDmgDelay_Idle`, `g_saberWallDamageScale`.
-const IDLE_DELAY: i32 = 350;
-const WALL_DAMAGE_SCALE: f32 = 0.4;
 /// `LS_READY`, and the three back attacks `G_SaberInBackAttack` names.
 const LS_READY: u32 = 1;
 /// `BOTH_A1_SPECIAL` .. `BOTH_A3_SPECIAL`: the single-style katas, one level stronger.
 const KATAS: [u16; 3] = [911, 912, 913];
 /// `GT_DUEL`, `GT_POWERDUEL`, `GT_SIEGE`: the slower games, where sabers are not doubled.
 const SLOWER_GAMES: [i32; 3] = [3, 4, 7];
-/// `g_saberDmgDelay_Wound`: how long after a clash no blow lands.
-const ATTACK_WOUND_DELAY: i32 = 0;
+
+/// The server's saber damage settings; the defaults are stock's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SaberDamageRules {
+    /// `g_saberDmgDelay_Idle`: once an idle touch lands, how long until the next may.
+    pub idle_delay: i32,
+    /// `g_saberDmgDelay_Wound`: once a blow lands, how long until the next may.
+    pub wound_delay: i32,
+    /// `g_saberWallDamageScale`: the share of a blow that what is not a client takes.
+    pub wall_scale: f32,
+}
+
+impl Default for SaberDamageRules {
+    fn default() -> Self {
+        Self {
+            idle_delay: 350,
+            wound_delay: 0,
+            wall_scale: 0.4,
+        }
+    }
+}
 /// `BOTH_SPINATTACK6`, `BOTH_SPINATTACK7`: "too easy to do, lower damage".
 const SPIN_ATTACKS: [u16; 2] = [863, 864];
 const ES_ORIGIN: [usize; 3] = [11, 12, 13];
@@ -94,6 +110,8 @@ pub struct Swinger {
     /// Whom the swinger fights (`self->enemy`): a client struck is its enemy
     /// (`SEF_HITENEMY`) or not (`SEF_HITOBJECT`).
     pub enemy: Option<u16>,
+    /// The server's settings for the delays between blows.
+    pub rules: SaberDamageRules,
 }
 
 /// A swing while the swinger's saber is in the air (`ps.saberInFlight`): the thrown first
@@ -487,10 +505,11 @@ impl SaberHits {
     }
 
     /// `WP_SaberApplyDamage`: every victim's total, in the order they were first hit. What
-    /// is not a client takes `g_saberWallDamageScale` of it.
+    /// is not a client takes `wall_scale` (`g_saberWallDamageScale`) of it.
     pub fn blows<'a>(
         &'a self,
         is_client: &'a dyn Fn(u16) -> bool,
+        wall_scale: f32,
     ) -> impl Iterator<Item = SaberBlow> + 'a {
         self.victims[..self.count]
             .iter()
@@ -499,7 +518,7 @@ impl SaberHits {
                 damage: if is_client(victim.number) {
                     victim.total
                 } else {
-                    (victim.total as f32 * WALL_DAMAGE_SCALE) as i32
+                    (victim.total as f32 * wall_scale) as i32
                 },
                 direction: victim.direction,
                 spot: victim.spot,
@@ -779,7 +798,7 @@ fn check(
         {
             return;
         }
-        swinger.idle_wound = time + IDLE_DELAY;
+        swinger.idle_wound = time + swinger.rules.idle_delay;
         // SP style: no fake block — a blow is stopped only by the saber it meets.
         if victim.client && damage > SABER_NONATTACK_DAMAGE {
             damage = (f64::from(damage) * 1.5) as i32;
@@ -845,13 +864,13 @@ fn check(
         if outcome.locked && !outcome.met {
             return;
         }
-        swinger.idle_wound = time + IDLE_DELAY;
+        swinger.idle_wound = time + swinger.rules.idle_delay;
         hits.clash = Some((trace.end_position, trace.plane_normal));
         state.hit_saber = true;
         state.fraction = trace.fraction;
         hits.collapsed |= trace.fraction == 0.0;
         if outcome.wound {
-            swinger.attack_wound = time + ATTACK_WOUND_DELAY;
+            swinger.attack_wound = time + swinger.rules.wound_delay;
         }
         targets.set_saber_owner(&other);
     }

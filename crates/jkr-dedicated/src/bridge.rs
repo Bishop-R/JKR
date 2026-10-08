@@ -2685,6 +2685,7 @@ impl NativeGame {
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
         let self_damage = jkr_game_jka::damage::self_damage(self.gametype, self.self_damage_scale);
+        let knockback = self.knockback_rules();
         // jaPRO's statistics read what the victim had before the blow.
         let had = self.health_and_armor(target);
         // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`),
@@ -2723,6 +2724,7 @@ impl NativeGame {
             god_mode,
             jetpack: Some(&mut victim.gear.packs),
             self_damage,
+            knockback,
         };
         let damaged = if sheltered {
             jkr_game_jka::damage::shock(&mut target_view, &request, &mut rng);
@@ -3651,8 +3653,6 @@ const CONTENTS_BODY: u32 = 0x100;
 
 /// `CS_PLAYERS` (`bg_public.h`): one string per legacy client number.
 const CS_PLAYERS: usize = 1_131;
-/// `g_maxConnPerIP`'s default.
-const CONNECTIONS_PER_ADDRESS: usize = 3;
 
 #[path = "bridge_chat.rs"]
 mod bridge_chat;
