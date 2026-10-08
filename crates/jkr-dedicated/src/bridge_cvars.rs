@@ -77,6 +77,7 @@ impl NativeGame {
                 "timelimit" => self.limits.timelimit = var.value(),
                 "capturelimit" => self.limits.capturelimit = integer,
                 "duel_fraglimit" => self.limits.duel_fraglimit = integer,
+                "d_nointermissionwait" => self.limits.no_intermission_wait = integer != 0,
                 "g_allowvote" => self.vote_rules.0 = integer & super::bridge_votes::SUPPORTED_VOTES,
                 "g_votedelay" => self.vote_rules.1 = integer,
                 "g_tweakvote" => self.japro_votes.tweak = integer,
@@ -111,6 +112,7 @@ impl NativeGame {
                 }
                 "g_locationbaseddamage" => self.damage_rules.location_based = integer != 0,
                 "g_armbreakage" => self.damage_rules.arm_breakage = integer != 0,
+                "g_debugdamage" => self.damage_rules.debug_print = integer != 0,
                 "g_debugmelee" => {
                     self.debug_melee = integer != 0;
                     self.force_rules.debug_melee = integer != 0;

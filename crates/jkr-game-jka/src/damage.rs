@@ -322,6 +322,9 @@ pub struct DamageRules {
     pub location_based: bool,
     /// `g_armBreakage`: 80 taken on an arm and its hand break it ([`arm_to_break`]).
     pub arm_breakage: bool,
+    /// `g_debugDamage`: every blow that gets past the armour is printed
+    /// ([`debug_damage_line`]).
+    pub debug_print: bool,
 }
 
 impl Default for DamageRules {
@@ -332,6 +335,7 @@ impl Default for DamageRules {
             saber_push_holds: false,
             location_based: true,
             arm_breakage: false,
+            debug_print: false,
         }
     }
 }
@@ -425,6 +429,20 @@ pub struct Damaged {
     pub died: Option<Death>,
     /// `g_armBreakage` broke an arm: the caller holds the pose and plays the sounds.
     pub broke_arm: Option<ArmBroken>,
+    /// `g_debugDamage`'s line, for the caller to print.
+    pub debug_line: Option<String>,
+}
+
+/// `g_debugDamage`'s print (`g_combat.c:5199-5202`): the time, the one struck, its health
+/// before the blow, what the blow takes and what the armour saved.
+pub fn debug_damage_line(
+    level_time: i32,
+    number: u16,
+    health: i32,
+    take: i32,
+    armor: i32,
+) -> String {
+    format!("{level_time}: client:{number} health:{health} damage:{take} armor:{armor}\n")
 }
 
 /// `BROKENLIMB_LARM`, `BROKENLIMB_RARM` (`bg_public.h:224-229`): a bit each in
@@ -723,6 +741,10 @@ pub fn damage_at(
         if take > 0 {
             take = (take / 3).max(1);
         }
+    }
+    if target.rules.debug_print {
+        let line = debug_damage_line(level_time, target.client, *target.health, take, save);
+        damaged.debug_line = Some(line);
     }
     // The frame's totals, for the feedback at its end.
     target.state.persistent[PERS_ATTACKER] = u32::from(attacker_number);

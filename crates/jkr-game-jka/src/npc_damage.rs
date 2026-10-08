@@ -283,6 +283,12 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 take = (take / 3).max(1);
             }
         }
+        if rules.debug_print {
+            let line =
+                crate::damage::debug_damage_line(level_time, npc.number, npc.health, take, save);
+            self.host.print(&line);
+        }
+        let npc = &mut self.actors[me];
         // The frame's totals, which no frame's end reads for an NPC.
         npc.player.persistent[PERS_ATTACKER] = u32::from(attacker_number);
         npc.mind.fight.last_hurt = Some((attacker_number, request.means));

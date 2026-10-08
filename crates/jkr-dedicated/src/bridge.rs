@@ -2768,6 +2768,9 @@ impl NativeGame {
             victim.movement.write_player_state(&mut victim.state);
         }
         self.deaths.rng = rng;
+        if let Some(line) = &damaged.debug_line {
+            print!("{line}");
+        }
         if let Some(broken) = damaged.broke_arm {
             self.arm_broken_sounds(target, broken, level_time);
         }

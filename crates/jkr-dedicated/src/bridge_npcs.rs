@@ -459,6 +459,7 @@ impl NativeGame {
         let (saber, damage, legacy_fixes) =
             (self.saber_settings, self.damage_rules, self.legacy_fixes);
         let smooth_clients = self.smooth_clients;
+        let npc_freeze = self.cvars.value(b"d_npcfreeze") != 0.0;
         let gravity = self.gravity();
         let clients = self.gather_sights();
         let jedi_master = self.jedi_masters(None).and_then(|masters| masters.master);
@@ -556,6 +557,7 @@ impl NativeGame {
             damage,
             legacy_fixes,
             smooth_clients,
+            npc_freeze,
             limbs,
         }
     }

@@ -90,7 +90,18 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             return thought;
         }
 
-        // Neither `d_npcfreeze` nor an ICARUS freeze.
+        // "see if NPC ai is frozen" (`NPC.c:1802-1810`): with `d_npcfreeze` or an ICARUS
+        // freeze it only turns, and moves with an empty command.
+        let frozen = npc.server_flags & crate::script_entity::SVF_ICARUS_FREEZE != 0;
+        if frozen || self.host.npc_freeze() {
+            let mut command = UserCommand::default();
+            self.update_angles(me, true, true, &mut command);
+            self.client_think(me, command);
+            let npc = &mut self.actors[me];
+            npc.player.set_origin(npc.current_origin);
+            return crate::npc_dead::DeadThought::Lies;
+        }
+        let npc = &mut self.actors[me];
         npc.think = NpcThink::Think(level_time + FRAMETIME / 2);
         // A vehicle has no behaviour of its own (`NPC.c:1839-1856`, `1880-1885`).
         if crate::vehicle_think::before_think(npc) {

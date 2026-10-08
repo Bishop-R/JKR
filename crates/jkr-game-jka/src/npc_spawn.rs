@@ -732,6 +732,10 @@ pub trait NpcHost: SaberParseHost {
     fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
         crate::saber_damage::SaberSettings::default()
     }
+    /// `d_npcfreeze` (a cheat): every NPC only turns and stands. Off by default.
+    fn npc_freeze(&self) -> bool {
+        false
+    }
     /// `g_smoothClients`: an NPC's entity is extrapolated from its command time. On by
     /// default, as stock.
     fn smooth_clients(&self) -> bool {
