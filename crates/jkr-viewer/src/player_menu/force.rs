@@ -51,8 +51,14 @@ impl ForceMenu {
         if server_rank > 0 {
             allocation.rank = u8::try_from(server_rank).unwrap_or(7).min(7);
         }
-        self.rules.gametype = console.integer_cvar("g_gametype").unwrap_or(0) as i32;
-        self.rules.free_saber = console.integer_cvar("ui_freesaber").unwrap_or(0) != 0;
+        // On a server, its rules as stock's Force menu reads them (`ui_force.c`: free
+        // saber points when the server is saber-only, `g_forcePowerDisable`, the game
+        // type's team powers, a force-based team's side).
+        if let Some(rules) = console.server_force_rules() {
+            self.rules = rules;
+        } else {
+            self.rules.gametype = console.integer_cvar("g_gametype").unwrap_or(0) as i32;
+        }
         self.rules.max_rank = allocation.rank;
         self.allocation = legalize_force_powers(&allocation.encode(), self.rules).allocation;
         self.refresh_encoded();

@@ -247,8 +247,14 @@ impl ViewerConsole {
 
     pub(crate) fn clear_server_info(&mut self) {
         self.movement_policy_log = None;
+        self.server_force_rules = None;
         if let Ok(mut status) = self.server_status.write() {
             *status = "Not connected".to_owned();
         }
+    }
+
+    /// The connected server's Force rules, if any.
+    pub(crate) fn server_force_rules(&self) -> Option<jkr_client::ForceLegalizeRules> {
+        self.server_force_rules
     }
 }

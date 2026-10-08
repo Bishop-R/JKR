@@ -129,6 +129,9 @@ pub(crate) struct ViewerConsole {
     script_vfs: Option<Arc<jkr_vfs::VirtualFileSystem>>,
     config_directory: PathBuf,
     force_profile: jkr_client::ForceProfileNegotiator,
+    /// The server's Force rules (free saber, disabled powers, gametype, team side), for
+    /// the Force menu as stock's UI reads them (`ui_freeSaber`, `g_forcePowerDisable`).
+    server_force_rules: Option<jkr_client::ForceLegalizeRules>,
     movement_policy_log: Option<[i32; 4]>,
     window_options: window_options::Options,
     chat_log: chat_log::ChatLog,

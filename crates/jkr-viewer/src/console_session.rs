@@ -285,6 +285,7 @@ impl ViewerConsole {
             script_vfs: None,
             config_directory,
             force_profile: ForceProfileNegotiator::default(),
+            server_force_rules: None,
             movement_policy_log: None,
             window_options,
             chat_log: chat_log::ChatLog::default(),
@@ -423,6 +424,8 @@ impl ViewerConsole {
         self.refresh_movement_cvars(game);
         let raw = String::from_utf8_lossy(game.config_string(0).unwrap_or_default());
         self.force_profile.reset();
+        let rank = self.integer_cvar("ui_rankChange").unwrap_or(0) as i32;
+        self.server_force_rules = Some(force_rules_from_serverinfo(game, rank, 0));
         let value = format!("profile={profile} server={server} CS_SERVERINFO={raw}");
         if let Ok(mut status) = self.server_status.write() {
             *status = value.clone();
@@ -463,10 +466,11 @@ impl ViewerConsole {
                 ""
             }
         ));
+        let rules = force_rules_from_serverinfo(game_state, update.rank, update.team);
+        self.server_force_rules = Some(rules);
         if !update.open_profile {
             return;
         }
-        let rules = force_rules_from_serverinfo(game_state, update.rank, update.team);
         let current = self
             .force_profile
             .server_forcepowers()
