@@ -3,8 +3,8 @@
 //! sent `tinfo` — for each player of its team, in client order and at most
 //! `TEAM_MAXOVERLAY`, its number, location, health, armour, weapon and powerups.
 //!
-//! Not yet: a spectator following a player is sent the followed player's team (there is
-//! no following), siege's temporary spectators.
+//! The server sends it to each client of the red or blue team, and to each spectator
+//! following a player of one, unless the client's userinfo says `teamoverlay 0`.
 
 /// `TEAM_LOCATION_UPDATE_TIME`: how often the overlay is sent.
 pub const TEAM_INFO_INTERVAL: i32 = 1_000;

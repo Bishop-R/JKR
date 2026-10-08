@@ -2043,10 +2043,33 @@ impl NativeGame {
                 powerups: jkr_game_jka::player_entity::powerup_bits(&peer.state),
             });
         }
-        for player in &everyone {
-            if let Some(message) = jkr_game_jka::team_info::message(player.team, &everyone) {
-                self.told
-                    .push(Told::One(usize::from(player.client), message));
+        // `TeamplayInfoMessage` for each client in the game: its team's overlay, or, for a
+        // spectator following a player, that player's team's; none for a client whose
+        // userinfo says `teamoverlay 0` (`pers.teamInfo`).
+        let recipients: Vec<(usize, i32)> = everyone
+            .iter()
+            .filter_map(|player| {
+                let client = usize::from(player.client);
+                let peer = self.peer(client)?;
+                let wanted =
+                    jkr_protocol::info_value(&peer.userinfo, b"teamoverlay").is_none_or(|value| {
+                        value.is_empty() || jkr_game_jka::userinfo::atoi(value) != 0
+                    });
+                if !wanted {
+                    return None;
+                }
+                if peer.session.team != i32::from(TEAM_SPECTATOR) {
+                    return Some((client, peer.session.team));
+                }
+                let followed = usize::try_from(peer.session.spectator_client).ok()?;
+                (peer.session.spectator_state == jkr_game_jka::client_begin::SPECTATOR_FOLLOW)
+                    .then(|| self.peer(followed).map(|peer| (client, peer.session.team)))
+                    .flatten()
+            })
+            .collect();
+        for (client, team) in recipients {
+            if let Some(message) = jkr_game_jka::team_info::message(team, &everyone) {
+                self.told.push(Told::One(client, message));
             }
         }
     }
