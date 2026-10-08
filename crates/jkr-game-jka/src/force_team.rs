@@ -118,6 +118,12 @@ impl Forcer<'_, '_> {
                 self.drain(power, cost);
             }
             any = true;
+            // jaPRO's statistics: what each teammate was given.
+            if heal {
+                self.frame.stats.team_heal_given += amount;
+            } else {
+                self.frame.stats.team_energize_given += amount;
+            }
             // `WP_AddToClientBitflags`.
             let slot = usize::from(number / 16);
             let Some(&field) = ES_TRICKED.get(slot) else {

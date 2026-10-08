@@ -224,14 +224,22 @@ impl NativeGame {
         );
         let level_time = request.level_time;
         let attacker = request.attacker;
-        // Alive before the blow, for jaPRO's damage numbers.
-        let alive_before = self
+        // Alive before the blow, for jaPRO's damage numbers; what it had, for its
+        // statistics.
+        let before = self
             .npcs
             .roster
             .actors
             .iter()
             .find(|npc| npc.number == target)
-            .is_some_and(|npc| npc.health > 0 && npc.player.stats[0] as i32 > 0);
+            .map(|npc| {
+                (
+                    npc.health,
+                    npc.player.stats[0] as i32,
+                    npc.player.stats[5] as i32,
+                )
+            });
+        let alive_before = before.is_some_and(|(health, stat, _)| health > 0 && stat > 0);
         let blow = NpcBlow {
             request,
             spared_by_master,
@@ -248,6 +256,9 @@ impl NativeGame {
             let dealer = super::bridge_damage_numbers::Party::attacker(attacker);
             let taker = super::bridge_damage_numbers::Party::Npc(target);
             self.tell_damage(dealer, taker, hurt.take + hurt.absorbed, level_time);
+        }
+        if let Some((health, _, armor)) = before {
+            self.count_npc_damage(attacker, hurt.take + hurt.absorbed, (health, armor));
         }
         let damaged = Damaged {
             take: hurt.take,

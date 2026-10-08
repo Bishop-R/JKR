@@ -877,6 +877,14 @@ impl Forcer<'_, '_> {
         let pool = (victim.state.raw_field(PS_FORCE_POWER).unwrap_or(0) as i32 - amount).max(0);
         victim.state.set_raw_field(PS_FORCE_POWER, pool as u32);
         victim.force.regen_debounce = level_time + 800;
+        // jaPRO's statistics: drain on teammates and on enemies, in the team games.
+        if self.frame.gametype >= 6 {
+            if team == self.frame.team {
+                self.frame.stats.team_drain += amount;
+            } else {
+                self.frame.stats.enemy_drain += amount;
+            }
+        }
         let drained = victim.force.sound_debounce < level_time;
         if drained {
             victim.force.sound_debounce = level_time + 400;

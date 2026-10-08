@@ -258,6 +258,7 @@ pub mod god_chat;
 pub mod gun_game;
 pub mod japro_ctf;
 pub mod japro_emotes;
+pub mod japro_stats;
 pub mod noclip;
 pub mod siege;
 pub mod siege_class;

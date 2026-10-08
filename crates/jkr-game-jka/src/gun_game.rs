@@ -1,6 +1,7 @@
 //! jaPRO's gun game (`g_gunGame`; `G_GiveGunGameWeapon`, `g_client.c:3638-3805`): every
 //! player climbs one ladder of weapons, a rung per kill — of a player or an NPC — less
-//! its suicides; in the team games the ladder is the team's, by its score. Each rung is
+//! its suicides ([`crate::japro_stats::Stats`]); in the team games the ladder is the
+//! team's, by its score. Each rung is
 //! one weapon with ammunition to spare (999) and, on some rungs, one fire mode only: the
 //! other button fires it too (`forcedFireMode`, swapped in the server's `PM_Weapon`). The
 //! saber rungs come last, the first of them throw-only with the throw at its third level;
@@ -46,16 +47,6 @@ pub enum FireMode {
     Primary,
     /// `2`: the primary button fires the alternate.
     Alternate,
-}
-
-/// A player on the ladder: its kills — of players and NPCs alike (`pers.stats.kills`) —
-/// and its suicides (`ps.fd.suicides`), counted whether the game runs or not, as jaPRO
-/// counts them; and the fire mode its rung allows.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Progress {
-    pub kills: i32,
-    pub suicides: i32,
-    pub fire: FireMode,
 }
 
 /// A rung of the ladder.

@@ -26,6 +26,7 @@ impl NativeGame {
             || self.show_net_command(client, text)
             || self.amlookup_command(client, text)
             || self.amlistmaps_command(client, command)
+            || self.print_stats_command(client, command)
         {
             return;
         }

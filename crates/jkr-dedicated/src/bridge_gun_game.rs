@@ -49,12 +49,12 @@ impl NativeGame {
         let Some(peer) = self.peer(client) else {
             return 0;
         };
-        let (team, progress) = (peer.session.team, peer.gun_game);
+        let (team, stats) = (peer.session.team, peer.stats);
         let team_game = matches!(self.gametype, GAMETYPE_TEAM | GT_CTF);
         if team_game && (1..=2).contains(&team) {
-            self.team_scores[(team - 1) as usize] - progress.suicides
+            self.team_scores[(team - 1) as usize] - stats.suicides
         } else {
-            progress.kills - progress.suicides
+            stats.kills - stats.suicides
         }
     }
 
@@ -65,7 +65,7 @@ impl NativeGame {
         let Some(peer) = self.peer_mut(killer) else {
             return;
         };
-        peer.gun_game.kills += 1;
+        peer.stats.kills += 1;
         if !self.gun_game_runs() {
             return;
         }
@@ -82,7 +82,7 @@ impl NativeGame {
     /// `player_die`'s `ps.fd.suicides`: `client` killed itself.
     pub(super) fn gun_game_suicide(&mut self, client: usize) {
         if let Some(peer) = self.peer_mut(client) {
-            peer.gun_game.suicides += 1;
+            peer.stats.suicides += 1;
         }
     }
 
@@ -114,7 +114,7 @@ impl NativeGame {
             return;
         };
         rung.arm(&mut peer.state);
-        peer.gun_game.fire = rung.fire;
+        peer.gun_fire = rung.fire;
         let known = peer.state.raw_field(PS_KNOWN).unwrap_or(0) & !(1 << FP_SABER_THROW);
         peer.state.set_raw_field(
             PS_KNOWN,
@@ -170,8 +170,7 @@ impl NativeGame {
                 for index in RESET_PERSISTANTS {
                     peer.state.persistent[index] = 0;
                 }
-                peer.gun_game.kills = 0;
-                peer.gun_game.suicides = 0;
+                peer.stats = Default::default();
                 peer.accuracy = (0, 0);
             }
         }
@@ -189,18 +188,14 @@ impl NativeGame {
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
-        let fire = if runs {
-            peer.gun_game.fire
-        } else {
-            FireMode::Both
-        };
+        let fire = if runs { peer.gun_fire } else { FireMode::Both };
         peer.movement.set_forced_fire(fire);
         if !runs || !peer.playing() || peer.state.raw_field(37).unwrap_or(0) == 0 {
             return;
         }
         // `ps.speed = g_speed` then `*= 1.28f` for a saber rung that swings; `basespeed`
         // follows the speed.
-        let fast = peer.state.weapon() == WP_SABER && peer.gun_game.fire != FireMode::Alternate;
+        let fast = peer.state.weapon() == WP_SABER && peer.gun_fire != FireMode::Alternate;
         let speed = if fast {
             PLAYER_SPEED * gun_game::SABER_SPEED
         } else {

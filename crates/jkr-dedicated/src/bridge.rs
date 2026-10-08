@@ -1825,12 +1825,20 @@ impl NativeGame {
         if request.attacker == Some(client as u16) {
             self.gun_game_suicide(client);
         }
-        // `OnSameTeam(self, attacker)`: a teammate's kill costs the killer its point.
+        // `OnSameTeam(self, attacker)`: a teammate's kill costs the killer its point, and
+        // counts in jaPRO's statistics.
         request.team_kill = !request.npc_attacker
             && request.attacker.is_some_and(|attacker| {
                 let attacker = usize::from(attacker);
                 attacker != client && self.players_on_same_team(client, attacker)
             });
+        if request.team_kill
+            && let Some(killer) = request
+                .attacker
+                .and_then(|attacker| self.peer_mut(usize::from(attacker)))
+        {
+            killer.stats.team_kills += 1;
+        }
         request.duel_opponent = self.duel_opponent(client);
         request.jedi_master = self.jedi_masters(
             request
@@ -2650,6 +2658,8 @@ impl NativeGame {
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
         let self_damage = jkr_game_jka::damage::self_damage(self.gametype, self.self_damage_scale);
+        // jaPRO's statistics read what the victim had before the blow.
+        let had = self.health_and_armor(target);
         // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`),
         // or under jaPRO's god chat — typing too long outside a duel (`takedamage`), or hurt
         // by one typing: only a DEMP2's shock, which comes first, lands.
@@ -2704,6 +2714,12 @@ impl NativeGame {
         {
             self.blow_landed(usize::from(attacker.client), target, level_time);
         }
+        self.count_damage(
+            request.attacker,
+            target,
+            damaged.take + damaged.absorbed,
+            had,
+        );
         // jaPRO's damage numbers, for a blow on one alive before it.
         if alive_before && let Some(attacker) = request.attacker {
             let dealt = damaged.take + damaged.absorbed;
@@ -3609,6 +3625,8 @@ mod bridge_saber_bounce;
 mod bridge_saber_damage;
 #[path = "bridge_spawn.rs"]
 mod bridge_spawn;
+#[path = "bridge_stats.rs"]
+mod bridge_stats;
 #[path = "bridge_think.rs"]
 mod bridge_think;
 #[path = "bridge_tournament.rs"]

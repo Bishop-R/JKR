@@ -399,6 +399,9 @@ pub struct ForceFrame<'a> {
     pub typing: crate::god_chat::Typing,
     /// jaPRO's Force options.
     pub rules: ForceRules,
+    /// The user's statistics, which team heal, team energize and drain add to
+    /// ([`crate::japro_stats::Stats`]); a scratch copy for an NPC.
+    pub stats: &'a mut crate::japro_stats::Stats,
 }
 
 /// A hand's off-sound as `Cmd_ToggleSaber_f` plays it (`g_cmds.c:2720-2730`).

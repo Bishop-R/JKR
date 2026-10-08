@@ -87,7 +87,7 @@ impl NativeGame {
         peer.force.respawned(levels, server_time);
         // jaPRO's gun game: the rung's fire mode, and the saber throw's level on its rung.
         if let Some(rung) = gun_rung {
-            peer.gun_game.fire = rung.fire;
+            peer.gun_fire = rung.fire;
             if rung.saber_throw {
                 peer.force.levels[jkr_game_jka::force_powers::FP_SABER_THROW] = 3;
             }
