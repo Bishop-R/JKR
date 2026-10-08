@@ -218,12 +218,24 @@ impl NativeGame {
         let info = self.status_info.clone();
         if tell {
             self.publish_config_string(0, &info);
-        } else if let Some(slot) = self
+            return;
+        }
+        if let Some(slot) = self
             .config_strings
             .iter_mut()
             .find(|(index, _)| *index == 0)
         {
-            slot.1 = info;
+            slot.1.clone_from(&info);
+        }
+        // A change told but not yet sent (the game type's, at startup) carries the string
+        // as it stood then; what is sent, and kept, is the string as it stands now.
+        for told in &mut self.told {
+            if let Told::ConfigString {
+                index: 0, value, ..
+            } = told
+            {
+                value.clone_from(&info);
+            }
         }
     }
 
@@ -291,3 +303,42 @@ pub(super) const SERVERINFO_DEFAULTS: [(&str, &str); 20] = [
     ("g_redTeam", "Empire"),
     ("g_blueTeam", "Rebellion"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Identity, NativeGame};
+    use jkr_network::{LegacyGameHost, LegacyGameOutput};
+
+    /// Startup values reach the gamestate and the clients, though the game type's change
+    /// was told before the other keys were filled in.
+    #[test]
+    fn startup_server_info_reaches_the_gamestate() {
+        let mut cvars = crate::cvars::Cvars::server();
+        cvars.set(b"g_showDuelHealths", b"1");
+        cvars.set(b"g_gametype", b"3");
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/duel5".to_vec(),
+        };
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        let mut sent = Vec::new();
+        game.take_output(&mut |output| {
+            if let LegacyGameOutput::ConfigString {
+                index: 0, value, ..
+            } = output
+            {
+                sent.push(value.to_vec());
+            }
+        });
+        let kept = game
+            .config_strings()
+            .find(|(index, _)| *index == 0)
+            .map(|(_, info)| info.to_vec())
+            .unwrap();
+        for info in sent.iter().chain([&kept]) {
+            let info = String::from_utf8_lossy(info);
+            assert!(info.contains("\\g_showDuelHealths\\1"), "{info}");
+            assert!(info.contains("\\g_gametype\\3"), "{info}");
+        }
+    }
+}
