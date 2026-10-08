@@ -279,6 +279,7 @@ pub mod pmove_posture;
 pub mod pmove_roll;
 pub mod pmove_talk;
 pub mod vote;
+pub mod vote_tweaks;
 
 pub mod arenas;
 pub mod fx_runner;

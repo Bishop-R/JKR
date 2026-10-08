@@ -76,6 +76,8 @@ impl NativeGame {
                 "duel_fraglimit" => self.limits.duel_fraglimit = integer,
                 "g_allowvote" => self.vote_rules.0 = integer & super::bridge_votes::SUPPORTED_VOTES,
                 "g_votedelay" => self.vote_rules.1 = integer,
+                "g_tweakvote" => self.japro_votes.tweak = integer,
+                "g_votetimeout" => self.japro_votes.timeout = integer,
                 "g_teamautojoin" => self.settings.team_auto_join = integer != 0,
                 "g_maxforcerank"
                 | "g_forcepowerdisable"

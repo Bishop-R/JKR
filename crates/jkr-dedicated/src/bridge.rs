@@ -253,6 +253,8 @@ pub struct NativeGame {
     vote: jkr_game_jka::vote::Vote,
     /// `g_allowVote` (already limited to what this server can carry out) and `g_voteDelay`.
     vote_rules: (i32, i32),
+    /// jaPRO's vote tweaks and flood protection ([`bridge_vote_tweaks::JaproVotes`]).
+    japro_votes: bridge_vote_tweaks::JaproVotes,
     /// Passed votes' commands, carried out at the start of the next frame as the
     /// reference's console buffer runs them between frames.
     vote_commands: Vec<Vec<u8>>,
@@ -490,6 +492,7 @@ impl NativeGame {
                 bridge_votes::SUPPORTED_VOTES,
                 jkr_game_jka::vote::DEFAULT_VOTE_DELAY,
             ),
+            japro_votes: Default::default(),
             vote_commands: Vec::new(),
             map,
             pure,
@@ -3558,6 +3561,8 @@ mod bridge_spawn;
 mod bridge_think;
 #[path = "bridge_tournament.rs"]
 mod bridge_tournament;
+#[path = "bridge_vote_tweaks.rs"]
+mod bridge_vote_tweaks;
 #[path = "bridge_votes.rs"]
 mod bridge_votes;
 use bridge_maps::{authoritative, fixed, pure_files, world_config_strings};

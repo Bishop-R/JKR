@@ -9,9 +9,11 @@
 //! The rules read a description of the clients and write only [`Vote`]; what they say
 //! comes back as [`Said`] in the order the reference says it. What a passed vote *does*
 //! is a console command — [`Said::Execute`] — and carrying it out is the server's
-//! business, not this module's.
+//! business, not this module's. jaPRO's tweaks (`g_tweakVote`) are
+//! [`crate::vote_tweaks`]'s, read here where the reference reads them.
 
 use crate::match_end::{GT_CTF, GT_DUEL, GT_FFA, GT_POWERDUEL, GT_SIEGE, TEAM_SPECTATOR};
+use crate::vote_tweaks::{self as tweaks, FIX_GAMETYPE_MAP, IGNORE_MAP_ARENAS, ONLY_COUNT_VOTERS};
 
 /// `CS_VOTE_TIME` (`bg_public.h:112`): when the running vote began, or empty.
 pub const CS_VOTE_TIME: usize = 8;
@@ -209,6 +211,10 @@ pub struct VoteSettings {
     pub nextmap: bool,
     /// `level.maxclients` (`sv_maxclients`): the client numbers a `clientkick` may name.
     pub max_clients: usize,
+    /// jaPRO's `g_tweakVote` ([`crate::vote_tweaks`]); 0 for stock's votes.
+    pub tweak: i32,
+    /// `level.startTime`: when the level began, which two of the tweaks read.
+    pub level_start: i32,
 }
 
 impl Default for VoteSettings {
@@ -219,6 +225,8 @@ impl Default for VoteSettings {
             gametype: GT_FFA,
             nextmap: false,
             max_clients: 32,
+            tweak: 0,
+            level_start: 0,
         }
     }
 }
@@ -229,8 +237,9 @@ impl VoteSettings {
         self.allow & (1 << index) != 0
     }
 
-    /// Whether spectators may vote: only in the two duel gametypes.
-    fn spectators_vote(&self) -> bool {
+    /// Whether spectators count towards a majority (`numVotingClients`): only in the two
+    /// duel gametypes.
+    fn spectators_counted(&self) -> bool {
         self.gametype == GT_DUEL || self.gametype == GT_POWERDUEL
     }
 }
@@ -341,6 +350,9 @@ pub enum Said {
     /// `G_KickAllBots`: a passed vote for siege kicks every bot (`clientkick`, inserted
     /// ahead of the map change).
     KickBots,
+    /// The vote failed by its voters (`SetFailedCallVoteIP`): jaPRO's flood protection
+    /// counts it against its caller's address.
+    Failed,
 }
 
 /// What a vote reads of the server beyond [`VoteSettings`]: the maps it has, the arena
@@ -402,19 +414,25 @@ fn cat(parts: &[&[u8]]) -> Vec<u8> {
 const MAX_ARGUMENT: usize = 255;
 
 /// `numVotingClients` as `CalculateRanks` counts it (`g_main.c:1089-1106`): connected,
-/// not a bot, and playing — or watching a duel.
+/// not a bot, and playing — or watching a duel. With jaPRO's
+/// [`ONLY_COUNT_VOTERS`](crate::vote_tweaks::ONLY_COUNT_VOTERS) it is
+/// `numRealVotingClients`: the spectators count too.
 pub fn voting_clients(settings: &VoteSettings, voters: &[Voter]) -> i32 {
+    let spectators = settings.spectators_counted() || settings.tweak & ONLY_COUNT_VOTERS != 0;
     voters
         .iter()
         .filter(|voter| {
             voter.connection == Connection::Connected
                 && !voter.bot
-                && (voter.team != TEAM_SPECTATOR || settings.spectators_vote())
+                && (voter.team != TEAM_SPECTATOR || spectators)
         })
         .count() as i32
 }
 
 /// `Cmd_CallVote_f`. `arguments` is the whole tokenized command, `callvote` first.
+/// `flood_wait` is the seconds the caller's address must still wait under jaPRO's flood
+/// protection ([`tweaks::FloodProtect`]), if it must.
+#[allow(clippy::too_many_arguments)]
 pub fn call_vote(
     settings: &VoteSettings,
     vote: &mut Vote,
@@ -423,6 +441,7 @@ pub fn call_vote(
     arguments: &[&[u8]],
     now: i32,
     world: &dyn VoteWorld,
+    flood_wait: Option<i32>,
 ) -> Vec<Said> {
     let mut said = Vec::new();
     let Some(me) = voters.iter().find(|voter| voter.client == caller) else {
@@ -432,12 +451,23 @@ pub fn call_vote(
         said.push(Said::Caller(print("@@@NOVOTE")));
         return said;
     }
+    if let Some(refusal) = tweaks::map_load_refusal(settings.tweak, settings.level_start, now) {
+        said.push(Said::Caller(refusal));
+        return said;
+    }
     if vote.time != 0 {
         said.push(Said::Caller(print("@@@VOTEINPROGRESS")));
         return said;
     }
-    if !settings.spectators_vote() && me.team == TEAM_SPECTATOR {
+    if me.team == TEAM_SPECTATOR && !tweaks::spectators_call(settings.tweak, settings.gametype) {
         said.push(Said::Caller(print("@@@NOSPECVOTE")));
+        return said;
+    }
+    if let Some(wait) = flood_wait {
+        said.push(Said::Caller(print(&format!(
+            "Please wait {} before calling a new vote.",
+            tweaks::seconds_text(wait)
+        ))));
         return said;
     }
     let count = arguments.len();
@@ -451,6 +481,16 @@ pub fn call_vote(
         .any(|text| text.iter().any(|byte| matches!(byte, b';' | b'\r' | b'\n')))
     {
         said.push(Said::Caller(print("Invalid vote string.")));
+        return said;
+    }
+    if let Some(refusal) = tweaks::map_change_refusal(
+        settings.tweak,
+        arg1,
+        settings.gametype,
+        settings.level_start,
+        now,
+    ) {
+        said.push(Said::Caller(refusal));
         return said;
     }
     let Some((index, alias)) = find_vote(settings, arg1) else {
@@ -485,9 +525,16 @@ pub fn call_vote(
         return said;
     }
     vote.gametype_to = None;
-    vote.execute_delay = if entry.delayed { settings.delay } else { 0 };
-    // A vote still waiting to be carried out is carried out now, and the new one stored.
+    vote.execute_delay = tweaks::execute_delay(settings.tweak, arg1, entry.delayed, settings.delay);
+    // A vote still waiting to be carried out is carried out now, and the new one stored;
+    // with any of jaPRO's tweaks the new one is refused instead.
     if vote.execute_time != 0 {
+        if settings.tweak != 0 {
+            said.push(Said::Caller(print(
+                "You are not allowed to call a new vote at this time.",
+            )));
+            return said;
+        }
         vote.execute_time = 0;
         said.push(Said::Execute(vote.string.clone()));
     }
@@ -680,27 +727,41 @@ fn describe(
                 Some(gametype),
             ))
         }
-        VoteKind::Map => describe_map(arg1, arg2, count, settings.gametype, world, said),
+        VoteKind::Map => {
+            let any_gametype = settings.tweak & IGNORE_MAP_ARENAS != 0;
+            describe_map(
+                arg1,
+                arg2,
+                count,
+                settings.gametype,
+                any_gametype,
+                world,
+                said,
+            )
+        }
     }
 }
 
 /// `G_VoteMap` (`g_cmds.c:1988-2040`): no name lists the maps (`Cmd_MapList_f`); a name
 /// with a backslash, a map the server lacks and one its arena does not give this game
 /// type are refused; the rotation's `nextmap` is kept (`; set nextmap "…"`), and players
-/// are shown the arena's long name.
+/// are shown the arena's long name. With jaPRO's `TV_IGNOREMAPARENAS` (`any_gametype`)
+/// the arenas' game types are not asked, for the list or the vote.
 fn describe_map(
     arg1: &[u8],
     arg2: &[u8],
     count: usize,
     gametype: i32,
+    any_gametype: bool,
     world: &dyn VoteWorld,
     said: &mut Vec<Said>,
 ) -> Option<(Vec<u8>, Vec<u8>, Option<i32>)> {
     if count < 3 {
+        let listed = (!any_gametype).then_some(gametype);
         said.extend(
             world
                 .arenas()
-                .map_list(gametype)
+                .map_list(listed)
                 .into_iter()
                 .map(Said::Caller),
         );
@@ -720,7 +781,7 @@ fn describe_map(
         ])));
         return None;
     }
-    if !world.arenas().supports(arg2, gametype) {
+    if !any_gametype && !world.arenas().supports(arg2, gametype) {
         said.push(Said::Caller(print("@@@NOVOTE_MAPNOTSUPPORTEDBYGAME")));
         return None;
     }
@@ -789,12 +850,15 @@ fn atof(text: &[u8]) -> f32 {
         .map_or(0.0, |value| value as f32)
 }
 
-/// `Cmd_Vote_f`. `choice` is the command's first argument.
+/// `Cmd_Vote_f`. `choice` is the command's first argument; `address_voted` whether
+/// another client from the voter's address has voted, which jaPRO's flood protection
+/// counts as the voter's own ballot.
 pub fn cast_vote(
     settings: &VoteSettings,
     vote: &mut Vote,
     voter: &Voter,
     choice: &[u8],
+    address_voted: bool,
 ) -> Vec<Said> {
     if vote.time == 0 {
         return vec![Said::Caller(print("@@@NOVOTEINPROG"))];
@@ -802,12 +866,26 @@ pub fn cast_vote(
     if vote.ballot(voter.client) != Ballot::None {
         return vec![Said::Caller(print("@@@VOTEALREADY"))];
     }
-    if !settings.spectators_vote() && voter.team == TEAM_SPECTATOR {
+    if voter.team == TEAM_SPECTATOR && !tweaks::spectators_vote(settings.tweak, settings.gametype) {
         return vec![Said::Caller(print("@@@NOVOTEASSPEC"))];
     }
-    let mut said = vec![Said::Caller(print("@@@PLVOTECAST"))];
+    if address_voted {
+        return vec![Said::Caller(print("@@@VOTEALREADY"))];
+    }
+    let yes = matches!(choice.first(), Some(b'y' | b'Y' | b'1'));
+    // jaPRO's `TV_SHOW_VOTES` tells everyone who voted which way.
+    let mut said = vec![if settings.tweak & tweaks::SHOW_VOTES != 0 {
+        let way: &[u8] = if yes {
+            b"^7 voted yes\n\""
+        } else {
+            b"^7 voted no\n\""
+        };
+        Said::Everyone(cat(&[b"print \"", &voter.name, way]))
+    } else {
+        Said::Caller(print("@@@PLVOTECAST"))
+    }];
     // `tolower(msg[0]) == 'y' || msg[0] == '1'`; anything else is a no.
-    if matches!(choice.first(), Some(b'y' | b'Y' | b'1')) {
+    if yes {
         vote.yes += 1;
         vote.ballots.push((voter.client, Ballot::Yes));
         said.push(Said::ConfigString(
@@ -827,7 +905,8 @@ pub fn cast_vote(
 
 /// `CheckVote` (`g_main.c:2571`), once a frame: a passed vote carried out once its delay
 /// is over, then the running vote passed, failed, timed out or left running.
-/// `voting_clients` is [`voting_clients`] as the frame finds it.
+/// `voting_clients` is [`voting_clients`] as the frame finds it; `tweak` is jaPRO's
+/// `g_tweakVote`.
 ///
 /// Returns nothing, and allocates nothing, on a frame where nothing happens.
 pub fn check_vote(
@@ -835,6 +914,7 @@ pub fn check_vote(
     voting_clients: i32,
     now: i32,
     gametype: i32,
+    tweak: i32,
     world: &dyn VoteWorld,
 ) -> Vec<Said> {
     let mut said = Vec::new();
@@ -842,18 +922,34 @@ pub fn check_vote(
         vote.execute_time = 0;
         said.push(Said::Execute(vote.string.clone()));
         if let Some(to) = vote.gametype_to.take() {
-            gametype_follow_up(gametype, to, world, &mut said);
+            let keep_map = tweak & FIX_GAMETYPE_MAP != 0;
+            gametype_follow_up(gametype, to, keep_map, world, &mut said);
         }
     }
     if vote.time == 0 {
         return said;
     }
-    if now - vote.time >= VOTE_TIME || vote.yes + vote.no == 0 {
+    let failed = |vote: &Vote, said: &mut Vec<Said>| {
         said.push(Said::Everyone(cat(&[
             b"print \"@@@VOTEFAILED (",
             &vote.clean,
             b")\n\"",
         ])));
+    };
+    let expired = now - vote.time >= VOTE_TIME || vote.yes + vote.no == 0;
+    if expired && tweak & ONLY_COUNT_VOTERS != 0 && vote.yes > vote.no {
+        // jaPRO's `TV_ONLY_COUNT_VOTERS`: run out with more yes than no, it passes.
+        said.push(Said::Everyone(cat(&[
+            b"print \"@@@VOTEPASSED (",
+            &vote.clean,
+            b")\n\"",
+        ])));
+        vote.execute_time = now + vote.execute_delay;
+    } else if expired {
+        failed(vote, &mut said);
+        if tweak & ONLY_COUNT_VOTERS != 0 {
+            said.push(Said::Failed);
+        }
     } else if vote.yes > voting_clients / 2 {
         said.push(Said::Everyone(cat(&[
             b"print \"@@@VOTEPASSED (",
@@ -863,11 +959,8 @@ pub fn check_vote(
         vote.execute_time = now + vote.execute_delay;
     } else if vote.no >= (voting_clients + 1) / 2 {
         // The same as running out of time.
-        said.push(Said::Everyone(cat(&[
-            b"print \"@@@VOTEFAILED (",
-            &vote.clean,
-            b")\n\"",
-        ])));
+        failed(vote, &mut said);
+        said.push(Said::Failed);
     } else {
         return said;
     }
@@ -880,18 +973,24 @@ pub fn check_vote(
 /// to another game type, `nextmap` is refreshed for it and its map is loaded (siege kicks
 /// the bots first); to the same one, `nextmap` is refreshed only with
 /// `g_autoMapCycle`; and `g_fraglimitVoteCorrection` brings the limits into a duel's
-/// range, or out of it.
-fn gametype_follow_up(gametype: i32, to: i32, world: &dyn VoteWorld, said: &mut Vec<Said>) {
-    let refreshed = world.arenas().refresh_next_map(
-        world.mapname(),
-        to,
-        to != gametype,
-        world.auto_map_cycle(),
-    );
+/// range, or out of it. With jaPRO's `TV_FIX_GAMETYPEMAP` (`keep_map`) another game type
+/// is treated as the same one: the map stays, and the new type starts with the next.
+fn gametype_follow_up(
+    gametype: i32,
+    to: i32,
+    keep_map: bool,
+    world: &dyn VoteWorld,
+    said: &mut Vec<Said>,
+) {
+    let changed = to != gametype && !keep_map;
+    let refreshed =
+        world
+            .arenas()
+            .refresh_next_map(world.mapname(), to, changed, world.auto_map_cycle());
     if let Some((nextmap, _)) = &refreshed {
         said.push(Said::SetCvar("nextmap", nextmap.clone()));
     }
-    if to != gametype {
+    if changed {
         if to == GT_SIEGE {
             said.push(Said::KickBots);
         }

@@ -95,7 +95,7 @@ impl NativeGame {
                 b"print \"The levelshot command must be executed by a local client\n\"".to_vec(),
             )),
             "maplist" => {
-                for print in self.bots.arenas.map_list(self.gametype) {
+                for print in self.bots.arenas.map_list(Some(self.gametype)) {
                     self.told.push(Told::One(client, print));
                 }
             }

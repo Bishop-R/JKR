@@ -78,6 +78,8 @@ impl NativeGame {
             gametype: self.gametype,
             nextmap: !self.rotation.is_empty() || !self.cvars.string(b"nextmap").is_empty(),
             max_clients: self.players.places(),
+            tweak: self.japro_votes.tweak,
+            level_start: self.level_start_time,
         }
     }
 
@@ -147,6 +149,7 @@ impl NativeGame {
         let settings = self.vote_settings();
         let voters = self.client_views();
         let said = if calling {
+            let flood_wait = self.vote_flood_wait(client, server_time);
             let mut running = std::mem::take(&mut self.vote);
             let said = vote::call_vote(
                 &settings,
@@ -156,18 +159,25 @@ impl NativeGame {
                 &arguments,
                 server_time,
                 &self.vote_world(),
+                flood_wait,
             );
+            let started = running.time != 0;
             self.vote = running;
+            if started {
+                self.vote_started_by(client);
+            }
             said
         } else {
             let Some(voter) = voters.iter().find(|voter| voter.client == client) else {
                 return true;
             };
+            let address_voted = self.address_voted(client);
             vote::cast_vote(
                 &settings,
                 &mut self.vote,
                 voter,
                 arguments.get(1).copied().unwrap_or_default(),
+                address_voted,
             )
         };
         self.tell_vote(said, Some(client));
@@ -210,9 +220,11 @@ impl NativeGame {
             voting,
             server_time,
             self.gametype,
+            self.japro_votes.tweak,
             &self.vote_world(),
         );
         self.vote = running;
+        self.forgive_failed_votes(server_time);
         // `CheckTeamVote` for each side, after `CheckVote`.
         self.run_team_votes(server_time);
         if !said.is_empty() {
@@ -254,6 +266,7 @@ impl NativeGame {
                         reason: WAS_KICKED.to_vec(),
                     }));
                 }
+                Said::Failed => self.vote_failed(self.last_frame_time),
             }
         }
     }
