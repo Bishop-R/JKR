@@ -34,6 +34,11 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             "Scope: 0 stock, 1 crosshair, 2 mask only",
         ),
         ("cg_autoSwitch", 1, "Pickup upgrades: 0 off, 1 safe, 2 any"),
+        (
+            "cg_screenShake",
+            2,
+            "EternalJK: camera shakes: 0 none, 1 all but the weapons', 2 all",
+        ),
     ] {
         cvars.register(CvarDefinition::new(
             name,

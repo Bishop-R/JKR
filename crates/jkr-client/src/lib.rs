@@ -105,6 +105,7 @@ mod view_bob;
 mod view_weapon;
 mod visual_effect_events;
 mod vote_state;
+mod weapon_shake;
 use jkr_game_jka::weapon_data;
 mod weapon_selection;
 
@@ -257,6 +258,7 @@ pub use weapon_data::{
 pub use weapon_selection::{
     LegacyWeaponInventory, legacy_cycle_weapon, legacy_direct_weapon, legacy_weapon_selectable,
 };
+pub use weapon_shake::{FireFeedback, WeaponShake, charge_shake, fire_feedback, kick_fraction};
 
 pub use jkr_game_jka::{legacy_animation_count, legacy_animation_name};
 

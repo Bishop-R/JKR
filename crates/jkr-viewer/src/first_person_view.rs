@@ -10,11 +10,16 @@ use jkr_client::pmove::MovementState;
 use jkr_client::{LegacyFirstPersonView, LegacyViewPlayer};
 use jkr_protocol::Snapshot;
 
+#[path = "weapon_feedback.rs"]
+pub(crate) mod weapon_feedback;
+
 /// The timelines plus the snapshot they were last advanced by.
 #[derive(Default)]
 pub(crate) struct Tracker {
     view: LegacyFirstPersonView,
     observed_server_time: Option<i32>,
+    /// The concussion rifle's kick: when, and the degrees of pitch it reaches.
+    kick: Option<(i32, f32)>,
 }
 
 impl Tracker {
@@ -28,6 +33,11 @@ impl Tracker {
         self.observed_server_time = Some(snapshot.server_time);
         self.view
             .observe(snapshot, snapshot.server_time, predicting);
+    }
+
+    /// The last shot fired since the last call: weapon, alternate fire, time.
+    fn take_fired(&mut self) -> Option<(u8, bool, i32)> {
+        self.view.take_fired()
     }
 }
 
@@ -90,8 +100,15 @@ pub(crate) fn camera(state: &GpuState, presentation_time: i32) -> Option<Camera>
         crate::cgame_options::bob(state.console.as_ref()),
     )?;
     let [mut pitch, yaw, mut roll] = offset.angle_delta;
-    // The damage view kick joins the bob angles (`cg_view.c:967-981`).
-    if let Some([kick_pitch, kick_roll]) = state.damage_feedback.view_kick(presentation_time) {
+    // A weapon's kick, then the damage kick, join the bob angles (`cg_view.c:951-981`).
+    if let Some((at, kick)) = tracker.kick
+        && let Some(fraction) = jkr_client::kick_fraction(presentation_time - at)
+    {
+        pitch += fraction * kick;
+    }
+    if let Some([kick_pitch, kick_roll]) = state.damage_feedback.view_kick(presentation_time)
+        && weapon_feedback::damage_kick(state)
+    {
         pitch += kick_pitch;
         roll += kick_roll;
     }

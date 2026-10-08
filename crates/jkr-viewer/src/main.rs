@@ -1213,12 +1213,7 @@ impl GpuState {
         // The backdrop keeps the view while a joined map loads behind it.
         let backdrop_view = menu_backdrop::standalone_menu_visible(self);
         self.update_menu_stage(visual_now);
-        let local_view = self
-            .demo_session
-            .as_ref()
-            .is_none_or(|session| !matches!(session.camera(), demo_playback::Camera::Spectate(_)));
-        self.effect_aux
-            .resolve_shakes(self.camera_position, visual_now, local_view);
+        first_person_view::weapon_feedback::resolve_shakes(self, visual_now);
         let intermission_view = self
             .live_session
             .as_ref()
@@ -1241,6 +1236,7 @@ impl GpuState {
         net_timing::frame(self, presentation_time);
         clock_trace::tick(self, presentation_time, visual_now);
         camera::choose_third_person(self, presentation_time);
+        first_person_view::weapon_feedback::frame(self, presentation_time as i32, visual_now);
         let first_person = (!backdrop_view)
             .then(|| first_person_view::camera(self, presentation_time as i32))
             .flatten();
