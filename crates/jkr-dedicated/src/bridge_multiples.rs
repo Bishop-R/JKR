@@ -125,8 +125,16 @@ impl NativeGame {
                 touched
             };
             self.siege_touch_done(client, hooks, level_time);
-            if touched == jkr_game_jka::triggers::Touched2::Fires {
-                self.fire_trigger(index, client, level_time);
+            match touched {
+                jkr_game_jka::triggers::Touched2::Fires => {
+                    self.fire_trigger(index, client, level_time);
+                }
+                // `multi_trigger` keeps whoever set it off (`ent->activator`) before it
+                // waits out its delay, and fires for it then.
+                jkr_game_jka::triggers::Touched2::Waits => {
+                    self.multiples[index].activator = Some(client);
+                }
+                _ => {}
             }
         }
     }
@@ -318,7 +326,9 @@ impl NativeGame {
                 let activator = trigger.activator.unwrap_or(usize::MAX);
                 self.fire_targets(&target2, activator, level_time);
             } else if trigger.pending {
-                self.fire_trigger(index, 0, level_time);
+                // `multi_trigger_run`: for the one that set it off (`ent->activator`).
+                let activator = trigger.activator.unwrap_or(usize::MAX);
+                self.fire_trigger(index, activator, level_time);
             }
         }
         for index in 0..self.targets.len() {

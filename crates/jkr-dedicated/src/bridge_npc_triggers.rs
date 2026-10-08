@@ -303,8 +303,10 @@ impl NativeGame {
                 };
                 touched = rules::pressed_as(&mut self.multiples[index], activator, level_time);
             }
-            if touched == Touched2::Fires {
-                self.fire_trigger(index, usize::from(number), level_time);
+            match touched {
+                Touched2::Fires => self.fire_trigger(index, usize::from(number), level_time),
+                Touched2::Waits => self.multiples[index].activator = Some(usize::from(number)),
+                _ => {}
             }
         }
     }
