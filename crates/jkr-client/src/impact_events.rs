@@ -26,6 +26,9 @@ pub const EV_DISRUPTOR_HIT: u16 = 38; // codemp/game/bg_public.h:855
 pub const EV_MISSILE_HIT: u16 = 85; // codemp/game/bg_public.h:918
 pub const EV_MISSILE_MISS: u16 = 86; // codemp/game/bg_public.h:919
 pub const EV_MISSILE_MISS_METAL: u16 = 87; // codemp/game/bg_public.h:920
+/// `EV_TESTLINE` (`G_TestLine`): a line drawn for a while, the bots' waypoints and jaPRO's
+/// target laser among its users.
+pub const EV_TESTLINE: u16 = 112;
 
 /// Visual impact class selected by `CG_EntityEvent`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -44,6 +47,9 @@ pub enum LegacyImpactKind {
     MissileHitPlayer,
     MissileHitWall,
     MissileHitMetal,
+    /// `CG_TestLine` from `origin` to `origin2` for `duration` ms, coloured by `weapon`
+    /// (`cg_event.c:3431-3434`).
+    TestLine,
 }
 
 /// One newly decoded impact event, in the fields consumed by cgame.
@@ -62,6 +68,8 @@ pub struct LegacyImpactEvent {
     pub charge: u8,
     /// `shouldtarget`: a fully charged sniper shot.
     pub full_charge: bool,
+    /// `time2`: how long a test line stays.
+    pub duration: i32,
 }
 
 /// Allocation-free event de-duplicator equivalent to centity `previousEvent`.
@@ -157,6 +165,7 @@ impl LegacyImpactTracker {
                 alternate: entity.e_flags() & EF_ALT_FIRING != 0,
                 charge: entity.generic1(),
                 full_charge: entity.should_target(),
+                duration: entity.time2(),
             });
         }
         for (index, active) in self.active.iter().copied().enumerate() {
@@ -185,6 +194,7 @@ pub const fn kind(event: u16) -> Option<LegacyImpactKind> {
         EV_MISSILE_HIT => Some(LegacyImpactKind::MissileHitPlayer),
         EV_MISSILE_MISS => Some(LegacyImpactKind::MissileHitWall),
         EV_MISSILE_MISS_METAL => Some(LegacyImpactKind::MissileHitMetal),
+        EV_TESTLINE => Some(LegacyImpactKind::TestLine),
         _ => None,
     }
 }

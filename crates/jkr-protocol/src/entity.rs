@@ -385,6 +385,12 @@ impl EntityState {
         f32::from_bits(self.raw_field(31).unwrap_or(0))
     }
 
+    /// Generic `entityState_t::time2` value carried by protocol 26 (`EV_TESTLINE`'s
+    /// duration, among others).
+    pub fn time2(&self) -> i32 {
+        self.raw_field(61).unwrap_or(0) as i32
+    }
+
     /// Generic `entityState_t::time` value carried by protocol 26.
     pub fn time(&self) -> i32 {
         self.raw_field(65).unwrap_or(0) as i32
