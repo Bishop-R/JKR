@@ -84,6 +84,7 @@ mod saber_move;
 use jkr_game_jka::saber_move_data;
 pub mod concussion_shot;
 pub mod event_feedback;
+mod npc_voices;
 pub mod selection;
 mod server_address;
 mod server_clock;
