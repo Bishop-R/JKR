@@ -35,6 +35,21 @@ impl GpuState {
         self.effect_aux.saber_contacts.compensation.enabled = console
             .bool_cvar("cg_saberClientVisualCompensation")
             .unwrap_or(true);
+        // EternalJK's effect options.
+        self.saber_clash_flare.disabled = !console.bool_cvar("cg_saberClash").unwrap_or(true);
+        self.effect_aux.options = crate::effect_aux::EffectOptions {
+            no_teleport: console.bool_cvar("cg_noTeleFX").unwrap_or(false),
+            flesh_sparks: console.integer_cvar("cg_fleshSparks").unwrap_or(7),
+        };
+        self.first_person_view
+            .set_instant_duck(console.bool_cvar("cg_instantDuck").unwrap_or(false));
+        let saber_team_colors = console.bool_cvar("cg_saberTeamColors").unwrap_or(true);
+        if let Some(adapter) = &mut self.legacy_world_adapter {
+            adapter.set_saber_team_colors(saber_team_colors);
+        }
+        if let Some(session) = &mut self.demo_session {
+            session.set_saber_team_colors(saber_team_colors);
+        }
         self.effect_aux.marks.limit = console
             .integer_cvar("cg_ghoul2Marks")
             .map_or(jkr_client::ghoul2_marks::DEFAULT_LIMIT, |limit| {

@@ -75,21 +75,30 @@ fn client_saber_color_at(
     game_state
         .config_string(CS_PLAYERS + usize::from(client_num))
         .map_or(legacy_blade_rgb(4), |config| {
-            team_saber_color(policy, config)
+            team_saber_color(policy, config, saber)
                 .unwrap_or_else(|| saber_color_from_config(config, saber))
         })
 }
 
 /// `CG_AddSaberBlade` (`cg_players.c:6142-6155`): in a team game but Siege and Jedi versus
 /// Mercenaries, a player's blades (held or thrown, never an NPC's) take its team's colour,
-/// red or blue, whatever the player chose.
-pub(super) fn team_saber_color(policy: crate::TeamColorPolicy, config: &[u8]) -> Option<[u8; 3]> {
+/// red or blue, whatever the player chose. With EternalJK's `cg_saberTeamColors 0` only a
+/// blade of the other team's colour, or a custom tint, gives way.
+pub(super) fn team_saber_color(
+    policy: crate::TeamColorPolicy,
+    config: &[u8],
+    saber: usize,
+) -> Option<[u8; 3]> {
+    const SABER_PURPLE: i32 = 5;
     if !policy.team_override_active {
         return None;
     }
+    let chosen = legacy_info_i32(config, [&b"c1"[..], b"c2"][saber]).unwrap_or(4);
+    let forced =
+        |other_team: i32| policy.saber_team_colors || chosen == other_team || chosen > SABER_PURPLE;
     match legacy_info_i32(config, b"t") {
-        Some(1) => Some(legacy_blade_rgb(0)),
-        Some(2) => Some(legacy_blade_rgb(4)),
+        Some(1) if forced(4) => Some(legacy_blade_rgb(0)),
+        Some(2) if forced(0) => Some(legacy_blade_rgb(4)),
         _ => None,
     }
 }
@@ -180,15 +189,29 @@ mod tests {
         let red = b"\\n\\a\\t\\1\\c1\\3";
         let blue = b"\\n\\b\\t\\2\\c1\\0";
         let ctf = policy(b"\\g_gametype\\8");
-        assert_eq!(team_saber_color(ctf, red), Some(legacy_blade_rgb(0)));
-        assert_eq!(team_saber_color(ctf, blue), Some(legacy_blade_rgb(4)));
-        assert_eq!(team_saber_color(ctf, b"\\n\\c\\t\\3"), None);
+        assert_eq!(team_saber_color(ctf, red, 0), Some(legacy_blade_rgb(0)));
+        assert_eq!(team_saber_color(ctf, blue, 0), Some(legacy_blade_rgb(4)));
+        // `cg_saberTeamColors 0`: green stays green, the other team's blue gives way.
+        let relaxed = crate::TeamColorPolicy {
+            saber_team_colors: false,
+            ..ctf
+        };
+        assert_eq!(team_saber_color(relaxed, red, 0), None);
+        assert_eq!(
+            team_saber_color(relaxed, b"\\t\\1\\c1\\4", 0),
+            Some(legacy_blade_rgb(0))
+        );
+        assert_eq!(
+            team_saber_color(relaxed, b"\\t\\1\\c1\\9", 0),
+            Some(legacy_blade_rgb(0))
+        );
+        assert_eq!(team_saber_color(ctf, b"\\n\\c\\t\\3", 0), None);
         for other in [
             &b"\\g_gametype\\0"[..],
             b"\\g_gametype\\7",
             b"\\g_gametype\\8\\g_jediVmerc\\1",
         ] {
-            assert_eq!(team_saber_color(policy(other), red), None);
+            assert_eq!(team_saber_color(policy(other), red, 0), None);
         }
     }
 }

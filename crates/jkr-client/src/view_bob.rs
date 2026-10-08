@@ -85,6 +85,8 @@ pub struct LegacyFirstPersonView {
     event_sequence: i32,
     /// The last shot not yet taken: weapon, alternate fire, time (`CG_FireWeapon`).
     fired: Option<(u8, bool, i32)>,
+    /// EternalJK's `cg_instantDuck`: a crouch moves the view at once, unblended.
+    pub instant_duck: bool,
 }
 
 impl LegacyFirstPersonView {
@@ -99,7 +101,12 @@ impl LegacyFirstPersonView {
         if let Some(previous) = self.previous_view_height
             && previous != view_height
         {
-            self.duck = Some((time, (view_height - previous) as f32));
+            let start = if self.instant_duck {
+                time - DUCK_TIME
+            } else {
+                time
+            };
+            self.duck = Some((start, (view_height - previous) as f32));
         }
         self.previous_view_height = Some(view_height);
         let sequence = player.event_sequence();

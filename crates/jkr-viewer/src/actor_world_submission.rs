@@ -136,12 +136,19 @@ pub(crate) fn submit(
                 .as_ref()
                 .map(demo_playback::Session::game_state)
         });
-    let aura_shell = gpu
-        .console
-        .as_ref()
-        .and_then(|console| console.integer_cvar("cg_auraShell"))
-        .unwrap_or(1)
-        != 0;
+    let overlays = crate::force_overlay_submission::Options {
+        aura_shell: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_auraShell"))
+            .unwrap_or(1)
+            != 0,
+        always_show_absorb: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.bool_cvar("cg_alwaysShowAbsorb"))
+            .unwrap_or(false),
+    };
     let trails = gpu
         .console
         .as_ref()
@@ -235,9 +242,14 @@ pub(crate) fn submit(
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
     }
-    let thrown = snapshot
-        .zip(game_state)
-        .map(|(snapshot, game)| jkr_client::LegacyThrownSabers::new(snapshot, game));
+    let thrown = snapshot.zip(game_state).map(|(snapshot, game)| {
+        jkr_client::LegacyThrownSabers::new(snapshot, game).with_saber_team_colors(
+            gpu.console
+                .as_ref()
+                .and_then(|console| console.bool_cvar("cg_saberTeamColors"))
+                .unwrap_or(true),
+        )
+    });
     let mut overlay_count = 0;
     for entity in active_world
         .entities()
@@ -266,7 +278,7 @@ pub(crate) fn submit(
                 fallback_mesh,
                 presentation_time,
                 visual_now,
-                aura_shell,
+                overlays,
                 trails,
             );
         } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform) {
@@ -425,7 +437,7 @@ fn submit_actor(
     fallback_mesh: Option<usize>,
     presentation_time: i64,
     visual_now: Instant,
-    aura_shell: bool,
+    overlays: crate::force_overlay_submission::Options,
     trails: bool,
 ) -> usize {
     let draw_actor = sinks.own_body_shown || Some(entity.id.get()) != local_entity_id;
@@ -691,7 +703,7 @@ fn submit_actor(
                 sinks.material_overrides,
                 presentation_time as i32,
                 sinks.third_person,
-                aura_shell,
+                overlays,
                 sinks.predicted_force_powers_active,
                 sinks.shield_mesh,
             );

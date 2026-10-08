@@ -444,6 +444,38 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Saber contact marks and sparks",
         ),
         CvarDefinition::new("cg_marks", true, archive, "Leave impact marks on the world"),
+        // EternalJK's effect options, stock's behaviour at their defaults.
+        CvarDefinition::new("cg_saberClash", true, archive, "Flare where sabers clash"),
+        CvarDefinition::new(
+            "cg_fleshSparks",
+            7_i64,
+            archive,
+            "Saber hits on flesh: 0 no sparks to 7 all of stock's",
+        ),
+        CvarDefinition::new(
+            "cg_noTeleFX",
+            false,
+            archive,
+            "No effect or sound when players teleport",
+        ),
+        CvarDefinition::new(
+            "cg_alwaysShowAbsorb",
+            false,
+            archive,
+            "Show every running absorb, not only your own",
+        ),
+        CvarDefinition::new(
+            "cg_instantDuck",
+            false,
+            archive,
+            "Crouching moves the view at once",
+        ),
+        CvarDefinition::new(
+            "cg_saberTeamColors",
+            true,
+            archive,
+            "Team games: every blade in its team's colour; 0 keeps yours unless it is the other team's",
+        ),
         // `cg_xcvar.h:114`: not archived.
         CvarDefinition::new(
             "cg_saberClientVisualCompensation",

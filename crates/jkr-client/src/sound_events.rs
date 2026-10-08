@@ -650,6 +650,8 @@ pub struct LegacySoundAdapter {
     loop_command_sequence: i32,
     /// `cg_noTaunt`.
     no_taunt: bool,
+    /// EternalJK's `cg_noTeleFX`.
+    no_teleport: bool,
 }
 
 impl LegacySoundAdapter {
@@ -667,6 +669,11 @@ impl LegacySoundAdapter {
     /// `cg_noTaunt` (`cg_event.c:1586`): taunts, gloats, flourishes and bows are silent.
     pub fn set_no_taunt(&mut self, on: bool) {
         self.no_taunt = on;
+    }
+
+    /// EternalJK's `cg_noTeleFX` (`cg_event.c`): teleports in and out are silent.
+    pub fn set_no_teleport(&mut self, on: bool) {
+        self.no_teleport = on;
     }
 
     /// Resolve and decode all static tables, CS_SOUNDS, and model custom sounds.
@@ -901,6 +908,7 @@ impl LegacySoundAdapter {
             maintained,
             loop_command_sequence: game_state.server_command_sequence,
             no_taunt: false,
+            no_teleport: false,
         }
     }
 
@@ -1445,14 +1453,14 @@ impl LegacySoundAdapter {
                 CHAN_AUTO,
                 false,
             )),
-            64 => Some((
+            64 if !self.no_teleport => Some((
                 LegacySoundEvent::TeleportIn,
                 self.teleport[0],
                 source,
                 CHAN_AUTO,
                 false,
             )),
-            65 => Some((
+            65 if !self.no_teleport => Some((
                 LegacySoundEvent::TeleportOut,
                 self.teleport[1],
                 source,

@@ -135,7 +135,8 @@ pub(crate) fn spawn_impact(
 ) -> usize {
     impact.start = local.beam_start(impact);
     let mut spawned = 0;
-    for (visual_index, visual) in impacts::plan(impact).iter().enumerate() {
+    let flesh_sparks = sinks.auxiliary.options.flesh_sparks;
+    for (visual_index, visual) in impacts::plan(impact, flesh_sparks).iter().enumerate() {
         spawned += 1;
         let seed =
             u32::from(impact.entity_number) | (u32::from(impact.event) << 16) | visual_index as u32;

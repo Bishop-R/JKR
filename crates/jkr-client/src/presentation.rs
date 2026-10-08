@@ -95,6 +95,8 @@ pub struct LegacyWorldAdapter {
     entity_flags: BTreeMap<EntityId, u32>,
     player_identities: LegacyPlayerIdentities,
     smooth_clients: bool,
+    /// EternalJK's `cg_saberTeamColors`.
+    saber_team_colors: bool,
 }
 
 impl LegacyWorldAdapter {
@@ -105,7 +107,14 @@ impl LegacyWorldAdapter {
             entity_flags: BTreeMap::new(),
             player_identities: LegacyPlayerIdentities::default(),
             smooth_clients: false,
+            saber_team_colors: true,
         }
+    }
+
+    /// EternalJK's `cg_saberTeamColors 0`: in team games a blade keeps its own colour unless
+    /// it is the other team's or a custom tint.
+    pub fn set_saber_team_colors(&mut self, on: bool) {
+        self.saber_team_colors = on;
     }
 
     pub fn apply_snapshot(
@@ -121,7 +130,10 @@ impl LegacyWorldAdapter {
         let mut next_entities = BTreeSet::new();
         let mut next_entity_flags = BTreeMap::new();
         let mut next_corpses = BTreeSet::new();
-        let color_policy = TeamColorPolicy::from_game_state(game_state);
+        let color_policy = TeamColorPolicy {
+            saber_team_colors: self.saber_team_colors,
+            ..TeamColorPolicy::from_game_state(game_state)
+        };
         let intermission = snapshot.player.movement_type() == crate::PM_INTERMISSION;
         for state in crate::legacy_scene_entities(game_state, snapshot) {
             // codemp CG_Player: hide players, corpses and vehicles at match end;

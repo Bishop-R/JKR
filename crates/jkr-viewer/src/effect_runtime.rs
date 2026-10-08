@@ -108,6 +108,9 @@ pub(crate) fn spawn_snapshot_particles(
         ) {
             auxiliary.screen_shake(intensity, duration, now, u32::from(entity.number()));
         }
+        if matches!(raw_event, 64 | 65) && auxiliary.options.no_teleport {
+            continue;
+        }
         let Some(effect_name) = combat_effects::for_event(raw_event, entity, game_state) else {
             continue;
         };

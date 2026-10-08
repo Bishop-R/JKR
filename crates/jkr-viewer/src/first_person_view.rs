@@ -23,6 +23,11 @@ pub(crate) struct Tracker {
 }
 
 impl Tracker {
+    /// EternalJK's `cg_instantDuck`.
+    pub(crate) fn set_instant_duck(&mut self, on: bool) {
+        self.view.instant_duck = on;
+    }
+
     /// Advance the timelines by a snapshot; repeats of the same server time
     /// (demo playback re-samples the current snapshot every frame) are
     /// ignored. `predicting` is false for demos and spectators.

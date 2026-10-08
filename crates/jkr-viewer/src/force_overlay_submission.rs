@@ -11,6 +11,13 @@ use jkr_protocol::{GameState, Snapshot};
 /// Fixed instance storage shared with pickup overrides.
 pub(crate) const CAPACITY: usize = 1_024;
 
+/// The console's overlay options: `cg_auraShell` and EternalJK's `cg_alwaysShowAbsorb`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Options {
+    pub(crate) aura_shell: bool,
+    pub(crate) always_show_absorb: bool,
+}
+
 /// Submit every cgame force overlay for one actor using the same pose instance.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn submit(
@@ -24,7 +31,7 @@ pub(crate) fn submit(
     materials: model_materials::Overrides,
     now: i32,
     third_person: bool,
-    aura_shell: bool,
+    options: Options,
     predicted_force_powers_active: Option<u32>,
     shield_mesh: Option<usize>,
 ) -> usize {
@@ -45,8 +52,9 @@ pub(crate) fn submit(
         &snapshot.player,
         now,
         third_person,
-        aura_shell,
+        options.aura_shell,
     );
+    context.always_show_absorb = options.always_show_absorb;
     // `CG_Player` uses `cg.predictedPlayerState` for the local absorb gate
     // (`codemp/cgame/cg_players.c:10953-10958`). Other overlay inputs remain
     // snapshot/currentState driven.

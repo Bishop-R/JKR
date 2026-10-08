@@ -81,6 +81,26 @@ pub(crate) struct Runtime {
     pub(crate) breakage: breakage::Runtime,
     /// Ghoul2 damage marks waiting for this frame's poses (`actor_marks.rs`).
     pub(crate) marks: crate::actor_marks::Runtime,
+    /// EternalJK's effect options.
+    pub(crate) options: EffectOptions,
+}
+
+/// EternalJK's effect options, stock's behaviour at their defaults.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EffectOptions {
+    /// `cg_noTeleFX`: no effect or sound when a player teleports in or out.
+    pub(crate) no_teleport: bool,
+    /// `cg_fleshSparks`, 0 to 7: how many of a saber's flesh hit effects play.
+    pub(crate) flesh_sparks: i64,
+}
+
+impl Default for EffectOptions {
+    fn default() -> Self {
+        Self {
+            no_teleport: false,
+            flesh_sparks: 7,
+        }
+    }
 }
 
 impl Default for Runtime {
@@ -98,6 +118,7 @@ impl Default for Runtime {
             continuous: cadence::Cadence::default(),
             breakage: breakage::Runtime::default(),
             marks: crate::actor_marks::Runtime::default(),
+            options: EffectOptions::default(),
         }
     }
 }

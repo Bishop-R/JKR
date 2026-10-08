@@ -217,6 +217,11 @@ impl Session {
         self.adapter.set_smooth_clients(enabled);
     }
 
+    /// EternalJK's `cg_saberTeamColors`, as the live session's adapter has it.
+    pub(crate) fn set_saber_team_colors(&mut self, on: bool) {
+        self.adapter.set_saber_team_colors(on);
+    }
+
     /// Open and prime a demo at its first authoritative snapshot.
     pub(crate) fn open(path: &Path, camera: Camera, fps: u32) -> Result<Self, Box<dyn Error>> {
         let mut stream = DemoPlayback::new(BufReader::new(File::open(path)?))?;

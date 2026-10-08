@@ -41,6 +41,7 @@ pub struct LegacyThrownSabers<'a> {
     states: [Option<&'a EntityState>; 1_024],
     snapshot: &'a Snapshot,
     game: &'a GameState,
+    policy: crate::TeamColorPolicy,
 }
 
 impl<'a> LegacyThrownSabers<'a> {
@@ -56,7 +57,14 @@ impl<'a> LegacyThrownSabers<'a> {
             states,
             snapshot,
             game,
+            policy: crate::TeamColorPolicy::from_game_state(game),
         }
+    }
+
+    /// EternalJK's `cg_saberTeamColors` for the thrown blades' colours.
+    pub fn with_saber_team_colors(mut self, on: bool) -> Self {
+        self.policy.saber_team_colors = on;
+        self
     }
 
     /// Resolve the primary hilt and blade policy for one network entity number.
@@ -80,7 +88,7 @@ impl<'a> LegacyThrownSabers<'a> {
         Some(LegacyThrownSaber {
             owner,
             name: saber_names_from_config(config)[0]?,
-            color: team_saber_color(crate::TeamColorPolicy::from_game_state(self.game), config)
+            color: team_saber_color(self.policy, config, 0)
                 .unwrap_or_else(|| saber_color_from_config(config, 0)),
             in_flight,
             extra_blades: holstered != 1,

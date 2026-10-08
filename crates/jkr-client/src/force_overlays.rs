@@ -171,6 +171,9 @@ pub struct LegacyForceOverlayContext {
     pub third_person: bool,
     /// Runtime value of `cg_auraShell`.
     pub aura_shell: bool,
+    /// EternalJK's `cg_alwaysShowAbsorb`: every absorb shows while it runs, not only
+    /// one's own and those that just absorbed something.
+    pub always_show_absorb: bool,
 }
 
 impl LegacyForceOverlayContext {
@@ -196,6 +199,7 @@ impl LegacyForceOverlayContext {
             ),
             third_person,
             aura_shell,
+            always_show_absorb: false,
         }
     }
 }
@@ -263,7 +267,9 @@ pub fn legacy_force_overlays(
             false,
         ));
     }
+    // EternalJK's `cg_alwaysShowAbsorb`: everyone's absorb shows while it runs.
     if (local && context.local_force_powers_active & FP_ABSORB != 0)
+        || (context.always_show_absorb && actor.force_powers_active & FP_ABSORB != 0)
         || (team_power.until > context.now && team_power.kind == 3)
     {
         legs_alpha = 254;
