@@ -22,6 +22,7 @@ impl Parked {
     /// Make `installed` the current world. The menu world it replaces is
     /// parked; a server world it replaces is dropped.
     pub(crate) fn install(&mut self, current: &mut GpuState, installed: GpuState) {
+        current.finish_frame_in_flight();
         let mut previous = std::mem::replace(current, installed);
         if previous.is_menu_world {
             // The world seen through the gate is the one just installed.
@@ -52,6 +53,9 @@ impl Parked {
         // join before the new server names its own.
         menu.world_load_map.clear();
         menu.live_map_installed = false;
+        // The server world's last frame still holds a swapchain image; reconfiguring the
+        // surface under it failed ("Failed to wait for GPU to come idle").
+        current.finish_frame_in_flight();
         menu.resize(current.size);
         *current = menu;
         crate::log::progress(format_args!("menu world restored"));

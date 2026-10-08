@@ -27,6 +27,24 @@ pub(crate) struct FramePacer {
     pub(crate) split: crate::frame_split::Splitter,
 }
 
+impl crate::GpuState {
+    /// Wait until this world's last frame has been presented. Its swapchain image is held
+    /// until then, so the surface must not be reconfigured or dropped before: another
+    /// world taking over the window, or this one going away, first calls this.
+    pub(crate) fn finish_frame_in_flight(&self) {
+        self.frame_pacer.split.wait_previous();
+    }
+}
+
+impl Drop for crate::GpuState {
+    /// `GpuState` drops its GPU context (and the surface with it) before its pacer; the
+    /// frame in flight goes first. Destroying the surface under it panicked on every quit
+    /// from the menu.
+    fn drop(&mut self) {
+        self.finish_frame_in_flight();
+    }
+}
+
 impl FramePacer {
     /// Create retained statistics and formatting storage outside the frame loop.
     pub(crate) fn new() -> Self {
