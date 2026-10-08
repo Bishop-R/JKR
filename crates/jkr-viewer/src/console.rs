@@ -20,6 +20,7 @@ pub(crate) mod director;
 mod qcommon;
 #[path = "console_window_options.rs"]
 mod window_options;
+pub(crate) use chat_log::LevelClock;
 pub(crate) use qcommon::wait_control;
 #[path = "console_ui_options.rs"]
 mod ui_options;

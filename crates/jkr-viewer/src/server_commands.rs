@@ -94,6 +94,14 @@ pub(crate) fn consume_messages(
         .as_deref()
         .and_then(|console| console.bool_cvar("cg_teamChatsOnly"))
         .unwrap_or(false);
+    // What EternalJK's chat log stamps this frame's lines with.
+    let level = crate::console::LevelClock {
+        level_start: level_start(session.game_state()),
+        clock: jkr_client::legacy_match_clock(
+            session.game_state(),
+            session.latest_snapshot().server_time,
+        ),
+    };
     for event in session.drain_events() {
         if team_chats_only && matches!(event.kind, jkr_client::ServerEventKind::Chat) {
             continue;
@@ -103,7 +111,7 @@ pub(crate) fn consume_messages(
         }
         let text = localization.translate(&event.text);
         if let Some(console) = &mut console {
-            console.log_chat(&event.kind, &text);
+            console.log_chat(&event.kind, &text, level);
         }
         // stderr, not stdout: the launcher captures only stderr, so anything
         // the server tells us -- a drop reason above all -- was being written
@@ -138,6 +146,14 @@ pub(crate) fn consume_messages(
             }
         }
     }
+}
+
+/// `CS_LEVEL_START_TIME`, which tells the levels apart in EternalJK's chat log.
+fn level_start(game: &jkr_protocol::GameState) -> i32 {
+    game.config_string(21)
+        .and_then(|value| std::str::from_utf8(value).ok())
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Console rows of one server `print`: one per `\n`, without the final empty
