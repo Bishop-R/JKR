@@ -156,6 +156,11 @@ impl NativeGame {
         self.register_damage_options();
         self.register_game_options();
         self.register_spotting();
+        // What was just registered is put into effect as the first look at a variable is:
+        // announced to nobody. Left for the next change to find, every one of them would
+        // be announced to everyone as changed.
+        self.cvars_primed = false;
+        self.apply_cvars();
         self.open_log();
         self.start_warmup();
         // `G_InitBots`.
