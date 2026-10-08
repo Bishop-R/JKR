@@ -22,6 +22,7 @@ impl NativeGame {
             || self.jetpack_command(client, command)
             || self.spot_command(client, command, server_time)
             || self.server_config_command(client, command)
+            || self.aminfo_command(client, command)
         {
             return;
         }

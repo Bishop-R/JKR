@@ -1,12 +1,14 @@
 //! jaPRO's `serverConfig` (`Cmd_ServerConfig_f`, no gates): the server's settings that
 //! differ from stock's, by section — in jaPRO's words and order, for the options this
-//! server has (the saber, weapon, Force and movement tweaks it has not are left out).
+//! server has (the saber, weapon, Force and movement tweaks it has not are left out);
+//! and `aminfo` (`Cmd_Aminfo_f`): the jaPRO commands a player may use here.
 
 use super::*;
 
 /// `DF_NO_FALLING`; `GT_CTF`; `WP_CONCUSSION`; `NUM_FORCE_POWERS`.
 const DF_NO_FALLING: i32 = 8;
 const GT_CTF: i32 = 8;
+const GT_TEAM: i32 = 6;
 const WEAPONS_ALL_OFF: i32 = 1 << 15;
 const FORCE_ALL_OFF: i32 = 1 << 18;
 
@@ -21,6 +23,80 @@ impl NativeGame {
             self.told.push(Told::One(
                 client,
                 format!("print \"{section}\"").into_bytes(),
+            ));
+        }
+        true
+    }
+
+    /// `aminfo` from `client`: whether `command` was it. Its lines as jaPRO prints them,
+    /// naming only the commands this server has (no accounts, clans, race or plugin), and
+    /// the greeting saying what the server is.
+    pub(super) fn aminfo_command(&mut self, client: usize, command: &[u8]) -> bool {
+        if !command.eq_ignore_ascii_case(b"aminfo") {
+            return false;
+        }
+        let Some(peer) = self.peer(client) else {
+            return true;
+        };
+        let (name, powers) = (
+            String::from_utf8_lossy(&peer.name).into_owned(),
+            peer.session.account_flags,
+        );
+        let int = |name: &[u8]| self.cvars.integer(name);
+        let mut game = String::from("   ^3Game commands: amMOTD ");
+        if int(b"g_allowFlagThrow") != 0 && self.gametype == GT_CTF {
+            game += "throwFlag ";
+        }
+        if self.gametype >= GT_TEAM && int(b"g_allowSpotting") != 0 {
+            game += "spot ";
+        }
+        let disabled = int(b"g_emotesDisable") as u32;
+        let mut emotes = String::from("   ^3Emote commands: ");
+        for (family, help) in jkr_game_jka::japro_emotes::HELP_NAMES {
+            if disabled & (1 << family) == 0 {
+                emotes += help;
+                emotes.push(' ');
+            }
+        }
+        let mut admin = String::from("   ^3Admin commands: ");
+        if powers == 0 {
+            admin += "you are not an administrator on this server.\n";
+        } else {
+            use crate::admin::*;
+            for (power, help) in [
+                (A_ADMINTELE, "amTele "),
+                (A_TELEMARK, "amTeleMark "),
+                (A_FREEZE, "amFreeze "),
+                (A_ADMINBAN, "amBan "),
+                (A_ADMINKICK, "amKick "),
+                (A_KILLVOTE, "amKillVote "),
+                (A_NPC, "NPC "),
+                (A_NOCLIP, "Noclip "),
+                (A_GRANTADMIN, "amGrantAdmin "),
+                (A_CHANGEMAP, "amMap "),
+                (A_CSPRINT, "amPsay "),
+                (A_FORCETEAM, "amForceTeam "),
+                (A_VSTR, "amVstr "),
+                (A_RENAME, "amRename "),
+            ] {
+                if powers & power != 0 {
+                    admin += help;
+                }
+            }
+        }
+        let lines = [
+            format!(
+                "^5 Hi there, {name}^5. This server runs JKR with jaPRO's commands.\n   ^3To display server settings, type ^7serverConfig"
+            ),
+            String::from("   ^3Chat commands: ignore amSay"),
+            game,
+            emotes,
+            admin,
+        ];
+        for line in lines {
+            self.told.push(Told::One(
+                client,
+                format!("print \"{line}\n\"").into_bytes(),
             ));
         }
         true

@@ -144,6 +144,31 @@ pub const EMOTES: [Emote; 35] = [
     emote("", E_SABERFLIP, "BOTH_SHOWOFF_FAST", false, false),
 ];
 
+/// How `aminfo` names each family, in its order: jaPRO's list but `amRun` (the Jawa
+/// run, not ported).
+pub const HELP_NAMES: [(u8, &str); 20] = [
+    (E_BEG, "amBeg"),
+    (E_BEG2, "amBeg2"),
+    (E_BERNIE, "amBernie"),
+    (E_BREAKDANCE, "amBreakdance[2/3/4]"),
+    (E_CHEER, "amCheer"),
+    (E_COWER, "amCower"),
+    (E_DANCE, "amDance"),
+    (E_HUG, "amHug"),
+    (E_SABERFLIP, "amFlip"),
+    (E_NOISY, "amNoisy"),
+    (E_POINT, "amPoint"),
+    (E_RAGE, "amRage"),
+    (E_SIGNAL, "amSignal[2/3/4]"),
+    (E_SIT, "amSit[2/3/4/5]"),
+    (E_SLAP, "amSlap"),
+    (E_SLEEP, "amSleep"),
+    (E_SURRENDER, "amSurrender"),
+    (E_SMACK, "amSmack"),
+    (E_TAUNT, "amTaunt[2]"),
+    (E_VICTORY, "amVictory"),
+];
+
 /// The emote command `command` names, any case.
 pub fn find(command: &[u8]) -> Option<&'static Emote> {
     EMOTES.iter().find(|emote| {
