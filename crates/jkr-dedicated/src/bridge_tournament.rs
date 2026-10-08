@@ -155,9 +155,13 @@ impl NativeGame {
                 peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
                 peer.health = 0;
                 peer.state.stats[0] = 0;
+                // `g_dontPenalizeTeam` around it: the point comes off the player alone.
                 self.die(
                     client,
-                    DeathRequest::suicide(server_time, client as u16, origin, sounds, 0),
+                    DeathRequest {
+                        penalize_team: false,
+                        ..DeathRequest::suicide(server_time, client as u16, origin, sounds, 0)
+                    },
                 );
             }
         }

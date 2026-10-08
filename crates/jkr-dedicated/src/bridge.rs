@@ -1924,7 +1924,10 @@ impl NativeGame {
             (usize::from(score.killer), score.points)
         });
         let scoring = self.scoring();
-        if scoring && let Some(team) = self.peer_mut(scorer).map(|peer| peer.session.team) {
+        if scoring
+            && request.penalize_team
+            && let Some(team) = self.peer_mut(scorer).map(|peer| peer.session.team)
+        {
             self.add_team_score(team, points);
         }
         // `AddScore` for the killer (`PERS_EXCELLENT_COUNT` for a quick second kill), which
@@ -2792,6 +2795,7 @@ impl NativeGame {
                 duel_opponent: None,
                 jedi_master: None,
                 in_space: false,
+                penalize_team: true,
                 flag_rules: Default::default(),
                 team_kill: false,
                 gun_game: false,

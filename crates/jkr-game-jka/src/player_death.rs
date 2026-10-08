@@ -163,6 +163,9 @@ pub struct DeathRequest {
     /// The player is in space (`client->inSpaceIndex`, [`crate::vehicle_triggers`]): it
     /// dies choking (`BOTH_CHOKE3`).
     pub in_space: bool,
+    /// `!g_dontPenalizeTeam`: in team deathmatch the point a death costs also comes off
+    /// the team; `SetTeam`'s death (`g_cmds.c:874-876`) costs the player alone.
+    pub penalize_team: bool,
     /// jaPRO's flag options: how a carried flag drops, and whether a suicide sends it
     /// home ([`crate::flag_throw`]).
     pub flag_rules: crate::flag_throw::FlagRules,
@@ -201,6 +204,7 @@ impl DeathRequest {
             duel_opponent: None,
             jedi_master: None,
             in_space: false,
+            penalize_team: true,
             flag_rules: crate::flag_throw::FlagRules::default(),
             team_kill: false,
             gun_game: false,
