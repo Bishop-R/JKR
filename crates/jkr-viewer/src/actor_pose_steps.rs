@@ -15,6 +15,9 @@ pub(super) struct Frame<'a> {
     pub snapshot: Option<&'a Snapshot>,
     pub game_state: Option<&'a GameState>,
     pub presentation_time: i64,
+    /// EternalJK's `cg_headTurn`: 0 never turns heads toward look targets, else the
+    /// seconds a look holds (stock's 1).
+    pub head_turn: i64,
 }
 
 /// Prepare one actor without allowing a bad attachment or angle query to stop its peers.
@@ -27,6 +30,7 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         snapshot,
         game_state,
         presentation_time,
+        head_turn,
     } = *frame;
     let frame_millis = mesh.angle_controller.begin_frame(presentation_time);
     // A limb's copy plays on the animation its owner had when it was cut, with none of
@@ -113,6 +117,11 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         let mut inputs =
             jkr_client::LegacyPlayerAngleInputs::from_world(pose, origin, world, presentation_time);
         inputs.frame_millis = Some(frame_millis);
+        if head_turn <= 0 {
+            inputs.look_target_angles = None;
+        } else if head_turn != 1 {
+            inputs.look_hold_millis = Some(head_turn.saturating_mul(1_000));
+        }
         if pose.angle.correct_animation_motion {
             inputs.motion_angles = mesh
                 .animator

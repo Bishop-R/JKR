@@ -64,6 +64,8 @@ pub(crate) struct GameAudio {
     dynamic: Option<dynamic::Level>,
     allow_dynamic: bool,
     duel_enabled: bool,
+    /// TaystJK's `cg_ambientSounds`: speakers, entity loops and sound sets play.
+    ambient: bool,
     chat_beeps: [bool; 2],
     deferred_starts: u64,
     maximum_deferred_start_ms: f64,
@@ -132,6 +134,7 @@ impl GameAudio {
             dynamic: None,
             allow_dynamic: true,
             duel_enabled: true,
+            ambient: true,
             chat_beeps: [true; 2],
             deferred_starts: 0,
             maximum_deferred_start_ms: 0.0,
@@ -357,13 +360,16 @@ impl GameAudio {
         world: &World,
         bsp: &Bsp,
     ) {
+        let ambient = self.ambient;
         let Some(adapter) = &mut self.legacy else {
             return;
         };
         adapter.observe_loops(snapshot, presented_time, listener_origin, |state| {
             presented_entity_origin(world, bsp, state, presented_time)
         });
-        for decision in adapter.loop_decisions() {
+        // TaystJK's `cg_ambientSounds 0` skips `ET_SPEAKER`s and every entity's loop and
+        // sound set (`CG_EntityEffects`); running speakers still stop.
+        for decision in adapter.loop_decisions().iter().filter(|_| ambient) {
             if let Some(handle) = decision.handle {
                 self.output.send(AudioCommand::SetLoop(
                     handle,
@@ -372,7 +378,7 @@ impl GameAudio {
                 ));
             }
         }
-        for shot in adapter.ambient_shots() {
+        for shot in adapter.ambient_shots().iter().filter(|_| ambient) {
             if let Some(handle) = shot.handle {
                 self.output.send(AudioCommand::Play(handle, shot.request));
             }
@@ -380,7 +386,7 @@ impl GameAudio {
         for source in adapter.speaker_stops() {
             self.output.send(AudioCommand::StopLoops(*source));
         }
-        for shot in adapter.speaker_shots() {
+        for shot in adapter.speaker_shots().iter().filter(|_| ambient) {
             if let Some(handle) = shot.handle {
                 self.output.send(AudioCommand::Play(handle, shot.request));
             }

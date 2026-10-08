@@ -108,6 +108,11 @@ pub(crate) fn update(gpu: &mut GpuState, presentation_time: i64) -> Result<(), B
         snapshot,
         game_state,
         presentation_time,
+        head_turn: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_headTurn"))
+            .unwrap_or(1),
     };
     for mesh in &mut gpu.actor_meshes {
         if let Err(error) = steps::prepare(mesh, &frame) {

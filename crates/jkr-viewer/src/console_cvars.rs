@@ -470,6 +470,25 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Crouching moves the view at once",
         ),
+        // TaystJK's options, stock's behaviour at their defaults.
+        CvarDefinition::new(
+            "cg_ambientSounds",
+            true,
+            archive,
+            "Map speakers, entity loops and ambient sound sets",
+        ),
+        CvarDefinition::new(
+            "cg_saberStaffMultiColor",
+            false,
+            archive,
+            "A staff's second blade in your second saber colour",
+        ),
+        CvarDefinition::new(
+            "cg_headTurn",
+            1_i64,
+            archive,
+            "Heads turn toward what players look at: 0 never, else for that many seconds",
+        ),
         CvarDefinition::new(
             "cg_saberTeamColors",
             true,

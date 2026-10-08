@@ -55,6 +55,9 @@ pub struct LegacyPlayerAngleInputs {
     pub motion_angles: Option<[f32; 3]>,
     /// Direction to the interpolated look target (cg_players.c:4279-4289).
     pub look_target_angles: Option<[f32; 3]>,
+    /// How long the head holds a look (`ci->lookTime`): stock's second when `None`,
+    /// EternalJK's `cg_headTurn` seconds otherwise.
+    pub look_hold_millis: Option<i64>,
 }
 
 impl LegacyPlayerAngleInputs {
@@ -78,6 +81,7 @@ impl LegacyPlayerAngleInputs {
             look_target_angles,
             motion_angles: None,
             frame_millis: None,
+            look_hold_millis: None,
         }
     }
 }
@@ -214,7 +218,10 @@ impl LegacyPlayerAngleController {
             let motion = inputs
                 .motion_angles
                 .filter(|_| pose.angle.correct_animation_motion);
-            let look = self.look.update(view, inputs.look_target_angles, time);
+            let hold = inputs.look_hold_millis.unwrap_or(1_000);
+            let look = self
+                .look
+                .update(view, inputs.look_target_angles, hold, time);
             self.last_commands = spine::commands(spine_view, motion, look);
         }
         let [lower_lumbar, upper_lumbar, thoracic, cervical, cranium] = self.last_commands;

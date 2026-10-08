@@ -13,12 +13,13 @@ impl LookState {
         &mut self,
         view: [f32; 3],
         target: Option<[f32; 3]>,
+        hold: i64,
         time: i64,
     ) -> [f32; 3] {
         // cg_players.c:4279-4289: even a look target always has zero pitch.
         let mut look = target.unwrap_or(view);
         if target.is_some() {
-            self.until = time + 1_000;
+            self.until = time + hold;
         }
         look[0] = 0.0;
         for axis in 0..3 {

@@ -149,12 +149,19 @@ pub(crate) fn submit(
             .and_then(|console| console.bool_cvar("cg_alwaysShowAbsorb"))
             .unwrap_or(false),
     };
-    let trails = gpu
-        .console
-        .as_ref()
-        .and_then(|console| console.integer_cvar("cg_saberTrail"))
-        .unwrap_or(1)
-        != 0;
+    let trails = crate::saber_submission::Options {
+        trails: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_saberTrail"))
+            .unwrap_or(1)
+            != 0,
+        staff_colors: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.bool_cvar("cg_saberStaffMultiColor"))
+            .unwrap_or(false),
+    };
     let speed_trails = gpu
         .console
         .as_ref()
@@ -438,7 +445,7 @@ fn submit_actor(
     presentation_time: i64,
     visual_now: Instant,
     overlays: crate::force_overlay_submission::Options,
-    trails: bool,
+    trails: crate::saber_submission::Options,
 ) -> usize {
     let draw_actor = sinks.own_body_shown || Some(entity.id.get()) != local_entity_id;
     if Some(entity.id.get()) == local_entity_id && !sinks.detached_camera {
@@ -873,7 +880,7 @@ fn submit_equipment(
     draw_actor: bool,
     presentation_time: i64,
     visual_now: Instant,
-    trails: bool,
+    trails: crate::saber_submission::Options,
 ) {
     let rotation = weapon_view::actor_world_rotation(transform.rotation);
     let origin = Vec3::from_array(transform.translation);

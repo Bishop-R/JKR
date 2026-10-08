@@ -94,6 +94,9 @@ impl GameAudio {
             crate::cgame_options::chat_sounds(console)
                 && console.and_then(|c| c.bool_cvar(name)).unwrap_or(true)
         });
+        self.ambient = console
+            .and_then(|c| c.bool_cvar("cg_ambientSounds"))
+            .unwrap_or(true);
         self.duel_enabled = console
             .and_then(|c| c.bool_cvar("cg_duelMusic"))
             .unwrap_or(true);
