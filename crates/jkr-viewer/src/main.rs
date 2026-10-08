@@ -1282,8 +1282,7 @@ impl GpuState {
         );
         self.update_fog_setting();
         let view = look_at_mat4(view_position, view_target, view_up);
-        let aspect = self.configuration.width as f32 / self.configuration.height as f32;
-        let fov = self.scope_fov(presentation_time as i32, game_audio);
+        let (fov, aspect) = self.scope_fov(presentation_time as i32, game_audio, view_position);
         let projection = perspective(fov.to_radians(), aspect, 2.0, self.far_plane);
         // rd-vanilla `tr_shade.cpp:367` derives tess.shaderTime from the
         // frame/refdef time; materials apply their own remap time offsets.

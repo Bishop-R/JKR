@@ -10,6 +10,10 @@ use crate::{GameAudio, GpuState};
 mod gpu;
 pub(crate) use gpu::Mask;
 
+/// `WAVE_AMPLITUDE` (degrees) and `WAVE_FREQUENCY` (hertz) of the view's sway in a liquid.
+const WAVE_AMPLITUDE: f32 = 1.0;
+const WAVE_FREQUENCY: f32 = 0.4;
+
 #[derive(Clone, Copy)]
 /// Render-clock zoom state; not weapon prediction or protocol storage.
 pub(crate) struct Zoom {
@@ -194,7 +198,15 @@ pub(crate) fn aspect_adjusted_fov(horizontal_degrees: f32, aspect: f32) -> f32 {
 
 impl GpuState {
     /// Calculate the legacy horizontal zoom before converting to the renderer's vertical FOV.
-    pub(crate) fn scope_fov(&mut self, time: i32, audio: &mut Option<GameAudio>) -> f32 {
+    /// Returns the vertical field of view and the projection's aspect, which a view in a
+    /// liquid (`eye`) sways away from the screen's.
+    pub(crate) fn scope_fov(
+        &mut self,
+        time: i32,
+        audio: &mut Option<GameAudio>,
+        eye: glam::Vec3,
+    ) -> (f32, f32) {
+        let aspect = self.configuration.width as f32 / self.configuration.height as f32;
         let snapshot = self
             .live_session
             .as_ref()
@@ -209,7 +221,7 @@ impl GpuState {
             if let Some(mask) = &mut self.scope_mask {
                 mask.prepare(&self.queue, false, 0, 80.0, time, 0.0, None);
             }
-            return self.field_of_view;
+            return (self.field_of_view, aspect);
         };
         let player = &snapshot.player;
         // Demo playback keeps the initial predictor, so only a live session may
@@ -280,7 +292,6 @@ impl GpuState {
                 jkr_audio::ChannelId(1),
             );
         }
-        let aspect = self.configuration.width as f32 / self.configuration.height as f32;
         let horizontal = if player.movement_type() == 7 {
             80.0
         } else {
@@ -300,8 +311,22 @@ impl GpuState {
         };
         self.field_of_view =
             (2.0 * ((horizontal.to_radians() * 0.5).tan() / aspect).atan()).to_degrees();
+        // `cg_view.c:1255-1264`: in water, slime or lava the view sways, a degree wider
+        // as it is a degree shorter and back, 0.4 times a second.
+        let liquids = crate::hud::tints::CONTENTS_LAVA
+            | crate::hud::tints::CONTENTS_SLIME
+            | crate::hud::tints::CONTENTS_WATER;
+        let aspect = if self.bsp.point_contents(eye.to_array(), liquids) != 0 {
+            let phase = time as f32 / 1000.0 * WAVE_FREQUENCY * std::f32::consts::TAU;
+            let sway = WAVE_AMPLITUDE * phase.sin();
+            self.field_of_view -= sway;
+            ((horizontal + sway).to_radians() * 0.5).tan()
+                / (self.field_of_view.to_radians() * 0.5).tan()
+        } else {
+            aspect
+        };
         self.scope.settle_sensitivity(self.field_of_view, options);
-        self.field_of_view
+        (self.field_of_view, aspect)
     }
 }
 
