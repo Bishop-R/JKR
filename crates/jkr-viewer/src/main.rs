@@ -1404,13 +1404,8 @@ impl GpuState {
                 viewport,
             );
         }
-        let scoreboard_visible = information_visible
-            && scoreboard::requested(self, intermission_view.is_some())
-            && self
-                .console
-                .as_ref()
-                .and_then(|c| c.bool_cvar("cg_drawScores"))
-                .unwrap_or(true);
+        let scoreboard_visible =
+            information_visible && scoreboard::requested(self, intermission_view.is_some());
         let chat_visible = !self.console_covers_frame()
             && scoreboard::chat_visible(
                 information_visible,

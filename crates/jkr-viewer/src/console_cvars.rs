@@ -568,7 +568,7 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "cg_drawScores",
             true,
             archive,
-            "Display the bound scoreboard",
+            "Show the red and blue scores at the upper right in team games",
         ),
         CvarDefinition::new(
             "cg_drawChat",

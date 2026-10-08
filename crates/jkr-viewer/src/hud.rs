@@ -136,6 +136,8 @@ pub(crate) struct HudOverlay {
     pub(crate) targeting: targeting::State,
     pub(crate) enemy_info: enemy_info::State,
     score_text: String,
+    /// `CG_DrawMiniScoreboard`'s "Red: x Blue: y", empty when it does not show.
+    mini_scores: String,
     snapshot_text: String,
 
     inventory_bits: u32,
@@ -231,6 +233,7 @@ impl HudOverlay {
             enemy_info: enemy_info::State::default(),
             identification: identification::State::default(),
             score_text: String::with_capacity(80),
+            mini_scores: String::with_capacity(48),
             snapshot_text: String::with_capacity(96),
 
             inventory_bits: 0,

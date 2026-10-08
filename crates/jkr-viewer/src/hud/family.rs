@@ -102,6 +102,8 @@ pub(super) struct Policy {
     pub(super) score_offset: [f32; 2],
     /// Upper-right group visibility.
     pub(super) upper: bool,
+    /// `cg_drawScores`: the team mini scoreboard (`CG_DrawMiniScoreboard`).
+    pub(super) mini_scores: bool,
     /// Snapshot diagnostic visibility.
     pub(super) snapshot: bool,
     /// Vote visibility.
@@ -143,6 +145,9 @@ impl Policy {
             score: i("cg_drawscore", 2),
             score_offset: [f("cg_drawscorex", 0.0), f("cg_drawscorey", 0.0)],
             upper: i("cg_drawupperright", 1) != 0,
+            mini_scores: console
+                .and_then(|c| c.bool_cvar("cg_drawscores"))
+                .unwrap_or(true),
             snapshot: i("cg_drawsnapshot", 0) != 0,
             vote: i("cg_drawvote", 1) != 0,
             inventory: i("cg_drawinventory", 1) != 0,
@@ -234,13 +239,20 @@ impl HudOverlay {
 
     /// Optional right-side readouts follow the leader block; explicit team
     /// overlay coordinates remain the player's choice.
-    pub(super) fn upper_right_stack(&self) -> [f32; 4] {
+    pub(super) fn upper_right_stack(&self) -> [f32; 5] {
         let bottom = self.enemy_info.bottom();
         let snapshot = if bottom > 0.0 { bottom + 16.0 } else { 50.0 };
         let after_snapshot = snapshot + if self.family.snapshot { 28.0 } else { 0.0 };
-        // The radar follows, as `CG_DrawUpperRight` draws it after the snapshot line.
+        // The radar follows, as `CG_DrawUpperRight` draws it after the snapshot line,
+        // then the mini scoreboard.
         let radar = after_snapshot;
-        let after_radar = radar + self.radar.height();
+        let mini = radar + self.radar.height();
+        let after_radar = mini
+            + if self.mini_scores.is_empty() {
+                0.0
+            } else {
+                28.0
+            };
         let inventory = 100.0_f32.max(after_radar);
         let items = if self.family.upper && self.family.inventory {
             (self.inventory_bits & 0x0ffe).count_ones()
@@ -254,7 +266,7 @@ impl HudOverlay {
         } else {
             after_radar
         };
-        [snapshot, inventory, team, radar]
+        [snapshot, inventory, team, radar, mini]
     }
 
     /// Append independent score and diagnostic text without a backplate.
@@ -264,7 +276,7 @@ impl HudOverlay {
         self.enemy_info
             .emit(&mut self.draw_list, viewport, self.theme);
         let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
-        let [snapshot_top, inventory_top, _, radar_top] = self.upper_right_stack();
+        let [snapshot_top, inventory_top, _, radar_top, mini_top] = self.upper_right_stack();
         self.radar.emit(&mut self.draw_list, viewport, radar_top);
         if self.family.upper && self.family.inventory {
             let mut row = 0;
@@ -303,6 +315,7 @@ impl HudOverlay {
                 snapshot_top * s,
                 [0.0; 2],
             ),
+            (!self.mini_scores.is_empty(), 322, mini_top * s, [0.0; 2]),
         ] {
             if !enabled {
                 continue;

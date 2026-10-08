@@ -44,12 +44,52 @@ impl HudOverlay {
         }
         self.spectator
             .update(game, player, localization, self.family.name_colors);
+        self.update_mini_scores(game, localization);
         // `CG_DrawFollow` stands in for the warmup notice while following.
         if self.spectator.following() {
             self.warmup_text.clear();
         }
         self.interrupted = interrupted;
         self.lagometer.clone_from(lagometer);
+    }
+
+    /// `CG_DrawMiniScoreboard` (`cg_draw.c`): in team games but Siege, with `cg_drawScores`
+    /// and the upper-right group, "Red: x Blue: y" (a score not yet known reads "-").
+    fn update_mini_scores(&mut self, game: &GameState, localization: &Localization) {
+        /// `CS_SCORES1`, `CS_SCORES2`, `SCORE_NOT_PRESENT`.
+        const CS_SCORES: [usize; 2] = [6, 7];
+        const SCORE_NOT_PRESENT: i32 = -9999;
+        self.mini_scores.clear();
+        let gametype = game
+            .config_string(0)
+            .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("g_gametype"))
+            .unwrap_or(0);
+        if !(self.family.upper && self.family.mini_scores) || gametype < 6 || gametype == 7 {
+            return;
+        }
+        let string = |key: &str, english: &'static str| {
+            localization
+                .strings
+                .get(key)
+                .filter(|text| !text.is_empty())
+                .map_or(english, String::as_str)
+        };
+        for (index, (key, english)) in [("RED", "Red"), ("BLUE", "Blue")].into_iter().enumerate() {
+            if index > 0 {
+                self.mini_scores.push(' ');
+            }
+            let score = game
+                .config_string(CS_SCORES[index])
+                .and_then(|value| std::str::from_utf8(value).ok())
+                .and_then(|value| value.trim().parse::<i32>().ok())
+                .unwrap_or(SCORE_NOT_PRESENT);
+            let _ = write!(self.mini_scores, "{}: ", string(key, english));
+            if score == SCORE_NOT_PRESENT {
+                self.mini_scores.push('-');
+            } else {
+                let _ = write!(self.mini_scores, "{score}");
+            }
+        }
     }
 
     /// Only the newest obituary is presented, and only briefly; the full
