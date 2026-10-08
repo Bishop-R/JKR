@@ -3587,6 +3587,8 @@ mod bridge_information_commands;
 mod bridge_jedimaster;
 #[path = "bridge_lock.rs"]
 mod bridge_lock;
+#[path = "bridge_map_list.rs"]
+mod bridge_map_list;
 #[path = "bridge_maps.rs"]
 mod bridge_maps;
 #[path = "bridge_missile_models.rs"]

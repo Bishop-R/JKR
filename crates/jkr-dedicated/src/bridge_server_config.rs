@@ -74,6 +74,7 @@ impl NativeGame {
                 (A_NOCLIP, "Noclip "),
                 (A_GRANTADMIN, "amGrantAdmin "),
                 (A_CHANGEMAP, "amMap "),
+                (A_LISTMAPS, "amListMaps "),
                 (A_CSPRINT, "amPsay "),
                 (A_FORCETEAM, "amForceTeam "),
                 (A_LOOKUP, "amLookup "),
