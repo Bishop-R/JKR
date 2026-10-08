@@ -1,7 +1,7 @@
 //! Snapshot-indexed thrown saber ownership; no renderer or predicted state.
 
 use crate::player_identity::saber_names_from_config;
-use crate::presentation_equipment::saber_color_from_config;
+use crate::presentation_equipment::{saber_color_from_config, team_saber_color};
 use jkr_protocol::{EntityState, GameState, Snapshot};
 
 /// Owner-authored presentation of the primary saber detached from the hand.
@@ -80,7 +80,8 @@ impl<'a> LegacyThrownSabers<'a> {
         Some(LegacyThrownSaber {
             owner,
             name: saber_names_from_config(config)[0]?,
-            color: saber_color_from_config(config, 0),
+            color: team_saber_color(crate::TeamColorPolicy::from_game_state(self.game), config)
+                .unwrap_or_else(|| saber_color_from_config(config, 0)),
             in_flight,
             extra_blades: holstered != 1,
             returning: !state.saber_in_flight(),

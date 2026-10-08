@@ -223,6 +223,7 @@ impl LegacyWorldAdapter {
                 } else {
                     legacy_equipment(
                         game_state,
+                        color_policy,
                         state.client_num(),
                         state.weapon(),
                         state.saber_holstered(),
@@ -312,6 +313,7 @@ impl LegacyWorldAdapter {
                 local_id,
                 legacy_equipment(
                     game_state,
+                    color_policy,
                     snapshot.player.client_num(),
                     snapshot.player.weapon(),
                     snapshot.player.saber_holstered(),
