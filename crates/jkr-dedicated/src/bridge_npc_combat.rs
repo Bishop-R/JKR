@@ -212,6 +212,11 @@ impl NativeGame {
         surface: Option<HitLocation>,
         counted: bool,
     ) -> Damaged {
+        // jaPRO's god chat: a typing player's blow deals nothing (here not even a DEMP2's
+        // shock).
+        if self.typing_attacker(request.attacker) {
+            return Damaged::default();
+        }
         // The Jedi Master's rule for a player's blow (an NPC is never the master).
         let spared_by_master = self.jedi_master_spares(
             request.attacker.map(|attacker| attacker.client),

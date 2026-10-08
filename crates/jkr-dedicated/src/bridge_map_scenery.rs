@@ -286,6 +286,15 @@ impl NativeGame {
         self.hurt_glass_by(number, damage, owner, None, level_time)
     }
 
+    /// Whether `number` is a pane of glass (`func_glass`).
+    pub(in crate::bridge) fn is_glass(&self, number: u16) -> bool {
+        self.stock
+            .scenery
+            .glass
+            .iter()
+            .any(|(id, _)| id.legacy_number() == number)
+    }
+
     /// [`Self::hurt_glass`] with the blow's point and direction (`G_Damage`'s `pos1` and
     /// `pos2`, the direction normalized) when they are known.
     pub(in crate::bridge) fn hurt_glass_by(

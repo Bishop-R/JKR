@@ -222,6 +222,7 @@ impl PlayerForce for ServerHost<'_> {
             absmin,
             absmax,
             jetpack: Some(&mut peer.gear.packs),
+            typing: peer.typing,
         })
     }
 
@@ -239,6 +240,7 @@ impl PlayerForce for ServerHost<'_> {
             team: peer.session.team,
             push_effect_until: &mut peer.push_effect_until,
             lock_hits: &mut peer.lock.hits,
+            typing: peer.typing,
         })
     }
 

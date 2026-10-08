@@ -365,6 +365,9 @@ pub struct ForceFrame<'a> {
     /// The sounds the user's `Cmd_ToggleSaber_f` plays turning its sabers off, each hand's
     /// (`saber[n].soundOff`): a gripped user's saber is kept off.
     pub saber_off_sounds: [SaberOffSound; 2],
+    /// The user's typing under jaPRO's god chat ([`crate::god_chat`]): typing, its powers
+    /// reach no one. Never an NPC's.
+    pub typing: crate::god_chat::Typing,
 }
 
 /// A hand's off-sound as `Cmd_ToggleSaber_f` plays it (`g_cmds.c:2720-2730`).

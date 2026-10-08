@@ -53,6 +53,9 @@ pub struct OtherPlayer<'a> {
     pub absmax: [f32; 3],
     /// A player's jetpack, which a grip puts out (`Jetpack_Off`); `None` for an NPC.
     pub jetpack: Option<&'a mut crate::holdables::Packs>,
+    /// Its typing under jaPRO's god chat ([`crate::god_chat`]): typing too long, no Force
+    /// reaches it. Never an NPC's.
+    pub typing: crate::god_chat::Typing,
 }
 
 /// Everyone but a Force power's user, as its grip, lightning, drain and mind trick reach
@@ -202,6 +205,10 @@ impl Forcer<'_, '_> {
             || self.state.duel_in_progress()
             || victim.state.duel_in_progress()
         {
+            return false;
+        }
+        // jaPRO's god chat: not by one typing, nor on one typing too long.
+        if self.frame.typing.typing() || victim.typing.sheltered(level_time) {
             return false;
         }
         if crate::force_throw::npc_immune(

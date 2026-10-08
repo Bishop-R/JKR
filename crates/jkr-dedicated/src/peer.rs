@@ -167,6 +167,8 @@ pub struct Peer {
     pub(crate) last_spotted_time: i32,
     /// jaPRO's `pmoveMsec`: the last move's milliseconds (1 to 200), for `showNet`.
     pub(crate) command_msec: i32,
+    /// jaPRO's god chat: since when the player has been typing (`pers.lastChatTime`).
+    pub(crate) typing: jkr_game_jka::god_chat::Typing,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -313,6 +315,7 @@ impl Peer {
             last_spot_time: 0,
             last_spotted_time: 0,
             command_msec: 0,
+            typing: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),

@@ -71,6 +71,7 @@ pub fn npc_as_thrown<'a>(npc: &'a mut NpcActor, invulnerable: &'a mut i32) -> Th
         team: npc.session_team,
         push_effect_until: &mut npc.mind.push_effect_time,
         lock_hits: &mut npc.mind.saber_lock_hits,
+        typing: Default::default(),
     }
 }
 

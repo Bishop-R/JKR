@@ -36,10 +36,17 @@ impl NativeGame {
         self.board_from_ground(client, None, level_time);
         self.riding_move(client);
         self.space_gravity(client);
-        // jaPRO's `g_flagDrag`, which only the server's `Pmove` runs.
+        // jaPRO's `g_flagDrag`, which only the server's `Pmove` runs; and its god chat's
+        // `pers.lastChatTime`, from the command's talk button (`EF_TALK`), which a dead
+        // player's think leaves as it was.
         let flag_drag = self.flag_drag;
+        let god_chat = self.god_chat && self.gametype == GAMETYPE_FFA;
         if let Some(peer) = self.peer_mut(client) {
             peer.movement.set_flag_drag(flag_drag);
+            if peer.state.stats[0] as i32 > 0 {
+                let held = god_chat && peer.session.team == crate::admin::TEAM_FREE;
+                peer.typing.think(command.buttons, held, level_time);
+            }
         }
         // Whom a rocket's lock may hold on: a living foe (`OnSameTeam` in team games only).
         let own_team = self.peer_mut(client).map_or(0, |peer| peer.session.team);

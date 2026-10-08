@@ -6,7 +6,9 @@
 //! `g_corpseRemovalTime` (the body sink time, stock's 30 s, kept from the cvar hook);
 //! `g_lagIcon` (the connection-trouble sprite) and `g_allowSamePlayerNames` (see
 //! `bridge_userinfo`), both registered on so a stock game keeps stock's ways, where
-//! jaPRO's defaults turn them off; and `g_allowUseInDuel` (`bridge_multiples`).
+//! jaPRO's defaults turn them off; `g_allowUseInDuel` (`bridge_multiples`); and
+//! `g_godChat` (no harm to or from a typing player in a free-for-all,
+//! [`jkr_game_jka::god_chat`]).
 
 /// `TEAM_SPECTATOR`.
 const TEAM_SPECTATOR: i32 = 3;
@@ -20,7 +22,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 7] = [
+        let options: [(&[u8], &[u8], &[u8]); 8] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -56,11 +58,28 @@ impl NativeGame {
                 b"1",
                 b"jaPRO: duellists use triggers (0: no use buttons; 2: none at all)",
             ),
+            (
+                b"g_godChat",
+                b"0",
+                b"jaPRO: in FFA, a player typing for 3 s cannot be hurt, and deals no harm",
+            ),
         ];
         for (name, value, about) in options {
             self.cvars
                 .get_announced(name, value, crate::cvars::CVAR_ARCHIVE, Some(about));
         }
+    }
+
+    /// jaPRO's god chat in `G_Damage`: player `number` is typing, so its blows deal nothing
+    /// ([`jkr_game_jka::god_chat`]).
+    pub(super) fn typing_player(&self, number: u16) -> bool {
+        self.peer(usize::from(number))
+            .is_some_and(|peer| peer.typing.typing())
+    }
+
+    /// [`Self::typing_player`] for a blow's attacker, which no NPC is.
+    pub(super) fn typing_attacker(&self, attacker: Option<jkr_game_jka::damage::Attacker>) -> bool {
+        attacker.is_some_and(|attacker| !attacker.npc && self.typing_player(attacker.client))
     }
 
     /// jaPRO's `g_showHealth`, once a frame while it is on: each playing player's health

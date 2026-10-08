@@ -203,19 +203,22 @@ impl NativeGame {
             } = self;
             let gametype = *gametype;
             let world = server.world(*world);
-            let state_of = |number: Option<i32>| {
+            let peer_of = |number: Option<i32>| {
                 let handle = players.at(usize::try_from(number?).ok()?)?;
-                world?.entity(handle).map(|peer| &peer.state)
+                world?.entity(handle)
             };
-            let own_state = state_of(Some(client as i32));
+            let own_state = peer_of(Some(client as i32)).map(|peer| &peer.state);
             // `ForcePowerUsableOn(bot, currentEnemy, power)`: the enemy it had as it chose.
-            let enemy_state = state_of(
+            let enemy = peer_of(
                 bots.minds[client]
                     .as_ref()
                     .and_then(|mind| mind.current_enemy),
             );
+            let enemy_state = enemy.map(|peer| &peer.state);
+            // jaPRO's god chat: no power reaches an enemy typing too long.
+            let enemy_sheltered = enemy.is_some_and(|peer| peer.typing.sheltered(level_time));
             let usable_on_enemy = |power: usize| match (own_state, enemy_state) {
-                (Some(own), Some(enemy)) => {
+                (Some(own), Some(enemy)) if !enemy_sheltered => {
                     match usable_on(own, enemy, power, level_time, gametype) {
                         UsableOn::Yes => true,
                         UsableOn::No => false,

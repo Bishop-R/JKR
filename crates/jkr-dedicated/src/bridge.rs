@@ -309,6 +309,8 @@ pub struct NativeGame {
     /// jaPRO's `g_lagIcon`, kept from the cvar: a silent player's connection trouble is
     /// shown (stock always shows it).
     lag_icon: bool,
+    /// jaPRO's `g_godChat` ([`jkr_game_jka::god_chat`]).
+    god_chat: bool,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -512,6 +514,7 @@ impl NativeGame {
             show_health: false,
             body_sink_ms: jkr_game_jka::corpses::BODY_SINK_TIME,
             lag_icon: true,
+            god_chat: false,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -755,6 +758,14 @@ impl NativeGame {
         owner: u16,
         level_time: i32,
     ) -> bool {
+        // jaPRO's god chat: a typing player's blow strikes, but deals nothing.
+        if self.typing_player(owner) {
+            return self.is_glass(number)
+                || self
+                    .breakables
+                    .iter()
+                    .any(|(ours, _)| ours.legacy_number() == number);
+        }
         if self.hurt_glass(number, damage, owner, level_time) {
             return true;
         }
@@ -2589,11 +2600,15 @@ impl NativeGame {
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
         let self_damage = jkr_game_jka::damage::self_damage(self.gametype, self.self_damage_scale);
-        // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`):
-        // only a DEMP2's shock, which comes first, lands.
-        let sheltered = self.peer(target).is_some_and(|victim| {
-            victim.noclip || self.npcs.roster.shelters(&victim.state, request.flags)
-        });
+        // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`),
+        // or under jaPRO's god chat — typing too long outside a duel (`takedamage`), or hurt
+        // by one typing: only a DEMP2's shock, which comes first, lands.
+        let sheltered = self.typing_attacker(request.attacker)
+            || self.peer(target).is_some_and(|victim| {
+                victim.noclip
+                    || self.npcs.roster.shelters(&victim.state, request.flags)
+                    || (victim.typing.sheltered(level_time) && !victim.state.duel_in_progress())
+            });
         let Some(victim) = self.peer_mut(target) else {
             return Damaged::default();
         };

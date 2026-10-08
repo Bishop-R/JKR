@@ -7,7 +7,7 @@ use super::*;
 
 impl NativeGame {
     /// `G_MissileImpact`'s damage on a thing that is no client: a breakable brush, else a
-    /// turret, else an emplaced gun.
+    /// turret, else an emplaced gun; none from a typing player under jaPRO's god chat.
     pub(in crate::bridge) fn hurt_thing(
         &mut self,
         number: u16,
@@ -21,6 +21,7 @@ impl NativeGame {
             missile.owner,
             level_time,
         ) || missile.damage == 0
+            || self.typing_player(missile.owner)
         {
             return;
         }

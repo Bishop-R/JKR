@@ -53,6 +53,9 @@ pub struct ThrowPlayer<'a> {
     pub push_effect_until: &'a mut i32,
     /// `ps.saberLockHits`, which a push in a saber lock adds to.
     pub lock_hits: &'a mut i32,
+    /// Its typing under jaPRO's god chat ([`crate::god_chat`]): typing, its push reaches
+    /// no one; typing too long, no push reaches it. Never an NPC's.
+    pub typing: crate::god_chat::Typing,
 }
 
 /// An entity `EntitiesInBox` found, as the throw reads it.
@@ -876,7 +879,8 @@ fn usable_on(context: Throw, number: u16, _power: usize, world: &mut dyn ThrowWo
     ) {
         return false;
     }
-    if thrower.state.duel_in_progress() {
+    // jaPRO's god chat: not by one typing, nor on one typing too long.
+    if thrower.state.duel_in_progress() || thrower.typing.typing() {
         return false;
     }
     let Some(other) = world.player(number) else {
@@ -884,6 +888,7 @@ fn usable_on(context: Throw, number: u16, _power: usize, world: &mut dyn ThrowWo
     };
     if crate::force_powers::has_ysalamiri(other.state, context.gametype)
         || other.state.duel_in_progress()
+        || other.typing.sheltered(context.level_time)
     {
         return false;
     }

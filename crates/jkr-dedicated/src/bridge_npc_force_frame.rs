@@ -204,6 +204,7 @@ fn run_frame<T>(
         peer.session.team,
     );
     let saber_style = peer.sabers.base_style();
+    let typing = peer.typing;
     // `Cmd_ToggleSaber_f`'s off-sounds: each held saber's own, where it has one.
     let hands = &peer.sabers.hands;
     let saber_off_sounds = std::array::from_fn(|hand| match hands[hand].sound_off {
@@ -249,6 +250,7 @@ fn run_frame<T>(
         invulnerable_until: &mut invulnerable,
         others: &mut others,
         saber_off_sounds,
+        typing,
     };
     let result = run(state, &mut force, &mut frame);
     let world = host.server.world_mut(host.world)?;
@@ -333,6 +335,7 @@ impl OtherPlayers for ServerOthers<'_, '_> {
             absmin,
             absmax,
             jetpack: Some(&mut peer.gear.packs),
+            typing: peer.typing,
         })
     }
 

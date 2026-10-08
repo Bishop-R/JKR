@@ -125,6 +125,7 @@ pub fn npc_as_other(npc: &mut NpcActor) -> OtherPlayer<'_> {
         absmin: npc.link.0,
         absmax: npc.link.1,
         jetpack: None,
+        typing: Default::default(),
     }
 }
 
@@ -301,6 +302,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 invulnerable_until: &mut invulnerable,
                 others: &mut others,
                 saber_off_sounds,
+                typing: Default::default(),
             };
             let out = run(&mut state, &mut force, &mut frame);
             others.credit(&mut state);
