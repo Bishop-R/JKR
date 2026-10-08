@@ -172,9 +172,10 @@ pub(super) const ENGINE: &[(&[u8], &[u8], u32, Option<&[u8]>, Option<(f32, f32, 
         Some(b"Determines which policy of enforcement is used for client's \"snaps\" cvar"),
         Some((0.0, 2.0, true)),
     ),
+    // Base JKA's twenty frames a second, which this server keeps; OpenJK raised it to 40.
     (
         b"sv_fps",
-        b"40",
+        b"20",
         CVAR_SERVERINFO,
         Some(b"Server frames per second"),
         None,
@@ -524,7 +525,7 @@ pub(super) const GAME: &[(&[u8], &[u8], u32, bool)] = &[
     (b"pmove_msec", b"8", CVAR_SYSTEMINFO | CVAR_ARCHIVE, true),
     (b"RMG", b"0", 0, true),
     (b"sv_cheats", b"1", 0, false),
-    (b"sv_fps", b"40", CVAR_ARCHIVE | CVAR_SERVERINFO, true),
+    (b"sv_fps", b"20", CVAR_ARCHIVE | CVAR_SERVERINFO, true),
     (
         b"sv_maxclients",
         b"8",

@@ -572,8 +572,7 @@ impl NativeGame {
         game.spawn_npcs();
         game.spawn_scripts();
         // What the process already knows, over the registrations' defaults; cheats are
-        // off until a `devmap`, and this server runs twenty frames a second unless told
-        // otherwise.
+        // off until a `devmap`.
         let hostname = String::from_utf8_lossy(&game.identity.hostname).into_owned();
         let mapname = String::from_utf8_lossy(&game.identity.mapname).into_owned();
         for (name, value) in [
@@ -583,13 +582,6 @@ impl NativeGame {
             ("sv_cheats", "0"),
         ] {
             game.cvars.set(name.as_bytes(), value.as_bytes());
-        }
-        if game
-            .cvars
-            .var(b"sv_fps")
-            .is_some_and(|var| var.string == var.reset)
-        {
-            game.cvars.set(b"sv_fps", b"20");
         }
         game.apply_cvars();
         game.process_ip_bans();

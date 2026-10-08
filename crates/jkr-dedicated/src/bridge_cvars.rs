@@ -340,6 +340,24 @@ mod tests {
     use super::super::{Identity, NativeGame};
     use jkr_network::{LegacyGameHost, LegacyGameOutput};
 
+    /// An `sv_fps` nobody set runs twenty frames a second; one set to anything, stock's
+    /// own default of 40 included, keeps that value.
+    #[test]
+    fn sv_fps_keeps_whatever_was_set() {
+        for (set, fps) in [(None, 20), (Some(&b"40"[..]), 40), (Some(&b"30"[..]), 30)] {
+            let mut cvars = crate::cvars::Cvars::server();
+            if let Some(value) = set {
+                cvars.user_set(b"sv_fps", Some(value), &mut |_| {});
+            }
+            let identity = Identity {
+                hostname: b"test".to_vec(),
+                mapname: b"mp/ffa3".to_vec(),
+            };
+            let game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+            assert_eq!(game.cvars.integer(b"sv_fps"), fps, "{set:?}");
+        }
+    }
+
     /// Startup values reach the gamestate and the clients, though the game type's change
     /// was told before the other keys were filled in.
     #[test]
