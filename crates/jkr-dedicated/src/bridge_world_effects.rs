@@ -69,6 +69,9 @@ impl NativeGame {
     fn end_player_frame(&mut self, client: usize, level_time: i32) {
         self.world_effects(client, level_time);
         let lag_icon = self.lag_icon;
+        let hide_health = self
+            .cvars
+            .integer(super::bridge_hit_feedback::STOP_HEALTH_ESP);
         let Self {
             server,
             world,
@@ -76,11 +79,12 @@ impl NativeGame {
             pool,
             ..
         } = self;
-        if let Some(peer) = players
+        let pain = players
             .at(client)
             .and_then(|handle| server.world_mut(*world)?.entity_mut(handle))
-        {
-            peer.end_frame(pool, level_time, lag_icon);
+            .and_then(|peer| peer.end_frame(pool, level_time, (lag_icon, hide_health)));
+        if let Some(name) = pain {
+            self.pain_sound(client, name, level_time);
         }
     }
 

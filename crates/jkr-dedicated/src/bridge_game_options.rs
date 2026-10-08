@@ -12,7 +12,7 @@
 //! (what a player's kill of an NPC counts for, `NpcHost::score_npcs`, 2 = stock);
 //! `g_autoQuit` (an idle server quits after so many days, kept from the cvar hook); and
 //! `g_fakeClients` (bots' scoreboard pings, `bridge_ranks`); `g_allowTargetLaser`
-//! (`bridge_target_laser`).
+//! (`bridge_target_laser`) and `g_stopHealthESP` (`bridge_hit_feedback`).
 
 /// `TEAM_SPECTATOR`.
 const TEAM_SPECTATOR: i32 = 3;
@@ -26,7 +26,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 13] = [
+        let options: [(&[u8], &[u8], &[u8]); 14] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -86,6 +86,11 @@ impl NativeGame {
                 b"g_fakeClients",
                 b"0",
                 b"jaPRO: bots show an ordinary ping on the scoreboard",
+            ),
+            (
+                super::bridge_hit_feedback::STOP_HEALTH_ESP,
+                b"0",
+                b"jaPRO: hide health from the wire: 1 fixes pain events at 50, 2 sends pain sounds",
             ),
             (
                 super::bridge_target_laser::ALLOW_TARGET_LASER,

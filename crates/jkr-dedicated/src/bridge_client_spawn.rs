@@ -202,7 +202,7 @@ impl NativeGame {
             server_time,
             &mut self.deaths.rng,
         );
-        peer.end_frame(pool, server_time, lag_icon);
+        let _ = peer.end_frame(pool, server_time, (lag_icon, 0));
         peer.entity.spawn_finished(&peer.state);
         // `G_KillBox`: whoever stands in the spawned player's box is telefragged.
         if playing {

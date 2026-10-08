@@ -642,10 +642,17 @@ impl Peer {
     }
 
     /// `ClientEndFrame`: connection trouble is flagged after a second without commands
-    /// (unless jaPRO's `g_lagIcon` is off, `lag_icon`), and the entity is converted again.
-    pub(crate) fn end_frame(&mut self, pool: &mut EntityPool, server_time: i32, lag_icon: bool) {
+    /// (unless jaPRO's `g_lagIcon` is off, `lag_icon`), the frame's damage felt (with
+    /// jaPRO's `g_stopHealthESP`, `hide_health`), and the entity is converted again.
+    /// Returns the pain sound the caller plays on the player's voice, if any.
+    pub(crate) fn end_frame(
+        &mut self,
+        pool: &mut EntityPool,
+        server_time: i32,
+        (lag_icon, hide_health): (bool, i32),
+    ) -> Option<&'static [u8]> {
         if !self.playing() {
-            return;
+            return None;
         }
         let flags = self.state.raw_field(EFLAGS).unwrap_or(0);
         let silent = lag_icon && server_time - self.last_command_time > 1_000;
@@ -658,7 +665,7 @@ impl Peer {
             },
         );
         // `P_DamageFeedback`: what the frame's damage tells the player, the pain sound.
-        if jkr_game_jka::damage::damage_feedback(
+        let pain = jkr_game_jka::damage::damage_feedback(
             &mut self.state,
             &mut self.wounds,
             self.health,
@@ -666,7 +673,9 @@ impl Peer {
             server_time,
             &mut self.pain.0,
             &mut self.pain.1,
-        ) {
+            hide_health,
+        );
+        if pain == jkr_game_jka::damage::Pain::Event {
             self.entity.event_raised(server_time);
         }
         // `ent->client->ps.stats[STAT_HEALTH] = ent->health`.
@@ -686,6 +695,10 @@ impl Peer {
         let client = self.entity.state().number();
         if let Some(overflow) = self.entity.frame_ended(&self.state, false) {
             let _ = pool.spawn_temporary(overflow.clone(), server_time, Some(client));
+        }
+        match pain {
+            jkr_game_jka::damage::Pain::Sound(name) => Some(name),
+            _ => None,
         }
     }
 }

@@ -2732,6 +2732,16 @@ impl NativeGame {
         // The knockback is in the wire state: the movement restarts from it.
         victim.movement = victim.movement.reseeded(&victim.state);
         self.deaths.rng = rng;
+        // `G_Damage`'s hit counter (`g_combat.c:4920-4932`), whatever the blow.
+        if damaged.attacker_hits != 0
+            && let Some(attacker) = request.attacker.filter(|attacker| !attacker.npc)
+        {
+            self.record_hit(
+                usize::from(attacker.client),
+                damaged.attacker_hits,
+                damaged.attackee_armor,
+            );
+        }
         for event in &damaged.events {
             let _ = self.pool.spawn_temporary(event.state(), level_time, None);
         }
@@ -3551,12 +3561,10 @@ const BUTTON_USE_HOLDABLE: u16 = 4;
 const PLAYER_SPEED: f32 = 250.0;
 /// Wire field `saberEntityNum`.
 const SABER_ENTITY: usize = 31;
-/// `persistant[PERS_SCORE]`, `PERS_HITS`, `PERS_RANK`, `PERS_ATTACKEE_ARMOR`,
-/// `PERS_EXCELLENT_COUNT`.
+/// `persistant[PERS_SCORE]`, `PERS_RANK`, `PERS_EXCELLENT_COUNT` (the hit counters are
+/// `bridge_hit_feedback`'s).
 const PERS_SCORE: usize = 0;
-const PERS_HITS: usize = 1;
 const PERS_RANK: usize = 2;
-const PERS_ATTACKEE_ARMOR: usize = 7;
 const PERS_EXCELLENT_COUNT: usize = 10;
 const PERS_GAUNTLET_FRAG_COUNT: usize = 13;
 /// `ps.hasDetPackPlanted`.
@@ -3719,6 +3727,8 @@ mod bridge_emotes;
 mod bridge_flag_throw;
 #[path = "bridge_game_options.rs"]
 mod bridge_game_options;
+#[path = "bridge_hit_feedback.rs"]
+mod bridge_hit_feedback;
 #[path = "bridge_holdables.rs"]
 mod bridge_holdables;
 #[path = "bridge_links.rs"]

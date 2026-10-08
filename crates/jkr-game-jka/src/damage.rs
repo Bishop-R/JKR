@@ -831,14 +831,28 @@ pub fn fall_damage(
     })
 }
 
+/// The pain a frame's damage shows ([`damage_feedback`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pain {
+    /// None this frame.
+    None,
+    /// `EV_PAIN` was raised: the player's entity must be told
+    /// (`PlayerEntity::event_raised`).
+    Event,
+    /// jaPRO's `g_stopHealthESP` 2 and up: no event, but this pain sound on the player's
+    /// voice channel (`G_EntitySound`), which the caller plays.
+    Sound(&'static [u8]),
+}
+
 /// `P_DamageFeedback` (`g_active.c:53-135`), at the end of every frame for a living
 /// player: the damage indicator's direction and amount, and the pain sound
 /// (`EV_PAIN` as the player's external event, `G_AddEvent`) at most every 700 ms, for
 /// ten points or more — none for a player whose entity is dead (`s.eFlags & EF_DEAD`,
 /// which the conversion sets from the health: a disintegrated player floats in
-/// `PM_NOCLIP`, dead all the same) or in god mode. `health` is the entity's. Returns whether the pain
-/// event was raised: the player's entity must then be told
-/// (`PlayerEntity::event_raised`).
+/// `PM_NOCLIP`, dead all the same) or in god mode. `health` is the entity's. Under jaPRO's
+/// `g_stopHealthESP` (`hide_health`, `g_active.c:830-850` of jaPRO) the event carries 50
+/// instead of the health (1), or gives way to the pain sound the health picks (2 and up).
+#[allow(clippy::too_many_arguments)]
 pub fn damage_feedback(
     state: &mut PlayerState,
     wounds: &mut Wounds,
@@ -847,15 +861,16 @@ pub fn damage_feedback(
     level_time: i32,
     pain_time: &mut i32,
     pain_direction: &mut bool,
-) -> bool {
+    hide_health: i32,
+) -> Pain {
     if state.movement_type() == PM_DEAD {
-        return false;
+        return Pain::None;
     }
     let count = (wounds.blood + wounds.armor).min(255);
     if count == 0 {
-        return false;
+        return Pain::None;
     }
-    let mut pain = false;
+    let mut pain = Pain::None;
     if wounds.from_world {
         state.set_raw_field(PS_DAMAGE_PITCH, 255);
         state.set_raw_field(PS_DAMAGE_YAW, 255);
@@ -872,19 +887,29 @@ pub fn damage_feedback(
     if level_time > wounds.pain_debounce_time && !god_mode && !dead {
         // Not more than two pain sounds a second, none for a nick.
         if level_time - *pain_time < 500 || count < 10 {
-            return false;
+            return Pain::None;
         }
-        pain = true;
         // `P_SetTwitchInfo`.
         *pain_time = level_time;
         *pain_direction = !*pain_direction;
         wounds.pain_debounce_time = level_time + 700;
-        // `G_AddEvent` on a player: its external event, with the stepped bits.
-        let bits = (state.raw_field(PS_EXTERNAL_EVENT).unwrap_or(0) & EVENT_BITS)
-            .wrapping_add(EVENT_BIT1)
-            & EVENT_BITS;
-        state.set_raw_field(PS_EXTERNAL_EVENT, EV_PAIN | bits);
-        state.set_raw_field(PS_EXTERNAL_EVENT_PARM, health as u32);
+        if hide_health > 1 {
+            pain = Pain::Sound(match health {
+                ..=25 => b"*pain25.wav",
+                ..=50 => b"*pain50.wav",
+                ..=75 => b"*pain75.wav",
+                _ => b"*pain100.wav",
+            });
+        } else {
+            pain = Pain::Event;
+            // `G_AddEvent` on a player: its external event, with the stepped bits.
+            let bits = (state.raw_field(PS_EXTERNAL_EVENT).unwrap_or(0) & EVENT_BITS)
+                .wrapping_add(EVENT_BIT1)
+                & EVENT_BITS;
+            state.set_raw_field(PS_EXTERNAL_EVENT, EV_PAIN | bits);
+            let shown = if hide_health == 1 { 50 } else { health };
+            state.set_raw_field(PS_EXTERNAL_EVENT_PARM, shown as u32);
+        }
         state.set_raw_field(
             PS_DAMAGE_EVENT,
             state

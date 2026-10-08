@@ -30,9 +30,6 @@ use jkr_game_jka::pmove::{MovementCollision, MovementTrace};
 const FORCE_REGEN_TIME: i32 = 200;
 /// `CONTENTS_BODY`.
 const CONTENTS_BODY: u32 = 0x100;
-/// `PERS_HITS`, `PERS_ATTACKEE_ARMOR`.
-const PERS_HITS: usize = 1;
-const PERS_ATTACKEE_ARMOR: usize = 7;
 
 /// What a player's grip, lightning and drain need beside the world, kept between updates
 /// so that none allocates: the state its own is swapped with while it runs, the blows it
@@ -114,12 +111,8 @@ impl NativeGame {
             return None;
         };
         // What the user's blows on NPCs gave its hit counter (`g_combat.c:4895-4905`).
-        if let Some(peer) = self.peer_mut(client) {
-            for (hits, armor) in scratch.hits.drain(..).filter(|(hits, _)| *hits != 0) {
-                peer.state.persistent[PERS_HITS] =
-                    (peer.state.persistent[PERS_HITS] as i32 + hits) as u32;
-                peer.state.persistent[PERS_ATTACKEE_ARMOR] = armor.unwrap_or(0);
-            }
+        for (hits, armor) in scratch.hits.drain(..).filter(|(hits, _)| *hits != 0) {
+            self.record_hit(client, hits, armor);
         }
         scratch.hits.clear();
         // The others the powers changed restart their movement from their state.

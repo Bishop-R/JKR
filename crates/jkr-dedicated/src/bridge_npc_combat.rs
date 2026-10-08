@@ -140,7 +140,17 @@ impl NativeGame {
             && owner != target
             && !(team == victim.session.team && team != 0 && !by_npc);
         let damaged = self.hurt_at(target, request, location);
-        self.count_hit(owner, counts && count, &damaged);
+        // A player's hit `hurt_at` counted itself; an NPC shooter's is the roster's.
+        let counted_hit = if self.peer(owner).is_some() {
+            Damaged::default()
+        } else {
+            Damaged {
+                attacker_hits: damaged.attacker_hits,
+                attackee_armor: damaged.attackee_armor,
+                ..Damaged::default()
+            }
+        };
+        self.count_hit(owner, counts && count, &counted_hit);
         (damaged, counts)
     }
 
@@ -149,9 +159,7 @@ impl NativeGame {
         if let Some(shooter) = self.peer_mut(owner) {
             shooter.accuracy.0 += i32::from(counted);
             if damaged.attacker_hits != 0 {
-                shooter.state.persistent[PERS_HITS] =
-                    (shooter.state.persistent[PERS_HITS] as i32 + damaged.attacker_hits) as u32;
-                shooter.state.persistent[PERS_ATTACKEE_ARMOR] = damaged.attackee_armor.unwrap_or(0);
+                self.record_hit(owner, damaged.attacker_hits, damaged.attackee_armor);
             }
         } else {
             self.npcs.roster.record_hit(
