@@ -8,6 +8,8 @@
 //! `bridge_userinfo`), both registered on so a stock game keeps stock's ways, where
 //! jaPRO's defaults turn them off; and `g_allowUseInDuel` (`bridge_multiples`).
 
+/// `TEAM_SPECTATOR`.
+const TEAM_SPECTATOR: i32 = 3;
 /// `STAT_MAX_HEALTH`; `entityState_t`'s `health` and `maxhealth`.
 const STAT_MAX_HEALTH: usize = 8;
 const ES_HEALTH: usize = 69;
@@ -89,6 +91,26 @@ impl NativeGame {
                 let state = peer.entity.state_mut();
                 state.set_raw_field(ES_MAX_HEALTH, max);
                 state.set_raw_field(ES_HEALTH, health);
+            }
+        }
+    }
+
+    /// `G_CheckClientTimeouts` (`g_active.c:3521-3541`), every frame: a player whose
+    /// last command is older than `g_timeouttospec` seconds (70; 0 for never) goes to the
+    /// spectators (`SetTeam(ent, "spectator")`).
+    pub(super) fn check_client_timeouts(&mut self, level_time: i32) {
+        let timeout = self.cvars.integer(b"g_timeouttospec");
+        if timeout == 0 {
+            return;
+        }
+        for client in 0..self.players.places() {
+            let silent = self.peer(client).is_some_and(|peer| {
+                peer.begun
+                    && peer.session.team != TEAM_SPECTATOR
+                    && level_time - peer.last_command.server_time > timeout.saturating_mul(1_000)
+            });
+            if silent {
+                self.set_team_to(client, b"spectator", level_time);
             }
         }
     }
