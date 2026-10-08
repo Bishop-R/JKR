@@ -23,7 +23,9 @@ pub enum Support {
     /// roam point): the reference spawns it and runs nothing of it.
     Point,
     /// Nothing to do: the reference removes it as it spawns (`info_null`, `func_group`,
-    /// an unswitched `light`, `misc_model_static`, which clients build for themselves).
+    /// an unswitched `light`, `misc_model_static`, which clients build for themselves;
+    /// multiplayer's `misc_model`, `misc_G2model` and `terrain`, and
+    /// `target_escapetrig` outside single player).
     Removed,
     /// The reference spawns and runs it; this server does not yet. Each is a row of the
     /// capability matrix.
@@ -54,7 +56,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("fx_snow", Ported),
     ("fx_spacedust", Ported),
     ("fx_wind", Ported),
-    ("gametype_item", Unported),
+    ("gametype_item", Ported),
     ("info_camp", Point),
     ("info_jedimaster_start", Ported),
     ("info_notnull", Point),
@@ -80,10 +82,10 @@ const SPAWNS: &[(&str, Support)] = &[
     ("misc_bsp", Unported),
     ("misc_cubemap", Removed),
     ("misc_faller", Unported),
-    ("misc_G2model", Unported),
+    ("misc_G2model", Removed),
     ("misc_holocron", Ported),
     ("misc_maglock", Unported),
-    ("misc_model", Unported),
+    ("misc_model", Removed),
     ("misc_model_ammo_power_converter", Ported),
     ("misc_model_breakable", Ported),
     ("misc_model_health_power_converter", Ported),
@@ -111,7 +113,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("target_counter", Ported),
     ("target_deactivate", Ported),
     ("target_delay", Ported),
-    ("target_escapetrig", Unported),
+    ("target_escapetrig", Removed),
     ("target_give", Ported),
     ("target_interest", Unported),
     ("target_kill", Ported),
@@ -135,7 +137,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("team_CTF_bluespawn", Ported),
     ("team_CTF_redplayer", Ported),
     ("team_CTF_redspawn", Ported),
-    ("terrain", Unported),
+    ("terrain", Removed),
     ("trigger_always", Ported),
     ("trigger_asteroid_field", Unported),
     ("trigger_hurt", Ported),

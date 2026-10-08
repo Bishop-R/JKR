@@ -253,7 +253,13 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
     entities
         .iter()
         .filter_map(|entity| {
-            let item = find(entity.classname()?)?;
+            let classname = entity.classname()?;
+            let gametype_item = classname.eq_ignore_ascii_case("gametype_item");
+            let item = if gametype_item {
+                gametype_flag(entity.get("targetname").unwrap_or_default())?
+            } else {
+                find(classname)?
+            };
             let origin = entity.vector("origin").ok().flatten().unwrap_or([0.0; 3]);
             let number = |key: &str| {
                 entity
@@ -270,13 +276,27 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
                 allow_npc: number("spawnflags") as i32 & ITMSF_ALLOWNPC != 0,
                 no_global_sound: ITEMS[item].kind == Kind::Powerup
                     && number("noglobalsound") != 0.0,
+                // A `gametype_item` drops the name that made it a flag.
                 targetname: entity
                     .get("targetname")
-                    .filter(|name| !name.is_empty())
+                    .filter(|name| !name.is_empty() && !gametype_item)
                     .map(str::to_owned),
             })
         })
         .collect()
+}
+
+/// `SP_gametype_item` (`g_spawn.c:433-490`) without the random map generator's team
+/// filter: a `targetname` holding `red_flag` or `blue_flag` makes that side's CTF flag;
+/// anything else nothing.
+fn gametype_flag(targetname: &str) -> Option<usize> {
+    if targetname.contains("red_flag") {
+        find("team_CTF_redflag")
+    } else if targetname.contains("blue_flag") {
+        find("team_CTF_blueflag")
+    } else {
+        None
+    }
 }
 
 /// An item entity on the server.
@@ -927,5 +947,23 @@ mod tests {
         withdraw(&mut pickup);
         assert_eq!((pickup.contents, pickup.respawn_at), (0, 0));
         assert!(!present(&pickup));
+    }
+
+    /// `SP_gametype_item`: a name holding `red_flag` or `blue_flag` places that flag,
+    /// the name dropped; any other name places nothing.
+    #[test]
+    fn a_gametype_item_named_for_a_flag_is_the_flag() {
+        let entities = jkr_entity::parse_entity_lump(
+            b"{\n\"classname\" \"gametype_item\"\n\"targetname\" \"the_red_flag\"\n\"origin\" \"1 2 3\"\n}\n\
+              {\n\"classname\" \"gametype_item\"\n\"targetname\" \"blue_flag\"\n}\n\
+              {\n\"classname\" \"gametype_item\"\n\"targetname\" \"briefcase\"\n}",
+        )
+        .unwrap();
+        let placed = placed(&entities);
+        assert_eq!(placed.len(), 2);
+        assert_eq!(placed[0].item, find("team_CTF_redflag").unwrap());
+        assert_eq!(placed[0].targetname, None);
+        assert_eq!(placed[0].origin, [1.0, 2.0, 3.0]);
+        assert_eq!(placed[1].item, find("team_CTF_blueflag").unwrap());
     }
 }
