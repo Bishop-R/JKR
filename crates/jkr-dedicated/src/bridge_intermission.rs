@@ -136,14 +136,15 @@ impl NativeGame {
     }
 
     /// `FindIntermissionPoint` (`g_main.c:1283`): a siege round that has ended looks from
-    /// the winning side's own camera, anything else from the map's plain one — and a map
-    /// with neither puts the camera where a spectator would start.
+    /// the winning side's own camera, anything else from the map's plain one (a side's
+    /// camera is never taken for it) — and a map with neither puts the camera where a
+    /// spectator would start. A camera with a target looks at it (the map's spawn points
+    /// come with their angles turned so).
     ///
-    /// That last branch is not a corner case. Measured in
-    /// `the_intermission_cameras_of_the_retail_maps_are_where_the_maps_put_them`: the
-    /// three stock siege maps place **no** intermission entity of any kind, so every
-    /// siege intermission in retail JKA is the spectator-spawn fallback. A server that
-    /// only looked for the camera would stand every player at the world origin.
+    /// That last branch is not a corner case: the three stock siege maps place **no**
+    /// intermission entity of any kind, so every siege intermission in retail JKA is the
+    /// spectator-spawn fallback. A server that only looked for the camera would stand
+    /// every player at the world origin.
     fn intermission_point(&mut self) -> ([f32; 3], [f32; 3]) {
         // `gSiegeRoundWinningTeam`, only while a round has ended.
         let winner = self
@@ -170,11 +171,6 @@ impl NativeGame {
                 points
                     .iter()
                     .find(|point| point.kind == SpawnKind::Intermission(None))
-            })
-            .or_else(|| {
-                points
-                    .iter()
-                    .find(|point| matches!(point.kind, SpawnKind::Intermission(Some(_))))
             });
         if let Some(point) = camera {
             return (point.origin, point.angles);

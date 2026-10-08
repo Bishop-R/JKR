@@ -84,13 +84,22 @@ pub fn spawn_points(entities: &[Entity]) -> Vec<SpawnPoint> {
             let origin = entity.vector("origin").ok().flatten().unwrap_or_default();
             // `angle` is a yaw (`F_ANGLEHACK`, g_spawn.c:845-850) and, coming later in
             // the field table than nothing else does, loses to an explicit `angles`.
-            let angles = entity.vector("angles").ok().flatten().unwrap_or_else(|| {
+            let mut angles = entity.vector("angles").ok().flatten().unwrap_or_else(|| {
                 [
                     0.0,
                     entity.number("angle").ok().flatten().unwrap_or_default(),
                     0.0,
                 ]
             });
+            // `FindIntermissionPoint`: "if it has a target, look towards it" — an entity
+            // the level keeps (`G_PickTarget`; an `info_null` is gone by then).
+            if matches!(kind, SpawnKind::Intermission(_))
+                && let Some(target) = intermission_target(entities, entity)
+            {
+                let direction = std::array::from_fn(|axis| target[axis] - origin[axis]);
+                let (pitch, yaw) = crate::damage::vector_to_angles(direction);
+                angles = [pitch, yaw, 0.0];
+            }
             Some(SpawnPoint {
                 kind,
                 origin,
@@ -98,6 +107,31 @@ pub fn spawn_points(entities: &[Entity]) -> Vec<SpawnPoint> {
             })
         })
         .collect()
+}
+
+/// `G_PickTarget(ent->target)` for an intermission point: where the first entity the
+/// level keeps under that name stands (the reference draws among several with `rand`;
+/// no stock map names two). `None` without a target, or with none kept.
+fn intermission_target(entities: &[Entity], point: &Entity) -> Option<[f32; 3]> {
+    let name = point.get("target").filter(|name| !name.is_empty())?;
+    entities
+        .iter()
+        .filter(|entity| {
+            entity
+                .get("targetname")
+                .is_some_and(|own| own.eq_ignore_ascii_case(name))
+        })
+        .find(|entity| {
+            matches!(
+                crate::spawn_table::support(entity),
+                Some(
+                    crate::spawn_table::Support::Ported
+                        | crate::spawn_table::Support::Point
+                        | crate::spawn_table::Support::Unported
+                )
+            )
+        })
+        .map(|entity| entity.vector("origin").ok().flatten().unwrap_or_default())
 }
 
 /// Where a client that is not playing looks at the map from: the neutral
@@ -191,4 +225,32 @@ fn first_deathmatch(points: &[SpawnPoint]) -> Option<([f32; 3], [f32; 3])> {
         [chosen.origin[0], chosen.origin[1], chosen.origin[2] + 9.0],
         chosen.angles,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entities(text: &str) -> Vec<Entity> {
+        jkr_entity::parse_entity_lump(text.as_bytes()).unwrap()
+    }
+
+    /// `FindIntermissionPoint`: a camera with a target the level keeps looks at it — the
+    /// stock maps' `info_notnull` "v1" — and one whose target is gone (an `info_null`,
+    /// freed at spawn) keeps its own angles.
+    #[test]
+    fn an_intermission_camera_looks_at_its_target() {
+        let aimed = entities(
+            "{\n\"classname\" \"info_player_intermission\"\n\"origin\" \"0 0 0\"\n\"target\" \"v1\"\n}\n\
+             {\n\"classname\" \"info_notnull\"\n\"targetname\" \"v1\"\n\"origin\" \"100 100 0\"\n}",
+        );
+        let points = spawn_points(&aimed);
+        assert!((points[0].angles[1] - 45.0).abs() < 0.001);
+        assert_eq!(points[0].angles[0], 0.0);
+        let gone = entities(
+            "{\n\"classname\" \"info_player_intermission\"\n\"origin\" \"0 0 0\"\n\"angle\" \"90\"\n\"target\" \"t1\"\n}\n\
+             {\n\"classname\" \"info_null\"\n\"targetname\" \"t1\"\n\"origin\" \"100 0 0\"\n}",
+        );
+        assert_eq!(spawn_points(&gone)[0].angles, [0.0, 90.0, 0.0]);
+    }
 }
