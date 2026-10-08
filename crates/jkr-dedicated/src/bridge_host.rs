@@ -127,6 +127,7 @@ impl LegacyGameHost for NativeGame {
     }
 
     fn take_output(&mut self, tell: &mut dyn FnMut(LegacyGameOutput<'_>)) {
+        self.refuse_long_commands();
         // Every string a registration told (a sound, a model, an effect) is kept for the
         // gamestate of whoever connects later, not only sent to those already in (a map
         // change drops what the old world told before it: `change_map`).

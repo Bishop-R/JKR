@@ -40,6 +40,9 @@ impl NativeGame {
         for line in spoken.console {
             println!("{}", String::from_utf8_lossy(&line));
         }
+        for line in spoken.security {
+            self.security_log(&line);
+        }
         for (to, text) in spoken.told {
             if !self.ignores(to, client) {
                 self.told.push(Told::One(to, text));

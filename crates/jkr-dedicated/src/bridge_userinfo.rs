@@ -153,12 +153,26 @@ impl NativeGame {
         }
         let accepted = match judged {
             Ok(accepted) => accepted,
-            // `ClientUserinfoChanged` drops the client, with the reason.
+            // `ClientUserinfoChanged` drops the client, with the reason, noted in the
+            // security log and the userinfo in the game's (`g_client.c:2121-2128`).
             Err(reason) => {
+                let (name, ip) = self.peer(client).map_or_else(Default::default, |peer| {
+                    (
+                        String::from_utf8_lossy(&peer.name).into_owned(),
+                        String::from_utf8_lossy(&peer.address).into_owned(),
+                    )
+                });
+                self.security_log(&format!(
+                    "Client {client} ({name}) failed userinfo validation: {reason} [IP: {ip}]\n"
+                ));
                 self.told.push(Told::Drop {
                     client,
                     reason: format!("Failed userinfo validation: {reason}").into_bytes(),
                 });
+                self.log(&format!(
+                    "Userinfo: {}\n",
+                    String::from_utf8_lossy(&userinfo)
+                ));
                 return;
             }
         };

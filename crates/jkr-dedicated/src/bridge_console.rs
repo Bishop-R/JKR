@@ -115,7 +115,13 @@ impl NativeGame {
             return;
         }
         let mut text = words.join(&b' ');
-        text.truncate(SAY_TEXT - 1);
+        if text.len() >= SAY_TEXT {
+            text.truncate(SAY_TEXT - 1);
+            let cut = String::from_utf8_lossy(&text).into_owned();
+            self.security_log(&format!(
+                "Cmd_Say_f from -1 (server) has been truncated: {cut}\n"
+            ));
+        }
         for byte in &mut text {
             if matches!(*byte, b'\n' | b'\r') {
                 *byte = b' ';

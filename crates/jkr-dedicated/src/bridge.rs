@@ -283,6 +283,8 @@ pub struct NativeGame {
     ip_filter: jkr_game_jka::ip_filter::IpFilter,
     /// `level.logFile`: `g_log`, open while a level runs.
     log_file: Option<std::fs::File>,
+    /// `level.security.log`: `security.log`, open while `g_securityLog` asks for it.
+    security_file: Option<std::fs::File>,
     /// Server demo files, by wire client number.
     demo_files: Vec<Option<std::fs::File>>,
     /// The console's command buffer (`exec`, `vstr`, `wait`, typed lines).
@@ -525,6 +527,7 @@ impl NativeGame {
             config_files: Default::default(),
             ip_filter: Default::default(),
             log_file: None,
+            security_file: None,
             demo_files: Vec::new(),
             npcs: Default::default(),
             mounted: Default::default(),

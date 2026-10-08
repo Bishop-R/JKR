@@ -8,6 +8,13 @@ impl NativeGame {
     /// `ClientCommand`: a reliable command from the player at `client`'s place, at the
     /// server's clock `server_time`.
     pub(super) fn player_command(&mut self, client: usize, text: &[u8], server_time: i32) {
+        // `ClientCommand`: "not fully in game yet" (`g_cmds.c:3440-3444`).
+        if !self.peer(client).is_some_and(|peer| peer.begun) {
+            self.security_log(&format!(
+                "ClientCommand({client}) without an active connection\n"
+            ));
+            return;
+        }
         let mut words = text
             .split(|byte| byte.is_ascii_whitespace())
             .filter(|word| !word.is_empty());

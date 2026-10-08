@@ -7,6 +7,13 @@ use std::io::Write;
 /// `strftime("%Y-%m-%d_%H-%M-%S")` of a moment, in UTC (the reference uses the local
 /// time zone, which a headless server may not know).
 pub(super) fn timestamp(since_epoch: std::time::Duration) -> String {
+    let [year, month, day, hour, minute, second] = utc(since_epoch);
+    format!("{year:04}-{month:02}-{day:02}_{hour:02}-{minute:02}-{second:02}")
+}
+
+/// The UTC date and time `since_epoch` after 1970 names: year, month, day, hour, minute,
+/// second (`gmtime`).
+pub(super) fn utc(since_epoch: std::time::Duration) -> [i64; 6] {
     let seconds = since_epoch.as_secs() as i64;
     let (days, of_day) = (seconds.div_euclid(86_400), seconds.rem_euclid(86_400));
     // Days to a civil date (Howard Hinnant's algorithm).
@@ -24,12 +31,14 @@ pub(super) fn timestamp(since_epoch: std::time::Duration) -> String {
         shifted_month - 9
     };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}_{:02}-{:02}-{:02}",
+    [
+        year,
+        month,
+        day,
         of_day / 3600,
         of_day % 3600 / 60,
-        of_day % 60
-    )
+        of_day % 60,
+    ]
 }
 
 impl NativeGame {

@@ -112,18 +112,38 @@ impl NativeGame {
             ..PlayerSession::default()
         };
         self.siege_connect_session(&mut session);
-        let accepted = judge(
+        let judged = judge(
             userinfo,
             self.userinfo_rules(),
             &session,
             self.gametype,
             &self.saber_parms(),
             None,
-        )
-        .map_err(|reason| {
-            eprintln!("client {client} failed userinfo validation: {reason}");
-            b"Failed userinfo validation".to_vec()
-        })?;
+        );
+        let accepted = match judged {
+            Ok(accepted) => accepted,
+            // `ClientUserinfoChanged`'s refusal (`g_client.c:2121-2128`): noted, the
+            // userinfo logged, the client turned away.
+            Err(reason) => {
+                let ip = String::from_utf8_lossy(&address).into_owned();
+                self.security_log(&format!(
+                    "Client {client} () failed userinfo validation: {reason} [IP: {ip}]\n"
+                ));
+                self.log(&format!(
+                    "Userinfo: {}\n",
+                    String::from_utf8_lossy(userinfo)
+                ));
+                return Err(b"Failed userinfo validation".to_vec());
+            }
+        };
+        // "No IP sent when connecting, probably an unban hack attempt" (`g_client.c:2550-2557`).
+        if !bot && address.is_empty() {
+            let name = String::from_utf8_lossy(&accepted.name).into_owned();
+            self.security_log(&format!(
+                "Client {client} ({name}) sent no IP when connecting.\n"
+            ));
+            return Err(b"Invalid userinfo detected".to_vec());
+        }
         let movement = self.spectator(client);
         // As `ClientConnect` tells it: `ClientUserinfoChanged`'s advice and the newcomer's
         // string, then the join print.
