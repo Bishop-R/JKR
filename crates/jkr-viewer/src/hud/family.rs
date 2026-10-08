@@ -31,6 +31,16 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             "Obituaries: 0 right, 1 left, 2 center",
         ),
         ("cg_killfeedReverse", 0, "Show attacker before victim"),
+        (
+            "cg_movementKeys",
+            0,
+            "Movement keys: 1 keys, 2 with attacks, 3 small at the crosshair, 4 held below it",
+        ),
+        (
+            "cg_movementKeysWalk",
+            0,
+            "Movement keys include the walk key",
+        ),
     ] {
         cvars.register(CvarDefinition::new(
             name,
@@ -47,6 +57,9 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
     ))?;
     for (name, value, help) in [
         ("cg_drawScoreX", 0.0, "Personal score horizontal offset"),
+        ("cg_movementKeysX", 0.0, "Movement keys horizontal offset"),
+        ("cg_movementKeysY", 0.0, "Movement keys vertical offset"),
+        ("cg_movementKeysSize", 1.0, "Movement keys scale"),
         ("cg_drawScoreY", 0.0, "Personal score upward offset"),
         ("cg_drawCrosshairNamesOpacity", 1.0, "Target name opacity"),
         (

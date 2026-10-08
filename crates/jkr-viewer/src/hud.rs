@@ -11,6 +11,7 @@ pub(crate) mod icons;
 pub(crate) mod identification;
 mod info;
 pub(crate) mod movement;
+mod movement_keys;
 pub(crate) mod options;
 mod portrait;
 mod radar;
@@ -137,6 +138,7 @@ pub(crate) struct HudOverlay {
     /// The duel spectator's panel.
     /// `ps.fallingToDeath`: when the player began falling to death, 0 when not.
     falling_since: i32,
+    pub(crate) movement_keys: movement_keys::MovementKeys,
     pub(crate) force_flash: force_flash::ForceFlash,
     simple: simple::SimpleHud,
     pub(crate) duel_panel: duel_panel::DuelPanel,
@@ -249,6 +251,7 @@ impl HudOverlay {
             pickup: pickup::Pickup::default(),
             vehicle: vehicle::Panel::default(),
             falling_since: 0,
+            movement_keys: Default::default(),
             force_flash: Default::default(),
             simple: Default::default(),
             duel_panel: duel_panel::DuelPanel::default(),
@@ -566,6 +569,8 @@ impl HudOverlay {
             self.icons
                 .emit(&mut self.draw_list, viewport, visibility, self.family.upper);
             self.guides.emit(&mut self.draw_list, viewport);
+            self.movement_keys
+                .emit(&mut self.draw_list, viewport, self.theme.accent);
         }
         output
     }

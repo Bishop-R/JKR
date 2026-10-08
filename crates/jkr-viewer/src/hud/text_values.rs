@@ -42,6 +42,9 @@ impl HudOverlay {
             322 => &self.mini_scores,
             value @ 334..=335 => self.duel_panel.score((value - 334) as usize),
             simple::STYLE_TEXT => self.simple.style_text(),
+            value @ 340..=348 => {
+                movement_keys::MovementKeys::label((value - movement_keys::FIRST_TEXT) as usize)
+            }
             value @ 330..=333 => self.spectator.text((value - 330) as usize),
             value @ 400..=415 => self.icons.text((value - 400) as usize),
             _ => selection::text(id),

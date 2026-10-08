@@ -495,6 +495,24 @@ pub(crate) fn update(
         .as_ref()
         .and_then(|_| gpu.local_prediction.guide_input());
     gpu.hud.restrict_guides(!gpu.third_person && !japro, keys);
+    if let Some(snapshot) = gpu
+        .live_session
+        .as_ref()
+        .map(|s| s.latest_snapshot())
+        .or_else(|| {
+            gpu.demo_session
+                .as_ref()
+                .map(|s| s.snapshot_at_or_before(presentation_time))
+        })
+    {
+        let command = gpu
+            .live_session
+            .as_ref()
+            .and_then(|_| gpu.local_prediction.latest_command());
+        gpu.hud
+            .movement_keys
+            .update(gpu.console.as_ref(), &snapshot.player, command);
+    }
     gpu.hud.guide_camera(
         view_target - view_position,
         view_up,

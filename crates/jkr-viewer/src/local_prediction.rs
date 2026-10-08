@@ -415,6 +415,11 @@ impl LocalPrediction {
         self.latest_input.map(|c| [c.forward_move, c.right_move])
     }
 
+    /// The last command sent, for the movement keys.
+    pub(crate) fn latest_command(&self) -> Option<&jkr_protocol::UserCommand> {
+        self.latest_input.as_ref()
+    }
+
     /// Deliver this frame's committed, replayed and preview events without allocating.
     pub(crate) fn drain_events(
         &mut self,
