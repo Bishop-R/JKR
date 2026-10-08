@@ -29,7 +29,9 @@ mod siege;
 mod simple;
 mod spectator;
 mod vehicle;
+mod vehicle_damage;
 pub(crate) use siege::SiegeInputs;
+pub(crate) use vehicle_damage::{Panel as DamagePanel, recovered as vehicle_damage_recovered};
 pub(crate) mod targeting;
 mod text_values;
 pub(crate) mod tints;
@@ -140,6 +142,7 @@ pub(crate) struct HudOverlay {
     /// The duel spectator's panel.
     /// `ps.fallingToDeath`: when the player began falling to death, 0 when not.
     falling_since: i32,
+    pub(crate) vehicle_damage: vehicle_damage::DamageHud,
     pub(crate) brackets: brackets::Brackets,
     pub(crate) movement_keys: movement_keys::MovementKeys,
     pub(crate) force_flash: force_flash::ForceFlash,
@@ -254,6 +257,7 @@ impl HudOverlay {
             pickup: pickup::Pickup::default(),
             vehicle: vehicle::Panel::default(),
             falling_since: 0,
+            vehicle_damage: Default::default(),
             brackets: Default::default(),
             movement_keys: Default::default(),
             force_flash: Default::default(),
@@ -524,6 +528,7 @@ impl HudOverlay {
         if status_allowed {
             self.vehicle
                 .emit(&self.icons, &mut self.draw_list, viewport);
+            self.vehicle_damage.emit(&mut self.draw_list, viewport);
         }
         if visibility.hud {
             self.duel_panel.emit(&mut self.draw_list, viewport);

@@ -13,7 +13,7 @@ const COLUMNS: u32 = ATLAS_SIZE / ICON_SIZE;
 /// Cells for the radar's pictures, two rows after the HUD's.
 pub(crate) const RADAR_CELL_COUNT: u32 = 2 * COLUMNS;
 /// Cells for the HUD's icons, eight rows after the menu's.
-pub(crate) const HUD_CELL_COUNT: u32 = 8 * COLUMNS;
+pub(crate) const HUD_CELL_COUNT: u32 = 9 * COLUMNS;
 const ATLAS_HEIGHT: u32 = ATLAS_SIZE + HUD_CELL_COUNT / COLUMNS * ICON_SIZE + 2 * ICON_SIZE;
 /// Pixel size of the banner strip (rows of cells it takes: 3).
 pub(crate) const BANNER_SIZE: [u32; 2] = [1_536, 384];

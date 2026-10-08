@@ -243,6 +243,28 @@ impl LocalPrediction {
         Some((self.rides.piloted_info()?, ride.state(), ride.turbo_time()))
     }
 
+    /// The definition template of vehicle `entity` (cached by name), for the HUD.
+    pub(crate) fn vehicle_template(
+        &mut self,
+        entity: &jkr_protocol::EntityState,
+        game_state: &jkr_protocol::GameState,
+    ) -> Option<usize> {
+        self.rides.template_of(entity, game_state)
+    }
+
+    /// The definition a template holds.
+    pub(crate) fn vehicle_template_info(
+        &self,
+        index: usize,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
+        self.rides.template_info(index)
+    }
+
+    /// The template of the vehicle this client pilots.
+    pub(crate) fn piloted_template(&self) -> Option<usize> {
+        self.rides.piloted_template()
+    }
+
     /// The piloted vehicle's first weapon, for the fighter's lead indicator.
     pub(crate) fn piloted_weapon(
         &self,

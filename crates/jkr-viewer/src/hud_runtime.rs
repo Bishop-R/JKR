@@ -131,6 +131,7 @@ pub(crate) fn update(
             gpu.configuration.height as f32,
         ],
     };
+    update_vehicle_damage(gpu, presentation_time);
     if let Some(session) = &gpu.live_session {
         let snapshot = session.latest_snapshot();
         gpu.scoreboard.observe_deaths(
@@ -641,5 +642,92 @@ impl HudUniform {
             damage = None;
         }
         Some([crosshair, damage])
+    }
+}
+
+/// The damage HUDs of a vehicle that hides its pilot (`CG_DrawVehicleHud`'s `hideRider`
+/// branch): its own, and the targeted fighter's.
+fn update_vehicle_damage(gpu: &mut GpuState, time: i32) {
+    use jkr_game_jka::vehicle_fields::kind::FIGHTER;
+    /// `STAT_ARMOR`, `ps.rocketLockIndex`.
+    const STAT_ARMOR: usize = 5;
+    let GpuState {
+        live_session,
+        hud,
+        local_prediction: prediction,
+        force_overlays,
+        crosshair_scan,
+        vfs,
+        shaders,
+        ui_shapes,
+        queue,
+        ..
+    } = gpu;
+    let Some(session) = live_session.as_ref() else {
+        hud.vehicle_damage.set(None, None);
+        return;
+    };
+    let (snapshot, game) = (session.latest_snapshot(), session.game_state());
+    let own = hud
+        .vehicle
+        .hides_status()
+        .then(|| {
+            let template = prediction.piloted_template()?;
+            let info = prediction.vehicle_template_info(template)?;
+            let vehicle = snapshot.vehicle_player.as_ref()?;
+            let number = snapshot.player.vehicle_entity_num();
+            Some(hud::DamagePanel {
+                template,
+                broken: vehicle.broken_limbs(),
+                shields: vehicle.stats[STAT_ARMOR] as f32 / info.shields.max(1) as f32,
+                recovered: hud::vehicle_damage_recovered(force_overlays.shield(number).until, time),
+                alpha: 1.0,
+            })
+        })
+        .flatten();
+    let enemy = own.and_then(|_| {
+        let entity = |number: u16| snapshot.entities.iter().find(|e| e.number() == number);
+        let lock = snapshot.player.raw_field(24).map(|lock| lock as u16);
+        let player_vehicle = crosshair_scan
+            .chat_client(time)
+            .and_then(entity)
+            .map(|player| player.vehicle_entity_num())
+            .filter(|vehicle| *vehicle >= 32);
+        let crosshair_vehicle = crosshair_scan.target.and_then(|target| target.vehicle);
+        let mut is_fighter = |number: u16| {
+            entity(number)
+                .and_then(|state| prediction.vehicle_template(state, game))
+                .and_then(|template| prediction.vehicle_template_info(template))
+                .is_some_and(|info| info.kind == FIGHTER)
+        };
+        let (number, alpha) = hud.vehicle_damage.target(
+            time,
+            lock,
+            crosshair_vehicle,
+            player_vehicle,
+            &mut is_fighter,
+        )?;
+        let state = entity(number)?;
+        Some(hud::DamagePanel {
+            template: prediction.vehicle_template(state, game)?,
+            broken: state.broken_limbs(),
+            shields: f32::from(state.active_force_pass()) / 10.0,
+            recovered: hud::vehicle_damage_recovered(force_overlays.shield(number).until, time),
+            alpha,
+        })
+    });
+    hud.vehicle_damage.set(own, enemy);
+    let Some(vfs) = vfs.as_deref() else {
+        return;
+    };
+    for (panel, template) in hud.vehicle_damage.wanted().into_iter().enumerate() {
+        let Some(template) = template else {
+            continue;
+        };
+        if let Some(info) = prediction.vehicle_template_info(template) {
+            let pictures = info.damage_pictures.clone();
+            hud.vehicle_damage
+                .load(panel, template, &pictures, vfs, shaders, ui_shapes, queue);
+        }
     }
 }

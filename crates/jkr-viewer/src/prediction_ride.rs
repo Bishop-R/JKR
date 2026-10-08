@@ -154,13 +154,25 @@ impl Rides {
         if vehicle.owner() != snapshot.player.client_num() {
             return;
         }
-        let model = vehicle.raw_field(46).unwrap_or(0) as usize;
-        let Some(name) = game_state
-            .config_string(CS_MODELS + model)
-            .and_then(|name| name.strip_prefix(b"$"))
-        else {
+        let Some(index) = self.template_of(vehicle, game_state) else {
             return;
         };
+        if self.templates[index].1.is_some() {
+            self.piloting = Some((index, vehicle.solid()));
+        }
+    }
+
+    /// The template of vehicle `entity`, named by its model's configstring (`$name`),
+    /// loaded once per name; `None` where it names no vehicle.
+    pub(super) fn template_of(
+        &mut self,
+        entity: &jkr_protocol::EntityState,
+        game_state: &GameState,
+    ) -> Option<usize> {
+        let model = entity.raw_field(46).unwrap_or(0) as usize;
+        let name = game_state
+            .config_string(CS_MODELS + model)?
+            .strip_prefix(b"$")?;
         let index = match self
             .templates
             .iter()
@@ -181,9 +193,24 @@ impl Rides {
                 self.templates.len() - 1
             }
         };
-        if self.templates[index].1.is_some() {
-            self.piloting = Some((index, vehicle.solid()));
-        }
+        Some(index)
+    }
+
+    /// The definition template `index` holds, if it named a vehicle.
+    pub(super) fn template_info(
+        &self,
+        index: usize,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
+        self.templates
+            .get(index)?
+            .1
+            .as_ref()
+            .map(|vehicle| vehicle.info.as_ref())
+    }
+
+    /// The template of the vehicle the local player pilots.
+    pub(super) fn piloted_template(&self) -> Option<usize> {
+        self.piloting.map(|(index, _)| index)
     }
 
     /// The committed ride seeded from `snapshot` (in the storage it has), or none where
