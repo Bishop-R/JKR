@@ -1833,6 +1833,7 @@ impl NativeGame {
             request.killer_last_kill_time = killer.mortality.last_kill_time;
         }
         self.log_kill(client, request.attacker, request.means);
+        self.austrian_kill(client, request.attacker, request.means, server_time);
         request.gametype = self.gametype;
         request.flag_rules = self.flag_rules();
         // jaPRO's gun game drops nothing at a death but a flag; a suicide counts against
@@ -3808,6 +3809,8 @@ mod bridge_throw;
 use bridge_throw::init_saber_entity;
 #[path = "bridge_admin.rs"]
 mod bridge_admin;
+#[path = "bridge_austrian.rs"]
+mod bridge_austrian;
 #[path = "bridge_client_spawn.rs"]
 mod bridge_client_spawn;
 #[path = "bridge_collision_gather.rs"]

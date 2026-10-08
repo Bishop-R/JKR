@@ -118,6 +118,8 @@ impl NativeGame {
         peer.block_time = 0;
         peer.entity.spawned(place.angles);
         peer.inactivity = jkr_game_jka::inactivity::Inactivity::spawned(server_time, inactivity);
+        // `ClientSpawn`: `respawnTime` is the spawn's time until the next death sets it.
+        peer.mortality.respawn_time = server_time;
         peer.invulnerable_until = if playing && protection != 0 {
             server_time + protection
         } else {

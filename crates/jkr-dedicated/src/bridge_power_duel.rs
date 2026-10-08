@@ -169,6 +169,7 @@ impl NativeGame {
         let (sorted, playing) = self.sorted();
         if playing >= 3 && self.non_spectators() >= 3 && self.can_reset_duellists(&sorted) {
             self.announce_duellists(&sorted, server_time);
+            self.austrian_power_duel_pulled();
         }
     }
 
