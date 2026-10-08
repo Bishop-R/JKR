@@ -9,8 +9,9 @@
 //! jaPRO's defaults turn them off; `g_allowUseInDuel` (`bridge_multiples`);
 //! `g_godChat` (no harm to or from a typing player in a free-for-all,
 //! [`jkr_game_jka::god_chat`]); `g_blockDuelHealthSpec` (`bridge_follow`); `g_scoreNPCs`
-//! (what a player's kill of an NPC counts for, `NpcHost::score_npcs`, 2 = stock); and
-//! `g_autoQuit` (an idle server quits after so many days, kept from the cvar hook).
+//! (what a player's kill of an NPC counts for, `NpcHost::score_npcs`, 2 = stock);
+//! `g_autoQuit` (an idle server quits after so many days, kept from the cvar hook); and
+//! `g_fakeClients` (bots' scoreboard pings, `bridge_ranks`).
 
 /// `TEAM_SPECTATOR`.
 const TEAM_SPECTATOR: i32 = 3;
@@ -24,7 +25,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 11] = [
+        let options: [(&[u8], &[u8], &[u8]); 12] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -79,6 +80,11 @@ impl NativeGame {
                 b"g_autoQuit",
                 b"0",
                 b"jaPRO: with nobody playing, the server quits after this many days up",
+            ),
+            (
+                b"g_fakeClients",
+                b"0",
+                b"jaPRO: bots show an ordinary ping on the scoreboard",
             ),
         ];
         for (name, value, about) in options {

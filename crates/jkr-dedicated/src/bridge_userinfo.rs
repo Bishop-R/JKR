@@ -168,6 +168,7 @@ impl NativeGame {
             self.log_about(client, |who| {
                 game_log::client_rename(game_log::Who { name: &old, ..who }, &new)
             });
+            self.note_player(client);
         }
         self.told.push(Told::PlayerString {
             client,

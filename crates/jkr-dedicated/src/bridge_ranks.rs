@@ -86,6 +86,10 @@ impl NativeGame {
         let Some(world) = self.server.world(self.world) else {
             return Vec::new();
         };
+        // jaPRO's `g_fakeClients`: a bot shows a ping of 25 to 40 (`Q_irand(25, 40)` per
+        // scoreboard there; here it moves once a second, without the game's generator).
+        let fake_pings = self.cvars.integer(b"g_fakeClients") != 0;
+        let second = self.last_frame_time / 1_000;
         self.players
             .holders()
             .enumerate()
@@ -103,7 +107,11 @@ impl NativeGame {
                         && peer.session.team != i32::from(TEAM_SPECTATOR),
                     loser: peer.loser,
                     persistant: peer.state.persistent.map(|value| value as i32),
-                    ping: peer.ping,
+                    ping: if fake_pings && peer.bot && peer.begun {
+                        25 + (client as i32 * 7 + second).rem_euclid(16)
+                    } else {
+                        peer.ping
+                    },
                     enter_time: peer.enter_time,
                     powerups: 0,
                     accuracy: peer.accuracy,

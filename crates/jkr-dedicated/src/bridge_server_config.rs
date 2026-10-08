@@ -76,6 +76,7 @@ impl NativeGame {
                 (A_CHANGEMAP, "amMap "),
                 (A_CSPRINT, "amPsay "),
                 (A_FORCETEAM, "amForceTeam "),
+                (A_LOOKUP, "amLookup "),
                 (A_VSTR, "amVstr "),
                 (A_RENAME, "amRename "),
             ] {

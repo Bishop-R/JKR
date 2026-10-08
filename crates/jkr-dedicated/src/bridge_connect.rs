@@ -124,6 +124,7 @@ impl NativeGame {
                 self.vote.forget(client);
                 self.told.extend(told.into_iter().flatten());
                 self.log_about(client, jkr_game_jka::game_log::client_connect);
+                self.note_player(client);
                 self.announce_team_on_connect(client);
                 // The sabers are set as the player connects, their sounds registered;
                 // then the ranks are recalculated, and everyone learns who joined.

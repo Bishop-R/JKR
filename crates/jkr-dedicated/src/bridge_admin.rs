@@ -237,7 +237,7 @@ impl NativeGame {
 
     /// `G_AdminAllowed` without race mode or cheats: whether `client` holds `power`, having
     /// told it otherwise.
-    fn admin_allowed(&mut self, client: usize, power: u32, name: &str) -> bool {
+    pub(super) fn admin_allowed(&mut self, client: usize, power: u32, name: &str) -> bool {
         let allowed = self
             .peer(client)
             .is_some_and(|peer| peer.session.account_flags & power != 0);

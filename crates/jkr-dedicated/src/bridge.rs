@@ -3593,6 +3593,8 @@ mod bridge_maps;
 mod bridge_missile_models;
 #[path = "bridge_multiples.rs"]
 mod bridge_multiples;
+#[path = "bridge_player_log.rs"]
+mod bridge_player_log;
 #[path = "bridge_power_duel.rs"]
 mod bridge_power_duel;
 #[path = "bridge_restart.rs"]

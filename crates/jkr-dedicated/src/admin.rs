@@ -43,6 +43,8 @@ pub const A_FORCETEAM: u32 = 1 << 10;
 pub const A_LOCKTEAM: u32 = 1 << 11;
 pub const A_VSTR: u32 = 1 << 12;
 pub const A_RENAME: u32 = 1 << 14;
+/// `JAPRO_ACCOUNTFLAG_A_LOOKUP`: `amLookup`.
+pub const A_LOOKUP: u32 = 1 << 17;
 pub const A_KILLVOTE: u32 = 1 << 21;
 /// `TEAM_FREE`, `TEAM_RED`, `TEAM_BLUE`, `TEAM_SPECTATOR`.
 pub const TEAM_FREE: i32 = 0;
