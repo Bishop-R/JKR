@@ -413,6 +413,58 @@ pub(crate) fn update(
             camera,
             time: presentation_time,
         });
+        // `CG_DrawBracketedEntities`, for the fighter this client pilots.
+        let fighter = gpu
+            .local_prediction
+            .piloted_vehicle()
+            .and_then(|(info, state, _)| {
+                (info.kind == jkr_game_jka::vehicle_fields::kind::FIGHTER).then(|| hud::Fighter {
+                    number: snapshot.player.vehicle_entity_num(),
+                    origin: Vec3::from_array(state.origin),
+                    shot_speed: gpu
+                        .local_prediction
+                        .piloted_weapon()
+                        .filter(|weapon| {
+                            weapon.is_projectile && !weapon.has_gravity && weapon.homing == 0.0
+                        })
+                        .map(|weapon| weapon.speed)
+                        .filter(|speed| *speed > 0.0),
+                })
+            });
+        let inputs = hud::BracketInputs {
+            snapshot,
+            game,
+            camera,
+            fighter,
+            crosshair: gpu.crosshair_scan.chat_client(presentation_time),
+            lead: gpu
+                .console
+                .as_ref()
+                .and_then(|console| console.integer_cvar("cg_drawVehLeadIndicator"))
+                .unwrap_or(1)
+                != 0,
+        };
+        let origin = |number: u16| {
+            world
+                .and_then(|world| world.entity(jkr_runtime::EntityId::new(u64::from(number) + 1)))
+                .map(|entity| {
+                    Vec3::from_array(entity.sample(i64::from(presentation_time)).translation)
+                })
+        };
+        let (bsp, scratch) = (&gpu.bsp, &mut gpu.trace_scratch);
+        // `CG_Trace` with `CONTENTS_OPAQUE`.
+        let mut clear = |from: Vec3, to: Vec3| {
+            bsp.trace_box_with(
+                scratch,
+                from.to_array(),
+                to.to_array(),
+                jkr_bsp::Aabb::POINT,
+                0x8000,
+            )
+            .fraction
+                >= 1.0
+        };
+        gpu.hud.brackets.update(inputs, &origin, &mut clear);
     }
     let game = gpu
         .live_session

@@ -1,6 +1,8 @@
 //! Modern data-driven in-game HUD over authoritative snapshot values.
 
 mod action_timer;
+mod brackets;
+pub(crate) use brackets::{BracketInputs, Fighter};
 mod data_source;
 mod duel_panel;
 pub(crate) mod force_flash;
@@ -138,6 +140,7 @@ pub(crate) struct HudOverlay {
     /// The duel spectator's panel.
     /// `ps.fallingToDeath`: when the player began falling to death, 0 when not.
     falling_since: i32,
+    pub(crate) brackets: brackets::Brackets,
     pub(crate) movement_keys: movement_keys::MovementKeys,
     pub(crate) force_flash: force_flash::ForceFlash,
     simple: simple::SimpleHud,
@@ -251,6 +254,7 @@ impl HudOverlay {
             pickup: pickup::Pickup::default(),
             vehicle: vehicle::Panel::default(),
             falling_since: 0,
+            brackets: Default::default(),
             movement_keys: Default::default(),
             force_flash: Default::default(),
             simple: Default::default(),
@@ -571,6 +575,7 @@ impl HudOverlay {
             self.guides.emit(&mut self.draw_list, viewport);
             self.movement_keys
                 .emit(&mut self.draw_list, viewport, self.theme.accent);
+            self.brackets.emit(&mut self.draw_list, viewport);
         }
         output
     }

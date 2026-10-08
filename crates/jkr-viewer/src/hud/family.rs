@@ -41,6 +41,11 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             0,
             "Movement keys include the walk key",
         ),
+        (
+            "cg_drawVehLeadIndicator",
+            1,
+            "In a fighter, show where to aim at a moving enemy vehicle",
+        ),
     ] {
         cvars.register(CvarDefinition::new(
             name,

@@ -104,6 +104,17 @@ impl Rides {
         }
     }
 
+    /// The first weapon of the vehicle the local player pilots (`weapon[0].ID` past
+    /// `VEH_WEAPON_BASE`), where the client has it.
+    pub(super) fn piloted_weapon(
+        &self,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleWeaponInfo> {
+        let id = self.piloted_info()?.weapons[0].id;
+        (id > 0)
+            .then(|| self.table.weapons().get(id as usize))
+            .flatten()
+    }
+
     /// The definition of the vehicle the local player pilots, where the client has it.
     pub(super) fn piloted_info(&self) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
         let (index, _) = self.piloting?;

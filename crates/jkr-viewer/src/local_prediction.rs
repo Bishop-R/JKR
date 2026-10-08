@@ -243,6 +243,13 @@ impl LocalPrediction {
         Some((self.rides.piloted_info()?, ride.state(), ride.turbo_time()))
     }
 
+    /// The piloted vehicle's first weapon, for the fighter's lead indicator.
+    pub(crate) fn piloted_weapon(
+        &self,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleWeaponInfo> {
+        self.rides.piloted_weapon()
+    }
+
     /// Vehicle strafing already computed by prediction; read-only camera input.
     pub(crate) fn vehicle_camera_strafe(&self) -> Option<i32> {
         self.rides
