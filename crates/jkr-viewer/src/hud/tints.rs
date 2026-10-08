@@ -180,10 +180,11 @@ pub(crate) fn update(gpu: &mut crate::GpuState, eye: glam::Vec3, now: i32, inter
         && console
             .and_then(|c| c.bool_cvar("cg_drawscreentints"))
             .unwrap_or(true);
+    // `GT_CTY` is 9; 8 is capture the flag.
     let cty = game
         .config_string(0)
         .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"))
-        == Some(8);
+        == Some(9);
     let japro = game
         .config_string(0)
         .is_some_and(|s| s.windows(5).any(|w| w.eq_ignore_ascii_case(b"japro")));

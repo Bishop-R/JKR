@@ -148,10 +148,11 @@ impl Icons {
         self.rage_recovery = snapshot.player.force_rage_recovery_time() > snapshot.server_time;
         self.powers_hidden = snapshot.player.zoom_mode() != 0 || snapshot.player.team() == 3;
         self.holocrons = snapshot.player.raw_field(113).unwrap_or(0);
+        // `GT_CTY` is 9; 8 is capture the flag.
         self.cty = game
             .config_string(0)
             .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"))
-            == Some(8);
+            == Some(9);
         for (seconds, end) in self.seconds.iter_mut().zip(snapshot.player.powerups) {
             let remaining = i64::from(end) - i64::from(snapshot.server_time);
             *seconds = if remaining > 0 {
