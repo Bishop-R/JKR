@@ -213,11 +213,7 @@ impl NativeGame {
     /// bar told, its `healingsound` played on the player (the brush is a `SOLID_BMODEL`),
     /// and the player held in the use pose while it is the class's to mend. Whether it is.
     fn repair_breakable(&mut self, client: usize, index: usize, time: i32) -> bool {
-        // `bgSiegeClasses[client->siegeClass].name`: the class the player plays.
-        let class = self
-            .siege_class_of(client)
-            .map(|class| class.name)
-            .unwrap_or_default();
+        let class = self.healer_class(client);
         let gametype = self.gametype;
         let brush = &mut self.breakables[index].1;
         let (mut health, max) = (brush.health, brush.max_health);
@@ -241,7 +237,7 @@ impl NativeGame {
             self.healing_sound(&sound, origin, time);
         }
         if let Some(peer) = self.peer_mut(client) {
-            super::bridge_use::bridge_emplaced::hold_healer_pose(peer);
+            super::bridge_repairs::hold_healer_pose(peer);
         }
         true
     }

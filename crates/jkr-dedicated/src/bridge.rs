@@ -3676,6 +3676,8 @@ mod continuation;
 mod bridge_breakables;
 #[path = "bridge_props.rs"]
 mod bridge_props;
+#[path = "bridge_repairs.rs"]
+mod bridge_repairs;
 #[path = "bridge_stations.rs"]
 mod bridge_stations;
 #[path = "bridge_usables.rs"]

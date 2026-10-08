@@ -32,9 +32,7 @@ pub fn spawn(
         targetname: keys.text("targetname"),
         target: keys.text("target"),
         target2: keys.text("target2"),
-        healing_class: keys.text("healingclass"),
-        healing_rate: keys.int("healingrate", 0),
-        healing_sound: keys.text("healingsound"),
+        healing: crate::try_heal::Healable::from_entity(entity),
     };
     let (bottom, base_model) = (
         host.model_index(b"models/map_objects/hoth/turret_bottom.md3"),

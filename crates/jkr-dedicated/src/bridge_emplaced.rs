@@ -13,19 +13,14 @@ use super::super::*;
 use jkr_game_jka::emplaced::{self, Blast, EmplacedGun, GunThink, Gunner, Used};
 use jkr_game_jka::try_heal::{Heal, try_heal};
 
-/// `WP_EMPLACED_GUN`; `GT_SIEGE`; `MOD_UNKNOWN`; `EV_GENERAL_SOUND`; `ES_SOLID`,
-/// `ES_EVENT`.
+/// `WP_EMPLACED_GUN`; `GT_SIEGE`; `MOD_UNKNOWN`; `ES_SOLID`, `ES_EVENT`.
 const WP_EMPLACED_GUN: u8 = 17;
 const GT_SIEGE: i32 = 7;
 const MOD_UNKNOWN: u32 = 0;
-const EV_GENERAL_SOUND: u32 = 76;
 const ES_SOLID: usize = 26;
 const ES_EVENT: usize = 28;
 /// `EVENT_VALID_MSEC`.
 const EVENT_VALID_MSEC: i32 = 300;
-/// `SETANIM_TORSO`, `SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD`.
-const SETANIM_TORSO: u8 = 1;
-const OVERRIDE_HOLD: u8 = 1 | 2;
 
 /// The level's guns and what their shots are credited to.
 #[derive(Default)]
@@ -334,11 +329,7 @@ impl NativeGame {
     /// repairer held in the use pose.
     fn heal_gun(&mut self, client: usize, index: usize, level_time: i32) {
         let gametype = self.gametype;
-        // `bgSiegeClasses[client->siegeClass].name`: the class the player plays.
-        let class = self
-            .siege_class_of(client)
-            .map(|class| class.name)
-            .unwrap_or_default();
+        let class = self.healer_class(client);
         let gun = &mut self.mounted.guns[index].1;
         let (mut health, max) = (gun.health, gun.max_health);
         let healed = try_heal(
@@ -361,22 +352,8 @@ impl NativeGame {
             }
         }
         if let Some(peer) = self.peer_mut(client) {
-            hold_healer_pose(peer);
+            super::super::bridge_repairs::hold_healer_pose(peer);
         }
-    }
-
-    /// `TryHeal`'s `G_Sound`: the thing's `healingsound` at `origin`.
-    pub(in crate::bridge) fn healing_sound(&mut self, sound: &[u8], origin: [f32; 3], time: i32) {
-        let index = self.sound_index_for(sound);
-        let event = jkr_game_jka::event_entity::EventEntity {
-            event: EV_GENERAL_SOUND,
-            parameter: u32::from(index),
-            origin,
-            client: None,
-            broadcast: false,
-            extra: [(0, 0); 12],
-        };
-        let _ = self.pool.spawn_temporary(event.state(), time, None);
     }
 
     /// `FireWeapon` for a gunner (`g_weapon.c:4509-4538`, `WP_FireEmplaced`): the gun it
@@ -576,20 +553,5 @@ impl NativeGame {
         self.flush_npc_blows();
         self.splash_targets = targets;
         self.mounted.solids = solids;
-    }
-}
-
-/// The pose a repair keeps its player in (`TryHeal`'s end): the use pose begun, or one
-/// already held kept 500 ms more.
-pub(in crate::bridge) fn hold_healer_pose(peer: &mut crate::peer::Peer) {
-    match jkr_game_jka::try_heal::healer_pose(peer.state.torso_animation()) {
-        Some(pose) => {
-            peer.movement
-                .set_animation_parts(SETANIM_TORSO, pose, OVERRIDE_HOLD);
-            peer.movement.write_player_state(&mut peer.state);
-        }
-        None => {
-            peer.state.set_raw_field(20, 500);
-        }
     }
 }

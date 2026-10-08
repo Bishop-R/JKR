@@ -180,6 +180,10 @@ impl NativeGame {
             }
             Some(Ok(item)) => item,
         };
+        // `G_SpawnGEntityFromSpawnVars` precaches a `healingsound`.
+        if let Some(sound) = &item.healing.sound {
+            self.sound_index_for(sound);
+        }
         let Some(id) = self.pool.spawn_entity(
             EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS),
             self.last_frame_time,
@@ -194,7 +198,7 @@ impl NativeGame {
     }
 
     /// An item's entity as clients are sent it.
-    fn publish_siege_item(&mut self, index: usize) {
+    pub(super) fn publish_siege_item(&mut self, index: usize) {
         let Some(placed) = self
             .siege
             .as_ref()

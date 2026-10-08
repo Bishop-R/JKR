@@ -36,7 +36,7 @@ const ENTITYNUM_WORLD: u16 = 1_022;
 pub(super) struct MapTurrets {
     g2: Vec<(EntityId, TurretG2)>,
     /// A `misc_turret`'s base, its top and itself.
-    misc: Vec<(EntityId, EntityId, MiscTurret)>,
+    pub(super) misc: Vec<(EntityId, EntityId, MiscTurret)>,
     /// The players' portable sentries, in the order they were set down ([`bridge_sentries`]).
     sentries: Vec<(EntityId, Sentry)>,
     /// The players' E-Webs, in the order they were set down ([`bridge_ewebs`]).
@@ -305,6 +305,10 @@ impl NativeGame {
                         self.pool.set_state(id, &half.state);
                         self.pool.set_bounds(id, (half.mins, half.maxs));
                     }
+                    // `G_SpawnGEntityFromSpawnVars` precaches a `healingsound`.
+                    if let Some(sound) = &turret.healing.sound {
+                        self.sound_index_for(sound);
+                    }
                     self.map_turrets.misc.push((base, top, turret));
                 }
                 _ => {}
@@ -554,7 +558,7 @@ impl NativeGame {
 
     /// A turret's wire state and box into the pool (both halves of a `misc_turret`); a
     /// turret `ObjectDie` freed leaves it.
-    fn publish_turret(&mut self, number: u16) {
+    pub(super) fn publish_turret(&mut self, number: u16) {
         let level_time = self.last_frame_time;
         if let Some(index) = self
             .map_turrets

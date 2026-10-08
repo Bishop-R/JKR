@@ -131,6 +131,7 @@ impl NativeGame {
         // brush it may use, or else mend (`TryHeal`).
         if self.use_usable_by_key(client, found, level_time)
             || self.use_breakable_by_key(client, found, level_time)
+            || self.repair_by_key(client, found, level_time)
         {
             return;
         }
