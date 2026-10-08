@@ -46,7 +46,7 @@ impl NativeGame {
                 let spots: Vec<[f32; 3]> = map
                     .spawn_points
                     .iter()
-                    .filter(|point| point.kind == jkr_game_jka::map::SpawnKind::Deathmatch)
+                    .filter(|point| point.deathmatch_in(GT_JEDIMASTER))
                     .map(|point| point.origin)
                     .collect();
                 if spots.is_empty() {

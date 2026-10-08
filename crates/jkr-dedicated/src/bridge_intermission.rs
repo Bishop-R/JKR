@@ -177,7 +177,13 @@ impl NativeGame {
         }
         // `SelectSpawnPoint(vec3_origin, ..., TEAM_SPECTATOR, qfalse)`: a free point away
         // from the world origin, drawn with the game's own generator.
-        select_spawn_point(&mut self.deaths.rng, points, |_| false, [0.0; 3])
-            .unwrap_or(([0.0; 3], [0.0; 3]))
+        select_spawn_point(
+            &mut self.deaths.rng,
+            points,
+            |_| false,
+            [0.0; 3],
+            self.gametype,
+        )
+        .unwrap_or(([0.0; 3], [0.0; 3]))
     }
 }

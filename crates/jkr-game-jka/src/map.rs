@@ -47,6 +47,22 @@ pub struct SpawnPoint {
     pub angles: [f32; 3],
 }
 
+/// `GT_SIEGE`.
+const GT_SIEGE: i32 = 7;
+
+impl SpawnPoint {
+    /// Whether this is an `info_player_deathmatch` once the level has spawned in
+    /// `gametype`: the map's own and its `info_player_start`s always, and outside Siege a
+    /// siege team's point as well, which `SP_info_player_siegeteam1`/`2` turns into one.
+    pub fn deathmatch_in(&self, gametype: i32) -> bool {
+        match self.kind {
+            SpawnKind::Deathmatch => true,
+            SpawnKind::Siege(_) => gametype != GT_SIEGE,
+            _ => false,
+        }
+    }
+}
+
 /// The spawn points of a map, in the order of its entity lump.
 pub fn spawn_points(entities: &[Entity]) -> Vec<SpawnPoint> {
     entities
@@ -148,16 +164,19 @@ pub fn spectator_start(points: &[SpawnPoint]) -> Option<&SpawnPoint> {
 /// `occupied`), sorted by their distance from `avoid` — where the player died, or
 /// spectated — furthest first (a point no further than one listed goes after it), one of
 /// the further half is drawn with the game's generator. With every point taken, the
-/// first deathmatch point of the map, whoever stands there. Returns where the player is
-/// placed — nine units above the point — and how it faces.
+/// first deathmatch point of the map, whoever stands there. The deathmatch points are
+/// those of the level in `gametype` ([`SpawnPoint::deathmatch_in`]). Returns where the
+/// player is placed — nine units above the point — and how it faces.
 pub fn select_spawn_point(
     rng: &mut crate::player_death::Rng,
     points: &[SpawnPoint],
     occupied: impl Fn(&SpawnPoint) -> bool,
     avoid: [f32; 3],
+    gametype: i32,
 ) -> Option<([f32; 3], [f32; 3])> {
-    furthest_free(rng, points, SpawnKind::Deathmatch, &occupied, avoid)
-        .or_else(|| first_deathmatch(points))
+    let deathmatch = |point: &SpawnPoint| point.deathmatch_in(gametype);
+    furthest_free(rng, points, &deathmatch, &occupied, avoid)
+        .or_else(|| first_deathmatch(points, gametype))
 }
 
 /// `SelectDuelSpawnPoint` (`g_client.c:803-894`) for a duel's `kind` of point
@@ -170,24 +189,26 @@ pub fn select_duel_spawn_point(
     kind: SpawnKind,
     occupied: impl Fn(&SpawnPoint) -> bool,
     avoid: [f32; 3],
+    gametype: i32,
 ) -> Option<([f32; 3], [f32; 3])> {
-    furthest_free(rng, points, kind, &occupied, avoid)
-        .or_else(|| furthest_free(rng, points, SpawnKind::Deathmatch, &occupied, avoid))
-        .or_else(|| first_deathmatch(points))
+    let deathmatch = |point: &SpawnPoint| point.deathmatch_in(gametype);
+    furthest_free(rng, points, &|point| point.kind == kind, &occupied, avoid)
+        .or_else(|| furthest_free(rng, points, &deathmatch, &occupied, avoid))
+        .or_else(|| first_deathmatch(points, gametype))
 }
 
-/// A random one of the furthest half of `kind`'s points nobody stands on, from `avoid`,
-/// raised nine units; `None` where every one is taken.
+/// A random one of the furthest half of the points of a `kind` nobody stands on, from
+/// `avoid`, raised nine units; `None` where every one is taken.
 fn furthest_free(
     rng: &mut crate::player_death::Rng,
     points: &[SpawnPoint],
-    kind: SpawnKind,
+    kind: &dyn Fn(&SpawnPoint) -> bool,
     occupied: &dyn Fn(&SpawnPoint) -> bool,
     avoid: [f32; 3],
 ) -> Option<([f32; 3], [f32; 3])> {
     const MAX_SPAWN_POINTS: usize = 128;
     let mut listed: Vec<(f32, &SpawnPoint)> = Vec::with_capacity(MAX_SPAWN_POINTS);
-    for point in points.iter().filter(|point| point.kind == kind) {
+    for point in points.iter().filter(|point| kind(point)) {
         if occupied(point) {
             continue;
         }
@@ -217,10 +238,8 @@ fn furthest_free(
 }
 
 /// Every point taken: the first deathmatch point, raised nine units.
-fn first_deathmatch(points: &[SpawnPoint]) -> Option<([f32; 3], [f32; 3])> {
-    let chosen = points
-        .iter()
-        .find(|point| point.kind == SpawnKind::Deathmatch)?;
+fn first_deathmatch(points: &[SpawnPoint], gametype: i32) -> Option<([f32; 3], [f32; 3])> {
+    let chosen = points.iter().find(|point| point.deathmatch_in(gametype))?;
     Some((
         [chosen.origin[0], chosen.origin[1], chosen.origin[2] + 9.0],
         chosen.angles,
@@ -233,6 +252,35 @@ mod tests {
 
     fn entities(text: &str) -> Vec<Entity> {
         jkr_entity::parse_entity_lump(text.as_bytes()).unwrap()
+    }
+
+    /// `SP_info_player_siegeteam1`/`2`: outside Siege a siege team's point is a deathmatch
+    /// point, so a free-for-all on a siege map spawns players all over it rather than on
+    /// its lone `info_player_start`.
+    #[test]
+    fn siege_points_are_deathmatch_points_outside_siege() {
+        let points = spawn_points(&entities(
+            "{\n\"classname\" \"info_player_start\"\n\"origin\" \"0 0 0\"\n}\n\
+             {\n\"classname\" \"info_player_siegeteam1\"\n\"origin\" \"100 0 0\"\n}\n\
+             {\n\"classname\" \"info_player_siegeteam2\"\n\"origin\" \"200 0 0\"\n}",
+        ));
+        let deathmatch = |gametype| {
+            points
+                .iter()
+                .filter(|point| point.deathmatch_in(gametype))
+                .count()
+        };
+        assert_eq!(
+            (deathmatch(0), deathmatch(6), deathmatch(GT_SIEGE)),
+            (3, 3, 1)
+        );
+        // The lone start taken, a free-for-all player goes to a siege point.
+        let mut rng = crate::player_death::Rng(1);
+        let taken = |point: &SpawnPoint| point.origin == [0.0; 3];
+        let (origin, _) = select_spawn_point(&mut rng, &points, taken, [0.0; 3], 0).unwrap();
+        assert_eq!(origin, [200.0, 0.0, 9.0]);
+        let (origin, _) = select_spawn_point(&mut rng, &points, taken, [0.0; 3], GT_SIEGE).unwrap();
+        assert_eq!(origin, [0.0, 0.0, 9.0]);
     }
 
     /// `FindIntermissionPoint`: a camera with a target the level keeps looks at it — the

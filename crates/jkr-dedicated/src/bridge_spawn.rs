@@ -52,8 +52,8 @@ pub(super) fn spawn_place(
         .iter()
         .find(|point| point.kind == SpawnKind::Intermission(None));
     // Siege maps place `info_player_siegeteam1`/`2` and (almost) no deathmatch points, so
-    // a siege server puts a player on a team's own; anything else uses the free points.
-    // A siege map that somehow has neither falls back to whatever it does have.
+    // a siege server puts a player on a team's own; anything else uses the deathmatch
+    // points, which outside Siege the siege teams' points are too.
     let siege = gametype == GAMETYPE_SIEGE
         && points
             .iter()
@@ -63,7 +63,7 @@ pub(super) fn spawn_place(
             if siege {
                 matches!(point.kind, SpawnKind::Siege(_))
             } else {
-                point.kind == SpawnKind::Deathmatch
+                point.deathmatch_in(gametype)
             }
         })
     };
@@ -110,7 +110,7 @@ pub(super) fn spawn_place(
                 (_, jkr_game_jka::power_duel::DUELTEAM_DOUBLE) => SpawnKind::Duel(2),
                 _ => SpawnKind::Deathmatch,
             };
-            jkr_game_jka::map::select_duel_spawn_point(rng, points, kind, occupied, avoid)
+            jkr_game_jka::map::select_duel_spawn_point(rng, points, kind, occupied, avoid, gametype)
                 .unwrap_or(([0.0; 3], [0.0; 3]))
         }
         (playing, _, _) => select_spawn_point(
@@ -118,6 +118,7 @@ pub(super) fn spawn_place(
             points,
             occupied,
             if playing { avoid } else { [0.0; 3] },
+            gametype,
         )
         .unwrap_or(([0.0; 3], [0.0; 3])),
     };
