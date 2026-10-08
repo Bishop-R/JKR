@@ -235,11 +235,13 @@ impl NativeGame {
         // `ClientThink_real`'s stance upkeep (`g_active.c:1914-1993`): the style the
         // sabers held allow.
         let restrict_force = self.cvars.integer(b"g_saberRestrictForce") != 0;
+        let class_stances = self.class_stances(client);
         if let Some(peer) = self.peer_mut(client) {
             jkr_game_jka::saber_stance::upkeep_player(
                 &mut peer.state,
                 &mut peer.movement,
                 &peer.sabers.hands,
+                class_stances,
             );
             // The powers the sabers forbid (`WP_ForcePowerUsable`), as they stand now.
             peer.force.saber_restrictions = peer.sabers.force_restrictions(restrict_force);

@@ -253,6 +253,11 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     /// `AI_GetGroup` (`NPC_AI_Utils.c:399-500`) for the NPC at `me`.
     pub fn get_group(&mut self, me: usize) {
         let level_time = self.level_time;
+        // `d_noGroupAI`.
+        if self.host.npc_switches().no_group_ai {
+            self.actors[me].mind.tactics.group = None;
+            return;
+        }
         let npc = &self.actors[me];
         if npc.script_flags & SCF_NO_GROUPS != 0 {
             self.actors[me].mind.tactics.group = None;
@@ -571,6 +576,10 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     /// `AI_UpdateGroups` (`NPC_AI_Utils.c:935-950`): every group refreshed, the empty and
     /// merged ones cleared. The start of every frame.
     pub fn update_groups(&mut self) {
+        // `d_noGroupAI`: the groups are left as they are.
+        if self.host.npc_switches().no_group_ai {
+            return;
+        }
         for group in 0..MAX_FRAME_GROUPS {
             if self.level.groups[group].is_empty() || !self.refresh_group(group) {
                 self.level.groups[group].clear();

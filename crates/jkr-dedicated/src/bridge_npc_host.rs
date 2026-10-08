@@ -159,8 +159,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) legacy_fixes: u32,
     /// `g_smoothClients`.
     pub(super) smooth_clients: bool,
-    /// `d_npcfreeze`.
-    pub(super) npc_freeze: bool,
+    /// `d_npcfreeze`, `d_noGroupAI`, `d_asynchronousGroupAI`.
+    pub(super) npc_switches: jkr_game_jka::npc_spawn::NpcSwitches,
     /// `g_dismember` and the clients with heavy melee ([`dismember`]).
     pub(super) limbs: dismember::LimbRules,
 }
@@ -1212,8 +1212,8 @@ impl NpcHost for ServerHost<'_> {
         self.smooth_clients
     }
 
-    fn npc_freeze(&self) -> bool {
-        self.npc_freeze
+    fn npc_switches(&self) -> jkr_game_jka::npc_spawn::NpcSwitches {
+        self.npc_switches
     }
 
     fn gunner(&mut self, number: u16) -> Option<jkr_game_jka::vehicle_turrets::Gunner> {

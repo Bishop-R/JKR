@@ -72,6 +72,9 @@ impl NativeGame {
         let gametype = self.gametype;
         let lengths = self.map.as_ref().and_then(|map| map.animations.clone());
         let empty = jkr_game_jka::AnimationLengthTable::new([]);
+        let class_stances = self.class_stances(client);
+        let stance_debug = self.cvars.integer(b"d_saberStanceDebug") != 0;
+        let mut stance_line = None;
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -92,15 +95,16 @@ impl NativeGame {
                     .force
                     .as_ref()
                     .map_or(0, |force| force.levels[FP_SABER_OFFENSE]);
-                jkr_game_jka::saber_stance::attack_cycle(
+                let cycled = jkr_game_jka::saber_stance::attack_cycle(
                     &mut peer.state,
                     &peer.sabers.hands,
-                    offense,
+                    (offense, class_stances),
                     &mut peer.saber.cycle_queue,
                     &mut base,
                     &mut sounds,
                 );
                 peer.movement.set_saber_anim_level_base(base);
+                stance_line = cycled.debug_line().filter(|_| stance_debug);
             }
             GENCMD_TAUNT..=GENCMD_GLOAT => {
                 channel = CHAN_WEAPON;
@@ -125,6 +129,11 @@ impl NativeGame {
             peer.entity.event_raised(level_time);
         }
         peer.movement = peer.movement.reseeded(&peer.state);
+        // `d_saberStanceDebug`: the way the cycle went, to the player.
+        if let Some(line) = stance_line {
+            let print = format!("print \"{line}\n\"").into_bytes();
+            self.told.push(super::Told::One(client, print));
+        }
         let Some(hands) = self.peer(client).map(saber_sound_hands) else {
             return;
         };

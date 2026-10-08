@@ -93,7 +93,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         // "see if NPC ai is frozen" (`NPC.c:1802-1810`): with `d_npcfreeze` or an ICARUS
         // freeze it only turns, and moves with an empty command.
         let frozen = npc.server_flags & crate::script_entity::SVF_ICARUS_FREEZE != 0;
-        if frozen || self.host.npc_freeze() {
+        if frozen || self.host.npc_switches().freeze {
             let mut command = UserCommand::default();
             self.update_angles(me, true, true, &mut command);
             self.client_think(me, command);

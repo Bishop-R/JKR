@@ -229,6 +229,18 @@ impl NpcActor {
     }
 }
 
+/// The NPCs' developer switches, all cheats and off by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NpcSwitches {
+    /// `d_npcfreeze`: every NPC only turns and stands.
+    pub freeze: bool,
+    /// `d_noGroupAI`: no NPC joins a squad (`AI_GetGroup`, `AI_UpdateGroups`).
+    pub no_group_ai: bool,
+    /// `d_asynchronousGroupAI`: a squad's commander orders one member a turn
+    /// (`ST_Commander`).
+    pub asynchronous_group_ai: bool,
+}
+
 /// What the spawn needs of the world it spawns into: entity numbers, the tables clients
 /// are told, the models the game data has, traces, and who is in a box.
 pub trait NpcHost: SaberParseHost {
@@ -732,9 +744,9 @@ pub trait NpcHost: SaberParseHost {
     fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
         crate::saber_damage::SaberSettings::default()
     }
-    /// `d_npcfreeze` (a cheat): every NPC only turns and stands. Off by default.
-    fn npc_freeze(&self) -> bool {
-        false
+    /// The NPCs' developer switches ([`NpcSwitches`]), all off by default.
+    fn npc_switches(&self) -> NpcSwitches {
+        NpcSwitches::default()
     }
     /// `g_smoothClients`: an NPC's entity is extrapolated from its command time. On by
     /// default, as stock.

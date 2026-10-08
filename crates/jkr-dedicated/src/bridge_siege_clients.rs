@@ -50,6 +50,22 @@ impl NativeGame {
         class
     }
 
+    /// `bgSiegeClasses[client->siegeClass].saberStance`: the styles the siege class
+    /// `client` plays allows, one bit each; 0 for a class that leaves them to the sabers,
+    /// for no class, or outside siege.
+    pub(super) fn class_stances(&self, client: usize) -> i32 {
+        if self.gametype != GAMETYPE_SIEGE {
+            return 0;
+        }
+        let Some(siege) = self.siege.as_ref() else {
+            return 0;
+        };
+        self.peer(client)
+            .and_then(|peer| peer.siege_class_index)
+            .and_then(|index| siege.registry.classes.get(index))
+            .map_or(0, |class| class.saber_stance)
+    }
+
     /// `ClientUserinfoChanged` with the userinfo the player already has: its string told
     /// again, as `SetTeamQuick` and `Cmd_SiegeClass_f` call it.
     pub(super) fn siege_userinfo_changed(&mut self, client: usize) {

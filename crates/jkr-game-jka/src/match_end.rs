@@ -108,6 +108,8 @@ pub struct Contender {
     /// `iAmALoser`: a power duellist dead this round and waiting in line, still counted
     /// as playing (`CalculateRanks`).
     pub loser: bool,
+    /// `sess.wins`: the duels it has won this tournament.
+    pub wins: i32,
 }
 
 /// The server's limits, read fresh every frame as the reference reads its cvars.
@@ -173,8 +175,29 @@ pub enum Announce {
     ClientKillLimit(usize),
     /// The two prints a capture limit sends: the team's name, then the limit.
     CaptureLimit(i32),
+    /// `print "<name>^7 hit the win limit.\n"` for the client whose duel wins reached
+    /// `duel_fraglimit`.
+    WinLimit(usize),
     /// A duel whose limit is one prints nothing (`printLimit` stays false).
     Silent,
+}
+
+impl Ending {
+    /// `d_powerDuelPrint`'s name for the limit that ended the match
+    /// (`POWERDUEL WIN CONDITION: ...`, `g_main.c:2010-2200`), for the limits that have
+    /// one: the time, a team's or a client's kills, a duellist's wins.
+    pub fn power_duel_condition(&self) -> Option<&'static str> {
+        match self.announce {
+            Announce::TimeLimit => Some("Timelimit hit (1)"),
+            Announce::TeamKillLimit(TEAM_RED) => Some("Kill limit (1)"),
+            Announce::TeamKillLimit(_) => Some("Kill limit (2)"),
+            Announce::WinLimit(_) => Some("Duel limit hit (1)"),
+            Announce::ClientKillLimit(_) => Some("Kill limit (3)"),
+            // A duel whose limit is one names nobody; "Powerduel ended." prints nothing.
+            Announce::Silent if self.reason.is_empty() => Some("Kill limit (3)"),
+            Announce::Silent | Announce::MercyRule(_) | Announce::CaptureLimit(_) => None,
+        }
+    }
 }
 
 /// What [`check_exit_rules`] did with this frame.
@@ -331,15 +354,33 @@ pub fn check_exit_rules(
                 }
             }
         }
-        // The reference walks the client slots, so where two players cross the limit in
-        // the same frame it is the lower client number that is named — not the higher
-        // score. `contenders` is sorted best-first, so the slot order is found rather
-        // than assumed, and without a second list.
+        // The reference walks the client slots, so where two players cross a limit in the
+        // same frame it is the lower client number that is named — not the higher score.
+        // `contenders` is sorted best-first, so the slot order is found rather than
+        // assumed, and without a second list. A duellist's wins are looked at before its
+        // score: `duel_fraglimit` lowered under someone's wins, or a power duel down to
+        // two, ends the tournament here.
+        let win_limit =
+            |c: &Contender| duel && limits.duel_fraglimit != 0 && c.wins >= limits.duel_fraglimit;
         let first = contenders
             .iter()
-            .filter(|c| c.connected && c.team == TEAM_FREE && c.score >= limits.fraglimit)
+            .filter(|c| {
+                c.connected && c.team == TEAM_FREE && (win_limit(c) || c.score >= limits.fraglimit)
+            })
             .min_by_key(|c| c.client);
         if let Some(contender) = first {
+            if win_limit(contender) {
+                state.duel_exit = true;
+                return log_exit(
+                    state,
+                    level_time,
+                    Ending {
+                        reason: "Duel limit hit.",
+                        announce: Announce::WinLimit(contender.client),
+                    },
+                );
+            }
+            state.duel_exit = false;
             let announce = if kill_limit.is_empty() {
                 Announce::Silent
             } else {
@@ -502,7 +543,42 @@ mod tests {
             bot: false,
             ready: false,
             loser: false,
+            wins: 0,
         }
+    }
+
+    /// `CheckExitRules`' client walk (`g_main.c:2175-2210`): in a duel, a duellist whose
+    /// wins have reached `duel_fraglimit` (say it was lowered under them) ends the
+    /// tournament before any score is looked at, and is named as the one at the limit.
+    #[test]
+    fn a_duellist_at_the_win_limit_ends_the_tournament() {
+        let limits = Limits {
+            gametype: GT_DUEL,
+            duel_fraglimit: 2,
+            ..Limits::default()
+        };
+        let mut players = [player(0, TEAM_FREE), player(1, TEAM_FREE)];
+        players[0].score = 25;
+        players[1].wins = 3;
+        let mut state = MatchEnd::default();
+        let ended = check_exit_rules(&limits, &players, [0, 0], 1_000, 0, &mut state);
+        let ExitStep::Logged(ending) = ended else {
+            panic!("the tournament goes on: {ended:?}");
+        };
+        // The lower slot comes first: its score is over the frag limit.
+        assert_eq!(ending.reason, "Kill limit hit.");
+        assert_eq!(ending.power_duel_condition(), Some("Kill limit (3)"));
+        // A tie is never ended by a limit: the second scores once.
+        (players[0].score, players[1].score) = (0, 1);
+        let mut state = MatchEnd::default();
+        let ended = check_exit_rules(&limits, &players, [0, 0], 1_000, 0, &mut state);
+        let ExitStep::Logged(ending) = ended else {
+            panic!("the tournament goes on: {ended:?}");
+        };
+        assert_eq!(ending.reason, "Duel limit hit.");
+        assert_eq!(ending.announce, Announce::WinLimit(1));
+        assert_eq!(ending.power_duel_condition(), Some("Duel limit hit (1)"));
+        assert!(state.duel_exit);
     }
 
     /// jaPRO's `g_mercyRule`: past half of 20, a lead of more than half of 20 ends it.

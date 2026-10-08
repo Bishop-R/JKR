@@ -165,7 +165,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         let npc = &mut self.actors[me];
         let mut base = npc.movement.state().saber_anim_level_base;
-        crate::saber_stance::upkeep(&mut npc.player, &npc.definition.sabers, &mut base);
+        crate::saber_stance::upkeep(&mut npc.player, &npc.definition.sabers, &mut base, 0);
         npc.movement.set_saber_anim_level_base(base);
         let command_time = npc.player.command_time();
         let command = &mut npc.mind.command;

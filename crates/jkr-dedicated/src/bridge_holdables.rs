@@ -177,6 +177,8 @@ impl NativeGame {
 
     /// `ItemUse_*` for `tag` by `client`.
     fn use_item(&mut self, client: usize, tag: i32, level_time: i32) {
+        let seeker_npc =
+            self.gametype == GAMETYPE_SIEGE && self.cvars.integer(b"d_siegeSeekerNPC") != 0;
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -215,8 +217,8 @@ impl NativeGame {
                 }
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
+            HI_SEEKER if seeker_npc => self.spawn_seeker_remote(client, level_time),
             HI_SEEKER => {
-                // Siege's `d_siegeSeekerNPC` (a remote NPC) is off by default: the drone.
                 let flags = peer.state.raw_field(PS_EFLAGS).unwrap_or(0);
                 peer.state.set_raw_field(PS_EFLAGS, flags | EF_SEEKERDRONE);
                 peer.gear.drone_exist = (level_time + 30_000) as f32;

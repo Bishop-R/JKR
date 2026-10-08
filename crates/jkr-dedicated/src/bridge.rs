@@ -1467,6 +1467,11 @@ impl NativeGame {
         match step {
             ExitStep::Playing => {}
             ExitStep::Logged(ending) => {
+                if self.cvars.integer(b"d_powerDuelPrint") != 0
+                    && let Some(condition) = ending.power_duel_condition()
+                {
+                    println!("POWERDUEL WIN CONDITION: {condition}");
+                }
                 self.log_exit(ending.reason);
                 // `LogExit` tells every client at once, a second before the scoreboard,
                 // so that they can stop the sounds the intermission would cut off.

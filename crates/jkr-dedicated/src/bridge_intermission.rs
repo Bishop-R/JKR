@@ -55,6 +55,12 @@ impl NativeGame {
                     .concat(),
                 ]
             }
+            Announce::WinLimit(client) => {
+                let name = self
+                    .peer(client)
+                    .map_or_else(Vec::new, |peer| peer.name.clone());
+                vec![[b"print \"".as_slice(), &name, b"^7 hit the win limit.\n\""].concat()]
+            }
             // Two prints, as the reference sends them: the team's name, then the limit.
             Announce::CaptureLimit(team) => vec![
                 format!(

@@ -24,6 +24,7 @@ impl NativeGame {
                 bot: peer.bot,
                 ready: peer.ready_to_exit,
                 loser: peer.loser,
+                wins: peer.session.wins,
             });
         }
         into.sort_by(|left, right| {

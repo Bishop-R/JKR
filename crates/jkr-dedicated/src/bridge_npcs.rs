@@ -334,6 +334,29 @@ impl NativeGame {
         true
     }
 
+    /// `ItemUse_Seeker` in siege under `d_siegeSeekerNPC` (a cheat, `g_items.c:1133-1155`):
+    /// the player's remote NPC ([`jkr_game_jka::npc_roster::NpcRoster::use_seeker`]) where
+    /// `npc spawn` puts one, instead of the drone.
+    pub(super) fn spawn_seeker_remote(&mut self, client: usize, level_time: i32) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let (origin, view, team) = (
+            peer.state.origin(),
+            peer.state.view_angles(),
+            peer.session.team,
+        );
+        let place = self.command_place(origin, view);
+        let fired = self
+            .with_roster(|roster, files, host| {
+                roster
+                    .use_seeker(client as u16, team, place, level_time, files, host)
+                    .0
+            })
+            .unwrap_or_default();
+        self.fire_from_npcs(fired, level_time);
+    }
+
     /// Where `npc spawn` puts its NPC for a player at `origin` looking along `view`: point
     /// traces through the world alone (`MASK_SOLID`, `NPC_spawn.c:3990-3997`).
     fn command_place(&self, origin: [f32; 3], view: [f32; 3]) -> CommandPlace {
@@ -459,7 +482,11 @@ impl NativeGame {
         let (saber, damage, legacy_fixes) =
             (self.saber_settings, self.damage_rules, self.legacy_fixes);
         let smooth_clients = self.smooth_clients;
-        let npc_freeze = self.cvars.value(b"d_npcfreeze") != 0.0;
+        let npc_switches = jkr_game_jka::npc_spawn::NpcSwitches {
+            freeze: self.cvars.value(b"d_npcfreeze") != 0.0,
+            no_group_ai: self.cvars.integer(b"d_noGroupAI") != 0,
+            asynchronous_group_ai: self.cvars.integer(b"d_asynchronousGroupAI") != 0,
+        };
         let gravity = self.gravity();
         let clients = self.gather_sights();
         let jedi_master = self.jedi_masters(None).and_then(|masters| masters.master);
@@ -557,7 +584,7 @@ impl NativeGame {
             damage,
             legacy_fixes,
             smooth_clients,
-            npc_freeze,
+            npc_switches,
             limbs,
         }
     }
