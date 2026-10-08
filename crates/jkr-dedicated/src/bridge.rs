@@ -2003,6 +2003,7 @@ impl NativeGame {
             raise: &mut |event| {
                 let _ = pool.spawn_temporary(event.state(), level_time, None);
             },
+            struck: &|_| jkr_game_jka::mines::Struck::Bounce,
         };
         if det_pack && alternate {
             let mut rng = self.deaths.rng;
@@ -2156,6 +2157,11 @@ impl NativeGame {
                     }
                 }
             }
+            // What it may run into, sorted before the frame borrows the pool.
+            let struck: Vec<(u16, jkr_game_jka::mines::Struck)> = own
+                .iter()
+                .map(|obstacle| (obstacle.entity, self.charge_struck(obstacle.entity)))
+                .collect();
             let Self {
                 sounds,
                 told,
@@ -2175,6 +2181,12 @@ impl NativeGame {
                 },
                 raise: &mut |event| {
                     let _ = pool.spawn_temporary(event.state(), server_time, None);
+                },
+                struck: &|number| {
+                    struck
+                        .iter()
+                        .find(|(entity, _)| *entity == number)
+                        .map_or(jkr_game_jka::mines::Struck::Bounce, |(_, kind)| *kind)
                 },
             };
             let run = match map {
@@ -2243,6 +2255,16 @@ impl NativeGame {
             };
             let (request, radius) =
                 jkr_game_jka::mines::blast_request(&charge, server_time, attacker);
+            // `DetPackBlow`: one stuck to a breakable brush hits it directly first.
+            if let Some(brush) = charge.attached {
+                let _ = self.hurt_brush(
+                    brush,
+                    charge.missile.damage,
+                    charge.missile.method_of_death,
+                    charge.missile.owner,
+                    server_time,
+                );
+            }
             self.gather_splash_targets();
             let mut targets = std::mem::take(&mut self.splash_targets);
             targets.extend(charges.iter().filter(|(other, _)| *other != id).map(
