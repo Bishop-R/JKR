@@ -62,6 +62,18 @@ impl NativeGame {
         for line in game_log::init_game(&self.status_info.clone()) {
             self.log(&line);
         }
+        // `G_InitGame` (`g_main.c:372-375`): a duel's level — every round of it, each a
+        // restart — says what ends the tournament.
+        if matches!(
+            self.gametype,
+            super::GAMETYPE_DUEL | super::GAMETYPE_POWERDUEL
+        ) {
+            let (kills, wins) = (
+                self.cvars.integer(b"fraglimit"),
+                self.cvars.integer(b"duel_fraglimit"),
+            );
+            self.log(&game_log::duel_tournament_begun(kills, wins));
+        }
         // `g_securityLog` 1 or 2 (appended, flushed or not: every line is written at once).
         self.security_file = None;
         if self.cvars.integer(b"g_securityLog") == 0 {

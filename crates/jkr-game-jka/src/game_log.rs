@@ -117,6 +117,10 @@ pub fn client_connect(who: Who) -> String {
 pub fn item(client: usize, classname: &str) -> String {
     format!("Item: {client} {classname}\n")
 }
+/// `G_InitGame`'s line for a duel's level: the kill and win limits.
+pub fn duel_tournament_begun(kill_limit: i32, win_limit: i32) -> String {
+    format!("Duel Tournament Begun: kill limit {kill_limit}, win limit: {win_limit}\n")
+}
 /// `ClientBegin`'s line.
 pub fn client_begin(client: usize) -> String {
     format!("ClientBegin: {client}\n")
