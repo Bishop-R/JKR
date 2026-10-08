@@ -195,8 +195,6 @@ pub struct NativeGame {
     /// The siege level being played (`bridge_siege.rs`), and what outlives it.
     siege: Option<Box<bridge_siege::SiegeState>>,
     siege_keep: bridge_siege::SiegeKeep,
-    /// The `func_usable` entities the map placed.
-    usable_entities: Vec<(EntityId, jkr_game_jka::use_key::Usable)>,
     /// `g_gametype`, which decides which of the map's spawn points are used.
     gametype: i32,
     /// `level.intermissionQueued`, `level.intermissiontime` and the two ready timers:
@@ -485,7 +483,6 @@ impl NativeGame {
             spawn_order: SpawnOrder::default(),
             siege: None,
             siege_keep: Default::default(),
-            usable_entities: Vec::new(),
             gametype: GAMETYPE_FFA,
             match_end: Default::default(),
             limits: Default::default(),
@@ -777,9 +774,9 @@ impl NativeGame {
         self.map = Some(map);
     }
 
-    /// A shot that landed on a breakable brush (`G_Damage` for a non-client entity, which
-    /// is the one thing on this server that is neither a player nor a missile). Returns
-    /// whether it was one of ours at all, so the caller can fall back to a player.
+    /// A shot that landed on a pane of glass, a usable or a breakable brush (`G_Damage`
+    /// for a non-client entity). Returns whether it was one of ours at all, so the caller
+    /// can fall back to a player.
     fn hurt_brush(
         &mut self,
         number: u16,
@@ -794,9 +791,12 @@ impl NativeGame {
                 || self
                     .breakables
                     .iter()
-                    .any(|(ours, _)| ours.legacy_number() == number);
+                    .any(|(ours, _)| ours.legacy_number() == number)
+                || self.stock.usables.position(number).is_some();
         }
-        if self.hurt_glass(number, damage, means, owner, level_time) {
+        if self.hurt_glass(number, damage, means, owner, level_time)
+            || self.strike_usable(number, usize::from(owner), level_time)
+        {
             return true;
         }
         let from = self
@@ -3926,6 +3926,8 @@ mod continuation;
 mod bridge_props;
 #[path = "bridge_stations.rs"]
 mod bridge_stations;
+#[path = "bridge_usables.rs"]
+mod bridge_usables;
 
 #[path = "bridge_target_actions.rs"]
 mod bridge_target_actions;

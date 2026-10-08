@@ -141,7 +141,9 @@ impl NativeGame {
                         .find(|(_, brush)| brush.model == model)
                         .map(|(number, _)| number.legacy_number());
                     breakable.or_else(|| {
-                        self.usable_entities
+                        self.stock
+                            .usables
+                            .placed
                             .iter()
                             .find(|(_, usable)| usable.model == model)
                             .map(|(number, _)| number.legacy_number())

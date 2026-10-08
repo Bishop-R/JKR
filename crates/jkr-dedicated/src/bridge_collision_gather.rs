@@ -192,6 +192,7 @@ impl NativeGame {
         map_turrets.add_splash_targets(splash_targets);
         splash_targets.extend(mounted.splash_targets());
         splash_targets.extend(self.stock.shields.splash_targets());
+        splash_targets.extend(self.stock.usables.splash_targets());
         splash_targets.extend(Self::corpse_splash_targets(
             &self.pool,
             &self.corpses,

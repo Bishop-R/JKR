@@ -270,6 +270,7 @@ pub mod siege_items;
 pub mod siege_map;
 pub mod siege_text;
 pub mod siege_triggers;
+pub mod usables;
 pub mod use_key;
 
 pub mod intermission;

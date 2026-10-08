@@ -47,24 +47,6 @@ pub(super) fn hold_use_pose(peer: &mut crate::peer::Peer, console_too: bool) {
 }
 
 impl NativeGame {
-    /// The `func_usable` brushes a map places, as the entities the use key reaches for.
-    /// One that starts off is spawned all the same but carries nothing a client draws or
-    /// a trace meets, which is what `SVF_NOCLIENT` and `EF_NODRAW` are for.
-    pub(super) fn spawn_usables(&mut self) {
-        let Some(map) = self.map.take() else { return };
-        for usable in &map.usables {
-            let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
-            state.set_raw_field(ES_ENTITY_TYPE, jkr_game_jka::movers::ET_MOVER);
-            jkr_game_jka::triggers::set_brush_model(&mut state, usable.model);
-            state.set_raw_field(ES_EFLAGS, usable.eflags);
-            if let Some(number) = self.pool.spawn_entity(state, 0) {
-                self.pool.set_bounds(number, usable.bounds);
-                self.usable_entities.push((number, usable.clone()));
-            }
-        }
-        self.map = Some(map);
-    }
-
     /// `ClientThink_real`'s use key: held, `TryUse` every 100 ms.
     pub(super) fn try_use(&mut self, client: usize, level_time: i32) {
         let Some(peer) = self.peer_mut(client) else {
@@ -145,16 +127,8 @@ impl NativeGame {
             }
             return;
         }
-        // A `func_usable` fires what it targets (`func_usable_use`).
-        if let Some((_, usable)) = self
-            .usable_entities
-            .iter()
-            .find(|(number, _)| number.legacy_number() == found)
-            .cloned()
-        {
-            if !usable.target.is_empty() {
-                self.fire_targets(&usable.target, client, level_time);
-            }
+        // A `func_usable` the key may use (`ValidUseTarget`, `GlobalUse`).
+        if self.use_usable_by_key(client, found, level_time) {
             return;
         }
         self.jetpack_by_use_key(client, level_time);

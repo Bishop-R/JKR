@@ -334,7 +334,9 @@ impl NativeGame {
                     {
                         (true, brush.takes_damage, brush.health, brush.bounds)
                     } else if let Some((_, usable)) = self
-                        .usable_entities
+                        .stock
+                        .usables
+                        .placed
                         .iter()
                         .find(|(_, usable)| usable.model == model)
                     {

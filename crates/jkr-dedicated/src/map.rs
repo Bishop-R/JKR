@@ -52,8 +52,6 @@ pub struct LoadedMap {
     /// Each siege objective's chain (`CalculateSiegeGoals`): its side and, where something
     /// sets it off, the chain's end as the map places it.
     pub siege_chains: Vec<SiegeChain>,
-    /// The `func_usable` brushes it places, which a player's use key fires.
-    pub usables: Vec<jkr_game_jka::use_key::Usable>,
     /// The breakable brushes it places, with the bounds of the brush models they are.
     pub breakables: Vec<jkr_game_jka::breakables::Breakable>,
     /// The binary movers it places — `func_door` and `func_plat` — with the bounds of
@@ -262,20 +260,6 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
             })
             .collect();
     }
-    // The brushes a player's use key fires.
-    let mut usables = Vec::new();
-    for entity in &entities {
-        let model = entity
-            .get("model")
-            .and_then(|name| name.strip_prefix('*'))
-            .and_then(|index| index.parse::<usize>().ok());
-        let bounds = model.and_then(|index| brush_bounds(&bsp, index));
-        if let Some(bounds) = bounds
-            && let Some(usable) = jkr_game_jka::use_key::spawn_usable(entity, bounds)
-        {
-            usables.push(usable);
-        }
-    }
     // The brushes it puts there to be broken: crates, glass, stone.
     let mut breakables = Vec::new();
     for entity in &entities {
@@ -345,7 +329,6 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
         breakables,
         siege,
         siege_chains,
-        usables,
         locations,
         config_strings: table.into_iter().collect(),
         world,

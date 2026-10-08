@@ -49,6 +49,13 @@ impl NativeGame {
                 glass_or_mover: true,
             };
         }
+        if let Some(usable) = self.stock.usables.get(number) {
+            return ShotTarget {
+                client: false,
+                takes_damage: usable.takes_damage,
+                glass_or_mover: true,
+            };
+        }
         if let Some(slot) = self.corpse_slot(number) {
             return ShotTarget {
                 client: false,

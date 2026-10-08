@@ -90,7 +90,6 @@ impl NativeGame {
         self.targets.clear();
         self.doors.clear();
         self.breakables.clear();
-        self.usable_entities.clear();
         self.map_effects.forget_entities();
         self.map_turrets.forget_entities();
         self.worldspawn_cvars();

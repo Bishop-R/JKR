@@ -189,8 +189,8 @@ impl NativeGame {
     }
 
     /// `G_PrecacheSoundsets`' `s.soundSetIndex` on the brushes this server spawns from
-    /// other modules: the doors, lifts, buttons and breakable brushes whose map entity
-    /// names a soundset.
+    /// other modules: the doors, lifts, buttons, breakable and usable brushes whose map
+    /// entity names a soundset.
     fn stamp_sound_sets(&mut self, entities: &[jkr_entity::Entity]) {
         let set_of = |model: usize| {
             let name = format!("*{model}");
@@ -203,7 +203,14 @@ impl NativeGame {
             .doors
             .iter()
             .map(|(id, door)| (*id, door.model))
-            .chain(self.breakables.iter().map(|(id, brush)| (*id, brush.model)));
+            .chain(self.breakables.iter().map(|(id, brush)| (*id, brush.model)))
+            .chain(
+                self.stock
+                    .usables
+                    .placed
+                    .iter()
+                    .map(|(id, usable)| (*id, usable.model)),
+            );
         let stamps: Vec<(EntityId, u16)> = brushes
             .filter_map(|(id, model)| {
                 Some((

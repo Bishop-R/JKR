@@ -60,6 +60,8 @@ pub(super) struct StockEntities {
     pub(super) stations: super::bridge_stations::Stations,
     /// The map's model props (`misc_model_breakable`).
     pub(super) props: super::bridge_props::Props,
+    /// The map's `func_usable` brushes.
+    pub(super) usables: super::bridge_usables::Usables,
 }
 
 impl StockEntities {
@@ -71,6 +73,7 @@ impl StockEntities {
             .chain(self.shields.obstacles())
             .chain(self.stations.obstacles())
             .chain(self.props.obstacles())
+            .chain(self.usables.obstacles())
     }
 }
 
@@ -99,6 +102,7 @@ impl NativeGame {
         self.run_scenery(level_time);
         self.run_shields(level_time);
         self.run_stations(level_time);
+        self.run_usables(level_time);
     }
 
     /// `G_UseTargets` reaching the logic entities and path movers called `name`.
@@ -108,6 +112,7 @@ impl NativeGame {
         self.use_glass(name, client, level_time);
         self.use_breakables(name, client, level_time);
         self.use_named_stations(name, client, level_time);
+        self.use_usables(name, client, level_time);
     }
 
     /// Every logic entity the map places in this game type, and the list of named
@@ -214,6 +219,7 @@ impl NativeGame {
         {
             logic.inactive = !active;
         }
+        self.set_usables_active(name, active);
     }
 
     /// `GlobalUse` of logic entity `index` for `activator`.

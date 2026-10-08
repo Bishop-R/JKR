@@ -137,7 +137,7 @@ pub(crate) struct ServerHost<'a> {
     pub(super) doors: &'a [(EntityId, jkr_game_jka::movers::Door)],
     pub(super) multiples: &'a [jkr_game_jka::triggers::Multiple],
     pub(super) breakables: &'a [(EntityId, jkr_game_jka::breakables::Breakable)],
-    pub(super) usables: &'a [(EntityId, jkr_game_jka::use_key::Usable)],
+    pub(super) usables: &'a [(EntityId, jkr_game_jka::usables::Usable)],
     /// The game's `rand()`, which a missile an NPC's push turns back reads; the dropped
     /// items a pull's torn-away weapons join.
     pub(super) crt: &'a mut CrtRand,
@@ -288,7 +288,7 @@ impl NpcHost for ServerHost<'_> {
         let removable = self.usables.iter().any(|(known, usable)| {
             known.legacy_number() == number
                 && usable.eflags & EF_SHADER_ANIM == 0
-                && usable.spawnflags & jkr_game_jka::use_key::USABLE_ALWAYS_ON == 0
+                && usable.spawnflags & jkr_game_jka::usables::ALWAYS_ON == 0
                 && !usable.targetname.is_empty()
         });
         if removable {

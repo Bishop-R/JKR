@@ -127,6 +127,7 @@ impl NativeGame {
         if self.turret_spares(target, owner)
             || u16::try_from(target).is_ok_and(|target| {
                 self.strike_turret(target, request)
+                    || self.strike_usable(target, owner, request.level_time)
                     || self.strike_siege_item(target, request)
                     || self.strike_shield(target, request)
                     || self.strike_body(target, request)
