@@ -46,6 +46,10 @@ pub(super) struct WidgetData<'a> {
     pub(super) timer: bool,
     /// warmup binding supplied by the owning HUD.
     pub(super) warmup: bool,
+    /// The viewer spectates freely (`CG_DrawSpectator`).
+    pub(super) spectator: bool,
+    /// The viewer follows a player (`CG_DrawFollow`).
+    pub(super) follow: bool,
     /// A Siege round clock is shown, and whether its timed side is the viewer's.
     pub(super) siege_clock: Option<bool>,
     /// A Siege respawn wave is coming.
@@ -96,6 +100,8 @@ impl HudDataSource for WidgetData<'_> {
             "draw_crosshair_name" => Some(self.visibility.crosshair_names && self.crosshair_name),
             "draw_timer" => Some(self.visibility.timer && self.timer),
             "draw_warmup" => Some(self.visibility.hud && self.warmup),
+            "draw_spectator" => Some(self.visibility.hud && self.spectator),
+            "draw_follow" => Some(self.visibility.hud && self.follow),
             "draw_siege_timer_own" => Some(self.visibility.hud && self.siege_clock == Some(true)),
             "draw_siege_timer_other" => {
                 Some(self.visibility.hud && self.siege_clock == Some(false))
@@ -127,6 +133,10 @@ pub(super) fn text_id(binding: Option<&str>) -> Option<TextId> {
         Some("connection_interrupted") => Some(TextId(313)),
         Some("siege_timer") => Some(TextId(320)),
         Some("siege_respawn") => Some(TextId(321)),
+        Some("spectator_title") => Some(TextId(330)),
+        Some("spectator_hint") => Some(TextId(331)),
+        Some("follow_title") => Some(TextId(332)),
+        Some("follow_name") => Some(TextId(333)),
         _ => None,
     }
 }

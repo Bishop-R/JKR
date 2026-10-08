@@ -68,6 +68,10 @@ pub(super) fn emit(
                         | "match_timer"
                         | "warmup_text"
                         | "connection_interrupted"
+                        | "spectator_title"
+                        | "spectator_hint"
+                        | "follow_title"
+                        | "follow_name"
                 )
             ) {
                 TextAlign::Center

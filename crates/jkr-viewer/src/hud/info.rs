@@ -14,6 +14,7 @@ impl HudOverlay {
         crosshair: Option<CrosshairName>,
         interrupted: bool,
         localization: &Localization,
+        player: &jkr_protocol::PlayerState,
     ) {
         self.update_kill_feed(game, feed, server_time, localization);
         self.icons.obituary(feed);
@@ -40,6 +41,12 @@ impl HudOverlay {
             WarmupText::StartsIn(seconds) => {
                 let _ = write!(self.warmup_text, "STARTS IN: {seconds}");
             }
+        }
+        self.spectator
+            .update(game, player, localization, self.family.name_colors);
+        // `CG_DrawFollow` stands in for the warmup notice while following.
+        if self.spectator.following() {
+            self.warmup_text.clear();
         }
         self.interrupted = interrupted;
         self.lagometer.clone_from(lagometer);

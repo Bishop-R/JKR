@@ -20,6 +20,7 @@ pub(crate) use crosshair_bars::CrosshairBarInputs;
 mod meters;
 mod selection;
 mod siege;
+mod spectator;
 pub(crate) use siege::SiegeInputs;
 pub(crate) mod targeting;
 mod text_values;
@@ -178,6 +179,8 @@ pub(crate) struct HudOverlay {
     crosshair_teammate: bool,
     match_timer: String,
     warmup_text: String,
+    /// What a spectator, or a follower, is told.
+    spectator: spectator::Lines,
     /// The Siege round clock and respawn wave.
     siege: siege::State,
     /// The radar of team games and vehicles.
@@ -269,6 +272,7 @@ impl HudOverlay {
             crosshair_teammate: false,
             match_timer: String::with_capacity(16),
             warmup_text: String::with_capacity(48),
+            spectator: spectator::Lines::new(),
             siege: siege::State::default(),
             radar: radar::State::default(),
             rocket_lock: rocket_lock::State::default(),
@@ -320,6 +324,17 @@ impl HudOverlay {
         } else {
             &self.classic_document
         };
+        // `CG_Draw2D`: a free spectator sees no status, weapon or ammo, only what it is
+        // told and the crosshair; nor does a dead player.
+        let visibility = if self.spectator.hides_status() {
+            HudVisibility {
+                status: false,
+                weapon: false,
+                ..visibility
+            }
+        } else {
+            visibility
+        };
         let data = WidgetData {
             visibility,
             ratios: self.displayed_ratios,
@@ -342,6 +357,8 @@ impl HudOverlay {
             crosshair_name: !self.crosshair_name.is_empty(),
             timer: !self.match_timer.is_empty(),
             warmup: !self.warmup_text.is_empty(),
+            spectator: self.spectator.spectating(),
+            follow: self.spectator.following(),
             siege_clock: (!self.siege.clock.is_empty()).then_some(self.siege.clock_own),
             siege_respawn: !self.siege.respawn.is_empty(),
             interrupted: self.interrupted,

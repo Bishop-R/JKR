@@ -214,6 +214,7 @@ pub(crate) fn update(
             !session.is_local()
                 && jkr_client::connection_interrupted(presentation_time, snapshot.server_time),
             &gpu.localization,
+            &snapshot.player,
         );
         gpu.hud.update_siege(
             hud::SiegeInputs {
@@ -307,6 +308,7 @@ pub(crate) fn update(
             crosshair,
             false,
             &gpu.localization,
+            &snapshot.player,
         );
         gpu.hud.update_siege(
             hud::SiegeInputs {
