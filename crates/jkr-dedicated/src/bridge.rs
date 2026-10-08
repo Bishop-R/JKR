@@ -299,6 +299,9 @@ pub struct NativeGame {
     team_locks: crate::admin::TeamLocks,
     /// jaPRO's `g_flagDrag`, kept from the cvar: a flag carrier's drag in the air.
     flag_drag: f32,
+    /// `g_debugMelee`, kept from the cvar: the fists' kicks and grapple, walls held
+    /// ([`jkr_game_jka::debug_melee`]).
+    debug_melee: bool,
     /// jaPRO's `g_fixFlagHitbox`, kept from the cvar: flags are taken from further.
     wide_flag_box: bool,
     /// jaPRO's `g_selfDamageScale`, kept from the cvar: a blow on oneself's share outside
@@ -519,6 +522,7 @@ impl NativeGame {
             map_effects: Default::default(),
             team_locks: Default::default(),
             flag_drag: 0.0,
+            debug_melee: false,
             wide_flag_box: false,
             self_damage_scale: 0.5,
             show_health: false,
@@ -2660,6 +2664,7 @@ impl NativeGame {
         request: DamageRequest,
         location: Option<HitLocation>,
     ) -> Damaged {
+        let debug_melee = self.debug_melee;
         // A siege player waiting for its wave cannot be hurt (`takedamage = qfalse`), nor
         // one an admin froze outside a duel (jaPRO's `amfreeze`).
         if self.duel_refuses(target, &request)
@@ -2729,6 +2734,14 @@ impl NativeGame {
         } else {
             damage_at(&mut target_view, request, location, &mut rng)
         };
+        // `g_debugMelee`: hurt but alive, a held wall is let go (`g_combat.c:5519-5525`).
+        if debug_melee
+            && damaged.take != 0
+            && damaged.died.is_none()
+            && jkr_game_jka::debug_melee::stuck_to_wall(&victim.state)
+        {
+            jkr_game_jka::debug_melee::let_go_of_wall(&mut victim.state);
+        }
         // The knockback is in the wire state: the movement restarts from it.
         victim.movement = victim.movement.reseeded(&victim.state);
         self.deaths.rng = rng;
@@ -2873,6 +2886,7 @@ impl NativeGame {
         self.run_ewebs(server_time);
         self.run_scripts(server_time);
 
+        self.npc_grapples(server_time);
         self.run_npcs(server_time);
 
         self.siege_timers(server_time);
@@ -2899,8 +2913,15 @@ impl NativeGame {
         ) {
             peer.movement = peer.movement.reseeded(&peer.state);
         }
-        // Kicks land first, from the pose of the frame before (`w_saber.c:8149-8152`).
+        // Kicks land first, from the pose of the frame before (`w_saber.c:8149-8152`); a
+        // player not kicking grabs or grapples instead (`:8153-8390`).
+        let kicking = self
+            .peer(client)
+            .is_some_and(|peer| jkr_game_jka::saber_rules::kicking(peer.state.leg_animation()));
         self.kick_frame(client, server_time);
+        if !kicking {
+            self.grapple_frame(client as u16, server_time);
+        }
         self.pose_saber(client, server_time);
         self.throw_frame(client, server_time);
         self.swing_saber(client, server_time);
@@ -3626,6 +3647,8 @@ mod bridge_force;
 mod bridge_force_options;
 #[path = "bridge_generic.rs"]
 mod bridge_generic;
+#[path = "bridge_grapple.rs"]
+mod bridge_grapple;
 #[path = "bridge_gun_game.rs"]
 mod bridge_gun_game;
 #[path = "bridge_holocron.rs"]

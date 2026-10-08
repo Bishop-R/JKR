@@ -245,6 +245,13 @@ pub struct MovementConfig {
     /// jaPRO's gun game: the fire mode a player's rung allows, which the server's own
     /// `PM_Weapon` forces ([`crate::gun_game::force_fire`], [`Predictor::set_forced_fire`]).
     pub forced_fire: crate::gun_game::FireMode,
+    /// `g_debugMelee` (`pm->debugMelee`; a client's from `CS_SERVERINFO`): fists kick on the
+    /// alternate attack and grab on both ([`crate::pmove_melee`]), and a grabbed wall is
+    /// held while the jump is.
+    pub debug_melee: bool,
+    /// The server's `grappleState` for the mover: already in a grapple, so `TryGrapple`
+    /// grabs at nothing ([`Predictor::set_melee_rules`]).
+    pub grappling: bool,
 }
 
 impl Default for MovementConfig {
@@ -262,6 +269,8 @@ impl Default for MovementConfig {
             legacy_fixes: 0b111,
             flag_drag: 0.0,
             forced_fire: crate::gun_game::FireMode::Both,
+            debug_melee: false,
+            grappling: false,
         }
     }
 }
@@ -420,6 +429,9 @@ pub struct MovementState {
     /// `fd.forceJumpSound`: a Force jump began since the game last looked, which the game
     /// sounds (`PDSOUND_FORCEJUMP`) at its next Force update. Not on the wire.
     pub force_jump_sound: bool,
+    /// `TryGrapple` began a grab since the game last looked (its `dangerTime`). Not on the
+    /// wire.
+    pub grab_started: bool,
     /// Number of holstered saber blades from player state.
     pub saber_holstered: u8,
     /// Whether the saber entity is currently in flight.
@@ -671,6 +683,7 @@ impl MovementState {
             slope_recalc_time: 0,
             read_foot_bolts: false,
             force_jump_sound: false,
+            grab_started: false,
             saber_holstered: player.saber_holstered(),
             saber_in_flight: player.saber_in_flight(),
             saber_entity_num: player.saber_entity_num(),
@@ -863,6 +876,13 @@ impl Predictor {
     /// ([`MovementConfig::forced_fire`]).
     pub fn set_forced_fire(&mut self, fire: crate::gun_game::FireMode) {
         self.config.forced_fire = fire;
+    }
+
+    /// `g_debugMelee` and whether the mover is in a grapple, for the server's own moves
+    /// ([`MovementConfig::debug_melee`], [`MovementConfig::grappling`]).
+    pub fn set_melee_rules(&mut self, debug_melee: bool, grappling: bool) {
+        self.config.debug_melee = debug_melee;
+        self.config.grappling = grappling;
     }
 
     /// Refresh movement policy without discarding the replay state.
@@ -1090,6 +1110,12 @@ impl Predictor {
     /// clears it.
     pub fn take_force_jump_sound(&mut self) -> bool {
         std::mem::take(&mut self.state.force_jump_sound)
+    }
+
+    /// Whether `TryGrapple` began a grab since the last call
+    /// ([`MovementState::grab_started`]); clears it.
+    pub fn take_grab_started(&mut self) -> bool {
+        std::mem::take(&mut self.state.grab_started)
     }
 
     pub fn state(&self) -> &MovementState {
@@ -1550,6 +1576,7 @@ impl Predictor {
                 context,
                 (bounds.minimums, bounds.maximums),
                 self.config.legacy_fixes,
+                crate::pmove_melee::MeleeRules::of(&self.config),
                 opponent,
                 outcome,
             );

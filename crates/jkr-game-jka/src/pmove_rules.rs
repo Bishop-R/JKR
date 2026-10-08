@@ -38,6 +38,8 @@ impl MovementConfig {
         self.step_slide_fix = integer(0, "g_stepSlideFix", 0) != 0;
         // cg_servercmds.c:140; cg_predict.c:1248.
         self.no_spectator_move = integer(0, "g_noSpecMove", 0) != 0;
+        // cg_servercmds.c:137; cg_predict.c:1246.
+        self.debug_melee = integer(0, "g_debugMelee", 0) != 0;
         // `CS_LEGACY_FIXES`, configstring 36, a decimal bit mask (`g_cvar.c:45`); a server
         // that predates it publishes nothing and runs none of the fixes
         // (`bg_pmove.c:5168-5170`, `strtoul` of an empty string).

@@ -507,6 +507,10 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 held(second, second.move_speed_scale),
             ],
         );
+        // `pmove.debugMelee` (`g_active.c:2889`) and its grapple, as a player's.
+        let grappling = npc.mind.grapple.state != 0;
+        npc.movement
+            .set_melee_rules(host.force_rules().debug_melee, grappling);
         let level = |power: usize| npc.force_levels[power].clamp(0, 255) as u8;
         let legs_of = |number: u16| {
             body_legs

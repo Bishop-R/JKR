@@ -183,6 +183,8 @@ pub struct Peer {
     pub(crate) knockdown: jkr_game_jka::knockdown::Knockdown,
     /// `jediKickIndex`, `jediKickTime`: what this player's kick last hit, till the kick ends.
     pub(crate) kick: jkr_game_jka::saber_kick::KickMemory,
+    /// `grappleIndex`, `grappleState`: the `g_debugMelee` grapple it is in.
+    pub(crate) grapple: jkr_game_jka::debug_melee::Grapple,
     /// The dispensers' marks on this player (`isMedHealed`, `isMedSupplied`) and its own
     /// pace as their user (`medSupplyDebounce`).
     pub(crate) service: jkr_game_jka::dispensers::Service,
@@ -331,6 +333,7 @@ impl Peer {
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),
+            grapple: jkr_game_jka::debug_melee::Grapple::default(),
             service: jkr_game_jka::dispensers::Service::default(),
             force: jkr_game_jka::force_powers::ForcePowers::with_levels(
                 [0; jkr_game_jka::force_powers::NUM_FORCE_POWERS],

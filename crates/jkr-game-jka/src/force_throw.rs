@@ -626,6 +626,11 @@ fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dy
         };
         origin = victim.state.origin();
         let mut other = i32::from(victim.force.levels[power]);
+        // `g_debugMelee`: no resistance holding a wall, and pushed or pulled off it.
+        if context.rules.debug_melee && crate::debug_melee::stuck_to_wall(victim.state) {
+            other = 0;
+            crate::debug_melee::let_go_of_wall(victim.state);
+        }
         if victim.command.forward_move != 0 || victim.command.right_move != 0 {
             other = (other - 1).max(0);
         }

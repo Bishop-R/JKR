@@ -63,10 +63,8 @@ const EF_FIRING: u32 = 1 << 9;
 const EF_ALT_FIRING: u32 = 1 << 10;
 const FP_RAGE: u32 = 1 << 8;
 const MAX_CLIENTS: u16 = 32;
-/// `BOTH_ATTACK4`, `BOTH_MELEE1`, `BOTH_MELEE2`.
+/// `BOTH_ATTACK4`.
 const BOTH_ATTACK4: u16 = 116;
-const BOTH_MELEE1: u16 = 122;
-const BOTH_MELEE2: u16 = 123;
 /// `WeaponAttackAnim` (`bg_misc.c:297-317`): the torso animation each weapon fires
 /// with; the table lists seventeen and the two emplaced weapons read its zeros.
 const WEAPON_ATTACK_ANIM: [u16; LEGACY_WEAPON_COUNT] = [
@@ -191,6 +189,7 @@ pub(crate) fn advance_events_in(
     context: &crate::pmove::MoveContext,
     bounds: ([f32; 3], [f32; 3]),
     legacy_fixes: u32,
+    melee: crate::pmove_melee::MeleeRules,
     opponent: Option<crate::pmove_saber_lock::LockOpponent>,
     outcome: &mut crate::pmove_saber_lock::LockOutcome,
 ) -> u16 {
@@ -206,6 +205,7 @@ pub(crate) fn advance_events_in(
         context,
         bounds,
         legacy_fixes,
+        melee,
         opponent,
         outcome,
     );
@@ -224,6 +224,7 @@ fn advance_command(
     context: &crate::pmove::MoveContext,
     bounds: ([f32; 3], [f32; 3]),
     legacy_fixes: u32,
+    melee: crate::pmove_melee::MeleeRules,
     opponent: Option<crate::pmove_saber_lock::LockOpponent>,
     outcome: &mut crate::pmove_saber_lock::LockOutcome,
 ) {
@@ -441,19 +442,21 @@ fn advance_command(
         data.primary_cost
     };
     // The attack's torso animation (`bg_pmove.c:7455-7606`): the scoped disruptor's,
-    // melee's alternating punches (whose running timer becomes the weapon's time), or
+    // melee's ([`crate::pmove_melee`]: punches, or `g_debugMelee`'s grab and kicks), or
     // the weapon's own from `WeaponAttackAnim`.
     if state.weapon == WP_DISRUPTOR && state.zoom_mode == 1 {
         crate::pmove_anim::start_torso(state, BOTH_ATTACK4);
     } else if state.weapon == WP_MELEE {
-        let punch = if state.torso_anim == BOTH_MELEE1 {
-            BOTH_MELEE2
-        } else {
-            BOTH_MELEE1
-        };
-        crate::pmove_anim::start_torso(state, punch);
-        if state.torso_anim == punch {
-            state.weapon_time = state.torso_timer;
+        if crate::pmove_melee::attack(
+            state,
+            command,
+            melee,
+            animation_lengths,
+            collision,
+            bounds,
+            legacy_fixes & 1 != 0,
+        ) {
+            return;
         }
     } else {
         crate::pmove_anim::start_torso(state, WEAPON_ATTACK_ANIM[usize::from(state.weapon)]);
@@ -514,10 +517,13 @@ fn primary_is_predicted(weapon: u8) -> bool {
     )
 }
 
+/// The weapons whose alternate attack runs here: the stun baton's and the fists' too —
+/// a punch (`EV_ALT_FIRE`, `bg_pmove.c:7650-7660`), or `g_debugMelee`'s kick or grab.
 fn alternate_is_predicted(weapon: u8) -> bool {
     matches!(
         weapon,
-        WP_BLASTER
+        1 | WP_MELEE
+            | WP_BLASTER
             | WP_REPEATER
             | WP_FLECHETTE
             | WP_BRYAR_PISTOL

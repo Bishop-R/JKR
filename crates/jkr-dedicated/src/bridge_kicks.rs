@@ -116,7 +116,7 @@ impl NativeGame {
     }
 
     /// A client of the game as `G_CanBeEnemy` reads it: a player or an NPC.
-    fn kick_side(&self, number: u16) -> Option<Side> {
+    pub(super) fn kick_side(&self, number: u16) -> Option<Side> {
         if let Some(peer) = self.peer(usize::from(number)) {
             return Some(Side {
                 number,

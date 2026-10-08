@@ -396,6 +396,13 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.die(me, attacker.unwrap_or(ENTITY_WORLD), take, request.means);
             return true;
         }
+        // `g_debugMelee`: hurt, a held wall is let go (`g_combat.c:5519-5525`).
+        if self.host.force_rules().debug_melee
+            && crate::debug_melee::stuck_to_wall(&self.actors[me].player)
+        {
+            crate::debug_melee::let_go_of_wall(&mut self.actors[me].player);
+        }
+        let npc = &self.actors[me];
         // No pain for a saber's idle touch; pain from where it landed, else where the NPC is.
         if request.means != MOD_SABER || take > 1 {
             let point = request.point.unwrap_or(npc.current_origin);

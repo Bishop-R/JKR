@@ -74,6 +74,25 @@ impl Npcs {
             self.unported.push((npc_type, name));
         }
     }
+
+    /// Where NPC `number`'s `bolt` is with its model at `origin` facing `yaw`, at the
+    /// Ghoul2 clock (`G2API_GetBoltMatrix`); `None` without a model or the bolt.
+    pub(super) fn bolt_point(
+        &mut self,
+        number: u16,
+        bolt: &str,
+        yaw: f32,
+        origin: [f32; 3],
+        ghoul2_time: i32,
+    ) -> Option<[f32; 3]> {
+        let matrix = self
+            .bodies
+            .get(number)?
+            .bolt_matrix(bolt, yaw, origin, ghoul2_time)
+            .ok()
+            .flatten()?;
+        Some([matrix[0][3], matrix[1][3], matrix[2][3]])
+    }
 }
 
 impl std::fmt::Debug for Npcs {

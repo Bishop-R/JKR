@@ -6,7 +6,7 @@
 //! throw's conditions. The special moves' own movement (a lunge's shove, a flip's leap)
 //! is set here as the reference sets it, in the move.
 
-use crate::pmove::MovementTrace;
+use crate::pmove::{MovementCollision, MovementTrace};
 use crate::pmove_lightsaber::*;
 use crate::saber_move_data::{SABER_MOVES, movement::*};
 use crate::saber_rules as rules;
@@ -71,17 +71,22 @@ pub(crate) fn quadrant_for_movement(command: &UserCommand) -> u8 {
 /// `PM_GroundDistance` (`bg_saber.c:1936-1950`): how far below the player, box and all, the
 /// solid ground is.
 pub(crate) fn ground_distance(saber: &Lightsaber) -> f32 {
-    let origin = saber.state.origin;
+    ground_distance_below(saber.state.origin, saber.bounds, saber.collision)
+}
+
+/// [`ground_distance`] from `origin` with the move's box `bounds`: 4096 without a world
+/// to trace.
+pub(crate) fn ground_distance_below(
+    origin: [f32; 3],
+    bounds: ([f32; 3], [f32; 3]),
+    collision: Option<&dyn MovementCollision>,
+) -> f32 {
     let down = [origin[0], origin[1], origin[2] - 4_096.0];
-    let end = trace(
-        saber,
-        origin,
-        saber.bounds.0,
-        saber.bounds.1,
-        down,
-        MASK_SOLID,
-    )
-    .map_or(down, |trace| trace.end_position);
+    let end = collision.map_or(down, |collision| {
+        collision
+            .trace(origin, bounds.0, bounds.1, down, MASK_SOLID)
+            .end_position
+    });
     let apart = [origin[0] - end[0], origin[1] - end[1], origin[2] - end[2]];
     f64::from(apart[0] * apart[0] + apart[1] * apart[1] + apart[2] * apart[2]).sqrt() as f32
 }
@@ -591,22 +596,22 @@ fn backward_attack(saber: &mut Lightsaber, no_specials: bool) -> u16 {
 
 /// `PM_KickMoveForConditions` (`bg_saber.c:2561-2635`): a kick the way the player moves,
 /// the move then spent on it; `None` standing still.
-pub(crate) fn kick_for_conditions(saber: &mut Lightsaber) -> Option<u16> {
-    if saber.command.right_move != 0 {
-        let kick = if saber.command.right_move > 0 {
+pub(crate) fn kick_for_conditions(command: &mut UserCommand) -> Option<u16> {
+    if command.right_move != 0 {
+        let kick = if command.right_move > 0 {
             LS_KICK_R
         } else {
             LS_KICK_L
         };
-        saber.command.right_move = 0;
+        command.right_move = 0;
         Some(kick)
-    } else if saber.command.forward_move != 0 {
-        let kick = if saber.command.forward_move > 0 {
+    } else if command.forward_move != 0 {
+        let kick = if command.forward_move > 0 {
             LS_KICK_F
         } else {
             LS_KICK_B
         };
-        saber.command.forward_move = 0;
+        command.forward_move = 0;
         Some(kick)
     } else {
         None

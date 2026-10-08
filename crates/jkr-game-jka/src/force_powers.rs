@@ -352,6 +352,9 @@ pub struct ForceRules {
     /// `g_forcePowerDisableFFA`: the powers (a bit each) no one may use outside a duel —
     /// in every game type, despite the name.
     pub disabled_outside_duels: u32,
+    /// `g_debugMelee`: no offensive power while holding a wall
+    /// ([`crate::debug_melee::offensive`]), and a push or a pull takes one off it.
+    pub debug_melee: bool,
 }
 
 impl Default for ForceRules {
@@ -362,6 +365,7 @@ impl Default for ForceRules {
             team_energize_scale: 1.0,
             team_absorb_scale: 1.0,
             disabled_outside_duels: 0,
+            debug_melee: false,
         }
     }
 }
@@ -1601,6 +1605,12 @@ pub fn usable(
     if force.levels[power] == 0 {
         return false;
     }
+    if rules.debug_melee
+        && crate::debug_melee::stuck_to_wall(state)
+        && crate::debug_melee::offensive(power)
+    {
+        return false;
+    }
     // "this power is verboten when using this saber" (`w_force.c:732-788`, with
     // `g_saberRestrictForce` 0).
     if state.saber_holstered() == 0 && force.saber_restrictions & (1 << power) != 0 {
@@ -1673,5 +1683,27 @@ mod rules_tests {
         assert!(!usable_with(&state, withheld));
         state.set_raw_field(PS_DUEL_IN_PROGRESS, 1);
         assert!(usable_with(&state, withheld));
+    }
+
+    /// `g_debugMelee` (`w_force.c:713-731`): holding a wall, grip is out, push is not.
+    #[test]
+    fn no_offensive_power_holding_a_wall_under_debug_melee() {
+        const PS_PM_FLAGS: usize = 38;
+        let mut state = PlayerState::default();
+        state.stats[STAT_HEALTH] = 100;
+        state.set_raw_field(PS_KNOWN, (1 << FP_GRIP) | (1 << FP_PUSH));
+        state.set_raw_field(PS_FORCE_POWER, 100);
+        state.set_raw_field(PS_PM_FLAGS, 16_384);
+        let mut force = ForcePowers::with_levels([0; NUM_FORCE_POWERS]);
+        force.levels[FP_GRIP] = 3;
+        force.levels[FP_PUSH] = 3;
+        let debug_melee = ForceRules {
+            debug_melee: true,
+            ..ForceRules::default()
+        };
+        let usable_with = |power, rules| usable(&state, &force, 100, power, 1_000, 0, rules);
+        assert!(usable_with(FP_GRIP, ForceRules::default()));
+        assert!(!usable_with(FP_GRIP, debug_melee));
+        assert!(usable_with(FP_PUSH, debug_melee));
     }
 }

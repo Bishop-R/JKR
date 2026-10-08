@@ -352,7 +352,7 @@ impl Lightsaber<'_> {
                 && (self.command.forward_move != 0 || self.command.right_move != 0)
                 && crate::pmove_saber_attack::check_alt_kick(self)
             {
-                let kick = crate::pmove_saber_attack::kick_for_conditions(self);
+                let kick = crate::pmove_saber_attack::kick_for_conditions(&mut self.command);
                 if let Some(kick) = kick {
                     self.state.weapon_time = 0;
                     self.set_move(kick);
@@ -489,7 +489,8 @@ impl Lightsaber<'_> {
         {
             return false;
         }
-        let Some(mut kick) = crate::pmove_saber_attack::kick_for_conditions(self) else {
+        let Some(mut kick) = crate::pmove_saber_attack::kick_for_conditions(&mut self.command)
+        else {
             return false;
         };
         if self.state.ground_entity_number == ENTITY_NONE {

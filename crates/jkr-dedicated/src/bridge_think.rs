@@ -40,9 +40,12 @@ impl NativeGame {
         // `pers.lastChatTime`, from the command's talk button (`EF_TALK`), which a dead
         // player's think leaves as it was.
         let flag_drag = self.flag_drag;
+        let debug_melee = self.debug_melee;
         let god_chat = self.god_chat && self.gametype == GAMETYPE_FFA;
         if let Some(peer) = self.peer_mut(client) {
             peer.movement.set_flag_drag(flag_drag);
+            peer.movement
+                .set_melee_rules(debug_melee, peer.grapple.state != 0);
             if peer.state.stats[0] as i32 > 0 {
                 let held = god_chat && peer.session.team == crate::admin::TEAM_FREE;
                 peer.typing.think(command.buttons, held, level_time);
@@ -305,6 +308,10 @@ impl NativeGame {
         // `ClientEvents`: the fire events of this think fire the weapon from the entity
         // as it was just converted, and end the spawn's protection.
         let level_time = *last_frame_time;
+        // A grab `TryGrapple` began counts as danger (`g_cmds.c:3269`).
+        if peer.movement.take_grab_started() {
+            peer.force.danger_time = level_time;
+        }
         // A think raises a fire event at most for each of its slices; no allocation.
         let mut fires = [None; 16];
         if ran {

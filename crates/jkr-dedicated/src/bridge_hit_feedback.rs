@@ -38,10 +38,22 @@ impl NativeGame {
     /// `G_EntitySound(player, CHAN_VOICE, G_SoundIndex(name))`: `g_stopHealthESP`'s pain
     /// sound in place of the pain event.
     pub(super) fn pain_sound(&mut self, client: usize, name: &[u8], level_time: i32) {
-        const CHAN_VOICE: u32 = 3;
         let Some(origin) = self.peer(client).map(|peer| peer.state.origin()) else {
             return;
         };
+        self.voice_sound(client as u16, origin, name, level_time);
+    }
+
+    /// `G_EntitySound(ent, CHAN_VOICE, G_SoundIndex(name))` for entity `number` at `origin`
+    /// (`r.currentOrigin`).
+    pub(super) fn voice_sound(
+        &mut self,
+        number: u16,
+        origin: [f32; 3],
+        name: &[u8],
+        level_time: i32,
+    ) {
+        const CHAN_VOICE: u32 = 3;
         let told = &mut self.told;
         let index = self.sounds.index(name, &mut |index, value| {
             told.push(Told::ConfigString {
@@ -50,7 +62,7 @@ impl NativeGame {
                 value: value.to_vec(),
             })
         });
-        let mut sound = jkr_game_jka::knockdown::entity_sound(origin, client as u16, CHAN_VOICE);
+        let mut sound = jkr_game_jka::knockdown::entity_sound(origin, number, CHAN_VOICE);
         sound.parameter = u32::from(index);
         let _ = self.pool.spawn_temporary(sound.state(), level_time, None);
     }
