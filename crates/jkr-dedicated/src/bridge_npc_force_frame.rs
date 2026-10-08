@@ -81,6 +81,7 @@ impl NativeGame {
         let siege_pace = (gametype == GAMETYPE_SIEGE)
             .then(|| self.siege_regen_pace(client))
             .flatten();
+        let duel_pace = self.duel_regen_pace(client);
         let holocron_regen = gametype == jkr_game_jka::holocron::GT_HOLOCRON
             && self.cvars.value(b"g_maxHolocronCarry") == 0.0;
         // The Jedi Master's rule for the user's blows on an NPC, which is never the master.
@@ -102,7 +103,7 @@ impl NativeGame {
                 gametype,
                 spared_by_master,
             ),
-            (siege_pace, holocron_regen),
+            (siege_pace, duel_pace, holocron_regen),
             run,
         );
         let (telefrags, outcomes) = (
@@ -176,7 +177,7 @@ fn run_frame<T>(
         i32,
         bool,
     ),
-    (siege_pace, holocron_regen): (Option<f64>, bool),
+    (siege_pace, duel_pace, holocron_regen): (Option<f64>, Option<f64>, bool),
     run: impl FnOnce(&mut PlayerState, &mut ForcePowers, &mut ForceFrame) -> T,
 ) -> Option<(T,)> {
     let ForceScratch {
@@ -246,7 +247,7 @@ fn run_frame<T>(
         team,
         saber_style,
         saber_only,
-        regen_pace: siege_pace.or(lone_regen),
+        regen_pace: siege_pace.or(lone_regen).or(duel_pace),
         holocron_regen,
         health: &mut health,
         hand_extend_time: &mut hand,

@@ -122,6 +122,16 @@ impl NativeGame {
             "   ^5Force regen time (BaseJKA 'sv_fps 20' equivalent)^3: ^2{}\n",
             int(b"g_forceRegenTime") - 1000 / 20
         );
+        // The duels' own times where they differ; -1 follows `g_forceRegenTime`.
+        for (name, label) in [
+            (&b"g_saberDuelForceRegenTime"[..], "Saber Duel"),
+            (&b"g_forceDuelForceRegenTime"[..], "Force Duel"),
+        ] {
+            let time = int(name);
+            if time >= 0 && time != int(b"g_forceRegenTime") {
+                global += &format!("   ^5{label} Force regen time: ^2{time}\n");
+            }
+        }
         global += &format!(
             "   ^5Location based damage^3: ^2{}\n",
             yes(int(b"g_locationBasedDamage") != 0)
