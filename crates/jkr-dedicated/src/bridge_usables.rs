@@ -259,9 +259,7 @@ fn usable_state(usable: &Usable, model2: u16) -> EntityState {
             state.set_raw_field(field, usable.origin[axis].to_bits());
         }
     }
-    if let Some(light) = usable.constant_light {
-        state.set_raw_field(ES_CONSTANT_LIGHT, light);
-    }
+    state.set_raw_field(ES_CONSTANT_LIGHT, usable.constant_light);
     state.set_raw_field(ES_TIME, usable.shader_frames() as u32);
     state
 }

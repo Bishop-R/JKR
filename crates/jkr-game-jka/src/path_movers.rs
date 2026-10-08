@@ -728,8 +728,8 @@ impl PathMover {
 }
 
 /// `InitMover`'s `s.constantLight` (`g_mover.c:986-1009`): when the `light` or `color` key
-/// is set, its colour in bytes and its radius over four, each at most 255.
-fn constant_light(entity: &Entity) -> u32 {
+/// is set, its colour in bytes and its radius over four, each at most 255; 0 for none.
+pub fn constant_light(entity: &Entity) -> u32 {
     let light_set = entity.get("light").is_some();
     let color_set = entity.get("color").is_some();
     if !light_set && !color_set {

@@ -43,8 +43,8 @@ pub struct Usable {
     pub origin: [f32; 3],
     /// `model2`, drawn with the brush (`s.modelindex2`); multiplayer draws no `.glm`.
     pub model2: Option<String>,
-    /// `InitMover`'s `s.constantLight`, from `light` and `color`.
-    pub constant_light: Option<u32>,
+    /// `InitMover`'s `s.constantLight`, from `light` and `color` (0 for none).
+    pub constant_light: u32,
     /// Fired when it goes away, steps a frame or is used always-on.
     pub target: String,
     /// Fired when it comes back.
@@ -133,7 +133,7 @@ pub fn spawn(
         bounds,
         origin: crate::fx_runner::vector(entity, "origin"),
         model2,
-        constant_light: constant_light(entity),
+        constant_light: crate::path_movers::constant_light(entity),
         target: entity.get("target").unwrap_or_default().to_owned(),
         target2: entity.get("target2").unwrap_or_default().to_owned(),
         targetname: entity.get("targetname").unwrap_or_default().to_owned(),
@@ -161,25 +161,6 @@ pub fn spawn(
         usable.eflags |= EF_SHADER_ANIM;
     }
     Some(usable)
-}
-
-/// `InitMover`'s `s.constantLight`: `color` (each part times 255, at most 255) and `light`
-/// (a quarter of it, at most 255), when the map set either — `light` 100 and white
-/// otherwise.
-pub fn constant_light(entity: &Entity) -> Option<u32> {
-    let light = entity.get("light");
-    let color = entity.get("color");
-    if light.is_none() && color.is_none() {
-        return None;
-    }
-    let light = light.map_or(100.0, |value| crate::text_parse::atof(value.as_bytes()));
-    let color = match color {
-        Some(_) => crate::fx_runner::vector(entity, "color"),
-        None => [1.0; 3],
-    };
-    let [r, g, b] = color.map(|part| ((part * 255.0) as i32).min(255));
-    let intensity = ((light / 4.0) as i32).min(255);
-    Some((r | (g << 8) | (b << 16) | (intensity << 24)) as u32)
 }
 
 impl Usable {
@@ -455,11 +436,11 @@ mod tests {
         );
         assert_eq!(dish.origin, [2704.0, 1248.0, 40.0]);
         assert_eq!(usable(&[("model2", "a.glm")]).model2, None);
-        assert_eq!(usable(&[]).constant_light, None);
+        assert_eq!(usable(&[]).constant_light, 0);
         let lit = usable(&[("light", "200"), ("color", "1 0.5 2")]);
         assert_eq!(
             lit.constant_light,
-            Some(255 | (127 << 8) | (255 << 16) | (50 << 24))
+            255 | (127 << 8) | (255 << 16) | (50 << 24)
         );
     }
 }

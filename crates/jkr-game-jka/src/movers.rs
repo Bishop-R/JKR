@@ -182,6 +182,9 @@ pub struct Door {
     /// `soundSet`: the soundset its start, travel and stop sounds come from; empty for a
     /// silent mover (`G_PlayDoorSound` and `G_PlayDoorLoopSound` do nothing for it).
     pub sound_set: String,
+    /// `InitMover`'s `s.constantLight`, from `light` and `color`: a light clients add
+    /// where it is drawn.
+    pub constant_light: u32,
     /// `s.loopSound` = `BMS_MID` with `loopIsSoundset`: its travel sound loops.
     pub looping: bool,
     /// The `EV_PLAYDOORSOUND`s raised on it (`BMS_START`, `BMS_END`) and not yet sent:
@@ -322,6 +325,7 @@ pub fn spawn_door(entity: &Entity, bounds: ([f32; 3], [f32; 3])) -> Option<Door>
         closetarget: entity.get("closetarget").unwrap_or_default().to_owned(),
         activator: None,
         sound_set: entity.get("soundSet").unwrap_or_default().to_owned(),
+        constant_light: crate::path_movers::constant_light(entity),
         looping: false,
         sounds: Vec::new(),
     })
@@ -412,6 +416,7 @@ pub fn spawn_plat(entity: &Entity, bounds: ([f32; 3], [f32; 3])) -> Option<Door>
         closetarget: entity.get("closetarget").unwrap_or_default().to_owned(),
         activator: None,
         sound_set: entity.get("soundSet").unwrap_or_default().to_owned(),
+        constant_light: crate::path_movers::constant_light(entity),
         looping: false,
         sounds: Vec::new(),
     })
@@ -502,6 +507,7 @@ pub fn spawn_button(entity: &Entity, bounds: ([f32; 3], [f32; 3])) -> Option<Doo
         closetarget: entity.get("closetarget").unwrap_or_default().to_owned(),
         activator: None,
         sound_set: entity.get("soundSet").unwrap_or_default().to_owned(),
+        constant_light: crate::path_movers::constant_light(entity),
         looping: false,
         sounds: Vec::new(),
     })
