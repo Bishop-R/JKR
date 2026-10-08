@@ -124,7 +124,8 @@ impl NativeGame {
         })
     }
 
-    /// What `G_Damage` reads of the attacker numbered `number` when it strikes a turret.
+    /// What `G_Damage` reads of the attacker numbered `number` when it strikes a thing that
+    /// is no client: a turret, a shield, a breakable.
     pub(in crate::bridge) fn blow_attacker(&self, number: u16) -> Option<BlowAttacker> {
         if let Some(peer) = self.peer(usize::from(number)) {
             return Some(BlowAttacker {
@@ -168,6 +169,13 @@ impl NativeGame {
                     base.legacy_number() == number || top.legacy_number() == number
                 })
                 .map(|(_, _, turret)| turret.base.team_no_damage)
+        });
+        // A breakable that went off strikes as itself (`funcBBrushDieGo`).
+        let team = team.or_else(|| {
+            self.breakables
+                .iter()
+                .find(|(id, _)| id.legacy_number() == number)
+                .map(|(_, brush)| brush.team_no_damage)
         });
         Some(BlowAttacker {
             number,

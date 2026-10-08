@@ -6,6 +6,9 @@
 use super::*;
 use jkr_game_jka::map_turret_world::publish_net_health;
 
+/// `MOD_UNKNOWN`: a breakable's own blast.
+const MOD_UNKNOWN: u32 = 0;
+
 impl NativeGame {
     /// The breakable brushes the map placed, each an `ET_MOVER` standing where the map
     /// drew it — which is all a client needs to draw the brush and to watch it go.
@@ -303,6 +306,11 @@ impl NativeGame {
         if let Some((damage, radius, at)) = broken.splash {
             self.splash_from_brush(number, damage, radius, at, level_time);
         }
+        // What it fired, or its own blast, may have broken others before it (or, used
+        // again, itself): it is found again by its entity.
+        let Some(index) = self.breakables.iter().position(|(ours, _)| *ours == id) else {
+            return;
+        };
         // The portal it stood in opens (`funcBBrushDieGo`, `g_mover.c:2514`).
         let bounds = self.breakables[index].1.bounds;
         self.adjust_portal([0.0; 3], bounds, true);
@@ -320,8 +328,10 @@ impl NativeGame {
         let _ = self.pool.spawn_temporary(state, level_time, None);
     }
 
-    /// `G_RadiusDamage` from a brush that went off: everybody within its radius, hurt by
-    /// how close they were, with the brush itself as the attacker.
+    /// `funcBBrushDieGo`'s `G_RadiusDamage`: from the middle of its box, whatever takes
+    /// damage within `radius` — players, NPCs, turrets, shields, bodies, other brushes —
+    /// the brush itself spared and as the attacker (so a Siege objective's blast spares
+    /// the objectives of its own side), `MOD_UNKNOWN`.
     pub(super) fn splash_from_brush(
         &mut self,
         number: u16,
@@ -330,44 +340,59 @@ impl NativeGame {
         at: [f32; 3],
         level_time: i32,
     ) {
-        for client in 0..self.players.places() {
-            let Some(peer) = self.peer_mut(client) else {
-                continue;
-            };
-            if !peer.playing() || peer.health <= 0 {
-                continue;
+        let attacker = Attacker {
+            npc: false,
+            client: number,
+            max_health: 100,
+            team: 0,
+            saber_knockback: [0.0; 4],
+        };
+        self.gather_splash_targets();
+        let targets = std::mem::take(&mut self.splash_targets);
+        // The map is set aside while the blast's lines are traced through it.
+        let map = self.map.take();
+        let mut hurt = |target: u16, request: DamageRequest| {
+            self.strike(usize::from(number), usize::from(target), request, false)
+                .1
+        };
+        let (damage, radius) = (damage as f32, radius as f32);
+        match &map {
+            Some(map) => {
+                let world = WorldCollision {
+                    bsp: &map.bsp,
+                    scratch: &map.scratch,
+                };
+                radius_damage(
+                    at,
+                    Some(attacker),
+                    damage,
+                    radius,
+                    Some(number),
+                    MOD_UNKNOWN,
+                    level_time,
+                    &targets,
+                    &world,
+                    &mut hurt,
+                );
             }
-            let origin = peer.state.origin();
-            let away: f32 = (0..3)
-                .map(|axis| (origin[axis] - at[axis]).powi(2))
-                .sum::<f32>()
-                .sqrt();
-            if away >= radius as f32 {
-                continue;
+            None => {
+                radius_damage(
+                    at,
+                    Some(attacker),
+                    damage,
+                    radius,
+                    Some(number),
+                    MOD_UNKNOWN,
+                    level_time,
+                    &targets,
+                    &Void,
+                    &mut hurt,
+                );
             }
-            // `G_RadiusDamage`'s own falloff: full at the middle, nothing at the edge.
-            let points = (damage as f32 * (1.0 - away / radius as f32)) as i32;
-            if points <= 0 {
-                continue;
-            }
-            let attacker = Attacker {
-                npc: false,
-                client: number,
-                max_health: 100,
-                team: 0,
-                saber_knockback: [0.0; 4],
-            };
-            let request = DamageRequest {
-                level_time,
-                attacker: Some(attacker),
-                direction: None,
-                point: Some(at),
-                damage: points,
-                flags: 0,
-                means: 0,
-            };
-            let _ = self.hurt(client, request);
         }
+        self.map = map;
+        self.flush_npc_blows();
+        self.splash_targets = targets;
     }
 
     /// What a client is told of a brush that is still standing: the health bar, if the
