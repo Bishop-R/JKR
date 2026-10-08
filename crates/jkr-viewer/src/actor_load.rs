@@ -15,6 +15,28 @@ pub(crate) fn fallback_appearance() -> Appearance {
     }
 }
 
+/// `CG_LoadClientInfo`'s stand-in for a player whose model cannot be loaded: Kyle, in a
+/// team game in the team skin the player's own was given (`red`, `blue`), else in his
+/// default skin. (Stock asks Kyle for the player's very skin name, and stops the game
+/// when Kyle has no such skin; the team colour is what that skin names.)
+pub(crate) fn fallback_for(appearance: &Appearance, team_game: bool) -> Appearance {
+    let team_skin = ["red", "blue"]
+        .into_iter()
+        .find(|color| team_game && appearance.variant.to_ascii_lowercase().ends_with(color));
+    Appearance {
+        model: "models/players/kyle".to_owned(),
+        variant: team_skin.unwrap_or("default").to_owned(),
+    }
+}
+
+/// Whether the game is a team game (`GT_TEAM` and past), for [`fallback_for`].
+pub(crate) fn team_game(game_state: Option<&GameState>) -> bool {
+    game_state
+        .and_then(|game_state| game_state.config_string(0))
+        .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("g_gametype"))
+        .is_some_and(|gametype| gametype >= 6)
+}
+
 /// Saber names advertised for `client_num`, lower-cased for the hilt catalog;
 /// `single_1` alone when the game state does not say.
 pub(crate) fn client_saber_names(
@@ -138,7 +160,7 @@ fn load_or_fallback(
                 "could not load actor appearance {}/{}: {error}; using Kyle",
                 appearance.model, appearance.variant
             );
-            load(fallback)
+            load(fallback).or_else(|_| load(&fallback_appearance()))
         }
         Err(error) => Err(error),
     }
@@ -153,6 +175,7 @@ pub(crate) fn load_actor_meshes(
     scene: &mut FlattenedScene,
 ) -> Result<Vec<ActorMesh>, Box<dyn Error>> {
     let fallback = fallback_appearance();
+    let team_game = team_game(game_state);
     let mut cache = crate::player_assets::GlaCache::default();
     // Player entity numbers are their client slots. Build a dedicated
     // deformable mesh for every advertised client, even if that player
@@ -221,7 +244,8 @@ pub(crate) fn load_actor_meshes(
             }
             Ok::<_, Box<dyn Error>>(pair)
         };
-        match load_or_fallback(vfs, &appearance, &fallback, &mut cache) {
+        let stand_in = fallback_for(&appearance, team_game);
+        match load_or_fallback(vfs, &appearance, &stand_in, &mut cache) {
             // One player's model must not fail the map: a mesh that loads but
             // cannot be built is replaced by Kyle like one that cannot load.
             Ok(actor) => match build(scene, actor, &appearance) {
@@ -233,8 +257,8 @@ pub(crate) fn load_actor_meshes(
                     );
                     let kyle = crate::player_assets::load_player_appearance_with(
                         vfs,
-                        &fallback.model,
-                        &fallback.variant,
+                        &stand_in.model,
+                        &stand_in.variant,
                         [0.0; 3],
                         0.0,
                         &mut cache,
@@ -311,5 +335,30 @@ mod tests {
         assert_eq!(surface_draw(&mesh, &ranges, "HEAD_eyes_mouth"), Some(1));
         assert_eq!(surface_draw(&mesh, &ranges, "head_cap_torso_off"), None);
         assert_eq!(surface_draw(&mesh, &ranges, "torso"), None);
+    }
+}
+
+#[cfg(test)]
+mod stand_in_tests {
+    use super::*;
+
+    #[test]
+    fn kyle_stands_in_wearing_the_team_skin() {
+        let look = |variant: &str| Appearance {
+            model: "models/players/missing".to_owned(),
+            variant: variant.to_owned(),
+        };
+        let skin = |appearance: Appearance| appearance.variant;
+        assert_eq!(skin(fallback_for(&look("red"), true)), "red");
+        assert_eq!(skin(fallback_for(&look("mine_blue"), true)), "blue");
+        assert_eq!(skin(fallback_for(&look("red"), false)), "default");
+        assert_eq!(
+            skin(fallback_for(&look("head_a1|torso_a1|lower_a1"), true)),
+            "default"
+        );
+        assert_eq!(
+            fallback_for(&look("red"), true).model,
+            "models/players/kyle"
+        );
     }
 }

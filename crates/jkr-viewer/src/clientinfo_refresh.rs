@@ -177,11 +177,38 @@ impl GpuState {
         if self.clientinfo_watch.failed.contains(&appearance) {
             return Ok(());
         }
-        let mesh = match self.build_live_actor(&appearance, entity_id, saber_names) {
+        let mesh = match self.build_live_actor(&appearance, entity_id, saber_names.clone()) {
             Ok(mesh) => mesh,
             Err(error) => {
-                self.clientinfo_watch.failed.insert(appearance.clone());
-                return Err(error);
+                // `CG_LoadClientInfo`: a model that cannot be loaded stands in as Kyle; the
+                // look asked for is kept on the mesh, so it is not tried again.
+                let game_state = self
+                    .live_session
+                    .as_ref()
+                    .map(ClientSession::game_state)
+                    .or_else(|| {
+                        self.demo_session
+                            .as_ref()
+                            .map(demo_playback::Session::game_state)
+                    });
+                let stand_in = crate::actor_load::fallback_for(
+                    &appearance,
+                    crate::actor_load::team_game(game_state),
+                );
+                match self.build_live_actor(&stand_in, entity_id, saber_names) {
+                    Ok(mut mesh) => {
+                        log::progress(format_args!(
+                            "client {client}: {}/{} cannot be loaded ({error}); Kyle stands in",
+                            appearance.model, appearance.variant
+                        ));
+                        mesh.appearance = appearance.clone();
+                        mesh
+                    }
+                    Err(_) => {
+                        self.clientinfo_watch.failed.insert(appearance.clone());
+                        return Err(error);
+                    }
+                }
             }
         };
         match index {
