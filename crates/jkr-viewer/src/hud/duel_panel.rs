@@ -17,6 +17,8 @@ const GT_DUEL: i32 = 3;
 const GT_POWERDUEL: i32 = 4;
 /// The portraits' size and the first score's text id, on the 640 by 480 screen.
 const SIZE: f32 = 64.0;
+/// `FONT_MEDIUM`'s line (`ergoec`, 22 at scale 1).
+const LINE: f32 = 22.0;
 pub(super) const SCORE_TEXT: u32 = 334;
 
 /// This frame's panel.
@@ -162,9 +164,9 @@ impl DuelPanel {
         if !self.power {
             for (index, x) in [left, right].into_iter().enumerate() {
                 let _ = list.push(DrawCommand::Text {
-                    rect: Rect::new(x - 16.0 * s, (top + SIZE) * s, size + 32.0 * s, 16.0 * s),
+                    rect: Rect::new(x - 16.0 * s, (top + SIZE) * s, size + 32.0 * s, LINE * s),
                     text: TextId(SCORE_TEXT + index as u32),
-                    size: 12.0 * s,
+                    size: LINE * s,
                     color: Color::new(1.0, 1.0, 1.0, 1.0),
                     align: TextAlign::Center,
                     overflow: TextOverflow::Clip,

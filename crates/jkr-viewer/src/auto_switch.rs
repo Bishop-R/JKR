@@ -10,6 +10,8 @@ pub(crate) struct Tracker {
     predicted: [Option<u16>; 2],
     /// The item last picked up (`CG_ItemPickup`), for the HUD.
     pickup: Option<u16>,
+    /// A saber move failed for want of Force points (`EV_NOAMMO` with a saber), for the HUD.
+    force_flash: bool,
 }
 
 impl Default for Tracker {
@@ -21,6 +23,7 @@ impl Default for Tracker {
             items: [0; 1024],
             predicted: [None; 2],
             pickup: None,
+            force_flash: false,
         }
     }
 }
@@ -37,7 +40,7 @@ impl Tracker {
             return None;
         }
         let selected = self.event(event.event, event.parameter, mode, &snapshot.player);
-        if selected.is_some() {
+        if selected.is_some() || flashes_force(event.event, &snapshot.player) {
             self.predicted[event.sequence as usize & 1] = Some(event.sequence);
         }
         selected
@@ -58,6 +61,11 @@ impl Tracker {
         self.pickup.take()
     }
 
+    /// Whether a saber move failed for want of Force points since the last call.
+    pub(crate) fn take_force_flash(&mut self) -> bool {
+        std::mem::take(&mut self.force_flash)
+    }
+
     fn event(
         &mut self,
         event: u16,
@@ -65,6 +73,7 @@ impl Tracker {
         mode: i64,
         player: &jkr_protocol::PlayerState,
     ) -> Option<u8> {
+        self.force_flash |= flashes_force(event, player);
         if event & 255 == 22 {
             self.pickup = self
                 .items
@@ -99,6 +108,12 @@ impl Tracker {
             _ => None,
         }
     }
+}
+
+/// `EV_NOAMMO` with a saber in hand, out of a vehicle (`cg_event.c:1991-1994`): a saber
+/// move without the Force points it costs.
+fn flashes_force(event: u16, player: &jkr_protocol::PlayerState) -> bool {
+    event & 255 == 25 && player.weapon() == 3 && player.vehicle_entity_num() == 0
 }
 
 /// OpenJK/TaystJK cg_event.c CG_ItemPickup: safe/non-safe upgrades, excluding saber.
@@ -190,6 +205,9 @@ impl crate::GpuState {
         }
         if let Some(item) = self.auto_switch.take_pickup() {
             self.hud.pickup.picked_up(item);
+        }
+        if self.auto_switch.take_force_flash() {
+            self.hud.force_flash.start();
         }
     }
 

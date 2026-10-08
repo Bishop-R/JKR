@@ -3,6 +3,7 @@
 mod action_timer;
 mod data_source;
 mod duel_panel;
+pub(crate) mod force_flash;
 use data_source::*;
 pub(crate) mod enemy_info;
 pub(crate) mod family;
@@ -22,6 +23,7 @@ mod meters;
 mod pickup;
 mod selection;
 mod siege;
+mod simple;
 mod spectator;
 mod vehicle;
 pub(crate) use siege::SiegeInputs;
@@ -133,6 +135,8 @@ pub(crate) struct HudOverlay {
     /// The piloted vehicle's HUD.
     pub(crate) vehicle: vehicle::Panel,
     /// The duel spectator's panel.
+    pub(crate) force_flash: force_flash::ForceFlash,
+    simple: simple::SimpleHud,
     pub(crate) duel_panel: duel_panel::DuelPanel,
     pub(crate) tints: tints::State,
     /// World-projected labels, sharing the chat roster's retained names.
@@ -233,6 +237,8 @@ impl HudOverlay {
             icons: icons::Icons::default(),
             pickup: pickup::Pickup::default(),
             vehicle: vehicle::Panel::default(),
+            force_flash: Default::default(),
+            simple: Default::default(),
             duel_panel: duel_panel::DuelPanel::default(),
             tints: tints::State::default(),
             guides: movement::Guides::default(),
@@ -352,8 +358,18 @@ impl HudOverlay {
         } else {
             visibility
         };
+        // Stock's simple HUD stands in for the status widgets only (`cg_hudFiles`).
+        let simple = self.family.simple && visibility.status;
         let data = WidgetData {
-            visibility,
+            visibility: if simple {
+                HudVisibility {
+                    status: false,
+                    weapon: false,
+                    ..visibility
+                }
+            } else {
+                visibility
+            },
             ratios: self.displayed_ratios,
             health: &self.health,
             armor: &self.armor,
@@ -426,6 +442,8 @@ impl HudOverlay {
             .values
             .is_some_and(|value| value.ammo.is_some_and(|ammo| ammo <= 5));
         let pulse = Tween::pulse(0.68, 1.0, time_ms, self.theme.motion.slow);
+        self.force_flash.update(time_ms, visibility.status);
+        let force_flash = self.force_flash.red(time_ms);
         for (index, (widget, rect)) in document.widgets.iter().zip(rectangles).enumerate() {
             if !visible[index] {
                 continue;
@@ -454,6 +472,7 @@ impl HudOverlay {
                         * user_scale.clamp(0.25, 2.0),
                     low_health,
                     low_ammo,
+                    force_flash,
                     pulse,
                     team_side: self.team_side,
                     team_len: self.team_len,
@@ -472,6 +491,9 @@ impl HudOverlay {
         }
         if visibility.hud {
             self.duel_panel.emit(&mut self.draw_list, viewport);
+        }
+        if simple {
+            self.simple.emit(&mut self.draw_list, viewport, force_flash);
         }
         self.pickup.update(time_ms);
         self.targeting.swell = self.pickup.crosshair_scale(time_ms);

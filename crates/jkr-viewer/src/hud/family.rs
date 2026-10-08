@@ -39,6 +39,12 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             help,
         ))?;
     }
+    cvars.register(CvarDefinition::new(
+        "cg_hudFiles",
+        "ui/jahud.txt",
+        CvarFlags::ARCHIVE,
+        "Stock's simple HUD for any number but 0; a HUD file or 0, this client's HUD",
+    ))?;
     for (name, value, help) in [
         ("cg_drawScoreX", 0.0, "Personal score horizontal offset"),
         ("cg_drawScoreY", 0.0, "Personal score upward offset"),
@@ -98,6 +104,8 @@ pub(crate) fn fps(console: Option<&ViewerConsole>) -> bool {
 pub(super) struct Policy {
     /// Personal/team score mode.
     pub(super) score: i64,
+    /// `cg_hudFiles` a number but 0: stock's simple HUD.
+    pub(super) simple: bool,
     /// Virtual-coordinate score offsets.
     pub(super) score_offset: [f32; 2],
     /// Upper-right group visibility.
@@ -143,6 +151,9 @@ impl Policy {
         let f = |name, fallback| crate::cgame_options::scalar(console, name, fallback);
         Self {
             score: i("cg_drawscore", 2),
+            simple: console
+                .and_then(|c| c.text_cvar("cg_hudfiles").ok())
+                .is_some_and(|files| jkr_game_jka::userinfo::atoi(files.as_bytes()) != 0),
             score_offset: [f("cg_drawscorex", 0.0), f("cg_drawscorey", 0.0)],
             upper: i("cg_drawupperright", 1) != 0,
             mini_scores: console

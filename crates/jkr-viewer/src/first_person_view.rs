@@ -173,4 +173,7 @@ pub(crate) fn deliver_events(state: &mut GpuState, audio: &mut Option<GameAudio>
     if let Some(item) = state.auto_switch.take_pickup() {
         state.hud.pickup.picked_up(item);
     }
+    if state.auto_switch.take_force_flash() {
+        state.hud.force_flash.start();
+    }
 }

@@ -304,7 +304,13 @@ impl GpuState {
         }
         let music_done = Instant::now();
         audio.register_duel_music(vfs);
-        audio.register_effect_paths(vfs, ["sound/weapons/disruptor/zoomloop.wav"]);
+        audio.register_effect_paths(
+            vfs,
+            [
+                "sound/weapons/disruptor/zoomloop.wav",
+                crate::hud::force_flash::SOUND,
+            ],
+        );
         audio.register_effect_paths(vfs, crate::corpse_fade::SOUNDS);
         audio.register_effect_paths(
             vfs,

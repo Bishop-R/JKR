@@ -24,6 +24,15 @@ impl crate::GpuState {
             {
                 audio.play(vfs, path, 1.0, origin, jkr_audio::SourceId(1_022));
             }
+            // The Force readout's no-Force sound (`S_StartSound(NULL, 0, CHAN_LOCAL)`).
+            if self.hud.force_flash.take_sound() {
+                audio.play_local(
+                    crate::hud::force_flash::SOUND,
+                    1.0,
+                    jkr_audio::SourceId(1_022),
+                    jkr_audio::ChannelId(2),
+                );
+            }
             if self.live_session.is_none() {
                 audio.idle_frame();
             }

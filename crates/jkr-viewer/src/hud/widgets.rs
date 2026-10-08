@@ -21,6 +21,8 @@ pub(super) struct EmitContext<'a> {
     pub(super) hero_scale: f32,
     pub(super) low_health: bool,
     pub(super) low_ammo: bool,
+    /// The Force readouts flash red (`cg.forceHUDTotalFlashTime`).
+    pub(super) force_flash: bool,
     pub(super) pulse: f32,
     pub(super) team_side: u8,
     pub(super) team_len: usize,
@@ -46,6 +48,10 @@ pub(super) fn emit(
     {
         foreground = theme.critical;
         foreground.a *= context.pulse;
+    }
+    if matches!(binding, Some("force_value" | "force_ratio" | "force_text")) && context.force_flash
+    {
+        foreground = theme.critical;
     }
     if binding == Some("weapon_value") {
         foreground.a *= context.data.weapon_alpha;
