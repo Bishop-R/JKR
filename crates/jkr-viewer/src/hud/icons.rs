@@ -61,6 +61,9 @@ pub(crate) fn install(
     (renderer, hud)
 }
 
+/// `forcePowerSorted` (`bg_misc.c:200-220`): the order Force powers are always drawn in.
+const FORCE_SORTED: [usize; 18] = [5, 0, 10, 9, 11, 1, 2, 3, 4, 14, 7, 13, 8, 6, 12, 15, 16, 17];
+
 /// Sampled options and scalar snapshot data; all texture handles are map-lifetime values.
 pub(crate) struct Icons {
     handles: [Option<TextureId>; assets::COUNT],
@@ -80,6 +83,8 @@ pub(crate) struct Icons {
     active_powers: u32,
     rage_recovery: bool,
     powers_hidden: bool,
+    /// `holocronBits`: the holocrons held.
+    holocrons: u32,
 }
 
 impl Default for Icons {
@@ -100,6 +105,7 @@ impl Default for Icons {
             active_powers: 0,
             rage_recovery: false,
             powers_hidden: true,
+            holocrons: 0,
         }
     }
 }
@@ -141,6 +147,7 @@ impl Icons {
         self.active_powers = snapshot.player.force_powers_active();
         self.rage_recovery = snapshot.player.force_rage_recovery_time() > snapshot.server_time;
         self.powers_hidden = snapshot.player.zoom_mode() != 0 || snapshot.player.team() == 3;
+        self.holocrons = snapshot.player.raw_field(113).unwrap_or(0);
         self.cty = game
             .config_string(0)
             .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"))
@@ -186,6 +193,7 @@ impl Icons {
         let s = (h / 1080.0).clamp(0.6, 2.5);
         let white = Color::new(1.0, 1.0, 1.0, 1.0);
         if visibility.hud && !self.powers_hidden {
+            self.holocrons(list, viewport);
             self.active_powers(list, viewport);
         }
         if self.enabled && visibility.status && self.alive {
@@ -258,17 +266,17 @@ impl Icons {
     /// lasts (heal, speed, mind trick, rage, protect, absorb, sight), in `forcePowerSorted`
     /// order along the bottom left and wrapping, then rage recovery's while it runs.
     fn active_powers(&self, list: &mut DrawList, viewport: [f32; 2]) {
-        /// `forcePowerSorted`, kept to the powers `CG_IsDurationPower` names.
-        const LASTING: [usize; 7] = [5, 0, 10, 9, 2, 14, 8];
+        /// `CG_IsDurationPower`: heal, speed, mind trick, rage, protect, absorb, sight.
+        const LASTING: [usize; 7] = [0, 2, 5, 8, 9, 10, 14];
         let [w, h] = viewport;
         let s = (h / 1080.0).clamp(0.6, 2.5);
         let (size, step) = (64.0 * s, 68.0 * s);
         let start = 56.0 * s;
         let (mut x, mut y) = (start, h - 260.0 * s);
         let white = Color::new(1.0, 1.0, 1.0, 1.0);
-        let powers = LASTING
+        let powers = FORCE_SORTED
             .iter()
-            .filter(|power| self.active_powers & (1 << **power) != 0)
+            .filter(|power| LASTING.contains(power) && self.active_powers & (1 << **power) != 0)
             .map(|power| assets::FORCE + power)
             .chain(self.rage_recovery.then_some(assets::RAGE_RECOVERY));
         for slot in powers {
@@ -277,6 +285,36 @@ impl Icons {
             if x + size >= w - 200.0 * s {
                 x = start;
                 y += step;
+            }
+        }
+    }
+
+    /// `CG_DrawHolocronIcons` (`cg_draw.c:5664-5696`): the icon of each holocron held, in
+    /// `forcePowerSorted` order down the top left, wrapping into a further column.
+    fn holocrons(&self, list: &mut DrawList, viewport: [f32; 2]) {
+        if self.holocrons == 0 {
+            return;
+        }
+        let [_, h] = viewport;
+        let s = (h / 1080.0).clamp(0.6, 2.5);
+        let (size, step) = (64.0 * s, 68.0 * s);
+        let top = 24.0 * s;
+        let (mut x, mut y) = (24.0 * s, top);
+        let white = Color::new(1.0, 1.0, 1.0, 1.0);
+        for power in FORCE_SORTED {
+            if self.holocrons & (1 << power) == 0 {
+                continue;
+            }
+            self.quad(
+                list,
+                assets::FORCE + power,
+                Rect::new(x, y, size, size),
+                white,
+            );
+            y += step;
+            if y + size >= h - 200.0 * s {
+                y = top;
+                x += step;
             }
         }
     }
