@@ -6,7 +6,7 @@
 //! `g_corpseRemovalTime` (the body sink time, stock's 30 s, kept from the cvar hook);
 //! `g_lagIcon` (the connection-trouble sprite) and `g_allowSamePlayerNames` (see
 //! `bridge_userinfo`), both registered on so a stock game keeps stock's ways, where
-//! jaPRO's defaults turn them off.
+//! jaPRO's defaults turn them off; and `g_allowUseInDuel` (`bridge_multiples`).
 
 /// `STAT_MAX_HEALTH`; `entityState_t`'s `health` and `maxhealth`.
 const STAT_MAX_HEALTH: usize = 8;
@@ -18,7 +18,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 6] = [
+        let options: [(&[u8], &[u8], &[u8]); 7] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -48,6 +48,11 @@ impl NativeGame {
                 b"g_allowSamePlayerNames",
                 b"1",
                 b"jaPRO: two players may share a name (0 numbers the newcomer's)",
+            ),
+            (
+                b"g_allowUseInDuel",
+                b"1",
+                b"jaPRO: duellists use triggers (0: no use buttons; 2: none at all)",
             ),
         ];
         for (name, value, about) in options {

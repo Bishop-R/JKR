@@ -36,6 +36,10 @@ impl NativeGame {
         {
             return;
         }
+        // jaPRO's `g_allowUseInDuel`: 0, a duellist uses no use-button trigger; 2 or more,
+        // it touches none.
+        const USE_BUTTON: u32 = 4;
+        let use_in_duel = self.cvars.integer(b"g_allowUseInDuel");
         for index in 0..self.multiples.len() {
             let trigger = self.multiples[index].clone();
             // A fired `trigger_once` is no trigger any more.
@@ -51,6 +55,11 @@ impl NativeGame {
             let Some(peer) = self.peer_mut(client) else {
                 return;
             };
+            if peer.state.duel_in_progress()
+                && (use_in_duel >= 2 || (use_in_duel == 0 && trigger.spawnflags & USE_BUTTON != 0))
+            {
+                continue;
+            }
             let (origin, bounds) = (peer.state.origin(), peer.movement.box_bounds());
             let who = jkr_game_jka::triggers::Toucher {
                 view_angles: peer.state.view_angles(),
