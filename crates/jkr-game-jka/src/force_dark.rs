@@ -236,9 +236,10 @@ impl Forcer<'_, '_> {
             && crate::saber_rules::in_special(victim.state.raw_field(PS_SABER_MOVE).unwrap_or(0)))
     }
 
-    /// `OnSameTeam` with `g_friendlyFire` off: teammates in the team games.
+    /// `OnSameTeam` with `g_friendlyFire` off: teammates in the team games, nobody with
+    /// friendly fire on.
     pub(crate) fn teammate(&self, team: i32) -> bool {
-        same_team(self.frame.gametype, self.frame.team, team)
+        !self.frame.rules.friendly_fire && same_team(self.frame.gametype, self.frame.team, team)
     }
 
     /// `WP_AbsorbConversion` on player `number` for `power` at the user's level: the
@@ -655,7 +656,8 @@ impl Forcer<'_, '_> {
     }
 
     /// The players in front of the user within `radius` (from the nearest point of each
-    /// one's box), alive, not teammates, in its PVS and in its sight: `visit` for each in
+    /// one's box), alive, not teammates (unless friendly fire is on), in its PVS and in its
+    /// sight: `visit` for each in
     /// entity order, with the direction and the box's centre. `wants` filters first.
     fn arc(
         &mut self,
@@ -667,6 +669,7 @@ impl Forcer<'_, '_> {
         let center = self.origin();
         let (gametype, own_team, client) =
             (self.frame.gametype, self.frame.team, self.frame.client);
+        let friendly_fire = self.frame.rules.friendly_fire;
         for number in 0..self.frame.others.slots() {
             if number == client {
                 continue;
@@ -681,8 +684,9 @@ impl Forcer<'_, '_> {
             }) {
                 continue;
             }
-            if *player.health <= 0 || same_team(gametype, own_team, player.team) || !wants(&player)
-            {
+            // `!g_friendlyFire && OnSameTeam(self, traceEnt)`.
+            let spared = !friendly_fire && same_team(gametype, own_team, player.team);
+            if *player.health <= 0 || spared || !wants(&player) {
                 continue;
             }
             let nearest: [f32; 3] = std::array::from_fn(|axis| {

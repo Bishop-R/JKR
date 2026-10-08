@@ -331,9 +331,12 @@ impl ForcePowers {
     }
 }
 
-/// jaPRO's Force options; [`Default`] is stock's.
+/// The server's Force rules: stock's friendly fire and jaPRO's options; [`Default`] is a
+/// stock server's.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ForceRules {
+    /// `g_friendlyFire`: grip, the arcs of lightning and drain, and drain reach teammates.
+    pub friendly_fire: bool,
     /// `g_teamHealScale`, `g_teamEnergizeScale`: what team heal and team replenish give,
     /// against stock's 50, 33 or 25.
     pub team_heal_scale: f32,
@@ -348,6 +351,7 @@ pub struct ForceRules {
 impl Default for ForceRules {
     fn default() -> Self {
         Self {
+            friendly_fire: false,
             team_heal_scale: 1.0,
             team_energize_scale: 1.0,
             team_absorb_scale: 1.0,
