@@ -55,6 +55,7 @@ impl HudOverlay {
         time_ms: u64,
     ) -> ClientHudData {
         self.simple.update(&values, firing, time_ms);
+        self.falling_since = player.falling_to_death();
         let maximum = player.max_health().max(1) as f32;
         self.icons.weapon(values.weapon);
         let targets = [

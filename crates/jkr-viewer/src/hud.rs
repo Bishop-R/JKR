@@ -135,6 +135,8 @@ pub(crate) struct HudOverlay {
     /// The piloted vehicle's HUD.
     pub(crate) vehicle: vehicle::Panel,
     /// The duel spectator's panel.
+    /// `ps.fallingToDeath`: when the player began falling to death, 0 when not.
+    falling_since: i32,
     pub(crate) force_flash: force_flash::ForceFlash,
     simple: simple::SimpleHud,
     pub(crate) duel_panel: duel_panel::DuelPanel,
@@ -237,6 +239,7 @@ impl HudOverlay {
             icons: icons::Icons::default(),
             pickup: pickup::Pickup::default(),
             vehicle: vehicle::Panel::default(),
+            falling_since: 0,
             force_flash: Default::default(),
             simple: Default::default(),
             duel_panel: duel_panel::DuelPanel::default(),
@@ -503,6 +506,14 @@ impl HudOverlay {
         {
             self.icons
                 .pickup(&mut self.draw_list, viewport, item, alpha);
+        }
+        // `CG_Draw2D`: falling to death, the screen goes black over half `FALL_FADE_TIME`.
+        if visibility.hud && self.falling_since != 0 {
+            let fallen = time_ms as f32 - self.falling_since as f32;
+            let _ = self.draw_list.push(jkr_ui::DrawCommand::SolidRect {
+                rect: jkr_ui::Rect::new(0.0, 0.0, viewport[0], viewport[1]),
+                color: jkr_ui::Color::new(0.0, 0.0, 0.0, (fallen / 1_500.0).clamp(0.0, 1.0)),
+            });
         }
         if visibility.crosshair {
             let crosshair = self.targeting.parameters(viewport);

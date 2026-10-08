@@ -8,6 +8,8 @@ pub(crate) struct State {
     previous: Option<Previous>,
     /// The saber-special camera's own easing ([`super::action`]).
     pub(crate) action: super::action::Smoothing,
+    /// Where a fall to death began ([`super::fall`]).
+    pub(crate) fall: super::fall::Fall,
 }
 
 struct Previous {

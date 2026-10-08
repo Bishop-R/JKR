@@ -7,6 +7,8 @@ use jkr_runtime::EntityId;
 
 #[path = "camera_action.rs"]
 pub(crate) mod action;
+#[path = "camera_fall.rs"]
+mod fall;
 #[path = "camera_motion.rs"]
 mod motion;
 #[path = "camera_vehicle.rs"]
@@ -42,8 +44,22 @@ pub(crate) fn third_person_view(
     delta_seconds: f32,
     presentation_time: i64,
 ) -> (Vec3, Vec3) {
-    action::view(state, delta_seconds, presentation_time)
-        .unwrap_or_else(|| damped_third_person(state, delta_seconds, presentation_time))
+    let player = crate::first_person_view::presented_snapshot(
+        state.live_session.as_ref(),
+        state.demo_session.as_ref(),
+        presentation_time as i32,
+    )
+    .map(|snapshot| {
+        (
+            snapshot.player.falling_to_death() != 0,
+            Vec3::from_array(snapshot.player.origin()),
+        )
+    });
+    let (falling, origin) = player.unwrap_or((false, Vec3::ZERO));
+    let fall = state.third_person_camera.fall.update(falling, origin);
+    let view = action::view(state, delta_seconds, presentation_time)
+        .unwrap_or_else(|| damped_third_person(state, delta_seconds, presentation_time));
+    fall.map_or(view, |fall| self::fall::view(fall, view, origin))
 }
 
 /// Stock's camera choice for this frame of a live session ([`jkr_client::camera_mode`]):
@@ -222,8 +238,16 @@ pub(crate) fn damped_third_person(
             let start = p.vehicle_fields().hyperspace_time;
             start != 0 && presentation_time - i64::from(start) < 4000
         });
+    // Falling to death, the camera frames the point the fall began at, at eye height.
+    let focus = state
+        .third_person_camera
+        .fall
+        .origin()
+        .map_or(state.camera_position, |fall| {
+            fall + Vec3::Z * snapshot.map_or(0, |s| s.player.view_height()) as f32
+        });
     let frame = motion::Frame {
-        focus: state.camera_position,
+        focus,
         yaw,
         pitch,
         range: framing[2],
