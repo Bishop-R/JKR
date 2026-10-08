@@ -441,6 +441,7 @@ impl NativeGame {
         let clients = self.gather_sights();
         let jedi_master = self.jedi_masters(None).and_then(|masters| masters.master);
         let intermission = self.match_end.intermission_time != 0;
+        let score_npcs = self.integer_cvar(b"g_scoreNPCs", 2);
         let ghoul2_time = if self.previous_frame_time == 0 {
             self.last_frame_time
         } else {
@@ -497,6 +498,7 @@ impl NativeGame {
             // This server has no warm-up.
             warmup: false,
             intermission,
+            score_npcs,
             map,
             solids: obstacles,
             players: sights,

@@ -6,9 +6,11 @@
 //! `g_corpseRemovalTime` (the body sink time, stock's 30 s, kept from the cvar hook);
 //! `g_lagIcon` (the connection-trouble sprite) and `g_allowSamePlayerNames` (see
 //! `bridge_userinfo`), both registered on so a stock game keeps stock's ways, where
-//! jaPRO's defaults turn them off; `g_allowUseInDuel` (`bridge_multiples`); and
+//! jaPRO's defaults turn them off; `g_allowUseInDuel` (`bridge_multiples`);
 //! `g_godChat` (no harm to or from a typing player in a free-for-all,
-//! [`jkr_game_jka::god_chat`]).
+//! [`jkr_game_jka::god_chat`]); `g_blockDuelHealthSpec` (`bridge_follow`); `g_scoreNPCs`
+//! (what a player's kill of an NPC counts for, `NpcHost::score_npcs`, 2 = stock); and
+//! `g_autoQuit` (an idle server quits after so many days, kept from the cvar hook).
 
 /// `TEAM_SPECTATOR`.
 const TEAM_SPECTATOR: i32 = 3;
@@ -22,7 +24,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 8] = [
+        let options: [(&[u8], &[u8], &[u8]); 11] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -63,11 +65,46 @@ impl NativeGame {
                 b"0",
                 b"jaPRO: in FFA, a player typing for 3 s cannot be hurt, and deals no harm",
             ),
+            (
+                b"g_blockDuelHealthSpec",
+                b"0",
+                b"jaPRO: spectators following a duellist do not see its health",
+            ),
+            (
+                b"g_scoreNPCs",
+                b"2",
+                b"jaPRO: NPC kills score (0 not at all, 1 without the victory taunt, 2 fully)",
+            ),
+            (
+                b"g_autoQuit",
+                b"0",
+                b"jaPRO: with nobody playing, the server quits after this many days up",
+            ),
         ];
         for (name, value, about) in options {
             self.cvars
                 .get_announced(name, value, crate::cvars::CVAR_ARCHIVE, Some(about));
         }
+    }
+
+    /// jaPRO's `g_autoQuit`, once a frame: up more than that many days by the game's
+    /// clock (`levelTime`) with nobody playing, the server quits — before its clock runs
+    /// out. jaPRO multiplies the days in an `int`, which makes 25 or more quit at once;
+    /// here they are counted in 64 bits.
+    pub(super) fn auto_quit(&mut self, server_time: i32) {
+        let days = i64::from(self.auto_quit_days);
+        if days <= 0 || self.quitting || i64::from(server_time) <= days * 86_400_000 {
+            return;
+        }
+        if self.voting_clients() != 0 {
+            return;
+        }
+        self.quitting = true;
+        println!(
+            "Auto quitting server (up {} days)",
+            server_time / 86_400_000
+        );
+        self.commands.add_text(b"quit\n", &mut |_| {});
     }
 
     /// jaPRO's god chat in `G_Damage`: player `number` is typing, so its blows deal nothing

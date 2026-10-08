@@ -96,6 +96,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) jedi_master: Option<u16>,
     pub(super) warmup: bool,
     pub(super) intermission: bool,
+    /// jaPRO's `g_scoreNPCs` ([`NpcHost::score_npcs`]).
+    pub(super) score_npcs: i32,
     pub(super) map: Option<&'a LoadedMap>,
     /// Everything solid but the NPCs: the players first, then missiles and brushes.
     pub(super) solids: &'a [BoxObstacle],
@@ -616,6 +618,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn jedi_master(&self) -> Option<u16> {
         self.jedi_master
+    }
+
+    fn score_npcs(&self) -> i32 {
+        self.score_npcs
     }
 
     fn warmup(&self) -> bool {

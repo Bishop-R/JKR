@@ -297,7 +297,15 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.add_score(number, -1);
             return;
         };
-        self.victory(killer);
+        // jaPRO's `g_scoreNPCs`, for a player's kill: nothing at 0, no victory at 1.
+        let by_player = self.actor_at(attacker).is_none();
+        let counted = if by_player { self.host.score_npcs() } else { 2 };
+        if counted == 0 {
+            return;
+        }
+        if counted > 1 {
+            self.victory(killer);
+        }
         if attacker == number || self.on_same_team(me, &killer) {
             self.add_score(attacker, -1);
             return;

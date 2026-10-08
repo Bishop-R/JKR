@@ -969,6 +969,12 @@ pub trait NpcHost: SaberParseHost {
     fn jedi_master(&self) -> Option<u16> {
         None
     }
+    /// jaPRO's `g_scoreNPCs`: what a player's kill of an NPC counts for — 0 nothing (no
+    /// score, award or victory), 1 its score and awards without the killer's victory, 2
+    /// (stock) all of it.
+    fn score_npcs(&self) -> i32 {
+        2
+    }
     /// `level.warmupTime`: no scoring during the warm-up.
     fn warmup(&self) -> bool {
         false

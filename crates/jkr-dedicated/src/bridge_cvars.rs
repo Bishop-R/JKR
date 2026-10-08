@@ -92,6 +92,7 @@ impl NativeGame {
                 "g_corpseremovaltime" => self.body_sink_ms = integer.saturating_mul(1_000),
                 "g_lagicon" => self.lag_icon = integer != 0,
                 "g_godchat" => self.god_chat = integer != 0,
+                "g_autoquit" => self.auto_quit_days = integer,
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }

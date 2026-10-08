@@ -311,6 +311,9 @@ pub struct NativeGame {
     lag_icon: bool,
     /// jaPRO's `g_godChat` ([`jkr_game_jka::god_chat`]).
     god_chat: bool,
+    /// jaPRO's `g_autoQuit` days, and whether the quit it asks for is queued.
+    auto_quit_days: i32,
+    quitting: bool,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -515,6 +518,8 @@ impl NativeGame {
             body_sink_ms: jkr_game_jka::corpses::BODY_SINK_TIME,
             lag_icon: true,
             god_chat: false,
+            auto_quit_days: 0,
+            quitting: false,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -2755,6 +2760,7 @@ impl NativeGame {
         self.run_items(server_time);
         self.sample_flag_timers();
         self.check_client_timeouts(server_time);
+        self.auto_quit(server_time);
         self.run_jedi_master(server_time);
         self.run_holocrons(server_time);
         self.run_siege_items(server_time);

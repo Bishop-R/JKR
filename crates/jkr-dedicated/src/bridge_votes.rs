@@ -65,6 +65,11 @@ impl NativeGame {
         self.vote_rules.0
     }
 
+    /// `level.numVotingClients`: the people (no bots) playing, as a vote counts them.
+    pub(super) fn voting_clients(&self) -> i32 {
+        vote::voting_clients(&self.vote_settings(), &self.client_views())
+    }
+
     /// The settings a vote is read against, as this frame finds the server.
     fn vote_settings(&self) -> VoteSettings {
         VoteSettings {
@@ -197,7 +202,7 @@ impl NativeGame {
         let voting = if self.vote.time == 0 {
             0
         } else {
-            vote::voting_clients(&self.vote_settings(), &self.client_views())
+            self.voting_clients()
         };
         let mut running = std::mem::take(&mut self.vote);
         let said = vote::check_vote(
