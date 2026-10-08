@@ -174,7 +174,7 @@ impl CgameLog {
 }
 
 /// The UTC calendar date of a Unix time: year, month (1-12) and day.
-fn civil_date(seconds: u64) -> (i64, i64, i64) {
+pub(crate) fn civil_date(seconds: u64) -> (i64, i64, i64) {
     let days = (seconds / 86_400) as i64 + 719_468;
     let era = days / 146_097;
     let day = days - era * 146_097;

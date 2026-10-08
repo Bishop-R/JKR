@@ -13,6 +13,7 @@ mod app_launch;
 mod assets;
 mod audio;
 mod audio_output;
+mod auto_capture;
 mod auto_switch;
 mod bolt;
 mod camera;
@@ -406,6 +407,7 @@ struct GpuState {
     live_map_installed: bool,
 
     quit_requested: bool,
+    auto_capture: auto_capture::AutoCapture,
     /// The boot world the standalone menu lives in (see `menu_world`).
     is_menu_world: bool,
     /// The map being joined, seen through the menu's gate.
@@ -1145,6 +1147,7 @@ impl GpuState {
             live_map_installed,
 
             quit_requested: false,
+            auto_capture: Default::default(),
             is_menu_world: false,
             portal: portal::Destination::new(),
             resident,

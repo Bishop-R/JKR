@@ -100,7 +100,7 @@ impl GpuState {
         }
     }
 
-    fn start_console_recording(&mut self, name: Option<&str>) {
+    pub(crate) fn start_console_recording(&mut self, name: Option<&str>) {
         let Some(console) = self.console.as_ref() else {
             return;
         };
@@ -123,7 +123,7 @@ impl GpuState {
         }
     }
 
-    fn stop_console_recording(&mut self) {
+    pub(crate) fn stop_console_recording(&mut self) {
         let result = self
             .live_session
             .as_mut()

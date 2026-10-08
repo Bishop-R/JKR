@@ -62,6 +62,18 @@ pub(crate) struct Request {
     silent: bool,
 }
 
+impl Request {
+    /// A PNG the client takes on its own, at `name` under the screenshot directory (a
+    /// subdirectory allowed, as EternalJK's `auto/`).
+    pub(crate) fn automatic(name: String) -> Self {
+        Self {
+            format: Format::Png,
+            name: Some(name),
+            silent: false,
+        }
+    }
+}
+
 /// Parse OpenJK-style screenshot commands registered by the renderer.
 ///
 /// `R_ScreenShot*_f` accepts an optional explicit name at
@@ -168,8 +180,9 @@ impl Manager {
             return Err("surface does not support screenshot readback".to_owned());
         }
         let directory = &self.directory;
-        fs::create_dir_all(directory).map_err(|error| error.to_string())?;
         let path = screenshot_path(directory, &request)?;
+        let parent = path.parent().unwrap_or(directory);
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         let row_bytes = size[0] * BYTES_PER_PIXEL;
         let padded_row_bytes = row_bytes.div_ceil(COPY_ALIGNMENT) * COPY_ALIGNMENT;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {

@@ -112,6 +112,7 @@ impl ViewerConsole {
         crate::world_materials::shadows::settings::register(&mut cvars)?;
         let window_options = window_options::Options::register(&mut cvars)?;
         chat_log::register(&mut cvars)?;
+        crate::auto_capture::register(&mut cvars)?;
         let qcommon = qcommon::Settings::register(&mut cvars)?;
         crate::hud::targeting::register(&mut cvars)?;
         crate::input::settings::register(&mut cvars)?;

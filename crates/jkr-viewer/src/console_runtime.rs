@@ -62,6 +62,8 @@ impl GpuState {
         if let Some(action) = demo {
             self.apply_console_demo_action(action);
         }
+        // EternalJK's automatic demos and intermission screenshots.
+        self.run_auto_capture();
         self.run_client_commands(audio);
     }
 }
