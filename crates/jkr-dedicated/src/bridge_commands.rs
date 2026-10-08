@@ -21,6 +21,7 @@ impl NativeGame {
             || self.ignore_command(client, text)
             || self.jetpack_command(client, command)
             || self.spot_command(client, command, server_time)
+            || self.server_config_command(client, command)
         {
             return;
         }

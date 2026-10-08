@@ -3609,6 +3609,8 @@ mod bridge_npcs;
 mod bridge_path_movers;
 #[path = "bridge_sabers.rs"]
 mod bridge_sabers;
+#[path = "bridge_server_config.rs"]
+mod bridge_server_config;
 #[path = "bridge_shot_target.rs"]
 mod bridge_shot_target;
 #[path = "bridge_siege.rs"]
