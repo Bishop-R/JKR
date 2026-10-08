@@ -19,8 +19,9 @@ pub const CONTENTS_CORPSE: u32 = 0x200;
 pub const CLIP_MASK: u32 = 0x1 | 0x1_0000;
 /// `GIB_HEALTH`.
 const GIB_HEALTH: i32 = -40;
-/// `BODY_SINK_TIME`: when `BodySink` first runs and takes `takedamage` away.
-const BODY_SINK_MS: i32 = 30_000;
+/// `BODY_SINK_TIME`: when `BodySink` first runs and takes `takedamage` away — stock's
+/// thirty seconds, which jaPRO's `g_corpseRemovalTime` sets.
+pub const BODY_SINK_TIME: i32 = 30_000;
 /// How long after `body_die` burns a body away `BodyRid` unlinks it.
 const RID_MS: i32 = 1_000;
 /// `EF_DISINTEGRATION`; the wire fields `s.eFlags`, `s.origin2` and `s.pos.trBase`.
@@ -40,8 +41,8 @@ pub struct Corpse {
     pub bounds: ([f32; 3], [f32; 3]),
     /// `r.currentOrigin`.
     pub current: [f32; 3],
-    /// `timestamp`: when it fell.
-    since: i32,
+    /// When its `BodySink` runs (`timestamp` plus `BODY_SINK_TIME`).
+    sink_at: i32,
     /// A gibbed player's body, which never takes damage.
     gibbed: bool,
     /// Burnt away (`EF_DISINTEGRATION`): `BodyRid` replaced `BodySink`.
@@ -80,7 +81,8 @@ struct Slot {
 
 impl Corpses {
     /// `CopyToBodyQue` into body slot `slot`: player `owner`, dead with `health`, its box
-    /// `bounds`, its body's wire state `state` (at `s.pos.trBase`) — at `level_time`.
+    /// `bounds`, its body's wire state `state` (at `s.pos.trBase`) — at `level_time`,
+    /// sinking `sink_ms` later ([`BODY_SINK_TIME`] in stock).
     pub fn copied(
         &mut self,
         slot: usize,
@@ -89,6 +91,7 @@ impl Corpses {
         state: &EntityState,
         health: i32,
         level_time: i32,
+        sink_ms: i32,
     ) {
         let read = |index: usize| f32::from_bits(state.raw_field(index).unwrap_or(0));
         if let Some(entry) = self.slots.get_mut(slot) {
@@ -96,7 +99,7 @@ impl Corpses {
                 owner,
                 bounds,
                 current: ES_POS_BASE.map(read),
-                since: level_time,
+                sink_at: level_time + sink_ms,
                 gibbed: health <= GIB_HEALTH,
                 burnt: false,
             });
@@ -122,9 +125,8 @@ impl Corpses {
     /// `takedamage` of the body in `slot` at `level_time`: not a gibbed player's, nor once
     /// `BodySink` ran — which a body burnt away never runs.
     pub fn takes_damage(&self, slot: usize, level_time: i32) -> bool {
-        self.body(slot).is_some_and(|body| {
-            !body.gibbed && (body.burnt || level_time < body.since + BODY_SINK_MS)
-        })
+        self.body(slot)
+            .is_some_and(|body| !body.gibbed && (body.burnt || level_time < body.sink_at))
     }
 
     /// `G_Damage`'s end for the body in `slot`, `take` off its health (what

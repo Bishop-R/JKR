@@ -304,6 +304,8 @@ pub struct NativeGame {
     self_damage_scale: f32,
     /// jaPRO's `g_showHealth`, kept from the cvar: players' health goes out.
     show_health: bool,
+    /// `BODY_SINK_TIME` in milliseconds: jaPRO's `g_corpseRemovalTime` (stock's 30 s).
+    body_sink_ms: i32,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -505,6 +507,7 @@ impl NativeGame {
             wide_flag_box: false,
             self_damage_scale: 0.5,
             show_health: false,
+            body_sink_ms: jkr_game_jka::corpses::BODY_SINK_TIME,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -1693,6 +1696,7 @@ impl NativeGame {
     /// `MaintainBodyQueue`: the corpse's entity goes into the body queue and everyone is
     /// told to move the ragdoll over — or, where no body is made, to reset the corpse.
     fn leave_body(&mut self, client: usize, level_time: i32) {
+        let sink_ms = self.body_sink_ms;
         let Self {
             server,
             world,
@@ -1706,7 +1710,7 @@ impl NativeGame {
             .at(client)
             .and_then(|handle| server.world_mut(*world)?.entity_mut(handle));
         let Some(peer) = peer else { return };
-        Self::leave_body_of(peer, (pool, corpses), told, client, level_time);
+        Self::leave_body_of(peer, (pool, corpses), told, client, (level_time, sink_ms));
     }
 
     fn leave_body_of(
@@ -1714,13 +1718,13 @@ impl NativeGame {
         (pool, corpses): (&mut EntityPool, &mut jkr_game_jka::corpses::Corpses),
         told: &mut Vec<Told>,
         client: usize,
-        level_time: i32,
+        (level_time, sink_ms): (i32, i32),
     ) {
         match body_left_behind(&peer.state, peer.entity.state(), level_time)
             .filter(|_| !peer.no_corpse)
         {
             Some(body) => {
-                let number = pool.spawn_body(body.state.clone(), level_time);
+                let number = pool.spawn_body(body.state.clone(), level_time, sink_ms);
                 // `CopyToBodyQue`: the dead player's box, its owner, and whether it takes
                 // damage (a gibbed player's does not).
                 let (bottom, mut top) = peer.movement.box_bounds();
@@ -1736,6 +1740,7 @@ impl NativeGame {
                         &body.state,
                         peer.health,
                         level_time,
+                        sink_ms,
                     );
                 }
                 told.push(Told::Everyone(
