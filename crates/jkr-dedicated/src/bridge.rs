@@ -3615,6 +3615,8 @@ mod bridge_siege_clients;
 mod bridge_siege_items;
 #[path = "bridge_siege_triggers.rs"]
 mod bridge_siege_triggers;
+#[path = "bridge_spot.rs"]
+mod bridge_spot;
 #[path = "bridge_starting_items.rs"]
 mod bridge_starting_items;
 #[path = "bridge_stock_rules.rs"]

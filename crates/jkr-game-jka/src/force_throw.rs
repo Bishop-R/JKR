@@ -919,7 +919,7 @@ fn in_get_up(state: &PlayerState) -> bool {
 
 /// `InFieldOfVision` (`ai_main.c:2058-2095`): `angles` within half of `fov` of the view,
 /// in pitch and in yaw.
-pub(crate) fn in_field_of_vision(view: [f32; 3], fov: f32, angles: [f32; 2]) -> bool {
+pub fn in_field_of_vision(view: [f32; 3], fov: f32, angles: [f32; 2]) -> bool {
     for axis in 0..2 {
         let angle = angle_mod(view[axis]);
         let target = angle_mod(angles[axis]);

@@ -908,7 +908,7 @@ pub fn damage_feedback(
 }
 
 /// `vectoangles` (`q_math.c:616-653`): pitch and yaw, in degrees, of a direction.
-pub(crate) fn vector_to_angles(value: [f32; 3]) -> (f32, f32) {
+pub fn vector_to_angles(value: [f32; 3]) -> (f32, f32) {
     let (pitch, yaw);
     if value[1] == 0.0 && value[0] == 0.0 {
         yaw = 0.0;

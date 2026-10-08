@@ -161,6 +161,10 @@ pub struct Peer {
     /// jaPRO's `pers.respawnLocation` and `respawnAngle` (`g_duelRespawn`): where the
     /// next spawn is, after a death in a duel.
     pub(crate) duel_respawn: Option<([f32; 3], f32)>,
+    /// jaPRO's `lastSpotTime` (the next `spot` taken) and `lastSpottedTime` (when this
+    /// player was last spotted).
+    pub(crate) last_spot_time: i32,
+    pub(crate) last_spotted_time: i32,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -304,6 +308,8 @@ impl Peer {
             last_flag_throw: 0,
             flag_timer: Default::default(),
             duel_respawn: None,
+            last_spot_time: 0,
+            last_spotted_time: 0,
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),
