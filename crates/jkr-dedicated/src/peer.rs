@@ -614,14 +614,14 @@ impl Peer {
         self.playing()
     }
 
-    /// `ClientEndFrame`: connection trouble is flagged after a second without commands,
-    /// and the entity is converted again.
-    pub(crate) fn end_frame(&mut self, pool: &mut EntityPool, server_time: i32) {
+    /// `ClientEndFrame`: connection trouble is flagged after a second without commands
+    /// (unless jaPRO's `g_lagIcon` is off, `lag_icon`), and the entity is converted again.
+    pub(crate) fn end_frame(&mut self, pool: &mut EntityPool, server_time: i32, lag_icon: bool) {
         if !self.playing() {
             return;
         }
         let flags = self.state.raw_field(EFLAGS).unwrap_or(0);
-        let silent = server_time - self.last_command_time > 1_000;
+        let silent = lag_icon && server_time - self.last_command_time > 1_000;
         self.state.set_raw_field(
             EFLAGS,
             if silent {

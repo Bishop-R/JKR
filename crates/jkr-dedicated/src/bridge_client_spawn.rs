@@ -24,6 +24,7 @@ impl NativeGame {
         };
         let duel_fraglimit = self.limits.duel_fraglimit;
         let starting_items = self.starting_items();
+        let lag_icon = self.lag_icon;
         let Self {
             server,
             world,
@@ -193,7 +194,7 @@ impl NativeGame {
             server_time,
             &mut self.deaths.rng,
         );
-        peer.end_frame(pool, server_time);
+        peer.end_frame(pool, server_time, lag_icon);
         peer.entity.spawn_finished(&peer.state);
         // `G_KillBox`: whoever stands in the spawned player's box is telefragged.
         if playing {

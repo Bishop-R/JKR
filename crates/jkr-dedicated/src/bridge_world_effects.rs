@@ -68,6 +68,7 @@ impl NativeGame {
     /// `ClientEndFrame` from `P_WorldEffects` on, for a playing `client`.
     fn end_player_frame(&mut self, client: usize, level_time: i32) {
         self.world_effects(client, level_time);
+        let lag_icon = self.lag_icon;
         let Self {
             server,
             world,
@@ -79,7 +80,7 @@ impl NativeGame {
             .at(client)
             .and_then(|handle| server.world_mut(*world)?.entity_mut(handle))
         {
-            peer.end_frame(pool, level_time);
+            peer.end_frame(pool, level_time, lag_icon);
         }
     }
 

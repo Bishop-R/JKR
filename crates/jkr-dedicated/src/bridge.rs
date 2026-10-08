@@ -306,6 +306,9 @@ pub struct NativeGame {
     show_health: bool,
     /// `BODY_SINK_TIME` in milliseconds: jaPRO's `g_corpseRemovalTime` (stock's 30 s).
     body_sink_ms: i32,
+    /// jaPRO's `g_lagIcon`, kept from the cvar: a silent player's connection trouble is
+    /// shown (stock always shows it).
+    lag_icon: bool,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -508,6 +511,7 @@ impl NativeGame {
             self_damage_scale: 0.5,
             show_health: false,
             body_sink_ms: jkr_game_jka::corpses::BODY_SINK_TIME,
+            lag_icon: true,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),

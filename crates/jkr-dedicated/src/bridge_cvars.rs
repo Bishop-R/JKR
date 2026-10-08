@@ -90,6 +90,7 @@ impl NativeGame {
                 "g_mercyrule" => self.limits.mercy = var.value(),
                 "g_showhealth" => self.show_health_changed(integer != 0),
                 "g_corpseremovaltime" => self.body_sink_ms = integer.saturating_mul(1_000),
+                "g_lagicon" => self.lag_icon = integer != 0,
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }

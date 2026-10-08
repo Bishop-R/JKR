@@ -3,7 +3,10 @@
 //! `g_allowTeamSuicide` (`kill` in a team game; registered on so a stock game allows it,
 //! while jaPRO's own default refuses it) and `g_showHealth` (every player's health in its
 //! entity, `G_ScaleNetHealth`, for the health bars clients draw over what they aim at);
-//! and `g_corpseRemovalTime` (the body sink time, stock's 30 s, kept from the cvar hook).
+//! `g_corpseRemovalTime` (the body sink time, stock's 30 s, kept from the cvar hook);
+//! `g_lagIcon` (the connection-trouble sprite) and `g_allowSamePlayerNames` (see
+//! `bridge_userinfo`), both registered on so a stock game keeps stock's ways, where
+//! jaPRO's defaults turn them off.
 
 /// `STAT_MAX_HEALTH`; `entityState_t`'s `health` and `maxhealth`.
 const STAT_MAX_HEALTH: usize = 8;
@@ -15,7 +18,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 4] = [
+        let options: [(&[u8], &[u8], &[u8]); 6] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -35,6 +38,16 @@ impl NativeGame {
                 b"g_corpseRemovalTime",
                 b"30",
                 b"jaPRO: seconds before a body sinks away",
+            ),
+            (
+                b"g_lagIcon",
+                b"1",
+                b"jaPRO: a silent player shows connection trouble (jaPRO's default is 0)",
+            ),
+            (
+                b"g_allowSamePlayerNames",
+                b"1",
+                b"jaPRO: two players may share a name (0 numbers the newcomer's)",
             ),
         ];
         for (name, value, about) in options {
