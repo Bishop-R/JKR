@@ -221,7 +221,7 @@ mod tests {
         let state = body_state([10.0, 20.0, -16.0]);
         let mut corpses = Corpses::default();
         let bounds = ([-15.0, -15.0, -24.0], [15.0, 15.0, -8.0]);
-        corpses.copied(3, 1, bounds, &state, health, 5_000);
+        corpses.copied(3, 1, bounds, &state, health, 5_000, BODY_SINK_TIME);
         (corpses, state)
     }
 
