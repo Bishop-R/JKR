@@ -66,6 +66,37 @@ impl NativeGame {
         sound.parameter = u32::from(index);
         let _ = self.pool.spawn_temporary(sound.state(), level_time, None);
     }
+
+    /// `G_BreakArm`'s sounds for player `client` (`g_client.c:2795-2825`): a lit second
+    /// saber put out with the left arm, the cry, and the bone.
+    pub(super) fn arm_broken_sounds(
+        &mut self,
+        client: usize,
+        broken: jkr_game_jka::damage::ArmBroken,
+        level_time: i32,
+    ) {
+        const CHAN_AUTO: u32 = 0;
+        const WP_SABER: u8 = 3;
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let origin = peer.state.origin();
+        let second = &peer.sabers.hands[1];
+        let saber_off = (broken.arm == jkr_game_jka::damage::BROKENLIMB_LARM
+            && second.is_held()
+            && peer.state.weapon() == WP_SABER
+            && peer.state.saber_holstered() == 0)
+            .then_some(second.sound_off)
+            .filter(|sound| *sound != 0);
+        if let Some(sound) = saber_off {
+            let event = jkr_game_jka::weapon_fire::sound_event(origin, CHAN_AUTO, sound);
+            let _ = self.pool.spawn_temporary(event.state(), level_time, None);
+        }
+        let cry = jkr_game_jka::damage::ARM_BREAK_CRY;
+        self.voice_sound(client as u16, origin, cry, level_time);
+        let bone = broken.bodyfall_sound();
+        self.general_sound(bone.as_bytes(), origin, CHAN_AUTO, level_time);
+    }
 }
 
 #[cfg(test)]

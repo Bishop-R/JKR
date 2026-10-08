@@ -1636,9 +1636,9 @@ pub(crate) fn set_origin(missile: &mut Missile, origin: [f32; 3]) {
     missile.current = origin;
 }
 
-/// `G_Sound` (`G_SoundTempEntity`): the sound's temp entity where the missile is, the
-/// channel in `saberEntityNum`.
-pub(crate) fn sound_event(origin: [f32; 3], channel: u32, index: u16) -> EventEntity {
+/// `G_Sound` (`G_SoundTempEntity`): sound `index`'s temp entity at `origin`, the channel
+/// in `saberEntityNum`.
+pub fn sound_event(origin: [f32; 3], channel: u32, index: u16) -> EventEntity {
     EventEntity {
         event: EV_GENERAL_SOUND,
         parameter: u32::from(index),

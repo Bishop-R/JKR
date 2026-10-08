@@ -100,6 +100,7 @@ impl NativeGame {
                 "g_saberlockrandomness" => self.saber_settings.lock_randomness = integer,
                 "g_friendlysaber" => self.saber_settings.friendly = integer != 0,
                 "g_fixsaberdisarmbonus" => self.saber_settings.disarm_bonus_fix = integer != 0,
+                "g_smoothclients" => self.smooth_clients = integer != 0,
                 "g_fixsabermovedata" | "g_fixweaponattackanim" | "g_fixrunwalkanims" => {
                     self.publish_legacy_fixes()
                 }
@@ -109,6 +110,7 @@ impl NativeGame {
                     self.damage_rules.saber_push_holds = integer != 0;
                 }
                 "g_locationbaseddamage" => self.damage_rules.location_based = integer != 0,
+                "g_armbreakage" => self.damage_rules.arm_breakage = integer != 0,
                 "g_debugmelee" => {
                     self.debug_melee = integer != 0;
                     self.force_rules.debug_melee = integer != 0;

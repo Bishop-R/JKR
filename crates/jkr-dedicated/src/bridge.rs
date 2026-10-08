@@ -328,6 +328,8 @@ pub struct NativeGame {
     damage_rules: jkr_game_jka::damage::DamageRules,
     /// The animation fixes the moves run (`CS_LEGACY_FIXES`), kept from the cvar hook.
     legacy_fixes: u32,
+    /// `g_smoothClients`: players' entities are extrapolated, kept from the cvar hook.
+    smooth_clients: bool,
     /// jaPRO's `g_gunGame` (`bridge_gun_game`), kept from the cvar hook.
     gun_game: i32,
     /// Its turrets (`bridge_map_turrets`).
@@ -542,6 +544,7 @@ impl NativeGame {
             saber_settings: Default::default(),
             damage_rules: Default::default(),
             legacy_fixes: authoritative().legacy_fixes,
+            smooth_clients: true,
             gun_game: 0,
             map_turrets: Default::default(),
             stock: Default::default(),
@@ -2752,7 +2755,22 @@ impl NativeGame {
         }
         // The knockback is in the wire state: the movement restarts from it.
         victim.movement = victim.movement.reseeded(&victim.state);
+        // `G_BreakArm`'s pain pose, held on the whole body (`g_client.c:2812-2816`).
+        if let Some(broken) = damaged.broke_arm {
+            use jkr_game_jka::pmove_anim::{
+                SETANIM_BOTH, SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE,
+            };
+            victim.movement.set_animation_parts(
+                SETANIM_BOTH,
+                broken.pose,
+                SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+            );
+            victim.movement.write_player_state(&mut victim.state);
+        }
         self.deaths.rng = rng;
+        if let Some(broken) = damaged.broke_arm {
+            self.arm_broken_sounds(target, broken, level_time);
+        }
         // `G_Damage`'s hit counter (`g_combat.c:4920-4932`), whatever the blow.
         if damaged.attacker_hits != 0
             && let Some(attacker) = request.attacker.filter(|attacker| !attacker.npc)

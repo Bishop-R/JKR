@@ -198,6 +198,9 @@ pub struct Wounds {
     /// `ps.otherKiller`, `otherKillerTime`, `otherKillerDebounceTime`: who last pushed the
     /// player, credited with a fall that follows.
     pub other_killer: OtherKiller,
+    /// `locationDamage`: what blows the model's surface placed have taken at each place
+    /// ([`HitLocation`]) since the spawn.
+    pub location_damage: [i32; 17],
 }
 
 /// `ps.otherKiller`, `otherKillerTime`, `otherKillerDebounceTime`: who last pushed, shoved,
@@ -317,6 +320,8 @@ pub struct DamageRules {
     pub saber_push_holds: bool,
     /// `g_locationBasedDamage`: where a blow lands scales it ([`location_modified`]).
     pub location_based: bool,
+    /// `g_armBreakage`: 80 taken on an arm and its hand break it ([`arm_to_break`]).
+    pub arm_breakage: bool,
 }
 
 impl Default for DamageRules {
@@ -326,6 +331,7 @@ impl Default for DamageRules {
             saber_scale: 0.0,
             saber_push_holds: false,
             location_based: true,
+            arm_breakage: false,
         }
     }
 }
@@ -417,6 +423,82 @@ pub struct Damaged {
     pub landed: bool,
     /// The target died: the caller runs `player_die` with this damage and point.
     pub died: Option<Death>,
+    /// `g_armBreakage` broke an arm: the caller holds the pose and plays the sounds.
+    pub broke_arm: Option<ArmBroken>,
+}
+
+/// `BROKENLIMB_LARM`, `BROKENLIMB_RARM` (`bg_public.h:224-229`): a bit each in
+/// `brokenLimbs`.
+pub const BROKENLIMB_LARM: u8 = 1;
+pub const BROKENLIMB_RARM: u8 = 2;
+/// `Q3_INFINITE`: a place's damage stops counting there.
+const Q3_INFINITE: i32 = 16_777_216;
+/// `EF_DEAD`.
+const EF_DEAD: u32 = 1 << 1;
+/// `PS_BROKEN_LIMBS` (netfield 93), `SS_STAFF`, `BOTH_PAIN2`, `BOTH_PAIN3`.
+const PS_BROKEN_LIMBS: usize = 93;
+const SS_STAFF: u8 = 7;
+const BOTH_PAIN2: u16 = 96;
+const BOTH_PAIN3: u16 = 97;
+
+/// `G_BreakArm`'s cry, on the voice channel (`G_EntitySound`).
+pub const ARM_BREAK_CRY: &[u8] = b"*pain25.wav";
+
+/// What `G_BreakArm` leaves its caller to do once the arm is marked broken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ArmBroken {
+    /// [`BROKENLIMB_LARM`] or [`BROKENLIMB_RARM`]: the left arm's saber goes out too.
+    pub arm: u8,
+    /// The pain pose held on the whole body: `BOTH_PAIN2` for the left, `BOTH_PAIN3`.
+    pub pose: u16,
+    /// Which `sound/player/bodyfall_human%i.wav` stands in for the bone, drawn 1 to 3.
+    pub bodyfall: i32,
+}
+
+impl ArmBroken {
+    /// The bone's sound ("A nice bone snapping sound instead if possible").
+    pub fn bodyfall_sound(&self) -> String {
+        format!("sound/player/bodyfall_human{}.wav", self.bodyfall)
+    }
+}
+
+/// `g_armBreakage` (`g_combat.c:5439-5450`): the arm whose arm and hand have taken 80 or
+/// more between them, the right one first.
+pub fn arm_to_break(location_damage: &[i32]) -> Option<u8> {
+    let on = |arm: HitLocation, hand: HitLocation| {
+        location_damage[arm as usize] + location_damage[hand as usize]
+    };
+    if on(HitLocation::ArmRight, HitLocation::HandRight) >= 80 {
+        Some(BROKENLIMB_RARM)
+    } else if on(HitLocation::ArmLeft, HitLocation::HandLeft) >= 80 {
+        Some(BROKENLIMB_LARM)
+    } else {
+        None
+    }
+}
+
+/// `G_BreakArm(ent, arm)` (`g_client.c:2770-2826`) for a humanoid: nothing in the staff
+/// style ("too lazy to deal with this"); else that arm alone marked broken, and the pose
+/// and the bone's sound — its draw made here, in the reference's order — for the caller.
+pub fn break_arm(
+    state: &mut PlayerState,
+    arm: u8,
+    rng: &mut crate::player_death::Rng,
+) -> Option<ArmBroken> {
+    if state.saber_style() == SS_STAFF {
+        return None;
+    }
+    state.set_raw_field(PS_BROKEN_LIMBS, 1 << arm);
+    let pose = if arm == BROKENLIMB_LARM {
+        BOTH_PAIN2
+    } else {
+        BOTH_PAIN3
+    };
+    Some(ArmBroken {
+        arm,
+        pose,
+        bodyfall: rng.irand(1, 3),
+    })
 }
 
 /// A killing blow.
@@ -722,6 +804,24 @@ pub fn damage_at(
             *target.health = (*target.health).max(1);
             target.state.stats[STAT_HEALTH] =
                 (target.state.stats[STAT_HEALTH] as i32).max(1) as u32;
+        }
+        // `g_combat.c:5416-5450`: a blow the model's surface placed this frame counts
+        // against that place; with `g_armBreakage` an arm may break.
+        if let Some(location) = surface_location {
+            let counted = &mut target.wounds.location_damage[location as usize];
+            if *counted < Q3_INFINITE {
+                *counted += take;
+                let alive = target.state.stats[STAT_HEALTH] as i32 > 0
+                    && *target.health > 0
+                    && target.state.raw_field(PS_EFLAGS).unwrap_or(0) & EF_DEAD == 0;
+                if target.rules.arm_breakage
+                    && alive
+                    && target.state.broken_limbs() == 0
+                    && let Some(arm) = arm_to_break(&target.wounds.location_damage)
+                {
+                    damaged.broke_arm = break_arm(target.state, arm, rng);
+                }
+            }
         }
         if *target.health <= 0 {
             target.wounds.no_knockback = true;
@@ -1122,6 +1222,29 @@ pub fn radius_damage(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `g_armBreakage`: 80 between an arm and its hand breaks it, the right one first; the
+    /// arm alone is marked, the pose by the side; the staff style breaks nothing.
+    #[test]
+    fn an_arm_breaks_at_eighty() {
+        let mut damage = [0; 17];
+        damage[HitLocation::ArmLeft as usize] = 50;
+        assert_eq!(arm_to_break(&damage), None);
+        damage[HitLocation::HandLeft as usize] = 30;
+        assert_eq!(arm_to_break(&damage), Some(BROKENLIMB_LARM));
+        damage[HitLocation::HandRight as usize] = 80;
+        assert_eq!(arm_to_break(&damage), Some(BROKENLIMB_RARM));
+        let mut state = PlayerState::zero();
+        let mut rng = crate::player_death::Rng(1);
+        let broken = break_arm(&mut state, BROKENLIMB_RARM, &mut rng).unwrap();
+        assert_eq!(state.broken_limbs(), 1 << BROKENLIMB_RARM);
+        assert_eq!(broken.pose, BOTH_PAIN3);
+        assert!((1..=3).contains(&broken.bodyfall));
+        let mut staff = PlayerState::zero();
+        staff.set_raw_field(23, u32::from(SS_STAFF));
+        assert_eq!(break_arm(&mut staff, BROKENLIMB_LARM, &mut rng), None);
+        assert_eq!(staff.broken_limbs(), 0);
+    }
 
     /// `g_combat.c:4934-4945`: half outside siege (or jaPRO's scale), half as much again in
     /// siege whatever the scale.

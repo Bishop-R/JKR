@@ -612,8 +612,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         let sent = crate::player_entity::extrapolate(
             &npc.player,
             &mut npc.mind.shown_events,
-            &mut npc.state,
-            overflow,
+            (&mut npc.state, overflow),
+            host.smooth_clients(),
         );
         npc.state.set_raw_field(es::TYPE, ET_NPC);
         if sent {

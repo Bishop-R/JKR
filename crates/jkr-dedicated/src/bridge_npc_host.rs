@@ -155,6 +155,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) damage: jkr_game_jka::damage::DamageRules,
     /// The animation fixes the moves run (`CS_LEGACY_FIXES`).
     pub(super) legacy_fixes: u32,
+    /// `g_smoothClients`.
+    pub(super) smooth_clients: bool,
     /// `g_dismember` and the clients with heavy melee ([`dismember`]).
     pub(super) limbs: dismember::LimbRules,
 }
@@ -1196,6 +1198,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn legacy_fixes(&self) -> u32 {
         self.legacy_fixes
+    }
+
+    fn smooth_clients(&self) -> bool {
+        self.smooth_clients
     }
 
     fn gunner(&mut self, number: u16) -> Option<jkr_game_jka::vehicle_turrets::Gunner> {

@@ -35,6 +35,11 @@ pub const CLASS_GALAKMECH: i32 = 25;
 const CLASS_VEHICLE: i32 = 53;
 /// `Q3_INFINITE`: a part that cannot be hurt more.
 const Q3_INFINITE: i32 = 16_777_216;
+/// `CHAN_AUTO`, `CHAN_VOICE`; `PS_EFLAGS` (netfield 17), `WP_SABER`.
+const CHAN_AUTO: u32 = 0;
+const CHAN_VOICE: u32 = 3;
+const PS_EFLAGS: usize = 17;
+const WP_SABER: u8 = 3;
 /// `TURN_OFF` (`G2SURFACEFLAG_NODESCENDANTS`), `TURN_ON`.
 pub const TURN_OFF: u32 = 0x100;
 pub const TURN_ON: u32 = 0;
@@ -177,7 +182,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     /// `gPainHitLoc` and `locationDamage` for a blow that took `take` from the NPC at `me`
     /// (`g_combat.c:5417-5456`): the part of the surface a blade struck its model at this
     /// frame, and that part's damage counted. A class without parts of its own reads -1:
-    /// only the machines' pains ask ([`surface_part`]); `g_armBreakage` is off.
+    /// only the machines' pains ask ([`surface_part`]). With `g_armBreakage` a humanoid's
+    /// arm may break ([`Self::break_npc_arm`]).
     pub(crate) fn note_pain_part(&mut self, me: usize, take: i32) {
         let level_time = self.level_time;
         let npc = &self.actors[me];
@@ -200,7 +206,61 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             && class != CLASS_VEHICLE
         {
             machine.location_damage[part] += take;
+            self.break_npc_arm(me);
         }
+    }
+
+    /// `g_armBreakage` for the NPC at `me` (`g_combat.c:5439-5450`, `G_BreakArm`): a
+    /// living humanoid whose arm and hand have taken 80 has that arm broken, the pain pose
+    /// held, its left saber's light put out and the cry and the bone heard.
+    fn break_npc_arm(&mut self, me: usize) {
+        use crate::pmove_anim::{SETANIM_BOTH, SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE};
+        let npc = &self.actors[me];
+        let alive = npc.health > 0
+            && npc.player.stats[0] as i32 > 0
+            && npc.player.raw_field(PS_EFLAGS).unwrap_or(0) & crate::holdables::EF_DEAD == 0;
+        if !self.host.damage_rules().arm_breakage
+            || !alive
+            || !npc.humanoid
+            || npc.player.broken_limbs() != 0
+        {
+            return;
+        }
+        let Some(arm) = crate::damage::arm_to_break(&npc.mind.creature.walker.location_damage)
+        else {
+            return;
+        };
+        // "the left arm shuts off its saber upon being broken".
+        let second = &npc.definition.sabers[1];
+        let saber_off = (arm == crate::damage::BROKENLIMB_LARM
+            && second.is_held()
+            && npc.player.weapon() == WP_SABER
+            && npc.player.saber_holstered() == 0)
+            .then_some(second.sound_off)
+            .filter(|sound| *sound != 0);
+        let (origin, number) = (npc.current_origin, npc.number);
+        let mut rng = *self.host.rng();
+        let broken = crate::damage::break_arm(&mut self.actors[me].player, arm, &mut rng);
+        *self.host.rng() = rng;
+        let Some(broken) = broken else {
+            return;
+        };
+        if let Some(sound) = saber_off {
+            self.host
+                .raise(crate::weapon_fire::sound_event(origin, CHAN_AUTO, sound));
+        }
+        self.set_animation(
+            me,
+            SETANIM_BOTH,
+            broken.pose,
+            SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+        );
+        let mut cry = crate::knockdown::entity_sound(origin, number, CHAN_VOICE);
+        cry.parameter = u32::from(self.host.sound_index(crate::damage::ARM_BREAK_CRY));
+        self.host.raise(cry);
+        let bone = self.host.sound_index(broken.bodyfall_sound().as_bytes());
+        self.host
+            .raise(crate::weapon_fire::sound_event(origin, CHAN_AUTO, bone));
     }
 
     /// `G2API_GetBoltMatrix(NPC->ghoul2, 0, bolt, &matrix, r.currentAngles,

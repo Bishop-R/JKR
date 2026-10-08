@@ -263,6 +263,9 @@ pub struct PlayerEntity {
     shown_events: i32,
     /// `gentity_t::eventTime`: when the player last raised an event in a command.
     event_time: i32,
+    /// `g_smoothClients`: the entity is extrapolated from the command time (on by
+    /// default), or else interpolated.
+    smooth: bool,
 }
 
 impl PlayerEntity {
@@ -276,6 +279,7 @@ impl PlayerEntity {
             overflow,
             shown_events: 0,
             event_time: 0,
+            smooth: true,
         }
     }
 
@@ -288,7 +292,13 @@ impl PlayerEntity {
             overflow,
             shown_events,
             event_time,
+            smooth: true,
         }
+    }
+
+    /// `g_smoothClients`: whether the next conversions extrapolate the entity.
+    pub fn set_smooth(&mut self, smooth: bool) {
+        self.smooth = smooth;
     }
 
     /// How many of its player's events the entity has shown (`ps.entityEventSequence`).
@@ -404,14 +414,15 @@ impl PlayerEntity {
         extrapolate(
             player,
             &mut self.shown_events,
-            &mut self.state,
-            &mut self.overflow,
+            (&mut self.state, &mut self.overflow),
+            self.smooth,
         )
         .then_some(&self.overflow)
     }
 }
 
-/// `BG_PlayerStateToEntityStateExtraPolate` from the command time, then
+/// `BG_PlayerStateToEntityStateExtraPolate` from the command time — or, without
+/// `smooth` (`g_smoothClients 0`), the plain `BG_PlayerStateToEntityState` — then
 /// `SendPendingPredictableEvents` (`g_active.c:1079-1106`): `entity` converted, and — if the
 /// player raised an event the entity could not carry — `overflow` made the temp entity that
 /// carries it. Returns whether it did. What [`PlayerEntity`] does for a player, and what an
@@ -419,17 +430,16 @@ impl PlayerEntity {
 pub fn extrapolate(
     player: &PlayerState,
     shown_events: &mut i32,
-    entity: &mut EntityState,
-    overflow: &mut EntityState,
+    (entity, overflow): (&mut EntityState, &mut EntityState),
+    smooth: bool,
 ) -> bool {
-    let time = player.raw_field(PS_COMMAND_TIME).unwrap_or(0) as i32;
-    player_entity_state(
-        player,
-        shown_events,
-        PlayerEntityMotion::Extrapolated { time },
-        false,
-        entity,
-    );
+    let motion = if smooth {
+        let time = player.raw_field(PS_COMMAND_TIME).unwrap_or(0) as i32;
+        PlayerEntityMotion::Extrapolated { time }
+    } else {
+        PlayerEntityMotion::Interpolated
+    };
+    player_entity_state(player, shown_events, motion, false, entity);
     if *shown_events >= player.raw_field(PS_EVENT_SEQUENCE).unwrap_or(0) as i32 {
         return false;
     }

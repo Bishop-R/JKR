@@ -732,6 +732,11 @@ pub trait NpcHost: SaberParseHost {
     fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
         crate::saber_damage::SaberSettings::default()
     }
+    /// `g_smoothClients`: an NPC's entity is extrapolated from its command time. On by
+    /// default, as stock.
+    fn smooth_clients(&self) -> bool {
+        true
+    }
     /// The `CS_LEGACY_FIXES` mask the moves run ([`crate::pmove::MovementConfig`]). All
     /// three fixes by default, as stock.
     fn legacy_fixes(&self) -> u32 {

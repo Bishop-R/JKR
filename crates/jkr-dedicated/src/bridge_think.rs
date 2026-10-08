@@ -68,11 +68,13 @@ impl NativeGame {
         // `pers.lastChatTime`, from the command's talk button (`EF_TALK`), which a dead
         // player's think leaves as it was.
         let (flag_drag, legacy_fixes) = (self.flag_drag, self.legacy_fixes);
+        let smooth_clients = self.smooth_clients;
         let debug_melee = self.debug_melee;
         let god_chat = self.god_chat && self.gametype == GAMETYPE_FFA;
         if let Some(peer) = self.peer_mut(client) {
             peer.movement.set_flag_drag(flag_drag);
             peer.movement.set_legacy_fixes(legacy_fixes);
+            peer.entity.set_smooth(smooth_clients);
             peer.movement
                 .set_melee_rules(debug_melee, peer.grapple.state != 0);
             if peer.state.stats[0] as i32 > 0 {
