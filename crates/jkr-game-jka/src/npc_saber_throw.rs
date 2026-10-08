@@ -174,6 +174,7 @@ impl<H: NpcHost> SaberFlight for NpcFlight<'_, '_, H> {
             command_buttons: npc.mind.command.buttons,
             storage: npc.saber.storage,
             gametype,
+            force_duel: false,
             team: npc.session_team,
             memory: &mut npc.saber.throw,
             throw_delay: &mut npc.saber.throw_delay,

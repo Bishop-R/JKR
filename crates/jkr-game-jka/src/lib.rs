@@ -77,6 +77,7 @@ pub mod demp2;
 pub mod dispensers;
 pub mod disruptor;
 pub mod duel;
+pub mod duel_kind;
 pub mod emplaced;
 pub mod entity_clip;
 pub mod entity_id;

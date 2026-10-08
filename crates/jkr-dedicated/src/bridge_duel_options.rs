@@ -10,12 +10,13 @@ const START_HEALTH: &[u8] = b"g_duelStartHealth";
 const START_ARMOR: &[u8] = b"g_duelStartArmor";
 const DISTANCE_LIMIT: &[u8] = b"g_duelDistanceLimit";
 const RESPAWN: &[u8] = b"g_duelRespawn";
+pub(super) const ALLOW_GUN_DUEL: &[u8] = b"g_allowGunDuel";
 
 impl NativeGame {
     /// The duel options, archived and announced: jaPRO's defaults but the distance
     /// limit's, which stays on as in stock (jaPRO's own default, 0, lifts it).
     pub(super) fn register_duel_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 4] = [
+        let options: [(&[u8], &[u8], &[u8]); 5] = [
             (
                 START_HEALTH,
                 b"0",
@@ -35,6 +36,11 @@ impl NativeGame {
                 RESPAWN,
                 b"0",
                 b"jaPRO: in FFA, one killed in a duel respawns where it fell",
+            ),
+            (
+                ALLOW_GUN_DUEL,
+                b"1",
+                b"jaPRO: engage_gunduel [weapon] challenges to a duel with one weapon (or all)",
             ),
         ];
         for (name, value, about) in options {

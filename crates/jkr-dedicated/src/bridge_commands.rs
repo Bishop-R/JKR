@@ -27,6 +27,7 @@ impl NativeGame {
             || self.amlookup_command(client, text)
             || self.amlistmaps_command(client, command)
             || self.print_stats_command(client, command)
+            || self.japro_duel_command(client, text, server_time)
         {
             return;
         }

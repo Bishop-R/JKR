@@ -3709,6 +3709,8 @@ mod bridge_damage_numbers;
 mod bridge_damage_options;
 #[path = "bridge_doors.rs"]
 mod bridge_doors;
+#[path = "bridge_duel_kinds.rs"]
+mod bridge_duel_kinds;
 #[path = "bridge_duel_options.rs"]
 mod bridge_duel_options;
 #[path = "bridge_emotes.rs"]

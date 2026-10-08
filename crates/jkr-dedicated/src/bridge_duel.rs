@@ -7,7 +7,7 @@ use super::{NativeGame, PLAYER_SPEED, Told};
 use crate::collision::{Void, WithPlayers, WorldCollision};
 use crate::peer::Peer;
 use jkr_game_jka::damage::{DamageRequest, Target};
-use jkr_game_jka::duel::{self, Duellist};
+use jkr_game_jka::duel::{self, DuelKind, Duellist};
 use jkr_game_jka::event_entity::EventEntity;
 use jkr_game_jka::pmove::MovementCollision;
 use jkr_protocol::UserCommand;
@@ -19,8 +19,6 @@ const EV_GENERAL_SOUND: u32 = 76;
 const ES_SABER_ENTITY: usize = 37;
 /// `CHAN_AUTO`: the duel's saber sounds.
 const CHAN_AUTO: u32 = 0;
-/// `g_privateDuel`, on by default; there is no cvar system yet.
-const PRIVATE_DUELS: bool = true;
 
 /// `peer`, player `number`, as a duel reads and changes it.
 fn duellist(number: usize, peer: &mut Peer) -> Duellist<'_> {
@@ -32,6 +30,8 @@ fn duellist(number: usize, peer: &mut Peer) -> Duellist<'_> {
         hand_extend_time: &mut peer.knockdown.hand_extend_time,
         invulnerable_until: &mut peer.invulnerable_until,
         team: peer.session.team,
+        kind: &mut peer.force.duel_kind,
+        record: peer.duel_record,
     }
 }
 
@@ -64,6 +64,7 @@ impl NativeGame {
             peer.invulnerable_until,
             peer.session.team,
         );
+        let (mut kind, record) = (peer.force.duel_kind, peer.duel_record);
         let result = {
             let mut me = Duellist {
                 number: client as u16,
@@ -73,6 +74,8 @@ impl NativeGame {
                 hand_extend_time: &mut hand,
                 invulnerable_until: &mut invulnerable,
                 team,
+                kind: &mut kind,
+                record,
             };
             let them = players
                 .at(other)
@@ -89,6 +92,7 @@ impl NativeGame {
             peer.knockdown.hand_extend_time,
             peer.invulnerable_until,
         ) = (health, hand, invulnerable);
+        peer.force.duel_kind = kind;
         Some(result)
     }
 
@@ -138,6 +142,15 @@ impl NativeGame {
                 peer.entity.event_raised(level_time);
             }
         }
+        for number in told.refilled {
+            let _ =
+                self.with_force_frame(usize::from(number), level_time, |state, force, frame| {
+                    jkr_game_jka::force_powers::duel_start(state, force, frame)
+                });
+        }
+        for number in told.rearmed {
+            self.rearm_after_duel(usize::from(number));
+        }
         for number in players {
             if let Some(peer) = self.peer_mut(number) {
                 peer.movement = peer.movement.reseeded(&peer.state);
@@ -145,13 +158,31 @@ impl NativeGame {
         }
     }
 
-    /// `Cmd_EngageDuel_f` for `client` (its duel key): the challenge line through the map
-    /// and the others, and a challenge or an acceptance of whom it strikes.
-    pub(super) fn duel_key(&mut self, client: usize, level_time: i32) {
+    /// `Cmd_EngageDuel_f` for `client` with a duel key of `kind` (stock's key, or jaPRO's
+    /// `engage_fullforceduel` and `engage_gunduel`): the challenge line through the map and
+    /// the others, and a challenge or an acceptance of whom it strikes. A bot answers a
+    /// challenge in the challenge's kind (`ai_main.c:9595` of jaPRO).
+    pub(super) fn duel_key(&mut self, client: usize, level_time: i32, kind: DuelKind) {
         let Some(peer) = self.peer(client) else {
             return;
         };
-        if !duel::may_challenge(&peer.state, self.gametype, PRIVATE_DUELS, level_time) {
+        let kind = if peer.bot {
+            self.standing_challenge(client, level_time).unwrap_or(kind)
+        } else {
+            kind
+        };
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let spectator = !peer.playing();
+        let private_duels = self.cvars.integer(b"g_privateDuel") != 0;
+        if !duel::may_challenge(
+            &peer.state,
+            self.gametype,
+            private_duels,
+            level_time,
+            (kind, spectator),
+        ) {
             return;
         }
         let (start, end) = duel::challenge_line(&peer.state);
@@ -179,12 +210,37 @@ impl NativeGame {
         let (gametype, rules) = (self.gametype, self.duel_rules());
         let told = self
             .with_duellists(client, other, |me, them| {
-                them.map(|them| duel::engage(me, them, gametype, level_time, rules))
+                them.map(|them| duel::engage(me, them, gametype, level_time, (rules, kind)))
             })
             .flatten();
         if let Some(told) = told {
+            // An accepted duel's statistics start afresh.
+            if self
+                .peer(client)
+                .is_some_and(|peer| peer.state.duel_in_progress())
+            {
+                for number in [client, other] {
+                    if let Some(peer) = self.peer_mut(number) {
+                        peer.duel_record = Default::default();
+                    }
+                }
+            }
             self.apply_duel(told, [client, other], level_time);
         }
+    }
+
+    /// The kind of the challenge standing to `client`, from whoever made it.
+    fn standing_challenge(&self, client: usize, level_time: i32) -> Option<DuelKind> {
+        (0..self.players.places())
+            .filter(|other| *other != client)
+            .find_map(|other| {
+                let peer = self.peer(other)?;
+                let state = &peer.state;
+                (state.duel_index() == client as u16
+                    && state.duel_time() >= level_time
+                    && !state.duel_in_progress())
+                .then_some(peer.force.duel_kind)
+            })
     }
 
     /// `ClientThink_real`'s duel for `client`, before its move: the sabers lit once the
@@ -198,6 +254,14 @@ impl NativeGame {
             return;
         }
         let other = usize::from(peer.state.duel_index());
+        // jaPRO's `lowestHP`, for a Force duel's closing print.
+        let health = peer.state.stats[0] as i32;
+        if let Some(peer) = self.peer_mut(client) {
+            let lowest = peer.duel_record.lowest_health;
+            if lowest == 0 || health < lowest {
+                peer.duel_record.lowest_health = health;
+            }
+        }
         let mut told = duel::Told::default();
         let distance_limit = self.duel_rules().distance_limit;
         let Some(thought) = self.with_duellists(client, other, |me, them| {
@@ -240,12 +304,11 @@ impl NativeGame {
             .attacker
             .filter(|attacker| usize::from(attacker.client) < self.players.places())
             .and_then(|attacker| {
-                Some((
-                    attacker.client,
-                    &self.peer(usize::from(attacker.client))?.state,
-                ))
+                let peer = self.peer(usize::from(attacker.client))?;
+                Some((attacker.client, &peer.state, peer.force.duel_kind))
             });
-        if !duel::damage_refused(target as u16, &victim.state, attacker, request.means) {
+        let victim_view = (target as u16, &victim.state, victim.force.duel_kind);
+        if !duel::damage_refused(victim_view, attacker, request.means) {
             return false;
         }
         let mut rng = self.deaths.rng;

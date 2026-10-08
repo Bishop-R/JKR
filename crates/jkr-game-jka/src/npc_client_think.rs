@@ -525,6 +525,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             },
             gametype: host.gametype(),
             saber_throws: true,
+            duel_kind: crate::duel_kind::DuelKind::Saber,
             bodies: &legs_of,
             npcs: &npcs,
             // The host that keeps the NPC's model reads its feet ([`NpcHost::move_npc`]).

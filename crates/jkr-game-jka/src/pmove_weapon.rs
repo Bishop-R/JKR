@@ -242,11 +242,14 @@ fn advance_command(
             state.weapon_time = state.legs_timer;
         }
     }
-    // A duel holds the saber (and, before it begins, the moves); a swing under way keeps
-    // it (`bg_pmove.c:6991-7006`).
+    // A duel holds the saber — or jaPRO's gun duel its weapon, nothing a duel of every
+    // weapon (`bg_pmove.c:10611-10645` of jaPRO) — and, before it begins, the moves; a
+    // swing under way keeps the saber (`bg_pmove.c:6991-7006`).
     if state.duel_in_progress {
-        command.weapon = WP_SABER;
-        state.weapon = WP_SABER;
+        if let Some(weapon) = context.duel_kind.held_weapon() {
+            command.weapon = weapon as u8;
+            state.weapon = weapon as u8;
+        }
         if state.duel_time >= command.server_time {
             (command.up_move, command.forward_move, command.right_move) = (0, 0, 0);
         }

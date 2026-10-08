@@ -105,6 +105,9 @@ pub struct MoveContext<'a> {
     pub sabers: crate::saber_info::Sabers,
     pub gametype: i32,
     pub saber_throws: bool,
+    /// The kind of the mover's duel (jaPRO's `dueltypes`): the weapon a duel holds it to,
+    /// and the Force duel's saber throw.
+    pub duel_kind: crate::duel_kind::DuelKind,
     pub bodies: &'a dyn Fn(u16) -> Option<u16>,
     /// Whether entity `number` is an NPC and no vehicle (`PM_BGEntForNum`'s `s.eType ==
     /// ET_NPC`): what stands on one is bounced off its head.
@@ -156,6 +159,7 @@ impl MoveContext<'static> {
         sabers: crate::saber_info::Sabers::STOCK,
         gametype: 0,
         saber_throws: false,
+        duel_kind: crate::duel_kind::DuelKind::Saber,
         bodies: &no_bodies,
         npcs: &no_npcs,
         foot_bolts: &no_foot_bolts,

@@ -201,9 +201,13 @@ impl Forcer<'_, '_> {
         if crate::force_powers::has_ysalamiri(victim.state, gametype) {
             return false;
         }
-        if !crate::force_powers::can_use_now(self.state, power, level_time, gametype)
-            || self.state.duel_in_progress()
-            || victim.state.duel_in_progress()
+        let kind = self.force.duel_kind;
+        if !crate::force_powers::can_use_now(self.state, kind, power, level_time, gametype)
+            || crate::force_powers::duel_shields(
+                crate::force_powers::duellist(self.state, kind),
+                victim.state,
+                number,
+            )
         {
             return false;
         }

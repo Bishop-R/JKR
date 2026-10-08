@@ -207,14 +207,14 @@ impl NativeGame {
                 let handle = players.at(usize::try_from(number?).ok()?)?;
                 world?.entity(handle)
             };
-            let own_state = peer_of(Some(client as i32)).map(|peer| &peer.state);
+            let own_state =
+                peer_of(Some(client as i32)).map(|peer| (&peer.state, peer.force.duel_kind));
             // `ForcePowerUsableOn(bot, currentEnemy, power)`: the enemy it had as it chose.
-            let enemy = peer_of(
-                bots.minds[client]
-                    .as_ref()
-                    .and_then(|mind| mind.current_enemy),
-            );
-            let enemy_state = enemy.map(|peer| &peer.state);
+            let enemy_number = bots.minds[client]
+                .as_ref()
+                .and_then(|mind| mind.current_enemy);
+            let enemy = peer_of(enemy_number);
+            let enemy_state = enemy.map(|peer| (&peer.state, enemy_number.unwrap_or(0) as u16));
             // jaPRO's god chat: no power reaches an enemy typing too long.
             let enemy_sheltered = enemy.is_some_and(|peer| peer.typing.sheltered(level_time));
             let usable_on_enemy = |power: usize| match (own_state, enemy_state) {

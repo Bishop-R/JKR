@@ -664,7 +664,12 @@ pub(crate) fn throw(saber: &mut Lightsaber) {
     let needed = crate::force_powers::FORCE_POWER_NEEDED[usize::from(level.min(3))][FP_SABERTHROW];
     let state = &*saber.state;
     if !(state.saber_can_throw
-        && can_use_power_now(state, saber.seed, saber.context.gametype)
+        && can_use_power_now(
+            state,
+            saber.seed,
+            saber.context.gametype,
+            saber.context.duel_kind == crate::duel_kind::DuelKind::Force,
+        )
         && level > 0)
     {
         return;
@@ -697,15 +702,17 @@ pub(crate) fn throw(saber: &mut Lightsaber) {
 /// `BG_HasYsalamiri` and `BG_CanUseFPNow` (`bg_misc.c:1709-1789`) for the saber throw and
 /// the Force jump (neither is a push, nor saber offense or defense; levitation outlasts a
 /// duel).
+/// jaPRO's Force duel (`force_duel`) does not restrict the throw.
 pub(crate) fn can_use_power_now(
     state: &crate::pmove::MovementState,
     time: i32,
     gametype: i32,
+    force_duel: bool,
 ) -> bool {
-    can_use_power(state, time, gametype, false)
+    can_use_power(state, time, gametype, force_duel)
 }
 
-/// [`can_use_power_now`] for the Force jump (`FP_LEVITATION`), which a duel allows.
+/// [`can_use_power_now`] for the Force jump (`FP_LEVITATION`), which every duel allows.
 pub(crate) fn can_levitate_now(
     state: &crate::pmove::MovementState,
     time: i32,
@@ -718,7 +725,7 @@ fn can_use_power(
     state: &crate::pmove::MovementState,
     time: i32,
     gametype: i32,
-    levitation: bool,
+    unrestricted_by_duel: bool,
 ) -> bool {
     let powerups = &state.powerup_deadlines;
     let flags = powerups[crate::ctf::PW_REDFLAG] != 0 || powerups[crate::ctf::PW_BLUEFLAG] != 0;
@@ -729,7 +736,7 @@ fn can_use_power(
         || state.true_non_jedi
         || state.weapon == 17
         || state.vehicle_entity_num != 0
-        || state.duel_in_progress && !levitation
+        || state.duel_in_progress && !unrestricted_by_duel
         || state.saber_lock_frame != 0
         || state.saber_lock_time > time
         || state.falling_to_death != 0)

@@ -157,9 +157,19 @@ fn weapons(request: &SpawnRequest<'_>) -> (u32, u32) {
     if let Some(rung) = request.gun_game {
         return (1 << rung.weapon, rung.weapon);
     }
-    let (gametype, disabled) = (request.settings.gametype, request.settings.weapons_disabled);
+    spawn_weapons(
+        request.settings.gametype,
+        request.settings.weapons_disabled,
+        request.force.levels[FP_SABER_OFFENSE],
+    )
+}
+
+/// The weapons a player spawns with outside the gun game under `gametype` and the
+/// disabled weapons, with its saber offense level, and the one in hand
+/// (`g_client.c:3380-3520`): the saber (fists without the skill), and the pistol.
+pub fn spawn_weapons(gametype: i32, disabled: u32, saber_offense: u8) -> (u32, u32) {
     let mut owned = 1; // WP_NONE
-    if gametype == GT_HOLOCRON || request.force.levels[FP_SABER_OFFENSE] != 0 {
+    if gametype == GT_HOLOCRON || saber_offense != 0 {
         owned |= 1 << WP_SABER;
     } else {
         // "if you don't have saber attack rank then you don't get a saber"

@@ -39,7 +39,8 @@ impl NativeGame {
     /// `G_Damage`'s statistics for a blow that did `dealt` (health and armour) on player
     /// `target`, who had `health` and `armor` before it: the attacker's damage given (its
     /// team damage for a teammate, itself included), the target's damage taken unless a
-    /// teammate dealt it. Nothing between two duellists.
+    /// teammate dealt it. Between two duellists only the attacker's duel damage, in any
+    /// game type (`duelDamageGiven`).
     pub(super) fn count_damage(
         &mut self,
         attacker: Option<Attacker>,
@@ -48,7 +49,7 @@ impl NativeGame {
         (health, armor): (i32, i32),
     ) {
         // A body (jaPRO counts it, against the attacker, by its negative health) is left out.
-        if !self.damage_counted() || dealt <= 0 || health <= 0 {
+        if dealt <= 0 || health <= 0 {
             return;
         }
         let counted = japro_stats::counted(dealt, health, armor);
@@ -63,6 +64,12 @@ impl NativeGame {
                     .is_some_and(|peer| peer.state.duel_in_progress())
         });
         if duellists {
+            if let Some(peer) = player.and_then(|attacker| self.peer_mut(attacker)) {
+                peer.duel_record.damage_given += counted;
+            }
+            return;
+        }
+        if !self.damage_counted() {
             return;
         }
         let teammates = player.is_some_and(|attacker| self.players_on_same_team(target, attacker));

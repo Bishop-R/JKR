@@ -109,6 +109,7 @@ impl SaberFlight for ServerFlight<'_> {
             command_buttons: peer.last_command.buttons,
             storage: peer.saber_cut.storage,
             gametype,
+            force_duel: peer.force.duel_kind == jkr_game_jka::duel::DuelKind::Force,
             team: peer.session.team,
             memory: &mut peer.throw_memory,
             throw_delay: &mut peer.saber.throw_delay,

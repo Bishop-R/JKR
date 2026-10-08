@@ -171,6 +171,8 @@ pub struct Peer {
     pub(crate) typing: jkr_game_jka::god_chat::Typing,
     /// jaPRO's statistics for the match (`pers.stats`), which its gun game climbs by.
     pub(crate) stats: jkr_game_jka::japro_stats::Stats,
+    /// jaPRO's duel statistics (`duelDamageGiven`, `lowestHP`), for a Force duel's end.
+    pub(crate) duel_record: jkr_game_jka::duel::DuelRecord,
     /// jaPRO's gun game: the fire mode the player's rung allows.
     pub(crate) gun_fire: jkr_game_jka::gun_game::FireMode,
     /// `G_CheckClientIdle`'s memory.
@@ -321,6 +323,7 @@ impl Peer {
             command_msec: 0,
             typing: Default::default(),
             stats: Default::default(),
+            duel_record: Default::default(),
             gun_fire: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
@@ -419,6 +422,14 @@ impl Peer {
         // `BG_MySaber`'s speed scales, as the sabers stand now.
         let (animation, movement) = self.sabers.speed_scales();
         self.movement.set_saber_scales(animation, movement);
+        // jaPRO's gun duel holds its own weapon, not the saber (`bg_pmove.c:10611-10645` of
+        // jaPRO); a Jedi Master or a true Jedi keeps theirs.
+        if self.state.duel_in_progress()
+            && matches!(self.force.duel_kind, jkr_game_jka::duel::DuelKind::Gun(_))
+        {
+            self.movement.state_mut().forced_saber =
+                self.state.is_jedi_master() || self.state.is_true_jedi();
+        }
         let levels = &self.force.levels;
         let context = MoveContext {
             saber_offense: levels[FP_SABER_OFFENSE],
@@ -427,6 +438,7 @@ impl Peer {
             sabers: self.sabers.movement(),
             gametype,
             saber_throws: true,
+            duel_kind: self.force.duel_kind,
             bodies: &bodies,
             npcs: &npcs,
             foot_bolts: &jkr_game_jka::pmove::no_foot_bolts,

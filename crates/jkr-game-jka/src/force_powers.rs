@@ -272,6 +272,10 @@ pub struct ForcePowers {
     pub jumped: bool,
     /// `ps.forceJumpFlip`: the jump's flip, for its next move to show.
     pub jump_flip: bool,
+    /// jaPRO's `dueltypes[n]`: the kind of the player's duel, or of its last challenge.
+    /// A Force duel (`engage_fullforceduel`) lets the duellists use every power on each
+    /// other; it outlives a respawn, as jaPRO's array does.
+    pub duel_kind: crate::duel_kind::DuelKind,
 }
 
 impl ForcePowers {
@@ -315,6 +319,7 @@ impl ForcePowers {
             jump_charge: 0.0,
             jumped: false,
             jump_flip: false,
+            duel_kind: crate::duel_kind::DuelKind::Saber,
         }
     }
 
@@ -324,9 +329,10 @@ impl ForcePowers {
     /// (`killSoundEntIndex` survives a respawn); the spawn's state has already stopped
     /// every power and filled the pool.
     pub fn respawned(&mut self, levels: [u8; NUM_FORCE_POWERS], level_time: i32) {
-        let kill_sounds = self.kill_sounds;
+        let (kill_sounds, duel_kind) = (self.kill_sounds, self.duel_kind);
         *self = Self::with_levels(levels);
         self.kill_sounds = kill_sounds;
+        self.duel_kind = duel_kind;
         self.regen_debounce = level_time;
     }
 }
@@ -579,6 +585,34 @@ pub fn speed(
 pub(crate) fn mirror_levels(state: &mut PlayerState, force: &ForcePowers) {
     state.set_raw_field(PS_LEVITATION_LEVEL, u32::from(force.levels[FP_LEVITATION]));
     state.set_raw_field(PS_SEE_LEVEL, u32::from(force.levels[FP_SEE]));
+}
+
+/// jaPRO's start of a Force or gun duel (`Cmd_EngageDuel_f`, `g_cmds.c:4411-4434` of
+/// jaPRO): the Force full, rage's recovery over, and rage, protection, speed, mind trick,
+/// absorption and sight stopped.
+pub fn duel_start(state: &mut PlayerState, force: &mut ForcePowers, frame: &mut ForceFrame) {
+    state.set_raw_field(PS_FORCE_POWER, force.max as u32);
+    state.set_raw_field(PS_RAGE_RECOVERY, 0);
+    let mut forcer = Forcer {
+        state,
+        force,
+        frame,
+        throw: None,
+        saber_knocked: false,
+        buttons: 0,
+    };
+    for power in [
+        FP_RAGE,
+        FP_PROTECT,
+        FP_SPEED,
+        FP_TELEPATHY,
+        FP_ABSORB,
+        FP_SEE,
+    ] {
+        if forcer.active(power) {
+            forcer.stop(power);
+        }
+    }
 }
 
 /// `ClientDisconnect`'s Force (`g_client.c:3913-3931`): every power on stopped — a grip
@@ -895,6 +929,7 @@ impl Forcer<'_, '_> {
     fn can_use_now(&self, power: usize) -> bool {
         can_use_now(
             self.state,
+            self.force.duel_kind,
             power,
             self.frame.level_time,
             self.frame.gametype,
@@ -1395,21 +1430,21 @@ pub enum UsableOn {
     Absorbed,
 }
 
-/// `ForcePowerUsableOn` for player `attacker` using `power` on player `other`: not on
-/// one with ysalamiri, not by one who may not use it now, not in or at a duel; a grip
-/// not at one absorbing or in a saber special; a push or pull not at one knocked down.
-/// (NPCs, the vehicle and siege cases, are not players.)
+/// `ForcePowerUsableOn` for player `attacker` (with its duel kind) using `power` on
+/// player `other` (with its number): not on one with ysalamiri, not by one who may not use
+/// it now, not in or at a duel ([`duel_shields`]); a grip not at one absorbing or in a
+/// saber special; a push or pull not at one knocked down. (NPCs, the vehicle and siege
+/// cases, are not players.)
 pub fn usable_on(
-    attacker: &PlayerState,
-    other: &PlayerState,
+    (attacker, attacker_kind): (&PlayerState, crate::duel_kind::DuelKind),
+    (other, other_number): (&PlayerState, u16),
     power: usize,
     level_time: i32,
     gametype: i32,
 ) -> UsableOn {
     if has_ysalamiri(other, gametype)
-        || !can_use_now(attacker, power, level_time, gametype)
-        || attacker.duel_in_progress()
-        || other.duel_in_progress()
+        || !can_use_now(attacker, attacker_kind, power, level_time, gametype)
+        || duel_shields(duellist(attacker, attacker_kind), other, other_number)
     {
         return UsableOn::No;
     }
@@ -1440,14 +1475,42 @@ pub(crate) fn heard(force: &mut ForcePowers, power: usize, level_time: i32) {
 }
 
 /// `BG_HasYsalamiri`.
+/// `ForcePowerUsableOn`'s duel rule (`w_force.c:556-563`, jaPRO's `w_force.c:583-603`): a
+/// duellist uses no power on anyone, nor anyone one on a duellist — but in jaPRO's Force
+/// duel the two may on each other. The attacker is given by whether it duels, whom, and
+/// its duel kind; `other_number` is `other`'s client.
+pub(crate) fn duel_shields(
+    (in_duel, partner, kind): (bool, u16, crate::duel_kind::DuelKind),
+    other: &PlayerState,
+    other_number: u16,
+) -> bool {
+    if in_duel {
+        !(kind == crate::duel_kind::DuelKind::Force
+            && other.duel_in_progress()
+            && other_number == partner)
+    } else {
+        other.duel_in_progress()
+    }
+}
+
+/// [`duel_shields`]' attacker from its state and duel kind.
+pub(crate) fn duellist(
+    state: &PlayerState,
+    kind: crate::duel_kind::DuelKind,
+) -> (bool, u16, crate::duel_kind::DuelKind) {
+    (state.duel_in_progress(), state.duel_index(), kind)
+}
+
 pub(crate) fn has_ysalamiri(state: &PlayerState, gametype: i32) -> bool {
     (gametype == GT_CTY && (state.powerups[PW_REDFLAG] != 0 || state.powerups[PW_BLUEFLAG] != 0))
         || state.powerups[PW_YSALAMIRI] != 0
 }
 
-/// `BG_CanUseFPNow` (`bg_misc.c:1725-1788`).
+/// `BG_CanUseFPNow` (`bg_misc.c:1725-1788`); a duel restricts no power in jaPRO's Force
+/// duel (`duel_kind`, the player's).
 pub(crate) fn can_use_now(
     state: &PlayerState,
+    duel_kind: crate::duel_kind::DuelKind,
     power: usize,
     level_time: i32,
     gametype: i32,
@@ -1464,6 +1527,7 @@ pub(crate) fn can_use_now(
     }
     let lock_frame = field(PS_SABER_LOCK_FRAME);
     if field(PS_DUEL_IN_PROGRESS) != 0
+        && duel_kind != crate::duel_kind::DuelKind::Force
         && !matches!(power, FP_SABER_OFFENSE | FP_SABER_DEFENSE | FP_LEVITATION)
         && (lock_frame == 0 || power != FP_PUSH)
     {
@@ -1526,7 +1590,7 @@ pub fn usable(
     if !state.duel_in_progress() && rules.disabled_outside_duels & (1 << power) != 0 {
         return false;
     }
-    if !can_use_now(state, power, level_time, gametype)
+    if !can_use_now(state, force.duel_kind, power, level_time, gametype)
         || state.raw_field(PS_KNOWN).unwrap_or(0) & (1 << power) == 0
     {
         return false;

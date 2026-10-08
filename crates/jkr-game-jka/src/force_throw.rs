@@ -884,8 +884,10 @@ fn usable_on(context: Throw, number: u16, _power: usize, world: &mut dyn ThrowWo
     let Some(thrower) = world.player(context.thrower) else {
         return false;
     };
+    let kind = thrower.force.duel_kind;
     if !crate::force_powers::can_use_now(
         thrower.state,
+        kind,
         if context.pull { FP_PULL } else { FP_PUSH },
         context.level_time,
         context.gametype,
@@ -893,14 +895,15 @@ fn usable_on(context: Throw, number: u16, _power: usize, world: &mut dyn ThrowWo
         return false;
     }
     // jaPRO's god chat: not by one typing, nor on one typing too long.
-    if thrower.state.duel_in_progress() || thrower.typing.typing() {
+    if thrower.typing.typing() {
         return false;
     }
+    let duellist = crate::force_powers::duellist(thrower.state, kind);
     let Some(other) = world.player(number) else {
         return false;
     };
     if crate::force_powers::has_ysalamiri(other.state, context.gametype)
-        || other.state.duel_in_progress()
+        || crate::force_powers::duel_shields(duellist, other.state, number)
         || other.typing.sheltered(context.level_time)
     {
         return false;
