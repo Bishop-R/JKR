@@ -23,6 +23,7 @@ impl NativeGame {
             || self.spot_command(client, command, server_time)
             || self.server_config_command(client, command)
             || self.aminfo_command(client, command)
+            || self.show_net_command(client, text)
         {
             return;
         }

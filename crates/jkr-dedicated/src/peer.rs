@@ -165,6 +165,8 @@ pub struct Peer {
     /// player was last spotted).
     pub(crate) last_spot_time: i32,
     pub(crate) last_spotted_time: i32,
+    /// jaPRO's `pmoveMsec`: the last move's milliseconds (1 to 200), for `showNet`.
+    pub(crate) command_msec: i32,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
@@ -310,6 +312,7 @@ impl Peer {
             duel_respawn: None,
             last_spot_time: 0,
             last_spotted_time: 0,
+            command_msec: 0,
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
             kick: jkr_game_jka::saber_kick::KickMemory::default(),

@@ -225,6 +225,8 @@ impl NativeGame {
             rng: &mut deaths.rng,
             hits,
         });
+        // jaPRO's `pmoveMsec` (`PmoveSingle`'s `pml.msec`), which `showNet` reads.
+        peer.command_msec = (command.server_time - peer.state.command_time()).clamp(1, 200);
         let (moved, outcome) = peer.move_command(command, map.as_ref(), others, server_time, lock);
         // Later item/trigger updates may reseed prediction and clear its touch list.
         let shield_impacts = peer.movement.touched();

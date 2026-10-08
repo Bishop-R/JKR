@@ -3613,6 +3613,8 @@ mod bridge_sabers;
 mod bridge_server_config;
 #[path = "bridge_shot_target.rs"]
 mod bridge_shot_target;
+#[path = "bridge_show_net.rs"]
+mod bridge_show_net;
 #[path = "bridge_siege.rs"]
 mod bridge_siege;
 #[path = "bridge_siege_clients.rs"]
