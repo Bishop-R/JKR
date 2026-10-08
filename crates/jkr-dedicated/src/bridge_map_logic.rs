@@ -281,6 +281,7 @@ impl NativeGame {
                         .map(|named| (named.origin, named.angles))
                         .collect();
                     if choices.is_empty() {
+                        pick_target_missing(&destination);
                         println!("Couldn't find teleporter destination");
                         continue;
                     }
@@ -321,6 +322,7 @@ impl NativeGame {
                         .map(|named| named.origin)
                         .collect();
                     if choices.is_empty() {
+                        pick_target_missing(&name);
                         self.stock.logic[index].freed = true;
                         continue;
                     }
@@ -428,6 +430,11 @@ impl NativeGame {
             .filter(|&who| who < self.players.places())
             .unwrap_or(usize::MAX)
     }
+}
+
+/// `G_PickTarget`'s complaint for a name no entity has (`g_utils.c:375-404`).
+pub(super) fn pick_target_missing(name: &str) {
+    println!("G_PickTarget: target {name} not found");
 }
 
 #[path = "bridge_map_scenery.rs"]

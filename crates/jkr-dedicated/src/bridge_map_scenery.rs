@@ -202,6 +202,7 @@ impl NativeGame {
             .map(|named| (named.classname.clone(), named.origin, named.angles))
             .collect();
         if named.is_empty() {
+            super::bridge_map_logic::pick_target_missing(target);
             return None;
         }
         let (classname, origin, angles) = named[self.rand.next() as usize % named.len()].clone();
@@ -221,6 +222,7 @@ impl NativeGame {
             (camera.spawnflags, camera.roll, camera.target)
         });
         let aims: Vec<[f32; 3]> = if aim_name.is_empty() {
+            println!("G_PickTarget called with NULL targetname");
             Vec::new()
         } else {
             self.stock
@@ -230,6 +232,9 @@ impl NativeGame {
                 .map(|named| named.origin)
                 .collect()
         };
+        if aims.is_empty() && !aim_name.is_empty() {
+            super::bridge_map_logic::pick_target_missing(&aim_name);
+        }
         let aim = (!aims.is_empty()).then(|| aims[self.rand.next() as usize % aims.len()]);
         Some(Camera {
             origin,
