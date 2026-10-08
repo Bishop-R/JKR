@@ -117,7 +117,7 @@ impl GpuState {
             self.local_prediction.stop(36.0);
             self.game_menu = false;
             if let Some(menu) = &mut self.client_menu {
-                menu.state_loading("next map");
+                menu.state_loading("next map", Vec::new());
             }
         }
     }

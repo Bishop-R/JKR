@@ -40,6 +40,7 @@ impl ClientMenu {
                     title: "Loading",
                     status: self.state.status(),
                     body: "Joining the server and preparing its map...",
+                    details: self.state.details(),
                     action: ("Cancel", "Stop joining and return to the browser"),
                 };
                 network_view::build(&mut self.ui, viewport, &notice);
@@ -51,6 +52,7 @@ impl ClientMenu {
                     title: "Connection failed",
                     status: self.state.status(),
                     body: "The client returned safely. Check the address or server status.",
+                    details: &[],
                     action: ("Back to browser", "Pick another server or retry"),
                 };
                 network_view::build(&mut self.ui, viewport, &notice);

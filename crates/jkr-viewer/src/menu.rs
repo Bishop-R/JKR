@@ -14,6 +14,7 @@ mod create_game_pointer;
 mod create_game_view;
 mod hosting;
 mod levelshot;
+pub(crate) mod loading_info;
 pub(crate) mod main_view;
 mod map_picker;
 mod map_picker_view;
@@ -703,10 +704,12 @@ impl ClientMenu {
         self.state.connecting(address);
     }
 
-    /// Show map preparation using the existing cancellable connection notice.
-    pub(crate) fn state_loading(&mut self, map: &str) {
+    /// Show map preparation using the existing cancellable connection notice, with what
+    /// the server says of itself (`details`, [`loading_info::lines`]).
+    pub(crate) fn state_loading(&mut self, map: &str, details: Vec<String>) {
         self.state_connecting(map.to_owned());
         self.state.set_status(format!("Loading {map}..."));
+        self.state.set_details(details);
     }
 
     pub(crate) fn join_failed(&mut self, error: impl Into<String>) {
