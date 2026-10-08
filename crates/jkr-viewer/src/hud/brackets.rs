@@ -232,3 +232,116 @@ impl Brackets {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jkr_protocol::{EntityState, LEGACY_ENTITY_FIELDS, PlayerState};
+
+    fn entity(number: u16, kind: u8, fields: &[(usize, u32)]) -> EntityState {
+        let mut state = EntityState::zero(number, &LEGACY_ENTITY_FIELDS);
+        state.set_raw_field(8, u32::from(kind));
+        for &(index, value) in fields {
+            state.set_raw_field(index, value);
+        }
+        state
+    }
+
+    #[test]
+    fn a_fighter_brackets_far_vehicles_in_sight_and_leads_moving_enemies() {
+        let vehicle = |number, pilot: u32| {
+            entity(
+                number,
+                ET_NPC,
+                &[
+                    (88, u32::from(CLASS_VEHICLE)),
+                    (93, pilot),
+                    (7, 100.0_f32.to_bits()),
+                ],
+            )
+        };
+        let entities = vec![
+            vehicle(40, 0),                                          // our own fighter
+            vehicle(41, 2),                                          // far, ridden by client 1
+            vehicle(42, 0),                                          // near
+            entity(43, ET_GENERAL, &[(FLAGS2, EF2_BRACKET_ENTITY)]), // flagged
+            vehicle(44, 0),                                          // far but hidden
+        ];
+        let at = |number: u16| match number {
+            40 => Some(Vec3::ZERO),
+            41 => Some(Vec3::new(3_000.0, 0.0, 0.0)),
+            42 => Some(Vec3::new(500.0, 0.0, 0.0)),
+            43 => Some(Vec3::new(2_500.0, 300.0, 0.0)),
+            44 => Some(Vec3::new(3_000.0, -500.0, 0.0)),
+            _ => None,
+        };
+        let mut game = jkr_protocol::GameState::empty_local(0);
+        game.replace_config_string(0, b"\\g_gametype\\0".to_vec())
+            .unwrap();
+        game.replace_config_string(CS_PLAYERS + 1, b"\\n\\pilot\\t\\0".to_vec())
+            .unwrap();
+        let snapshot = Snapshot {
+            message_sequence: 0,
+            reliable_acknowledge: 0,
+            server_commands: Vec::new(),
+            server_time: 0,
+            delta_from: None,
+            flags: 0,
+            area_mask: Vec::new(),
+            player: PlayerState::zero(),
+            vehicle_player: None,
+            entities,
+            consumed_bits: 0,
+        };
+        let camera = identification::Camera {
+            eye: Vec3::ZERO,
+            target: Vec3::X,
+            up: Vec3::Z,
+            fov: 90.0,
+            viewport: [640.0, 480.0],
+        };
+        let mut brackets = Brackets::default();
+        let fighter = Fighter {
+            number: 40,
+            origin: Vec3::ZERO,
+            shot_speed: Some(1_000.0),
+        };
+        brackets.update(
+            BracketInputs {
+                snapshot: &snapshot,
+                game: &game,
+                camera,
+                fighter: Some(fighter),
+                crosshair: None,
+                lead: true,
+            },
+            &at,
+            &mut |_, to: Vec3| to.y > -100.0,
+        );
+        let colors: Vec<_> = brackets
+            .list
+            .iter()
+            .map(|b| (b.color, b.lead.is_some()))
+            .collect();
+        assert_eq!(
+            colors,
+            [(RED, true), (Color::new(1.0, 1.0, 1.0, 1.0), false)]
+        );
+        // Radius 64 at 3,000 units.
+        assert!((brackets.list[0].size - 64.0 * 400.0 / 3_000.0).abs() < 1e-3);
+        // Not in a fighter, nothing.
+        brackets.update(
+            BracketInputs {
+                snapshot: &snapshot,
+                game: &game,
+                camera,
+                fighter: None,
+                crosshair: None,
+                lead: true,
+            },
+            &at,
+            &mut |_, _| true,
+        );
+        assert!(brackets.list.is_empty());
+    }
+}
