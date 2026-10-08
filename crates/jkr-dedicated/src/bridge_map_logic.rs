@@ -304,6 +304,12 @@ impl NativeGame {
                     format!("map {map}\n").as_bytes(),
                     &mut super::bridge_bots::console,
                 ),
+                Deed::Give { activator, target } => {
+                    let client = self.client_of(Some(activator));
+                    if client != usize::MAX {
+                        self.give_items(client, &target, level_time);
+                    }
+                }
                 Deed::AimPush => {
                     // `G_PickTarget`: `rand() % num_choices` among everything so named.
                     let name = self.stock.logic[index].target.clone();

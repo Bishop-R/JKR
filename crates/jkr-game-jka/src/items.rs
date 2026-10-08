@@ -226,7 +226,7 @@ pub fn find_named(classname: &[u8]) -> Option<usize> {
 }
 
 /// An item as the map placed it, before it is dropped to the floor.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     /// Its row of `bg_itemlist`, which is its wire `modelindex`.
     pub item: usize,
@@ -241,6 +241,9 @@ pub struct Placed {
     pub allow_npc: bool,
     /// A powerup's `noglobalsound` (`ent->speed`): its return is heard only near it.
     pub no_global_sound: bool,
+    /// `targetname`: an item something uses, out of the world until it is used
+    /// (`Use_Item`).
+    pub targetname: Option<String>,
 }
 
 /// Every item dictionary of a map, in the entity lump's order (`G_SpawnItem` through
@@ -267,6 +270,10 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
                 allow_npc: number("spawnflags") as i32 & ITMSF_ALLOWNPC != 0,
                 no_global_sound: ITEMS[item].kind == Kind::Powerup
                     && number("noglobalsound") != 0.0,
+                targetname: entity
+                    .get("targetname")
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned),
             })
         })
         .collect()
@@ -295,6 +302,8 @@ pub struct Pickup {
     pub allow_npc: bool,
     /// A powerup whose return is heard only near it ([`Placed::no_global_sound`]).
     pub no_global_sound: bool,
+    /// `targetname`: what uses it (`Use_Item`), when something does.
+    pub targetname: Option<String>,
 }
 
 /// `gametype_t` values the spawn filters below test (`bg_public.h`).
@@ -387,18 +396,24 @@ pub fn finish_spawning(
         state.set_raw_field(ES_POS_BASE[axis], origin[axis].to_bits());
         state.set_raw_field(ES_ORIGIN[axis], spawn[axis].to_bits());
     }
+    // "targeted items aren't present at start": undrawn and untouchable until used.
+    let targeted = placed.targetname.is_some();
+    if targeted {
+        state.set_raw_field(ES_EFLAGS, EF_NODRAW);
+    }
     Some(Pickup {
         state,
         item: placed.item,
         origin,
         bounds,
-        contents: CONTENTS_TRIGGER,
+        contents: if targeted { 0 } else { CONTENTS_TRIGGER },
         respawn_at: 0,
         wait: placed.wait,
         random: placed.random,
         dropped: None,
         allow_npc: placed.allow_npc,
         no_global_sound: placed.no_global_sound,
+        targetname: placed.targetname.clone(),
     })
 }
 
@@ -695,6 +710,23 @@ pub fn taken(pickup: &mut Pickup, respawn: i32, level_time: i32, spread: f32) ->
     Gone::Taken
 }
 
+/// Whether `Touch_Item` would look at the item at all: one undrawn (out of the world, or
+/// not yet used) or standing in as a placeholder gives nothing (`g_items.c:2408-2416`).
+pub fn present(pickup: &Pickup) -> bool {
+    pickup.state.raw_field(ES_EFLAGS).unwrap_or(0) & (EF_NODRAW | EF_ITEMPLACEHOLDER) == 0
+}
+
+/// `Use_Target_Give`'s end for an item (`nextthink = 0`, `trap->UnlinkEntity`): out of
+/// the world, untouchable and undrawn, with no return pending — until something uses it.
+pub fn withdraw(pickup: &mut Pickup) {
+    pickup.respawn_at = 0;
+    pickup.contents = 0;
+    let flags = pickup.state.raw_field(ES_EFLAGS).unwrap_or(0);
+    pickup
+        .state
+        .set_raw_field(ES_EFLAGS, (flags | EF_NODRAW) & !EF_ITEMPLACEHOLDER);
+}
+
 /// `RespawnItem` (`:2323-2369`): a trigger again, drawn again, with `EV_ITEM_RESPAWN` on
 /// itself; a powerup's return is also heard ([`respawn_sound`]).
 pub fn respawn(pickup: &mut Pickup, level_time: i32) -> EventEntity {
@@ -831,6 +863,7 @@ mod tests {
             suspended: true,
             allow_npc: false,
             no_global_sound,
+            targetname: None,
         };
         let mut trace =
             |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
@@ -864,5 +897,35 @@ mod tests {
         assert_eq!(state.ammo[2], 400);
         add_ammo(&mut state, 2, 500);
         assert_eq!(state.ammo[2], 600);
+    }
+
+    /// `FinishSpawningItem`: an item something uses starts out of the world — undrawn,
+    /// untouchable — and `Use_Target_Give` takes one out for good.
+    #[test]
+    fn a_targeted_item_waits_to_be_used() {
+        let rocket = find_named(b"weapon_rocket_launcher").unwrap();
+        let placed = Placed {
+            item: rocket,
+            origin: [0.0; 3],
+            wait: 0.0,
+            random: 0.0,
+            suspended: true,
+            allow_npc: false,
+            no_global_sound: false,
+            targetname: Some("loot".to_owned()),
+        };
+        let mut trace =
+            |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
+                MovementTrace::miss(end)
+            };
+        let mut pickup = finish_spawning(&placed, &mut trace).unwrap();
+        assert_eq!(pickup.contents, 0);
+        assert!(!present(&pickup));
+        let _ = respawn(&mut pickup, 0);
+        assert_eq!(pickup.contents, CONTENTS_TRIGGER);
+        assert!(present(&pickup));
+        withdraw(&mut pickup);
+        assert_eq!((pickup.contents, pickup.respawn_at), (0, 0));
+        assert!(!present(&pickup));
     }
 }

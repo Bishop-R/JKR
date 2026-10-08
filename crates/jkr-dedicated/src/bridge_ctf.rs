@@ -290,6 +290,7 @@ impl NativeGame {
             base: base_of(pickup),
             current_origin: pickup.origin,
         };
+        self.log(&jkr_game_jka::game_log::item(client, row.classname));
         let respawn = self.with_flags(level_time, |flags, world| {
             ctf::touch(flags, world, flag, client as u16, level_time, intermission)
         });

@@ -141,15 +141,63 @@ impl NativeGame {
             if pickup.respawn_at == 0 || pickup.respawn_at > server_time {
                 continue;
             }
-            if ITEMS[pickup.item].kind == Kind::Powerup {
-                let sound = self.sound_index_for(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
-                if let Some(event) = jkr_game_jka::items::respawn_sound(&self.items[index].1, sound)
-                    && let Some(id) = self.pool.spawn_temporary(event.state(), server_time, None)
-                {
-                    self.pool.set_broadcast(id, event.broadcast);
-                }
+            self.respawn_placed_item(index, server_time);
+        }
+    }
+
+    /// `RespawnItem` for item `index`: back in the world, a powerup's return heard.
+    fn respawn_placed_item(&mut self, index: usize, level_time: i32) {
+        if ITEMS[self.items[index].1.item].kind == Kind::Powerup {
+            let sound = self.sound_index_for(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
+            if let Some(event) = jkr_game_jka::items::respawn_sound(&self.items[index].1, sound)
+                && let Some(id) = self.pool.spawn_temporary(event.state(), level_time, None)
+            {
+                self.pool.set_broadcast(id, event.broadcast);
             }
-            bridge_ctf::respawn_item(&mut self.items, &mut self.pool, index, server_time);
+        }
+        bridge_ctf::respawn_item(&mut self.items, &mut self.pool, index, level_time);
+    }
+
+    /// Items `G_Find` reaches by `targetname`, in the map's order.
+    fn items_named(&self, name: &str) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, pickup))| {
+                pickup
+                    .targetname
+                    .as_deref()
+                    .is_some_and(|own| own.eq_ignore_ascii_case(name))
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    /// `Use_Item` (`g_items.c:2800-2802`) for the items called `name`: each back in the
+    /// world (`RespawnItem`), a used item that starts out of it included.
+    pub(super) fn use_items(&mut self, name: &str, level_time: i32) {
+        for index in self.items_named(name) {
+            self.respawn_placed_item(index, level_time);
+        }
+    }
+
+    /// `Use_Target_Give` (`g_target.c:31-55`) for `client`: every item called `target`
+    /// touched by it (`Touch_Item`, which gives nothing of one out of the world — so of
+    /// a used item only once something brought it back), then taken out of the world for
+    /// good.
+    pub(super) fn give_items(&mut self, client: usize, target: &str, level_time: i32) {
+        if target.is_empty() {
+            return;
+        }
+        for index in self.items_named(target) {
+            let alive = self
+                .peer(client)
+                .is_some_and(|peer| peer.health > 0 && peer.playing());
+            if alive && jkr_game_jka::items::present(&self.items[index].1) {
+                let _ = self.touch_item(client, index, level_time);
+            }
+            jkr_game_jka::items::withdraw(&mut self.items[index].1);
+            self.publish_item(index);
         }
     }
 

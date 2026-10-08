@@ -302,6 +302,7 @@ impl NativeGame {
             }
         }
         self.use_doors(name, client, level_time);
+        self.use_items(name, level_time);
         self.use_map_effects(name, client, level_time);
         self.use_map_turrets(name);
         self.use_stock_entities(name, client, level_time);

@@ -113,6 +113,10 @@ pub fn shutdown_game() -> String {
 pub fn client_connect(who: Who) -> String {
     format!("ClientConnect: {}\n", who.head())
 }
+/// `Touch_Item`'s line for an item a client takes (`g_items.c:2516`), before its pickup.
+pub fn item(client: usize, classname: &str) -> String {
+    format!("Item: {client} {classname}\n")
+}
 /// `ClientBegin`'s line.
 pub fn client_begin(client: usize) -> String {
     format!("ClientBegin: {client}\n")

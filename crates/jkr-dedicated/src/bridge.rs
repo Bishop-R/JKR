@@ -1178,14 +1178,8 @@ impl NativeGame {
         }
         let wide_flag_box = self.wide_flag_box;
         for index in 0..self.items.len() {
-            let (number, pickup) = &self.items[index];
-            let (number, item, origin, contents, dropped) = (
-                number.legacy_number(),
-                pickup.item,
-                pickup.origin,
-                pickup.contents,
-                pickup.dropped.map(|dropped| dropped.count),
-            );
+            let (_, pickup) = &self.items[index];
+            let (item, origin, contents) = (pickup.item, pickup.origin, pickup.contents);
             if contents == 0 {
                 continue;
             }
@@ -1202,75 +1196,92 @@ impl NativeGame {
                 continue;
             }
             // A flag (`Pickup_Team`); one returned or captured may have changed the items.
-            if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Team {
-                if self.touch_flag(client, index, level_time) {
-                    break;
-                }
-                continue;
+            if self.touch_item(client, index, level_time) {
+                break;
             }
-            if jkr_game_jka::dropped_items::refuses(
-                &mut self.items[index].1,
-                client as u16,
-                level_time,
-            ) {
-                continue;
-            }
-            let respawns = self.item_respawns();
-            let Some(peer) = self.peer_mut(client) else {
-                return;
-            };
-            // `Touch_Item`: enlightenment only for its own side, then the shared rules.
-            if jkr_game_jka::items::wrong_side(item, u32::from(peer.state.force_side()))
-                || !jkr_game_jka::items::can_be_grabbed(item, &peer.state, dropped.is_some())
-            {
-                continue;
-            }
-            // `Pickup_Powerup` tallies a powerup the player did not have yet.
-            let had_powerup = usize::try_from(jkr_game_jka::items::ITEMS[item].tag)
-                .ok()
-                .and_then(|tag| peer.state.powerups.get(tag))
-                .is_some_and(|until| *until != 0);
-            let taken = jkr_game_jka::items::pick_up(
-                item,
-                &mut peer.state,
-                &mut peer.health,
-                (dropped.unwrap_or(0), dropped.is_some()),
-                level_time,
-                respawns,
-            );
-            if taken.predicted && peer.accepted.predict_item_pickup {
-                jkr_game_jka::items::add_predictable_event(
-                    &mut peer.state,
-                    jkr_game_jka::items::EV_ITEM_PICKUP,
-                    u32::from(number),
-                );
-            } else {
-                let bits = (peer.state.raw_field(EFLAGS_EVENT).unwrap_or(0) & 0x300)
-                    .wrapping_add(0x100)
-                    & 0x300;
-                peer.state
-                    .set_raw_field(EFLAGS_EVENT, jkr_game_jka::items::EV_ITEM_PICKUP | bits);
-                peer.state
-                    .set_raw_field(EFLAGS_EVENT_PARM, u32::from(number));
-                peer.entity.event_raised(level_time);
-            }
-            peer.movement = peer.movement.reseeded(&peer.state);
-            self.tally_pickup(client, item, had_powerup);
-            if dropped.is_some() {
-                let (_, pickup) = &mut self.items[index];
-                jkr_game_jka::dropped_items::taken(pickup, taken.respawn, level_time);
-            } else {
-                let spread = self.deaths.rng.flrand(-1.0, 1.0);
-                let (_, pickup) = &mut self.items[index];
-                let _ = jkr_game_jka::items::taken(pickup, taken.respawn, level_time, spread);
-            }
-            let _ = number;
-            if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Powerup {
-                let at = jkr_game_jka::items::trajectory_base(&self.items[index].1);
-                self.deny_nearby(client, at);
-            }
-            self.publish_item(index);
         }
+    }
+
+    /// `Touch_Item` of item `index` by `client`: a flag's own rules (whether the items may
+    /// have changed — one returned or captured), or the item given — what it gives, the
+    /// pickup event (predicted, as every client here asks for) and the item out of the
+    /// world until it comes again.
+    fn touch_item(&mut self, client: usize, index: usize, level_time: i32) -> bool {
+        let (number, pickup) = &self.items[index];
+        let (number, item, dropped) = (
+            number.legacy_number(),
+            pickup.item,
+            pickup.dropped.map(|dropped| dropped.count),
+        );
+        if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Team {
+            return self.touch_flag(client, index, level_time);
+        }
+        if jkr_game_jka::dropped_items::refuses(&mut self.items[index].1, client as u16, level_time)
+        {
+            return false;
+        }
+        let respawns = self.item_respawns();
+        let Some(peer) = self.peer(client) else {
+            return false;
+        };
+        // `Touch_Item`: enlightenment only for its own side, then the shared rules.
+        if jkr_game_jka::items::wrong_side(item, u32::from(peer.state.force_side()))
+            || !jkr_game_jka::items::can_be_grabbed(item, &peer.state, dropped.is_some())
+        {
+            return false;
+        }
+        self.log(&jkr_game_jka::game_log::item(
+            client,
+            jkr_game_jka::items::ITEMS[item].classname,
+        ));
+        let Some(peer) = self.peer_mut(client) else {
+            return false;
+        };
+        // `Pickup_Powerup` tallies a powerup the player did not have yet.
+        let had_powerup = usize::try_from(jkr_game_jka::items::ITEMS[item].tag)
+            .ok()
+            .and_then(|tag| peer.state.powerups.get(tag))
+            .is_some_and(|until| *until != 0);
+        let taken = jkr_game_jka::items::pick_up(
+            item,
+            &mut peer.state,
+            &mut peer.health,
+            (dropped.unwrap_or(0), dropped.is_some()),
+            level_time,
+            respawns,
+        );
+        if taken.predicted && peer.accepted.predict_item_pickup {
+            jkr_game_jka::items::add_predictable_event(
+                &mut peer.state,
+                jkr_game_jka::items::EV_ITEM_PICKUP,
+                u32::from(number),
+            );
+        } else {
+            let bits = (peer.state.raw_field(EFLAGS_EVENT).unwrap_or(0) & 0x300)
+                .wrapping_add(0x100)
+                & 0x300;
+            peer.state
+                .set_raw_field(EFLAGS_EVENT, jkr_game_jka::items::EV_ITEM_PICKUP | bits);
+            peer.state
+                .set_raw_field(EFLAGS_EVENT_PARM, u32::from(number));
+            peer.entity.event_raised(level_time);
+        }
+        peer.movement = peer.movement.reseeded(&peer.state);
+        self.tally_pickup(client, item, had_powerup);
+        if dropped.is_some() {
+            let (_, pickup) = &mut self.items[index];
+            jkr_game_jka::dropped_items::taken(pickup, taken.respawn, level_time);
+        } else {
+            let spread = self.deaths.rng.flrand(-1.0, 1.0);
+            let (_, pickup) = &mut self.items[index];
+            let _ = jkr_game_jka::items::taken(pickup, taken.respawn, level_time, spread);
+        }
+        if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Powerup {
+            let at = jkr_game_jka::items::trajectory_base(&self.items[index].1);
+            self.deny_nearby(client, at);
+        }
+        self.publish_item(index);
+        false
     }
 
     /// A spectator where the map starts them, looking the way its author chose, at

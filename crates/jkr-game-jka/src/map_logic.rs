@@ -72,6 +72,8 @@ pub enum Kind {
     PlayMusic { music: String },
     /// `target_level_change`: the server goes to the map `map` (`map <map>`).
     LevelChange { map: String },
+    /// `target_give`: the items its target names, touched by whoever set it off.
+    Give,
     /// `target_push`: throws whoever set it off with `velocity` — the direction its angles
     /// name times `speed`, or worked out toward its target a frame on (`AimAtTarget`):
     /// straight at it with `constant` (spawnflag 2), else in an arc whose top it is.
@@ -153,6 +155,8 @@ pub enum Deed {
     Music(String),
     /// `trap->SendConsoleCommand(EXEC_NOW, "map <map>")`.
     ChangeLevel(String),
+    /// `Use_Target_Give`: the items called `target`, touched by `activator`, then gone.
+    Give { activator: usize, target: String },
     /// `AimAtTarget` for a `target_push`: the caller picks its target (`G_PickTarget`)
     /// and calls [`Logic::aim_push`] — or frees it, with no target to aim at.
     AimPush,
@@ -242,6 +246,7 @@ impl Logic {
                     music: music.to_owned(),
                 };
             }
+            "target_give" => logic.kind = Kind::Give,
             "target_level_change" => {
                 let map = entity.get("mapname").unwrap_or_default();
                 if map.is_empty() {
@@ -416,6 +421,15 @@ impl Logic {
                 .unwrap_or_default(),
             Kind::PlayMusic { music } => vec![Deed::Music(music.clone())],
             Kind::LevelChange { map } => vec![Deed::ChangeLevel(map.clone())],
+            Kind::Give => activator
+                .filter(|_| !self.target.is_empty())
+                .map(|activator| {
+                    vec![Deed::Give {
+                        activator,
+                        target: self.target.clone(),
+                    }]
+                })
+                .unwrap_or_default(),
             Kind::Push {
                 velocity, sound, ..
             } => activator
@@ -527,6 +541,29 @@ mod tests {
         // Level with it: no time to throw in, so it is freed.
         push.aim_push([0.0, 320.0, 0.0], 800.0);
         assert!(push.freed);
+    }
+
+    /// `target_give`: used by a client, the items its target names are touched by it; with
+    /// no target, or no client, nothing.
+    #[test]
+    fn a_give_touches_its_target_items_for_a_client() {
+        let give = entity(&[("classname", "target_give"), ("target", "loot")]);
+        let mut give = Logic::spawn(&give, 7, 0).unwrap().unwrap();
+        assert_eq!(
+            give.use_logic(Some(2), 0, &mut Rng::default()),
+            vec![Deed::Give {
+                activator: 2,
+                target: "loot".to_owned(),
+            }]
+        );
+        assert!(give.use_logic(None, 0, &mut Rng::default()).is_empty());
+        let aimless = entity(&[("classname", "target_give")]);
+        let mut aimless = Logic::spawn(&aimless, 7, 0).unwrap().unwrap();
+        assert!(
+            aimless
+                .use_logic(Some(2), 0, &mut Rng::default())
+                .is_empty()
+        );
     }
 
     /// `target_level_change`: used, the server goes to its map; without one the reference
