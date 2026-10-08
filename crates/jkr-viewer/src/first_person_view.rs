@@ -170,4 +170,7 @@ pub(crate) fn deliver_events(state: &mut GpuState, audio: &mut Option<GameAudio>
     if let Some(weapon) = selected {
         state.choose_auto_weapon(weapon);
     }
+    if let Some(item) = state.auto_switch.take_pickup() {
+        state.hud.pickup.picked_up(item);
+    }
 }

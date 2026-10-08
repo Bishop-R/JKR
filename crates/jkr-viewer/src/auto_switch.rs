@@ -8,6 +8,8 @@ pub(crate) struct Tracker {
     external: u16,
     items: [u16; 1024],
     predicted: [Option<u16>; 2],
+    /// The item last picked up (`CG_ItemPickup`), for the HUD.
+    pickup: Option<u16>,
 }
 
 impl Default for Tracker {
@@ -18,6 +20,7 @@ impl Default for Tracker {
             external: 0,
             items: [0; 1024],
             predicted: [None; 2],
+            pickup: None,
         }
     }
 }
@@ -50,13 +53,26 @@ impl Tracker {
         }
     }
 
+    /// The item picked up since the last call.
+    pub(crate) fn take_pickup(&mut self) -> Option<u16> {
+        self.pickup.take()
+    }
+
     fn event(
-        &self,
+        &mut self,
         event: u16,
         parameter: u16,
         mode: i64,
         player: &jkr_protocol::PlayerState,
     ) -> Option<u8> {
+        if event & 255 == 22 {
+            self.pickup = self
+                .items
+                .get(usize::from(parameter))
+                .copied()
+                .filter(|item| *item != 0)
+                .or(self.pickup);
+        }
         let inventory = LegacyWeaponInventory::from_player_state(player);
         if inventory.spectator || inventory.following || inventory.emplaced {
             return None;
@@ -171,6 +187,9 @@ impl crate::GpuState {
         }
         if let Some(weapon) = selected {
             self.choose_auto_weapon(weapon);
+        }
+        if let Some(item) = self.auto_switch.take_pickup() {
+            self.hud.pickup.picked_up(item);
         }
     }
 

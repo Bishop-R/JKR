@@ -240,6 +240,19 @@ impl Icons {
         }
     }
 
+    /// The icon of an item just picked up, at the right of the screen (`CG_DrawPickupItem`
+    /// draws it at 573, 320 of 640 by 480).
+    pub(super) fn pickup(&self, list: &mut DrawList, viewport: [f32; 2], item: u16, alpha: f32) {
+        let [w, h] = viewport;
+        let s = (h / 1080.0).clamp(0.6, 2.5);
+        self.quad(
+            list,
+            usize::from(item),
+            Rect::new(w - 132.0 * s, h * (320.0 / 480.0), 96.0 * s, 96.0 * s),
+            Color::new(1.0, 1.0, 1.0, alpha),
+        );
+    }
+
     /// Add an icon beside the existing obituary text and reserve its space.
     pub(super) fn feed(&self, list: &mut DrawList, rect: &mut Rect, alpha: f32, scale: f32) {
         let index = 51 + self.method.min(42);

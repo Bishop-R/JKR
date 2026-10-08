@@ -152,6 +152,8 @@ pub(crate) struct State {
 
     /// Projected muzzle trace offset, or zero for the static crosshair.
     pub(crate) dynamic_offset: Option<[f32; 2]>,
+    /// A pickup's swell of the crosshair (`ITEM_BLOB_TIME`), 1 without one.
+    pub(super) swell: f32,
 }
 
 impl Default for State {
@@ -162,6 +164,7 @@ impl Default for State {
             color: [0.92, 0.98, 1.0, 1.0],
 
             dynamic_offset: None,
+            swell: 1.0,
         }
     }
 }
@@ -215,6 +218,9 @@ impl State {
             parameters[0] = offset[0];
             parameters[1] = offset[1];
         }
+        // The crosshair is its size over these dimensions: a smaller frame, a bigger one.
+        parameters[2] /= self.swell;
+        parameters[3] /= self.swell;
         parameters
     }
 

@@ -18,6 +18,7 @@ pub(crate) use rocket_lock::RocketLockInputs;
 mod crosshair_bars;
 pub(crate) use crosshair_bars::CrosshairBarInputs;
 mod meters;
+mod pickup;
 mod selection;
 mod siege;
 mod spectator;
@@ -125,6 +126,8 @@ pub(crate) struct HudOverlay {
     pub(crate) action_remaining: Option<f32>,
     /// Map-lifetime textures and sampled icon presentation policy.
     pub(crate) icons: icons::Icons,
+    /// The last item picked up: its icon and the crosshair's swell.
+    pub(crate) pickup: pickup::Pickup,
     pub(crate) tints: tints::State,
     /// World-projected labels, sharing the chat roster's retained names.
     pub(crate) identification: identification::State,
@@ -220,6 +223,7 @@ impl HudOverlay {
         Self {
             action_remaining: None,
             icons: icons::Icons::default(),
+            pickup: pickup::Pickup::default(),
             tints: tints::State::default(),
             guides: movement::Guides::default(),
             family: family::Policy::default(),
@@ -448,6 +452,15 @@ impl HudOverlay {
                 },
                 &mut output,
             );
+        }
+        self.pickup.update(time_ms);
+        self.targeting.swell = self.pickup.crosshair_scale(time_ms);
+        // `CG_DrawPickupItem`, with the status: for the living, in the game.
+        if visibility.status
+            && let Some((item, alpha)) = self.pickup.icon(time_ms)
+        {
+            self.icons
+                .pickup(&mut self.draw_list, viewport, item, alpha);
         }
         if visibility.crosshair {
             let crosshair = self.targeting.parameters(viewport);
