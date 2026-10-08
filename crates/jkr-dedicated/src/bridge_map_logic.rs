@@ -299,6 +299,11 @@ impl NativeGame {
                 Deed::Music(music) => {
                     self.publish_config_string(jkr_game_jka::worldspawn::CS_MUSIC, music.as_bytes())
                 }
+                // `EXEC_NOW` runs the change at once; here it runs as the frame ends.
+                Deed::ChangeLevel(map) => self.commands.add_text(
+                    format!("map {map}\n").as_bytes(),
+                    &mut super::bridge_bots::console,
+                ),
                 Deed::AimPush => {
                     // `G_PickTarget`: `rand() % num_choices` among everything so named.
                     let name = self.stock.logic[index].target.clone();

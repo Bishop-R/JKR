@@ -70,6 +70,8 @@ pub enum Kind {
     Teleporter,
     /// `target_play_music`: the level's music (`CS_MUSIC`) becomes `music`.
     PlayMusic { music: String },
+    /// `target_level_change`: the server goes to the map `map` (`map <map>`).
+    LevelChange { map: String },
     /// `target_push`: throws whoever set it off with `velocity` — the direction its angles
     /// name times `speed`, or worked out toward its target a frame on (`AimAtTarget`):
     /// straight at it with `constant` (spawnflag 2), else in an arc whose top it is.
@@ -117,6 +119,8 @@ pub enum Refused {
     /// `target_play_music` without a `music` key: the reference stops the map
     /// (`ERR_DROP`); this server refuses the entity alone and says so.
     NoMusic { origin: [f32; 3] },
+    /// `target_level_change` without a `mapname`: the same.
+    NoMapname { origin: [f32; 3] },
 }
 
 /// What a use or a think asks of the level, in the reference's order.
@@ -147,6 +151,8 @@ pub enum Deed {
     },
     /// `trap->SetConfigstring(CS_MUSIC, music)`.
     Music(String),
+    /// `trap->SendConsoleCommand(EXEC_NOW, "map <map>")`.
+    ChangeLevel(String),
     /// `AimAtTarget` for a `target_push`: the caller picks its target (`G_PickTarget`)
     /// and calls [`Logic::aim_push`] — or frees it, with no target to aim at.
     AimPush,
@@ -234,6 +240,15 @@ impl Logic {
                 };
                 logic.kind = Kind::PlayMusic {
                     music: music.to_owned(),
+                };
+            }
+            "target_level_change" => {
+                let map = entity.get("mapname").unwrap_or_default();
+                if map.is_empty() {
+                    return Some(Err(Refused::NoMapname { origin }));
+                }
+                logic.kind = Kind::LevelChange {
+                    map: map.to_owned(),
                 };
             }
             "target_push" => {
@@ -400,6 +415,7 @@ impl Logic {
                 })
                 .unwrap_or_default(),
             Kind::PlayMusic { music } => vec![Deed::Music(music.clone())],
+            Kind::LevelChange { map } => vec![Deed::ChangeLevel(map.clone())],
             Kind::Push {
                 velocity, sound, ..
             } => activator
@@ -511,5 +527,25 @@ mod tests {
         // Level with it: no time to throw in, so it is freed.
         push.aim_push([0.0, 320.0, 0.0], 800.0);
         assert!(push.freed);
+    }
+
+    /// `target_level_change`: used, the server goes to its map; without one the reference
+    /// stops the map, this server refuses the entity.
+    #[test]
+    fn a_level_change_goes_to_its_map() {
+        let change = entity(&[
+            ("classname", "target_level_change"),
+            ("mapname", "mp/duel1"),
+        ]);
+        let mut change = Logic::spawn(&change, 7, 0).unwrap().unwrap();
+        assert_eq!(
+            change.use_logic(None, 0, &mut Rng::default()),
+            vec![Deed::ChangeLevel("mp/duel1".to_owned())]
+        );
+        let none = entity(&[("classname", "target_level_change")]);
+        assert!(matches!(
+            Logic::spawn(&none, 7, 0),
+            Some(Err(Refused::NoMapname { .. }))
+        ));
     }
 }
