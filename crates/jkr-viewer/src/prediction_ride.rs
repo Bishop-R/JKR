@@ -366,16 +366,25 @@ pub(super) fn error_state<'a>(
 }
 
 /// One predicted command: the ride's two moves where the player pilots one, its own move
-/// otherwise.
+/// otherwise, in a duel of `duel_kind` (jaPRO's Force and gun duels hold other weapons and
+/// powers than stock's saber duel).
 pub(super) fn predict(
     predictor: &mut Predictor,
     ride: Option<&mut RidePrediction>,
     command: UserCommand,
     collision: &impl MovementCollision,
+    duel_kind: jkr_game_jka::duel_kind::DuelKind,
 ) {
     match ride {
         Some(ride) => ride.predict(predictor, command, collision),
-        None => predictor.predict_command(command, collision),
+        None => predictor.predict_command_in(
+            command,
+            collision,
+            &jkr_game_jka::pmove::MoveContext {
+                duel_kind,
+                ..jkr_game_jka::pmove::MoveContext::CLIENT
+            },
+        ),
     }
 }
 

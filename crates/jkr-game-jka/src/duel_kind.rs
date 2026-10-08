@@ -66,6 +66,18 @@ impl DuelKind {
         Self::Gun(weapon as u8 + 2)
     }
 
+    /// The kind a client takes the duel it was just put in to be, from its own
+    /// `EV_PRIVATE_DUEL` in the same snapshot (jaPRO's `cg_dueltypes`, `cg_event.c:1769-1790`
+    /// of jaPRO): a gun duel's number, 2 for a Force duel — its accept event; a saber duel
+    /// sends 2 only later, at the countdown's end — else the saber's.
+    pub fn from_accept_event(parameter: Option<u8>) -> Self {
+        match parameter {
+            Some(2) => Self::Force,
+            Some(number) if number > 2 => Self::Gun(number),
+            _ => Self::Saber,
+        }
+    }
+
     /// jaPRO's number for it (`dueltypes[n]`).
     pub fn number(self) -> u32 {
         match self {
@@ -265,6 +277,10 @@ mod tests {
         assert_eq!(DuelKind::Gun(20).held_weapon(), None);
         assert_eq!(DuelKind::Gun(13).held_weapon(), Some(11));
         assert_eq!(DuelKind::Force.held_weapon(), Some(3));
+        assert_eq!(DuelKind::from_accept_event(Some(13)), DuelKind::Gun(13));
+        assert_eq!(DuelKind::from_accept_event(Some(2)), DuelKind::Force);
+        assert_eq!(DuelKind::from_accept_event(Some(1)), DuelKind::Saber);
+        assert_eq!(DuelKind::from_accept_event(None), DuelKind::Saber);
     }
 
     #[test]

@@ -108,6 +108,11 @@ pub(crate) struct LocalPrediction {
     miss_log: telemetry::MissLog,
     /// The vehicle the local player pilots, predicted with it.
     rides: ride::Rides,
+    /// The kind of the duel the player is in, as its own `EV_PRIVATE_DUEL` told it
+    /// ([`jkr_game_jka::duel_kind::DuelKind::from_accept_event`]), and whether the last
+    /// snapshot had it in one.
+    duel_kind: jkr_game_jka::duel_kind::DuelKind,
+    in_duel: bool,
 }
 
 impl LocalPrediction {
@@ -175,6 +180,8 @@ impl LocalPrediction {
             last_sample: PredictionSample::default(),
             miss_log: telemetry::MissLog::default(),
             rides: ride::Rides::new(vfs),
+            duel_kind: jkr_game_jka::duel_kind::DuelKind::Saber,
+            in_duel: false,
         }
     }
 
@@ -380,6 +387,7 @@ impl LocalPrediction {
             self.rides.committed.as_mut(),
             command,
             &collision,
+            self.duel_kind,
         );
         self.rides.preview = None;
         touch_triggers(
@@ -425,7 +433,14 @@ impl LocalPrediction {
         };
         let collision =
             BspMovementCollision::with_movers(bsp, scratch, &self.physics_movers.colliders);
-        ride::predict(preview, self.rides.begin_preview(), command, &collision);
+        let duel_kind = self.duel_kind;
+        ride::predict(
+            preview,
+            self.rides.begin_preview(),
+            command,
+            &collision,
+            duel_kind,
+        );
         touch_triggers(
             preview,
             &self.physics_movers.triggers,

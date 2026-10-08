@@ -12,6 +12,7 @@ impl LocalPrediction {
         scratch: &mut TraceScratch,
     ) -> Vec3 {
         let player = &snapshot.player;
+        self.observe_duel(player);
         let current = (
             player.entity_flags(),
             player.client_num(),
@@ -130,6 +131,7 @@ impl LocalPrediction {
                 self.rides.committed.as_mut(),
                 *command,
                 &collision,
+                self.duel_kind,
             );
             let state = predictor.state();
             counts.replayed += 1;
@@ -199,5 +201,22 @@ impl LocalPrediction {
         } else {
             state.ground_entity_number
         }
+    }
+}
+
+impl LocalPrediction {
+    /// The duel's kind from the snapshot that put the player in one: its own
+    /// `EV_PRIVATE_DUEL` then (`EV_EVENT_BITS` aside), or none for stock's saber duel.
+    fn observe_duel(&mut self, player: &jkr_protocol::PlayerState) {
+        /// `EV_PRIVATE_DUEL`, `EV_EVENT_BITS`.
+        const EV_PRIVATE_DUEL: u16 = 15;
+        const EV_EVENT_BITS: u16 = 0x300;
+        let in_duel = player.duel_in_progress();
+        if in_duel && !self.in_duel {
+            let event = (player.external_event() & !EV_EVENT_BITS == EV_PRIVATE_DUEL)
+                .then(|| player.external_event_parameter());
+            self.duel_kind = jkr_game_jka::duel_kind::DuelKind::from_accept_event(event);
+        }
+        self.in_duel = in_duel;
     }
 }
