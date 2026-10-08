@@ -490,6 +490,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Heads turn toward what players look at: 0 never, else for that many seconds",
         ),
         CvarDefinition::new(
+            "cg_noRGBSabers",
+            0_i64,
+            archive,
+            "Custom blade colours show as the stock colour their number names",
+        ),
+        CvarDefinition::new(
             "cg_saberTeamColors",
             true,
             archive,

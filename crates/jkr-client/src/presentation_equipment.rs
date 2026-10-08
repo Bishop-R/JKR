@@ -76,7 +76,7 @@ fn client_saber_color_at(
         .config_string(CS_PLAYERS + usize::from(client_num))
         .map_or(legacy_blade_rgb(4), |config| {
             team_saber_color(policy, config, saber)
-                .unwrap_or_else(|| saber_color_from_config(config, saber))
+                .unwrap_or_else(|| saber_color_from_config(config, saber, policy.rgb_sabers))
         })
 }
 
@@ -108,7 +108,7 @@ pub(super) fn team_saber_color(
 /// `c3`/`c4` (TaystJK `codemp/game/g_client.c:2717-2718`) which applies to
 /// any index past purple.  Without those keys such an index rolls over to a
 /// stock colour like `ClampSaberColor` (`codemp/cgame/cg_players.c:6066`).
-pub(super) fn saber_color_from_config(config: &[u8], saber: usize) -> [u8; 3] {
+pub(super) fn saber_color_from_config(config: &[u8], saber: usize, rgb: bool) -> [u8; 3] {
     const KEYS: [(&[u8], &[u8]); 2] = [(b"c1", b"c3"), (b"c2", b"c4")];
     const NUM_SABER_COLORS: i32 = 12;
     const SABER_RGB: i32 = 6;
@@ -121,7 +121,7 @@ pub(super) fn saber_color_from_config(config: &[u8], saber: usize) -> [u8; 3] {
     }
     // The key is present but empty for a client that never set a tint;
     // `atoi` reads that as 0, which unpacks to red.
-    match legacy_info_value(config, rgb_key) {
+    match legacy_info_value(config, rgb_key).filter(|_| rgb) {
         Some(packed) => crate::unpack_saber_rgb(legacy_atoi(packed) as u32),
         None => legacy_blade_rgb(color - SABER_RGB),
     }
@@ -182,6 +182,23 @@ pub(super) fn legacy_atoi(value: &[u8]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn no_rgb_sabers_rolls_custom_tints_over() {
+        let config = b"\\c1\\6\\c3\\65280";
+        assert_ne!(
+            saber_color_from_config(config, 0, true),
+            legacy_blade_rgb(0)
+        );
+        assert_eq!(
+            saber_color_from_config(config, 0, false),
+            legacy_blade_rgb(0)
+        );
+        assert_eq!(
+            saber_color_from_config(b"\\c1\\3", 0, false),
+            legacy_blade_rgb(3)
+        );
+    }
 
     #[test]
     fn team_games_give_blades_the_team_colour() {

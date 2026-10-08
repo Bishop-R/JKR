@@ -61,9 +61,10 @@ impl<'a> LegacyThrownSabers<'a> {
         }
     }
 
-    /// EternalJK's `cg_saberTeamColors` for the thrown blades' colours.
-    pub fn with_saber_team_colors(mut self, on: bool) -> Self {
-        self.policy.saber_team_colors = on;
+    /// EternalJK's `cg_saberTeamColors` and `cg_noRGBSabers` for the thrown blades' colours.
+    pub fn with_saber_options(mut self, team_colors: bool, rgb: bool) -> Self {
+        self.policy.saber_team_colors = team_colors;
+        self.policy.rgb_sabers = rgb;
         self
     }
 
@@ -89,7 +90,7 @@ impl<'a> LegacyThrownSabers<'a> {
             owner,
             name: saber_names_from_config(config)[0]?,
             color: team_saber_color(self.policy, config, 0)
-                .unwrap_or_else(|| saber_color_from_config(config, 0)),
+                .unwrap_or_else(|| saber_color_from_config(config, 0, self.policy.rgb_sabers)),
             in_flight,
             extra_blades: holstered != 1,
             returning: !state.saber_in_flight(),

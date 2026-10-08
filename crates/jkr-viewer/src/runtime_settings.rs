@@ -44,11 +44,14 @@ impl GpuState {
         self.first_person_view
             .set_instant_duck(console.bool_cvar("cg_instantDuck").unwrap_or(false));
         let saber_team_colors = console.bool_cvar("cg_saberTeamColors").unwrap_or(true);
+        let rgb_sabers = console.integer_cvar("cg_noRGBSabers").unwrap_or(0) == 0;
         if let Some(adapter) = &mut self.legacy_world_adapter {
             adapter.set_saber_team_colors(saber_team_colors);
+            adapter.set_rgb_sabers(rgb_sabers);
         }
         if let Some(session) = &mut self.demo_session {
             session.set_saber_team_colors(saber_team_colors);
+            session.set_rgb_sabers(rgb_sabers);
         }
         self.effect_aux.marks.limit = console
             .integer_cvar("cg_ghoul2Marks")

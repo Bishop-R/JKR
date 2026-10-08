@@ -95,8 +95,9 @@ pub struct LegacyWorldAdapter {
     entity_flags: BTreeMap<EntityId, u32>,
     player_identities: LegacyPlayerIdentities,
     smooth_clients: bool,
-    /// EternalJK's `cg_saberTeamColors`.
+    /// EternalJK's `cg_saberTeamColors` and `!cg_noRGBSabers`.
     saber_team_colors: bool,
+    rgb_sabers: bool,
 }
 
 impl LegacyWorldAdapter {
@@ -108,6 +109,7 @@ impl LegacyWorldAdapter {
             player_identities: LegacyPlayerIdentities::default(),
             smooth_clients: false,
             saber_team_colors: true,
+            rgb_sabers: true,
         }
     }
 
@@ -115,6 +117,11 @@ impl LegacyWorldAdapter {
     /// it is the other team's or a custom tint.
     pub fn set_saber_team_colors(&mut self, on: bool) {
         self.saber_team_colors = on;
+    }
+
+    /// EternalJK's `cg_noRGBSabers`: custom blade tints roll over to stock colours.
+    pub fn set_rgb_sabers(&mut self, on: bool) {
+        self.rgb_sabers = on;
     }
 
     pub fn apply_snapshot(
@@ -132,6 +139,7 @@ impl LegacyWorldAdapter {
         let mut next_corpses = BTreeSet::new();
         let color_policy = TeamColorPolicy {
             saber_team_colors: self.saber_team_colors,
+            rgb_sabers: self.rgb_sabers,
             ..TeamColorPolicy::from_game_state(game_state)
         };
         let intermission = snapshot.player.movement_type() == crate::PM_INTERMISSION;

@@ -250,11 +250,16 @@ pub(crate) fn submit(
         special_entities::submit(&mut sinks, snapshot, visual_now);
     }
     let thrown = snapshot.zip(game_state).map(|(snapshot, game)| {
-        jkr_client::LegacyThrownSabers::new(snapshot, game).with_saber_team_colors(
+        jkr_client::LegacyThrownSabers::new(snapshot, game).with_saber_options(
             gpu.console
                 .as_ref()
                 .and_then(|console| console.bool_cvar("cg_saberTeamColors"))
                 .unwrap_or(true),
+            gpu.console
+                .as_ref()
+                .and_then(|console| console.integer_cvar("cg_noRGBSabers"))
+                .unwrap_or(0)
+                == 0,
         )
     });
     let mut overlay_count = 0;
