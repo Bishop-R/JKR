@@ -197,6 +197,10 @@ impl NativeGame {
             &self.breakables,
         ));
         splash_targets.extend(self.stock.scenery.splash_targets());
+        splash_targets.extend(super::bridge_doors::mover_splash_targets(
+            &self.doors,
+            self.last_frame_time,
+        ));
         splash_targets.extend(Self::corpse_splash_targets(
             &self.pool,
             &self.corpses,

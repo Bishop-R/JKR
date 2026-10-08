@@ -35,8 +35,9 @@ impl NativeGame {
         self.map = Some(map);
     }
 
-    /// A blow that landed on a pane of glass, a usable or a breakable brush (`G_Damage`
-    /// for a non-client entity): a shot's, a blast's or a swing's. Returns whether it was
+    /// A blow that landed on a pane of glass, a usable, a shootable door or button or a
+    /// breakable brush (`G_Damage` for a non-client entity): a shot's, a blast's or a
+    /// swing's. Returns whether it was
     /// one of ours at all, so the caller can fall back to a player.
     pub(super) fn hurt_brush(
         &mut self,
@@ -51,7 +52,8 @@ impl NativeGame {
                 .breakables
                 .iter()
                 .any(|(ours, _)| ours.legacy_number() == number)
-            || self.stock.usables.position(number).is_some();
+            || self.stock.usables.position(number).is_some()
+            || self.shootable_mover(number).is_some();
         // jaPRO's god chat: a typing player's blow strikes, but deals nothing; and nothing
         // is hurt before a Siege round begins.
         let begun = self.siege.as_ref().is_some_and(|siege| siege.round.begun);
@@ -70,6 +72,7 @@ impl NativeGame {
         }
         if self.hurt_glass(number, damage, means, owner, level_time)
             || self.strike_usable(number, usize::from(owner), level_time)
+            || self.shoot_mover(number, usize::from(owner), level_time)
         {
             return true;
         }

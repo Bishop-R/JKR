@@ -426,3 +426,63 @@ impl NativeGame {
         slot.set_raw_field(ES_TIME, door.time as u32);
     }
 }
+
+impl NativeGame {
+    /// The door or button entity `number` is, when the map gave it health: the one mover
+    /// `G_Damage` reaches (`SP_func_door`, `SP_func_button`: `takedamage`).
+    pub(super) fn shootable_mover(&self, number: u16) -> Option<usize> {
+        self.doors.iter().position(|(id, door)| {
+            id.legacy_number() == number
+                && door.health != 0
+                && matches!(door.kind, MoverKind::Door | MoverKind::Button)
+        })
+    }
+
+    /// `G_Damage`'s mover branch (`g_combat.c:4583-4591`): a blow on a shootable door or
+    /// button resting at its start uses it for whoever struck (`GlobalUse`) — its team set
+    /// going, what it fires fired; its health is never touched. Whether `number` is one.
+    pub(super) fn shoot_mover(&mut self, number: u16, attacker: usize, level_time: i32) -> bool {
+        let Some(index) = self.shootable_mover(number) else {
+            return false;
+        };
+        let door = &self.doors[index].1;
+        if door.state != MoverState::Pos1 || door.inactive {
+            return true;
+        }
+        let activator = (attacker < self.players.places()).then_some(attacker);
+        let fired = mover_team::use_mover(&mut self.doors, index, level_time, activator);
+        self.publish_team(index);
+        if let Some(target) = fired
+            && !target.is_empty()
+        {
+            self.fire_targets(&target, attacker, level_time);
+        }
+        true
+    }
+}
+
+/// The shootable doors and buttons a blast may reach at `time`, each by `SV_LinkEntity`'s
+/// box where it then stands, a unit wider.
+pub(super) fn mover_splash_targets(
+    doors: &[(EntityId, movers::Door)],
+    time: i32,
+) -> impl Iterator<Item = SplashTarget> + '_ {
+    doors
+        .iter()
+        .filter(|(_, door)| {
+            door.health != 0 && matches!(door.kind, MoverKind::Door | MoverKind::Button)
+        })
+        .map(move |(id, door)| {
+            let origin = movers::origin_at(door, time);
+            let (mins, maxs) = door.bounds;
+            SplashTarget {
+                number: id.legacy_number(),
+                bounds: (
+                    std::array::from_fn(|axis| origin[axis] + mins[axis] - 1.0),
+                    std::array::from_fn(|axis| origin[axis] + maxs[axis] + 1.0),
+                ),
+                origin,
+                takes_damage: true,
+            }
+        })
+}

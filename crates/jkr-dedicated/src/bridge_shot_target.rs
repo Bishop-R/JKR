@@ -12,7 +12,7 @@ const ES_TYPE: usize = 8;
 impl NativeGame {
     /// `g_entities[number]` as the shot reads it: a player in the game or an NPC is a
     /// client; glass, breakable brushes and the other movers stop the shot; a body takes
-    /// damage until it fades. Doors and buttons a map gave health take no damage here yet.
+    /// damage until it fades; a door or button the map gave health takes the blow as a use.
     pub(super) fn shot_target(&mut self, number: u16) -> ShotTarget {
         if number >= ENTITY_WORLD {
             return ShotTarget::default();
@@ -46,6 +46,13 @@ impl NativeGame {
             return ShotTarget {
                 client: false,
                 takes_damage: brush.takes_damage,
+                glass_or_mover: true,
+            };
+        }
+        if self.shootable_mover(number).is_some() {
+            return ShotTarget {
+                client: false,
+                takes_damage: true,
                 glass_or_mover: true,
             };
         }
