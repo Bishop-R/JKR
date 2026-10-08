@@ -1,8 +1,11 @@
 //! jaPRO's damage numbers on this server ([`crate::damage_numbers`]): the option, and a
 //! blow's numbers sent to its attacker, to everyone or to the attacker's followers; a score
 //! plum goes to the attacker alone (`ScorePlum`, `g_combat.c:436-446`). Blows on NPCs are
-//! not told yet (jaPRO names them by their `targetname`), and jaPRO's own client's opt-out
-//! is not modelled.
+//! told as jaPRO tells them, an NPC going by its `targetname` — or by its type where jaPRO
+//! prints an empty name or "(null)"; an NPC's own blows reach only the everyone line, also
+//! named. Not told:
+//! one NPC's blows on another (the roster deals them), and jaPRO's own client's opt-out is
+//! not modelled.
 
 use super::*;
 use crate::damage_numbers;
@@ -18,6 +21,25 @@ const ES_TIME: usize = 65;
 const TEAM_SPECTATOR: i32 = 3;
 const SPECTATOR_FOLLOW: i32 = 2;
 
+/// Who dealt a blow the numbers tell of, or took it: a player by its place, or an NPC by its
+/// entity number.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Party {
+    Player(usize),
+    Npc(u16),
+}
+
+impl Party {
+    /// A blow's attacker as `G_Damage` reads it.
+    pub(super) fn attacker(attacker: jkr_game_jka::damage::Attacker) -> Self {
+        if attacker.npc {
+            Self::Npc(attacker.client)
+        } else {
+            Self::Player(usize::from(attacker.client))
+        }
+    }
+}
+
 impl NativeGame {
     /// `g_damageNumbers`, archived, off by default (jaPRO's).
     pub(super) fn register_damage_numbers(&mut self) {
@@ -30,24 +52,30 @@ impl NativeGame {
         );
     }
 
-    /// A blow by player `attacker` on player `target`, alive before it, that did `dealt`
-    /// (health and armour) at `level_time`.
-    pub(super) fn tell_damage(
-        &mut self,
-        attacker: usize,
-        target: usize,
-        dealt: i32,
-        level_time: i32,
-    ) {
+    /// A blow by `dealer` on `taker`, alive before it, that did `dealt` (health and armour)
+    /// at `level_time`. An NPC dealer is told nothing (a server command to it goes nowhere)
+    /// and nobody follows it: only the everyone line goes out for it.
+    pub(super) fn tell_damage(&mut self, dealer: Party, taker: Party, dealt: i32, level_time: i32) {
         let mode = self.cvars.integer(DAMAGE_NUMBERS);
-        if mode == 0 || attacker == target || dealt <= 1 {
+        if mode == 0 || dealer == taker || dealt <= 1 {
             return;
         }
-        let Some((target_name, origin)) = self
-            .peer(target)
-            .map(|peer| (peer.name.clone(), peer.state.origin()))
-        else {
+        let Some((target_name, origin)) = self.party_shown(taker) else {
             return;
+        };
+        let npc_target = matches!(taker, Party::Npc(_));
+        let attacker = match dealer {
+            Party::Player(attacker) => attacker,
+            Party::Npc(_) => {
+                if let Some((name, _)) = self.party_shown(dealer)
+                    && let Some(line) =
+                        damage_numbers::told(mode, dealt, 0, &target_name, &name, npc_target)
+                            .everyone
+                {
+                    self.told.push(Told::Everyone(line));
+                }
+                return;
+            }
         };
         let Some(peer) = self.peer_mut(attacker) else {
             return;
@@ -61,6 +89,7 @@ impl NativeGame {
             peer.damage_total.get(),
             &target_name,
             &peer.name,
+            npc_target,
         );
         for line in told.attacker {
             self.told.push(Told::One(attacker, line));
@@ -96,6 +125,33 @@ impl NativeGame {
                     self.told.push(Told::One(client, line.clone()));
                 }
             }
+        }
+    }
+}
+
+impl NativeGame {
+    /// A party's name as the numbers show it, and where it stands (`r.currentOrigin`): an
+    /// NPC goes by its `targetname`, else (none, or the empty one `npc spawn` gives) by its
+    /// type.
+    fn party_shown(&self, party: Party) -> Option<(Vec<u8>, [f32; 3])> {
+        match party {
+            Party::Player(client) => self
+                .peer(client)
+                .map(|peer| (peer.name.clone(), peer.state.origin())),
+            Party::Npc(number) => self
+                .npcs
+                .roster
+                .actors
+                .iter()
+                .find(|npc| npc.number == number)
+                .map(|npc| {
+                    let name = npc
+                        .targetname
+                        .as_ref()
+                        .filter(|name| !name.is_empty())
+                        .unwrap_or(&npc.npc_type);
+                    (name.clone(), npc.current_origin)
+                }),
         }
     }
 }

@@ -93,6 +93,8 @@ pub struct NpcBlow {
 pub struct NpcDamaged {
     /// The health taken, after the armour.
     pub take: i32,
+    /// What the armour took (`asave`), which jaPRO's damage numbers add.
+    pub absorbed: i32,
     /// What the attacker's persistants gain (`PERS_HITS`, `PERS_ATTACKEE_ARMOR`), for an
     /// attacker with a client; the caller applies it to a player, the roster to an NPC.
     pub attacker_hits: i32,
@@ -329,6 +331,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.host.raise(flash);
         }
         damaged.take = take;
+        damaged.absorbed = save.max(0);
         if take != 0 {
             damaged.died = self.take_health(me, take, rage && attacker_body.is_some(), request);
         }

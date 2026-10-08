@@ -47,8 +47,16 @@ pub fn keeps_total(mode: i32) -> bool {
 }
 
 /// The numbers for a blow of `dealt` in mode `mode`, the attacker's total `total` (as kept
-/// so far), on `target` by `attacker` (their names as shown).
-pub fn told(mode: i32, dealt: i32, total: i32, target: &[u8], attacker: &[u8]) -> Told {
+/// so far), on `target` by `attacker` (their names as shown); `npc_target` when the target
+/// is an NPC, whose mode-4 line jaPRO prints rather than sends as chat.
+pub fn told(
+    mode: i32,
+    dealt: i32,
+    total: i32,
+    target: &[u8],
+    attacker: &[u8],
+    npc_target: bool,
+) -> Told {
     let line = |prefix: &[u8], end: &[u8]| {
         [
             prefix,
@@ -73,7 +81,9 @@ pub fn told(mode: i32, dealt: i32, total: i32, target: &[u8], attacker: &[u8]) -
     if matches!(mode, 2 | 5) {
         told.attacker.push(centre.clone());
     }
-    if mode == 4 {
+    if mode == 4 && npc_target {
+        told.attacker.push(line(b"print \"", b"\n\""));
+    } else if mode == 4 {
         told.attacker.push(line(b"chat \"", b"\""));
     }
     told.plum = matches!(mode, 3 | 6);
@@ -96,7 +106,7 @@ mod tests {
         assert_eq!(total.get(), 42);
         total.add(5, 15_001);
         assert_eq!(total.get(), 5);
-        let one = told(1, 30, 0, b"Tavion", b"Kyle");
+        let one = told(1, 30, 0, b"Tavion", b"Kyle", false);
         assert_eq!(
             one.attacker,
             [b"print \"^330 ^7damage given to (Tavion^7)\n\"".to_vec()]
@@ -106,22 +116,26 @@ mod tests {
             one.followers,
             Some(format!("cp \"0{}\"", "\n".repeat(12)).into_bytes())
         );
-        let five = told(5, 30, 42, b"Tavion", b"Kyle");
+        let five = told(5, 30, 42, b"Tavion", b"Kyle", false);
         assert_eq!(five.attacker.len(), 2);
         assert_eq!(
             five.attacker[1],
             format!("cp \"42{}\"", "\n".repeat(12)).into_bytes()
         );
         assert_eq!(
-            told(4, 7, 0, b"Tavion", b"Kyle").attacker,
+            told(4, 7, 0, b"Tavion", b"Kyle", false).attacker,
             [b"chat \"^37 ^7damage given to (Tavion^7)\"".to_vec()]
         );
         assert_eq!(
-            told(8, 7, 0, b"Tavion", b"Kyle").everyone,
+            told(4, 7, 0, b"reborn", b"Kyle", true).attacker,
+            [b"print \"^37 ^7damage given to (reborn^7)\n\"".to_vec()]
+        );
+        assert_eq!(
+            told(8, 7, 0, b"Tavion", b"Kyle", false).everyone,
             Some(b"print \"^3Kyle ^7did ^37 ^7damage given to (Tavion^7)\n\"".to_vec())
         );
-        let six = told(6, 7, 0, b"Tavion", b"Kyle");
+        let six = told(6, 7, 0, b"Tavion", b"Kyle", false);
         assert!(six.plum && six.followers.is_none() && six.attacker.len() == 1);
-        assert_eq!(told(0, 7, 0, b"Tavion", b"Kyle"), Told::default());
+        assert_eq!(told(0, 7, 0, b"Tavion", b"Kyle", false), Told::default());
     }
 }

@@ -2654,10 +2654,12 @@ impl NativeGame {
         {
             self.blow_landed(usize::from(attacker.client), target, level_time);
         }
-        // jaPRO's damage numbers, for a player's blow on one alive before it.
-        if alive_before && let Some(attacker) = request.attacker.filter(|attacker| !attacker.npc) {
+        // jaPRO's damage numbers, for a blow on one alive before it.
+        if alive_before && let Some(attacker) = request.attacker {
             let dealt = damaged.take + damaged.absorbed;
-            self.tell_damage(usize::from(attacker.client), target, dealt, level_time);
+            let dealer = bridge_damage_numbers::Party::attacker(attacker);
+            let taker = bridge_damage_numbers::Party::Player(target);
+            self.tell_damage(dealer, taker, dealt, level_time);
         }
         if damaged.died.is_some()
             && was_dead
