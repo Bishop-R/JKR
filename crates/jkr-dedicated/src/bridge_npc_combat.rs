@@ -127,7 +127,13 @@ impl NativeGame {
         if self.turret_spares(target, owner)
             || u16::try_from(target).is_ok_and(|target| {
                 self.strike_turret(target, request)
-                    || self.strike_usable(target, owner, request.level_time)
+                    || self.hurt_brush(
+                        target,
+                        request.damage,
+                        request.means,
+                        owner as u16,
+                        request.level_time,
+                    )
                     || self.strike_siege_item(target, request)
                     || self.strike_shield(target, request)
                     || self.strike_body(target, request)
@@ -212,6 +218,7 @@ impl NativeGame {
             let _ = self.hurt_npc(owner, target, request, None, counted);
         }
         self.flush_turret_blows();
+        self.flush_brush_blows();
     }
 
     /// `G_Damage` on NPC `target` through the roster, placed by the surface a blade struck

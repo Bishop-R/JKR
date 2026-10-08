@@ -127,8 +127,11 @@ impl NativeGame {
             }
             return;
         }
-        // A `func_usable` the key may use (`ValidUseTarget`, `GlobalUse`).
-        if self.use_usable_by_key(client, found, level_time) {
+        // A `func_usable` the key may use (`ValidUseTarget`, `GlobalUse`); a breakable
+        // brush it may use, or else mend (`TryHeal`).
+        if self.use_usable_by_key(client, found, level_time)
+            || self.use_breakable_by_key(client, found, level_time)
+        {
             return;
         }
         self.jetpack_by_use_key(client, level_time);

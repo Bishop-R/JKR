@@ -164,6 +164,9 @@ pub struct NativeGame {
     door_portals: Vec<bool>,
     /// The breakable brushes the map placed, by the entity number each was given.
     breakables: Vec<(EntityId, jkr_game_jka::breakables::Breakable)>,
+    /// The blows a blast dealt brushes while the map was set aside for its lines: the
+    /// brush, the damage, the means, the attacker and the time.
+    brush_blows: Vec<(u16, i32, u32, u16, i32)>,
     /// The blows a player's move dealt on glass and weak breakables (`PM_ClientImpact`),
     /// dealt once the move is over; kept for its room.
     strikes: jkr_game_jka::client_impact::Strikes,
@@ -467,6 +470,7 @@ impl NativeGame {
             doors: Vec::new(),
             door_portals: Vec::new(),
             breakables: Vec::new(),
+            brush_blows: Vec::new(),
             strikes: Default::default(),
             corpses: Default::default(),
             models: ModelTable::default(),
@@ -751,281 +755,6 @@ impl NativeGame {
             }
         }
         self.map = Some(map);
-    }
-
-    /// The breakable brushes the map placed, each an `ET_MOVER` standing where the map
-    /// drew it — which is all a client needs to draw the brush and to watch it go.
-    fn spawn_breakables(&mut self) {
-        let Some(map) = self.map.take() else { return };
-        for brush in &map.breakables {
-            let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
-            state.set_raw_field(ES_ENTITY_TYPE, jkr_game_jka::breakables::ET_MOVER);
-            jkr_game_jka::triggers::set_brush_model(&mut state, brush.model);
-            // `G_ScaleNetHealth`: a `showhealth` brush carries what a HUD draws a bar from.
-            if brush.max_health > 0 {
-                state.set_raw_field(ES_HEALTH, brush.health.max(0) as u32);
-                state.set_raw_field(ES_MAX_HEALTH, brush.max_health as u32);
-            }
-            if let Some(number) = self.pool.spawn_entity(state, 0) {
-                self.pool.set_bounds(number, brush.bounds);
-                self.breakables.push((number, brush.clone()));
-            }
-        }
-        self.map = Some(map);
-    }
-
-    /// A shot that landed on a pane of glass, a usable or a breakable brush (`G_Damage`
-    /// for a non-client entity). Returns whether it was one of ours at all, so the caller
-    /// can fall back to a player.
-    fn hurt_brush(
-        &mut self,
-        number: u16,
-        damage: i32,
-        means: u32,
-        owner: u16,
-        level_time: i32,
-    ) -> bool {
-        // jaPRO's god chat: a typing player's blow strikes, but deals nothing.
-        if self.typing_player(owner) {
-            return self.is_glass(number)
-                || self
-                    .breakables
-                    .iter()
-                    .any(|(ours, _)| ours.legacy_number() == number)
-                || self.stock.usables.position(number).is_some();
-        }
-        if self.hurt_glass(number, damage, means, owner, level_time)
-            || self.strike_usable(number, usize::from(owner), level_time)
-        {
-            return true;
-        }
-        let from = self
-            .peer_mut(usize::from(owner))
-            .map(|peer| peer.state.origin());
-        self.hurt_breakable_from(number, damage, means, owner, from, level_time)
-    }
-
-    /// `G_Damage` on the breakable brush `number` by `owner`, standing at `from` (what its
-    /// chunks are thrown from; `None` for no player). `false` when `number` is none.
-    fn hurt_breakable_from(
-        &mut self,
-        number: u16,
-        damage: i32,
-        means: u32,
-        owner: u16,
-        from: Option<[f32; 3]>,
-        level_time: i32,
-    ) -> bool {
-        let Some(index) = self
-            .breakables
-            .iter()
-            .position(|(ours, _)| ours.legacy_number() == number)
-        else {
-            return false;
-        };
-        let hit = jkr_game_jka::breakables::hurt(
-            &mut self.breakables[index].1,
-            damage,
-            means,
-            false,
-            from,
-            level_time,
-        );
-        if matches!(hit, jkr_game_jka::breakables::Hit::Hurt { .. }) {
-            self.tally_damage_by(Some(owner), means, damage);
-        }
-        match hit {
-            jkr_game_jka::breakables::Hit::Ignored => {}
-            jkr_game_jka::breakables::Hit::Hurt { paintarget, .. } => {
-                self.publish_breakable(index);
-                if let Some(target) = paintarget {
-                    self.fire_targets(&target, usize::from(owner), level_time);
-                }
-            }
-            // The delay is the map's own; without one it comes apart in the same frame.
-            jkr_game_jka::breakables::Hit::Broken { at } if at > level_time => {
-                self.breakables[index].1.enemy = Some(owner);
-                self.publish_breakable(index)
-            }
-            jkr_game_jka::breakables::Hit::Broken { .. } => {
-                self.breakables[index].1.enemy = Some(owner);
-                self.break_brush(index, from, level_time)
-            }
-        }
-        true
-    }
-
-    /// `funcBBrushUse` for the breakable brushes called `name`, used for `client`: each
-    /// comes apart (after its delay) or, marked so, only fires its targets.
-    pub(super) fn use_breakables(&mut self, name: &str, client: usize, level_time: i32) {
-        let activator = u16::try_from(client).ok();
-        let mut index = 0;
-        while index < self.breakables.len() {
-            if !self.breakables[index]
-                .1
-                .targetname
-                .eq_ignore_ascii_case(name)
-            {
-                index += 1;
-                continue;
-            }
-            let brush = &mut self.breakables[index].1;
-            match jkr_game_jka::breakables::used(brush, level_time, activator) {
-                Some(target) => {
-                    self.fire_targets(&target, client, level_time);
-                    index += 1;
-                }
-                None if brush.thinking == jkr_game_jka::breakables::Thinking::Breaking => {
-                    index += 1;
-                }
-                None => {
-                    let from = self.breaker_origin(index);
-                    self.break_brush(index, from, level_time);
-                }
-            }
-        }
-    }
-
-    /// The breakable brushes whose delay has run out come apart (`funcBBrushDieGo`).
-    fn run_breakables(&mut self, level_time: i32) {
-        let mut index = 0;
-        while index < self.breakables.len() {
-            if jkr_game_jka::breakables::breaking_due(&self.breakables[index].1, level_time) {
-                let from = self.breaker_origin(index);
-                self.break_brush(index, from, level_time);
-            } else {
-                index += 1;
-            }
-        }
-    }
-
-    /// Where the player who broke breakable `index` stands, its debris thrown from there.
-    fn breaker_origin(&mut self, index: usize) -> Option<[f32; 3]> {
-        let enemy = self.breakables[index].1.enemy?;
-        self.peer_mut(usize::from(enemy))
-            .map(|peer| peer.state.origin())
-    }
-
-    /// `funcBBrushDieGo` on the server: the brush leaves the world, fires what it targets,
-    /// throws its fireball and its debris as the two event entities a client draws them
-    /// from, hurts whoever is close, and is freed.
-    fn break_brush(&mut self, index: usize, from: Option<[f32; 3]>, level_time: i32) {
-        let (id, number) = (
-            self.breakables[index].0,
-            self.breakables[index].0.legacy_number(),
-        );
-        // `Q_flrand(0.0f, 1.0f)`, which decides how many chunks there are.
-        let drawn = self.deaths.rng.flrand(0.0, 1.0);
-        let broken = jkr_game_jka::breakables::break_apart(
-            &mut self.breakables[index].1,
-            from,
-            number,
-            drawn,
-            level_time,
-        );
-        // Worth saying out loud: it is the one thing on this server that dies without
-        // being a player, and an operator watching a log wants to see it happen.
-        println!(
-            "breakable {number} broken at {level_time} ({} chunks, splash {:?})",
-            broken.debris.chunks,
-            broken.splash.map(|(damage, radius, _)| (damage, radius))
-        );
-        // For what broke it, and only when something did (`attacker != NULL`).
-        if let (Some(target), Some(enemy)) = (&broken.target, self.breakables[index].1.enemy) {
-            self.fire_targets(target, usize::from(enemy), level_time);
-        }
-        if let Some(explosion) = &broken.explosion {
-            self.raise_event(
-                jkr_game_jka::breakables::explosion_fields(explosion),
-                level_time,
-            );
-        }
-        self.raise_event(
-            jkr_game_jka::breakables::debris_fields(&broken.debris),
-            level_time,
-        );
-        if let Some((damage, radius, at)) = broken.splash {
-            self.splash_from_brush(number, damage, radius, at, level_time);
-        }
-        // The portal it stood in opens (`funcBBrushDieGo`, `g_mover.c:2514`).
-        let bounds = self.breakables[index].1.bounds;
-        self.adjust_portal([0.0; 3], bounds, true);
-        self.pool.free(id, level_time);
-        self.breakables.remove(index);
-    }
-
-    /// One event entity, built from the wire fields the reference crams its debris and
-    /// its explosions into.
-    fn raise_event(&mut self, fields: Vec<(usize, u32)>, level_time: i32) {
-        let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
-        for (index, bits) in fields {
-            state.set_raw_field(index, bits);
-        }
-        let _ = self.pool.spawn_temporary(state, level_time, None);
-    }
-
-    /// `G_RadiusDamage` from a brush that went off: everybody within its radius, hurt by
-    /// how close they were, with the brush itself as the attacker.
-    fn splash_from_brush(
-        &mut self,
-        number: u16,
-        damage: i32,
-        radius: i32,
-        at: [f32; 3],
-        level_time: i32,
-    ) {
-        for client in 0..self.players.places() {
-            let Some(peer) = self.peer_mut(client) else {
-                continue;
-            };
-            if !peer.playing() || peer.health <= 0 {
-                continue;
-            }
-            let origin = peer.state.origin();
-            let away: f32 = (0..3)
-                .map(|axis| (origin[axis] - at[axis]).powi(2))
-                .sum::<f32>()
-                .sqrt();
-            if away >= radius as f32 {
-                continue;
-            }
-            // `G_RadiusDamage`'s own falloff: full at the middle, nothing at the edge.
-            let points = (damage as f32 * (1.0 - away / radius as f32)) as i32;
-            if points <= 0 {
-                continue;
-            }
-            let attacker = Attacker {
-                npc: false,
-                client: number,
-                max_health: 100,
-                team: 0,
-                saber_knockback: [0.0; 4],
-            };
-            let request = DamageRequest {
-                level_time,
-                attacker: Some(attacker),
-                direction: None,
-                point: Some(at),
-                damage: points,
-                flags: 0,
-                means: 0,
-            };
-            let _ = self.hurt(client, request);
-        }
-    }
-
-    /// What a client is told of a brush that is still standing: the health bar, if the
-    /// map asked for one.
-    fn publish_breakable(&mut self, index: usize) {
-        let (number, brush) = &self.breakables[index];
-        let (number, health, max_health) = (*number, brush.health.max(0), brush.max_health);
-        if max_health <= 0 {
-            return;
-        }
-        let Some(slot) = self.pool.state_mut(number) else {
-            return;
-        };
-        slot.set_raw_field(ES_HEALTH, health as u32);
     }
 
     /// `G_TouchTriggers` for the triggers that move a player: the jump pad's throw (the
@@ -2528,13 +2257,6 @@ impl NativeGame {
             // The map is set aside while the blast's lines are traced through it.
             let map = self.map.take();
             let mut hurt = |target: u16, request: DamageRequest| {
-                if usize::from(target) < self.players.places() || self.npcs.roster.is_npc(target) {
-                    return self
-                        .strike(owner, usize::from(target), request, false)
-                        .0
-                        .died
-                        .is_some();
-                }
                 if let Some((_, other)) = charges
                     .iter_mut()
                     .find(|(other, _)| other.legacy_number() == target)
@@ -2546,8 +2268,14 @@ impl NativeGame {
                         server_time,
                         &mut rng,
                     );
+                    return false;
                 }
-                false
+                // Everything else that takes damage: players, NPCs, turrets, shields,
+                // bodies and brushes.
+                self.strike(owner, usize::from(target), request, false)
+                    .0
+                    .died
+                    .is_some()
             };
             match &map {
                 Some(map) => {
@@ -3922,6 +3650,8 @@ pub use bridge_votes::SUPPORTED_VOTES;
 #[path = "bridge_continuation.rs"]
 mod continuation;
 
+#[path = "bridge_breakables.rs"]
+mod bridge_breakables;
 #[path = "bridge_props.rs"]
 mod bridge_props;
 #[path = "bridge_stations.rs"]

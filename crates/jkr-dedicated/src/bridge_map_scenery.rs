@@ -75,6 +75,23 @@ impl Scenery {
         })
     }
 
+    /// The panes a blast may reach: those that take damage and stand, each by
+    /// `SV_LinkEntity`'s box a unit wider.
+    pub(in crate::bridge) fn splash_targets(&self) -> impl Iterator<Item = SplashTarget> + '_ {
+        self.glass
+            .iter()
+            .filter(|(_, pane)| pane.takes_damage && !pane.shattered)
+            .map(|(id, pane)| SplashTarget {
+                number: id.legacy_number(),
+                bounds: (
+                    pane.bounds.0.map(|low| low - 1.0),
+                    pane.bounds.1.map(|high| high + 1.0),
+                ),
+                origin: [0.0; 3],
+                takes_damage: true,
+            })
+    }
+
     /// Lets go of the entities without freeing them: the pool they were in is gone.
     pub(super) fn forget_entities(&mut self) {
         *self = Self::default();
