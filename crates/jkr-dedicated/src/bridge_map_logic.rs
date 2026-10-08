@@ -299,6 +299,34 @@ impl NativeGame {
                 Deed::Music(music) => {
                     self.publish_config_string(jkr_game_jka::worldspawn::CS_MUSIC, music.as_bytes())
                 }
+                Deed::AimPush => {
+                    // `G_PickTarget`: `rand() % num_choices` among everything so named.
+                    let name = self.stock.logic[index].target.clone();
+                    let choices: Vec<[f32; 3]> = self
+                        .stock
+                        .named
+                        .iter()
+                        .filter(|named| named.name.eq_ignore_ascii_case(&name))
+                        .map(|named| named.origin)
+                        .collect();
+                    if choices.is_empty() {
+                        self.stock.logic[index].freed = true;
+                        continue;
+                    }
+                    let target = choices[self.rand.next() as usize % choices.len()];
+                    let gravity = self.gravity();
+                    self.stock.logic[index].aim_push(target, gravity);
+                }
+                Deed::Push {
+                    activator,
+                    velocity,
+                    sound,
+                } => self.push_activator(
+                    self.client_of(Some(activator)),
+                    velocity,
+                    sound,
+                    level_time,
+                ),
                 Deed::Rearm => self.stock.logic[index].rearm(level_time, &mut self.deaths.rng),
             }
         }
@@ -350,6 +378,34 @@ impl NativeGame {
                     );
                     self.stock.told_unusable.push(chosen.classname);
                 }
+            }
+        }
+    }
+
+    /// `Use_target_push` (`g_trigger.c:1159-1180`) on `client`: thrown with `velocity`
+    /// while it walks or floats, and the bounce pad's sound at most every 1.5 s.
+    fn push_activator(&mut self, client: usize, velocity: [f32; 3], sound: bool, level_time: i32) {
+        const PM_NORMAL: u8 = 0;
+        const PM_FLOAT: u8 = 2;
+        const CHAN_AUTO: u32 = 0;
+        let Some(peer) = self.peer_mut(client) else {
+            return;
+        };
+        if !matches!(peer.state.movement_type(), PM_NORMAL | PM_FLOAT) {
+            return;
+        }
+        peer.state.set_velocity(velocity);
+        peer.movement = peer.movement.reseeded(&peer.state);
+        if peer.fly_sound_until < level_time {
+            peer.fly_sound_until = level_time + 1_500;
+            if sound {
+                let origin = peer.state.origin();
+                self.general_sound(
+                    b"sound/weapons/force/jump.wav",
+                    origin,
+                    CHAN_AUTO,
+                    level_time,
+                );
             }
         }
     }

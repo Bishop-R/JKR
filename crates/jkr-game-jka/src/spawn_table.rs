@@ -121,7 +121,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("target_play_music", Ported),
     ("target_position", Point),
     ("target_print", Ported),
-    ("target_push", Unported),
+    ("target_push", Ported),
     ("target_random", Ported),
     ("target_relay", Ported),
     ("target_remove_powerups", Ported),

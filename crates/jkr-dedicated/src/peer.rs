@@ -85,6 +85,8 @@ pub struct Peer {
     pub(crate) state: PlayerState,
     /// Server time at which spawn protection ends (`invulnerableTimer`).
     pub(crate) invulnerable_until: i32,
+    /// `fly_sound_debounce_time`: when a `target_push` may play its sound again.
+    pub(crate) fly_sound_until: i32,
     /// What the other clients are shown of the player, and whether they are: a
     /// spectator's entity is not linked into the world, so no snapshot lists it.
     pub(crate) entity: PlayerEntity,
@@ -291,6 +293,7 @@ impl Peer {
             session,
             state,
             invulnerable_until: 0,
+            fly_sound_until: 0,
             entity: PlayerEntity::new(client as u16),
             link: ClusterLink::default(),
             begun: false,
