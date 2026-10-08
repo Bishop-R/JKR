@@ -1809,6 +1809,12 @@ impl NativeGame {
         self.log_kill(client, request.attacker, request.means);
         request.gametype = self.gametype;
         request.flag_rules = self.flag_rules();
+        // `OnSameTeam(self, attacker)`: a teammate's kill costs the killer its point.
+        request.team_kill = !request.npc_attacker
+            && request.attacker.is_some_and(|attacker| {
+                let attacker = usize::from(attacker);
+                attacker != client && self.players_on_same_team(client, attacker)
+            });
         request.duel_opponent = self.duel_opponent(client);
         request.jedi_master = self.jedi_masters(
             request
@@ -1946,6 +1952,21 @@ impl NativeGame {
             died.saber_lost.is_some(),
         );
         self.power_duel_death(client);
+    }
+
+    /// `OnSameTeam` for two players (`g_team.c:20-73`): a power duel's sides, everyone in
+    /// the single-player game, a team game's teams; nobody otherwise.
+    fn players_on_same_team(&self, one: usize, other: usize) -> bool {
+        const GT_SINGLE_PLAYER: i32 = 5;
+        let (Some(one), Some(other)) = (self.peer(one), self.peer(other)) else {
+            return false;
+        };
+        match self.gametype {
+            GAMETYPE_POWERDUEL => one.session.duel_team == other.session.duel_team,
+            GT_SINGLE_PLAYER => true,
+            gametype if gametype < GAMETYPE_TEAM => false,
+            _ => one.session.team == other.session.team,
+        }
     }
 
     /// `AddScore`'s team half (`g_combat.c:476-477`): only `GT_TEAM` scores teams by kills.
@@ -2715,6 +2736,7 @@ impl NativeGame {
                 jedi_master: None,
                 in_space: false,
                 flag_rules: Default::default(),
+                team_kill: false,
             };
             self.die(target, request);
         }

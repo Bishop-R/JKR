@@ -166,6 +166,9 @@ pub struct DeathRequest {
     /// jaPRO's flag options: how a carried flag drops, and whether a suicide sends it
     /// home ([`crate::flag_throw`]).
     pub flag_rules: crate::flag_throw::FlagRules,
+    /// The attacker, another player, is on the dead's team (`OnSameTeam`): its kill costs
+    /// it a point (`g_combat.c:2524`), with no award.
+    pub team_kill: bool,
 }
 
 impl DeathRequest {
@@ -197,6 +200,7 @@ impl DeathRequest {
             jedi_master: None,
             in_space: false,
             flag_rules: crate::flag_throw::FlagRules::default(),
+            team_kill: false,
         }
     }
 }
@@ -429,6 +433,14 @@ pub fn kill(
                 })
             })
         }
+        // A teammate's kill: the killer loses the point, as the dead does for a suicide.
+        Some(attacker) if request.team_kill => Some(KillerScore {
+            killer: attacker,
+            points: -1,
+            excellent: false,
+            gauntlet: false,
+            kill: false,
+        }),
         Some(attacker) => {
             let excellent =
                 request.level_time - request.killer_last_kill_time < CARNAGE_REWARD_TIME;
@@ -735,5 +747,37 @@ impl Body {
             u8::from(self.light)
         )
         .into_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `OnSameTeam`'s branch (`g_combat.c:2524`): a teammate's kill costs the killer a
+    /// point and earns it nothing; the dead keeps its score.
+    #[test]
+    fn a_team_kill_costs_the_killer_its_point() {
+        let mut state = PlayerState::default();
+        state.persistent[PERS_SCORE] = 3;
+        let mut entity = EntityState::zero(2, &jkr_protocol::LEGACY_ENTITY_FIELDS);
+        let (mut mortality, mut deaths) = (Mortality::default(), Deaths::default());
+        let lengths = crate::pmove_anim::AnimationLengthTable::new([]);
+        let mut request = DeathRequest::suicide(1_000, 2, [0.0; 3], [0; 2], 0);
+        request.attacker = Some(5);
+        request.means = MOD_STUN_BATON;
+        request.team_kill = true;
+        let died = kill(
+            &mut state,
+            &mut entity,
+            &mut mortality,
+            &mut deaths,
+            request,
+            &lengths,
+        );
+        let score = died.killer_score.expect("the killer is scored");
+        assert_eq!((score.killer, score.points), (5, -1));
+        assert!(!score.kill && !score.gauntlet && !score.excellent);
+        assert_eq!(state.persistent[PERS_SCORE], 3);
     }
 }
