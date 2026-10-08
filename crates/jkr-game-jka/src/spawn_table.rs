@@ -85,7 +85,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("misc_maglock", Unported),
     ("misc_model", Unported),
     ("misc_model_ammo_power_converter", Ported),
-    ("misc_model_breakable", Unported),
+    ("misc_model_breakable", Ported),
     ("misc_model_health_power_converter", Ported),
     ("misc_model_shield_power_converter", Ported),
     ("misc_model_static", Removed),

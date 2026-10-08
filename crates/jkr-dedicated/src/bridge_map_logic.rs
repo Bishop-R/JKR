@@ -58,6 +58,8 @@ pub(super) struct StockEntities {
     pub(super) shields: bridge_holdables::shields::Shields,
     /// The map's health, armor and ammunition converters.
     pub(super) stations: super::bridge_stations::Stations,
+    /// The map's model props (`misc_model_breakable`).
+    pub(super) props: super::bridge_props::Props,
 }
 
 impl StockEntities {
@@ -68,6 +70,7 @@ impl StockEntities {
             .chain(self.scenery.obstacles())
             .chain(self.shields.obstacles())
             .chain(self.stations.obstacles())
+            .chain(self.props.obstacles())
     }
 }
 
@@ -83,6 +86,7 @@ impl NativeGame {
         };
         let level_time = self.last_frame_time;
         self.spawn_stations(&entities, level_time);
+        self.spawn_props(&entities, level_time);
         self.spawn_map_logic(&entities, level_time);
         self.spawn_path_movers(&entities, level_time);
         self.spawn_scenery(&entities, level_time);

@@ -3911,6 +3911,8 @@ pub use bridge_votes::SUPPORTED_VOTES;
 #[path = "bridge_continuation.rs"]
 mod continuation;
 
+#[path = "bridge_props.rs"]
+mod bridge_props;
 #[path = "bridge_stations.rs"]
 mod bridge_stations;
 
