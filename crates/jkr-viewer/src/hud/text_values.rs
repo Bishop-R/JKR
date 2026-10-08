@@ -40,6 +40,7 @@ impl HudOverlay {
             320 => &self.siege.clock,
             321 => &self.siege.respawn,
             322 => &self.mini_scores,
+            value @ 334..=335 => self.duel_panel.score((value - 334) as usize),
             value @ 330..=333 => self.spectator.text((value - 330) as usize),
             value @ 400..=415 => self.icons.text((value - 400) as usize),
             _ => selection::text(id),

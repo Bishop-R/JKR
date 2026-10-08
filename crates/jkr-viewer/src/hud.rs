@@ -2,6 +2,7 @@
 
 mod action_timer;
 mod data_source;
+mod duel_panel;
 use data_source::*;
 pub(crate) mod enemy_info;
 pub(crate) mod family;
@@ -131,6 +132,8 @@ pub(crate) struct HudOverlay {
     pub(crate) pickup: pickup::Pickup,
     /// The piloted vehicle's HUD.
     pub(crate) vehicle: vehicle::Panel,
+    /// The duel spectator's panel.
+    pub(crate) duel_panel: duel_panel::DuelPanel,
     pub(crate) tints: tints::State,
     /// World-projected labels, sharing the chat roster's retained names.
     pub(crate) identification: identification::State,
@@ -230,6 +233,7 @@ impl HudOverlay {
             icons: icons::Icons::default(),
             pickup: pickup::Pickup::default(),
             vehicle: vehicle::Panel::default(),
+            duel_panel: duel_panel::DuelPanel::default(),
             tints: tints::State::default(),
             guides: movement::Guides::default(),
             family: family::Policy::default(),
@@ -465,6 +469,9 @@ impl HudOverlay {
         if status_allowed {
             self.vehicle
                 .emit(&self.icons, &mut self.draw_list, viewport);
+        }
+        if visibility.hud {
+            self.duel_panel.emit(&mut self.draw_list, viewport);
         }
         self.pickup.update(time_ms);
         self.targeting.swell = self.pickup.crosshair_scale(time_ms);

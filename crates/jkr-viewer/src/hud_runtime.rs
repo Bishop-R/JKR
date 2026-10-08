@@ -454,8 +454,20 @@ pub(crate) fn update(
                 labels_hidden,
                 gpu.live_session.as_ref().map_or(&[], |s| s.scores()),
             );
+            gpu.hud.duel_panel.update(
+                game,
+                &snapshot.player,
+                gpu.live_session.as_ref().map_or(&[], |s| s.scores()),
+            );
             if let Some(vfs) = &gpu.vfs {
                 gpu.hud.enemy_info.update_portrait(
+                    game,
+                    vfs,
+                    &gpu.shaders,
+                    &gpu.ui_shapes,
+                    &gpu.queue,
+                );
+                gpu.hud.duel_panel.update_portraits(
                     game,
                     vfs,
                     &gpu.shaders,

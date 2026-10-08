@@ -2,7 +2,7 @@
 //! "SPECTATOR" and how to join, or in a duel who is fighting whom and that the viewer
 //! waits to play; following a player, `CG_DrawFollow` says so above that player's name
 //! (in a power duel, which side the player is on) and the warmup notice gives way.
-//! The duel panel's portraits, health bars and scores are not drawn here.
+//! The duel panel (`duel_panel.rs`) draws the portraits, health bars and scores.
 
 use super::*;
 use jkr_protocol::PlayerState;
