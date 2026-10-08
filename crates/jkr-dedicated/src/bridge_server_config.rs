@@ -43,9 +43,15 @@ impl NativeGame {
             peer.session.account_flags,
         );
         let int = |name: &[u8]| self.cvars.integer(name);
-        let mut game = String::from("   ^3Game commands: amMOTD ");
+        let mut game = String::from("   ^3Game commands: amMOTD printStats showNet ");
+        if int(b"g_privateDuel") != 0 {
+            game += "engage_FullForceDuel engage_gunDuel ";
+        }
         if int(b"g_allowFlagThrow") != 0 && self.gametype == GT_CTF {
             game += "throwFlag ";
+        }
+        if int(super::bridge_target_laser::ALLOW_TARGET_LASER) != 0 {
+            game += "+button15 (target laser) ";
         }
         if self.gametype >= GT_TEAM && int(b"g_allowSpotting") != 0 {
             game += "spot ";

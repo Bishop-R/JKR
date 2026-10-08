@@ -11,7 +11,8 @@
 //! [`jkr_game_jka::god_chat`]); `g_blockDuelHealthSpec` (`bridge_follow`); `g_scoreNPCs`
 //! (what a player's kill of an NPC counts for, `NpcHost::score_npcs`, 2 = stock);
 //! `g_autoQuit` (an idle server quits after so many days, kept from the cvar hook); and
-//! `g_fakeClients` (bots' scoreboard pings, `bridge_ranks`).
+//! `g_fakeClients` (bots' scoreboard pings, `bridge_ranks`); `g_allowTargetLaser`
+//! (`bridge_target_laser`).
 
 /// `TEAM_SPECTATOR`.
 const TEAM_SPECTATOR: i32 = 3;
@@ -25,7 +26,7 @@ use super::*;
 impl NativeGame {
     /// The match options, archived and announced.
     pub(super) fn register_game_options(&mut self) {
-        let options: [(&[u8], &[u8], &[u8]); 12] = [
+        let options: [(&[u8], &[u8], &[u8]); 13] = [
             (
                 b"g_mercyRule",
                 b"0",
@@ -85,6 +86,11 @@ impl NativeGame {
                 b"g_fakeClients",
                 b"0",
                 b"jaPRO: bots show an ordinary ping on the scoreboard",
+            ),
+            (
+                super::bridge_target_laser::ALLOW_TARGET_LASER,
+                b"0",
+                b"jaPRO: +button15 shows everyone a laser where the player aims",
             ),
         ];
         for (name, value, about) in options {

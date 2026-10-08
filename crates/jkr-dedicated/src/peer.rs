@@ -173,6 +173,8 @@ pub struct Peer {
     pub(crate) stats: jkr_game_jka::japro_stats::Stats,
     /// jaPRO's duel statistics (`duelDamageGiven`, `lowestHP`), for a Force duel's end.
     pub(crate) duel_record: jkr_game_jka::duel::DuelRecord,
+    /// jaPRO's `lastTargetLaserTime`: no laser again before this.
+    pub(crate) target_laser_until: i32,
     /// jaPRO's gun game: the fire mode the player's rung allows.
     pub(crate) gun_fire: jkr_game_jka::gun_game::FireMode,
     /// `G_CheckClientIdle`'s memory.
@@ -324,6 +326,7 @@ impl Peer {
             typing: Default::default(),
             stats: Default::default(),
             duel_record: Default::default(),
+            target_laser_until: 0,
             gun_fire: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),

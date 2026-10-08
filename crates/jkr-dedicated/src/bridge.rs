@@ -3757,6 +3757,8 @@ mod bridge_spot;
 mod bridge_starting_items;
 #[path = "bridge_stock_rules.rs"]
 mod bridge_stock_rules;
+#[path = "bridge_target_laser.rs"]
+mod bridge_target_laser;
 #[path = "bridge_teleport.rs"]
 mod bridge_teleport;
 #[path = "bridge_use.rs"]

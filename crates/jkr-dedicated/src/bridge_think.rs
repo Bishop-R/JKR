@@ -419,6 +419,7 @@ impl NativeGame {
         self.touch_plats(client, level_time);
         self.touch_shields(client, shield_impacts.entities(), level_time);
         self.try_use(client, level_time);
+        self.target_laser(client, level_time);
         if touches {
             self.touch_space(client, level_time);
         }

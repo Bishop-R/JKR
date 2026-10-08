@@ -71,6 +71,33 @@ impl EventEntity {
         }
     }
 
+    /// `G_TestLine(start, end, color, time)` (`ai_wpnav.c:231-241`): `EV_TESTLINE` from
+    /// `start` (kept precise in `origin` beside the snapped one) to `end` in `origin2`,
+    /// shown `time` ms in `color` (`weapon`, whose low byte alone reaches a client), sent
+    /// to everyone.
+    pub fn test_line(start: [f32; 3], end: [f32; 3], color: u32, time: i32) -> Self {
+        const EV_TESTLINE: u32 = 112;
+        const ES_ORIGIN: [usize; 3] = [11, 12, 13];
+        const ES_ORIGIN2: [usize; 3] = [56, 60, 53];
+        const ES_TIME2: usize = 61;
+        const ES_WEAPON: usize = 14;
+        let mut extra = [(0, 0); 12];
+        for axis in 0..3 {
+            extra[axis] = (ES_ORIGIN[axis], start[axis].to_bits());
+            extra[3 + axis] = (ES_ORIGIN2[axis], end[axis].to_bits());
+        }
+        extra[6] = (ES_TIME2, time as u32);
+        extra[7] = (ES_WEAPON, color & 0xff);
+        Self {
+            event: EV_TESTLINE,
+            parameter: 0,
+            origin: start,
+            client: None,
+            broadcast: true,
+            extra,
+        }
+    }
+
     /// `ClientConnect` (`g_client.c:2577-2579`): everyone learns that `client` joined.
     pub fn client_join(client: u16) -> Self {
         Self {

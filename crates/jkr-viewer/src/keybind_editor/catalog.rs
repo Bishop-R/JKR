@@ -132,6 +132,7 @@ pub(crate) const ACTIONS: &[BindableAction] = &[
     action(Other, "Mod button 3", "+button3", ""),
     action(Other, "Mod button 8", "+button8", ""),
     action(Other, "Mod button 12 (JA+ grapple)", "+button12", ""),
+    action(Other, "Mod button 15 (jaPRO target laser)", "+button15", ""),
     action(Other, "Mod button 13", "+button13", ""),
     action(Other, "Mod button 14", "+button14", ""),
     action(Other, "Mod button 15", "+button15", ""),
