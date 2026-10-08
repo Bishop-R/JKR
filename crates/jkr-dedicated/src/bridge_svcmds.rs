@@ -1,6 +1,6 @@
 //! The game's own console commands (`g_svcmds.c:ConsoleCommand`): the IP filter
-//! (`addip`, `removeip`, `listip`, kept in `g_banIPs`), `forceteam`, and the vote and
-//! userinfo-validation toggles.
+//! (`addip`, `removeip`, `listip`, kept in `g_banIPs`), `forceteam`, jaPRO's
+//! `resetScores`, and the vote and userinfo-validation toggles.
 
 use super::NativeGame;
 use jkr_game_jka::client_view::strip_colours;
@@ -38,6 +38,9 @@ impl NativeGame {
             self.ip_filter.list(print);
         } else if is(b"forceteam") {
             self.force_team(words, server_time, print);
+        } else if is(b"resetscores") {
+            // jaPRO's `resetScores`.
+            self.reset_scores();
         } else if is(b"toggleallowvote") {
             let names: Vec<&str> = jkr_game_jka::vote::VOTES
                 .iter()

@@ -528,9 +528,11 @@ impl NativeGame {
         // jaPRO's `g_allowTeamSuicide`, kept on here so a stock game allows it.
         let refused = if duel {
             self.integer_cvar(b"g_allowDuelSuicide", 1) == 0
+        } else if self.gametype >= jkr_game_jka::match_end::GT_TEAM {
+            self.integer_cvar(b"g_allowTeamSuicide", 1) == 0
         } else {
-            self.gametype >= jkr_game_jka::match_end::GT_TEAM
-                && self.integer_cvar(b"g_allowTeamSuicide", 1) == 0
+            // jaPRO's `g_gunGame 2`: no way off the ladder but dying.
+            self.gun_game > 1
         };
         if playing && refused {
             self.told.push(Told::One(

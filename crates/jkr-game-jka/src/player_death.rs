@@ -169,6 +169,8 @@ pub struct DeathRequest {
     /// The attacker, another player, is on the dead's team (`OnSameTeam`): its kill costs
     /// it a point (`g_combat.c:2524`), with no award.
     pub team_kill: bool,
+    /// jaPRO's gun game runs: nothing is dropped but a carried flag.
+    pub gun_game: bool,
 }
 
 impl DeathRequest {
@@ -201,6 +203,7 @@ impl DeathRequest {
             in_space: false,
             flag_rules: crate::flag_throw::FlagRules::default(),
             team_kill: false,
+            gun_game: false,
         }
     }
 }
@@ -514,6 +517,7 @@ pub fn kill(
             request.level_time,
             rng,
             request.flag_rules,
+            request.gun_game,
         )
     } else {
         crate::dropped_items::Tossed::default()

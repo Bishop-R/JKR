@@ -238,6 +238,9 @@ pub struct MovementConfig {
     /// second ([`Predictor::set_flag_drag`]); 0, as everywhere but on such a server's own
     /// `Pmove` (`#ifdef _GAME`), is none.
     pub flag_drag: f32,
+    /// jaPRO's gun game: the fire mode a player's rung allows, which the server's own
+    /// `PM_Weapon` forces ([`crate::gun_game::force_fire`], [`Predictor::set_forced_fire`]).
+    pub forced_fire: crate::gun_game::FireMode,
 }
 
 impl Default for MovementConfig {
@@ -254,6 +257,7 @@ impl Default for MovementConfig {
             // The reference server's cvar defaults: every fix on.
             legacy_fixes: 0b111,
             flag_drag: 0.0,
+            forced_fire: crate::gun_game::FireMode::Both,
         }
     }
 }
@@ -849,6 +853,12 @@ impl Predictor {
     /// jaPRO's `g_flagDrag` for the server's own moves ([`MovementConfig::flag_drag`]).
     pub fn set_flag_drag(&mut self, drag: f32) {
         self.config.flag_drag = drag;
+    }
+
+    /// jaPRO's gun game fire mode for the server's own moves
+    /// ([`MovementConfig::forced_fire`]).
+    pub fn set_forced_fire(&mut self, fire: crate::gun_game::FireMode) {
+        self.config.forced_fire = fire;
     }
 
     /// Refresh movement policy without discarding the replay state.
@@ -1506,6 +1516,11 @@ impl Predictor {
             );
         }
         self.sample_water(collision);
+        // jaPRO's gun game (`forcedFireMode`, at the top of the server's `PM_Weapon`): the
+        // button a rung forbids fires the other, for the rest of the move too.
+        if !self.npc_without_weapon(&command) {
+            crate::gun_game::force_fire(&mut command.buttons, self.config.forced_fire);
+        }
         if self.npc_without_weapon(&command) {
             // `PM_Weapon` returned at its first lines (`bg_pmove.c:6668-6682`).
         } else if self.piloted_vehicle() {

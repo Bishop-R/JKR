@@ -226,6 +226,8 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         }
+        // jaPRO's gun game: the rung's fire mode and a saber rung's speed.
+        self.gun_game_think(client);
         // `ClientThink_real` (`g_active.c:2046-2054`): at an intermission a player does
         // nothing at all but press the button that says it is ready to go.
         if self.match_end.intermission_time != 0 {

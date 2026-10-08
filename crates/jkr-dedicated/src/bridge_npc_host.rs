@@ -100,6 +100,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) score_npcs: i32,
     /// jaPRO's Force options, for the NPCs' powers and the players'.
     pub(super) force_rules: jkr_game_jka::force_powers::ForceRules,
+    /// jaPRO's gun game runs: an NPC's pull disarms no player.
+    pub(super) gun_game: bool,
     pub(super) map: Option<&'a LoadedMap>,
     /// Everything solid but the NPCs: the players first, then missiles and brushes.
     pub(super) solids: &'a [BoxObstacle],

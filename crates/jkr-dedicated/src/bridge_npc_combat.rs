@@ -329,6 +329,8 @@ impl NativeGame {
                             peer.state.persistent[PERS_EXCELLENT].wrapping_add(1);
                     }
                     peer.mortality.last_kill_time = level_time;
+                    // jaPRO's gun game counts an NPC as any kill.
+                    self.gun_game_kill(usize::from(player));
                 }
                 NpcOutcome::PlayerEnemy(player, enemy) => {
                     if let Some(peer) = self.peer_mut(usize::from(player)) {

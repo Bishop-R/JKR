@@ -157,6 +157,7 @@ impl NativeGame {
         self.register_game_options();
         self.register_vote_tweaks();
         self.register_force_options();
+        self.register_gun_game();
         self.register_spotting();
         // What was just registered is put into effect as the first look at a variable is:
         // announced to nobody. Left for the next change to find, every one of them would

@@ -318,6 +318,8 @@ pub struct NativeGame {
     quitting: bool,
     /// jaPRO's Force options (`bridge_force_options`), kept from the cvar hook.
     force_rules: jkr_game_jka::force_powers::ForceRules,
+    /// jaPRO's `g_gunGame` (`bridge_gun_game`), kept from the cvar hook.
+    gun_game: i32,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -526,6 +528,7 @@ impl NativeGame {
             auto_quit_days: 0,
             quitting: false,
             force_rules: Default::default(),
+            gun_game: 0,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -1518,6 +1521,8 @@ impl NativeGame {
             .or_else(|| self.peer(client).map(|peer| peer.last_command))
             .unwrap_or_default();
         let siege_place = self.siege_spawn_place(client, &aim, server_time);
+        // jaPRO's gun game: the rung whose weapon is the loadout.
+        let gun_rung = self.gun_game_rung(client);
         let Self {
             server,
             world,
@@ -1578,6 +1583,7 @@ impl NativeGame {
             trial_place,
             None,
             lengths_ref,
+            gun_rung,
         );
         let playing = trial.team != i32::from(TEAM_SPECTATOR);
         // `ClientBegin` clears the state before `ClientSpawn`: a join avoids the origin.
@@ -1609,6 +1615,7 @@ impl NativeGame {
             place,
             Some(&peer.state),
             lengths_ref,
+            gun_rung,
         );
         begun.commands.extend(advice);
 
@@ -1650,6 +1657,8 @@ impl NativeGame {
         }
         self.gather_obstacles(client);
         let siege_place = self.siege_spawn_place(client, &command, level_time);
+        // jaPRO's gun game: the rung whose weapon is the loadout.
+        let gun_rung = self.gun_game_rung(client);
         let Self {
             server,
             world,
@@ -1712,6 +1721,7 @@ impl NativeGame {
             place,
             &peer.state,
             lengths_ref,
+            gun_rung,
         ) else {
             return;
         };
@@ -1809,6 +1819,12 @@ impl NativeGame {
         self.log_kill(client, request.attacker, request.means);
         request.gametype = self.gametype;
         request.flag_rules = self.flag_rules();
+        // jaPRO's gun game drops nothing at a death but a flag; a suicide counts against
+        // the ladder (`ps.fd.suicides`).
+        request.gun_game = self.gun_game_runs();
+        if request.attacker == Some(client as u16) {
+            self.gun_game_suicide(client);
+        }
         // `OnSameTeam(self, attacker)`: a teammate's kill costs the killer its point.
         request.team_kill = !request.npc_attacker
             && request.attacker.is_some_and(|attacker| {
@@ -1931,6 +1947,8 @@ impl NativeGame {
             && self.gametype != GAMETYPE_JEDIMASTER
         {
             self.kill_heal(usize::from(score.killer));
+            // jaPRO's gun game: the killer's next rung.
+            self.gun_game_kill(usize::from(score.killer));
         }
         self.jedi_master_died(client, died.master_point, died.saber_lost);
         // "Give them back a point since they didn't really die" (`g_combat.c:2691-2699`).
@@ -2737,6 +2755,7 @@ impl NativeGame {
                 in_space: false,
                 flag_rules: Default::default(),
                 team_kill: false,
+                gun_game: false,
             };
             self.die(target, request);
         }
@@ -3556,6 +3575,8 @@ mod bridge_force;
 mod bridge_force_options;
 #[path = "bridge_generic.rs"]
 mod bridge_generic;
+#[path = "bridge_gun_game.rs"]
+mod bridge_gun_game;
 #[path = "bridge_holocron.rs"]
 mod bridge_holocron;
 #[path = "bridge_icarus.rs"]

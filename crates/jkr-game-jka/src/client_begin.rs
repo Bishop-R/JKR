@@ -175,6 +175,7 @@ pub fn client_begin(
     place: SpawnPlace,
     previous: Option<&PlayerState>,
     lengths: &dyn AnimationLengths,
+    gun_game: Option<crate::gun_game::Rung>,
 ) -> Begun {
     // The state is cleared first, the style with it.
     (session.saber_style.level, session.saber_style.draw_level) = (0, 0);
@@ -207,6 +208,7 @@ pub fn client_begin(
         saber_entity: previous
             .and_then(|previous| previous.raw_field(31))
             .unwrap_or(0),
+        gun_game,
     };
     let state = client_spawn(&request, lengths);
     let playing = session.team != TEAM_SPECTATOR;
@@ -295,6 +297,7 @@ pub fn client_respawn(
     place: SpawnPlace,
     previous: &PlayerState,
     lengths: &dyn AnimationLengths,
+    gun_game: Option<crate::gun_game::Rung>,
 ) -> Option<Begun> {
     // `forceDoInit`: a `forcechanged` since the last spawn has the Force read again.
     let mut commands = Vec::new();
@@ -332,6 +335,7 @@ pub fn client_respawn(
         persistant: previous.persistent.map(|value| value as i32),
         event_sequence: previous.raw_field(19).unwrap_or(0),
         saber_entity: previous.raw_field(31).unwrap_or(0),
+        gun_game,
     };
     let state = client_spawn(&request, lengths);
     Some(Begun {

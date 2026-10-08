@@ -186,7 +186,8 @@ pub struct Tossed {
 /// the pistol or fists, or has no ammo; and, outside team games, every powerup still
 /// running, each 45 degrees further round, counting its seconds left. Nothing in siege.
 /// Under jaPRO's flag throwing a flag keeps its carrier's momentum
-/// ([`crate::flag_throw::drop_carried`]).
+/// ([`crate::flag_throw::drop_carried`]); under its gun game (`gun_game`) only a flag
+/// drops.
 pub fn toss_client_items(
     state: &PlayerState,
     entity: &EntityState,
@@ -195,6 +196,7 @@ pub fn toss_client_items(
     level_time: i32,
     rng: &mut Rng,
     rules: crate::flag_throw::FlagRules,
+    gun_game: bool,
 ) -> Tossed {
     let mut tossed = Tossed::default();
     if gametype == GT_SIEGE {
@@ -213,7 +215,8 @@ pub fn toss_client_items(
     let ammo = |weapon: u32| {
         state.ammo[crate::weapon_data::LEGACY_WEAPON_DATA[weapon as usize].ammo_index] as i32
     };
-    if weapon > WP_BRYAR_PISTOL
+    if !gun_game
+        && weapon > WP_BRYAR_PISTOL
         && weapon != WP_EMPLACED_GUN
         && weapon != WP_TURRET
         && ammo(weapon) != 0
@@ -242,6 +245,11 @@ pub fn toss_client_items(
             let Some(item) = item_for_powerup(powerup) else {
                 continue;
             };
+            // jaPRO's gun game drops nothing (`TossClientItems` returns at once); a flag
+            // still drops here, where jaPRO loses it.
+            if gun_game && ITEMS[item].kind != Kind::Team {
+                continue;
+            }
             let mut drop = if rules.throw && ITEMS[item].kind == Kind::Team {
                 crate::flag_throw::drop_carried(item, entity, state.velocity(), angle, level_time)
             } else {

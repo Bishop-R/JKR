@@ -443,6 +443,7 @@ impl NativeGame {
         let intermission = self.match_end.intermission_time != 0;
         let score_npcs = self.integer_cvar(b"g_scoreNPCs", 2);
         let force_rules = self.force_rules;
+        let gun_game = self.gun_game_runs();
         let ghoul2_time = if self.previous_frame_time == 0 {
             self.last_frame_time
         } else {
@@ -501,6 +502,7 @@ impl NativeGame {
             intermission,
             score_npcs,
             force_rules,
+            gun_game,
             map,
             solids: obstacles,
             players: sights,

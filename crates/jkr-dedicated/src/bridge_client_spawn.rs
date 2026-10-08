@@ -25,6 +25,7 @@ impl NativeGame {
         let duel_fraglimit = self.limits.duel_fraglimit;
         let starting_items = self.starting_items();
         let lag_icon = self.lag_icon;
+        let gun_rung = self.gun_game_rung(client);
         let Self {
             server,
             world,
@@ -84,6 +85,13 @@ impl NativeGame {
                 force.levels
             });
         peer.force.respawned(levels, server_time);
+        // jaPRO's gun game: the rung's fire mode, and the saber throw's level on its rung.
+        if let Some(rung) = gun_rung {
+            peer.gun_game.fire = rung.fire;
+            if rung.saber_throw {
+                peer.force.levels[jkr_game_jka::force_powers::FP_SABER_THROW] = 3;
+            }
+        }
         // `ClientSpawn` clears `legsAnimExecute` and `torsoAnimExecute` with the rest of
         // the client, so the spawn's animations are installed again over the old pose.
         if let Some(skeleton) = peer.skeleton.as_mut() {

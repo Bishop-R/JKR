@@ -151,6 +151,7 @@ impl NativeGame {
             .map(|number| self.peer(number).map(|peer| peer.state.clone()))
             .collect();
         // jaPRO: with flag throwing on, a throw outside a duel moves dropped items.
+        let gun_game = self.gun_game_runs();
         let items_movable = self.flag_rules().throw
             && self
                 .peer(client)
@@ -196,6 +197,7 @@ impl NativeGame {
             level_time: server_time,
             gametype: *gametype,
             items_movable,
+            gun_game,
         };
         force_throw::throw(context, &mut throw_world);
         let worked = throw_world.worked;
@@ -246,6 +248,8 @@ struct ServerThrow<'a> {
     gametype: i32,
     /// jaPRO's flag throwing is on and the thrower is in no duel: dropped items move.
     items_movable: bool,
+    /// jaPRO's gun game runs: a pull disarms nobody.
+    gun_game: bool,
 }
 
 impl ServerThrow<'_> {
@@ -404,6 +408,10 @@ impl ThrowWorld for ServerThrow<'_> {
     /// (its weapon's pickup is not ported).
     fn toss_weapon(&mut self, victim: u16, direction: [f32; 3], speed: f32) {
         let (level_time, gametype) = (self.level_time, self.gametype);
+        // jaPRO's gun game: nobody is disarmed (`TossClientWeapon` returns at once).
+        if self.gun_game {
+            return;
+        }
         let Some(peer) = self.peer(victim) else {
             return;
         };
