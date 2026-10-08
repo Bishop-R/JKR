@@ -108,7 +108,13 @@ impl NativeGame {
             self.close_log();
         }
         // `SV_Map_f`'s `Cvar_Get("g_gametype")`: a game type waiting for this map.
+        let gametype_before = self.gametype;
         self.take_latched_cvars();
+        // `G_InitWorldSession`: sessions written under another game type are not used.
+        let new_session = self.gametype != gametype_before;
+        if new_session {
+            println!("Gametype changed, clearing session data.");
+        }
         println!(
             "map change to {mapname} at {server_time} (world {} -> {})",
             self.map_generation,
@@ -169,6 +175,9 @@ impl NativeGame {
             // In particular, entity-pool handles from the old map must not
             // survive and alias items or sabers in the new pool.
             self.clear_client(client);
+        }
+        if new_session {
+            self.renew_sessions();
         }
         self.told.push(Told::MapChanged { server_time });
     }

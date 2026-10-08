@@ -3,6 +3,52 @@
 use super::*;
 
 impl NativeGame {
+    /// `G_InitSessionData` for every client carried into a level of another game type
+    /// (`G_InitWorldSession`'s `level.newSession`, which `ClientConnect` reads,
+    /// `g_client.c:2508-2530`): each session starts again as a newcomer's — its team
+    /// chosen anew, its Force rank and profile menu due again, its wins, losses, place in
+    /// line, siege side and class and jaPRO's login, ignores and message of the day gone.
+    /// The reference clears every client before any connects again, so each is renewed
+    /// in slot order against those renewed before it. A bot keeps the Force
+    /// configuration its personality gives it.
+    pub(super) fn renew_sessions(&mut self) {
+        let places = self.players.places();
+        for client in 0..places {
+            if let Some(peer) = self.peer_mut(client) {
+                let bot_force = peer.session.bot_force.take();
+                peer.session = PlayerSession {
+                    team: i32::from(TEAM_SPECTATOR),
+                    bot_force,
+                    ..PlayerSession::default()
+                };
+            }
+        }
+        for client in 0..places {
+            let Some(peer) = self.peer(client) else {
+                continue;
+            };
+            let (bot, userinfo) = (peer.bot, peer.userinfo.clone());
+            let team = if bot {
+                self.initial_bot_team(&userinfo)
+            } else {
+                self.initial_team(&userinfo)
+            };
+            let duel_team = self.initial_duel_team();
+            let Some(peer) = self.peer_mut(client) else {
+                continue;
+            };
+            let mut session = std::mem::take(&mut peer.session);
+            session.team = team;
+            session.duel_team = duel_team;
+            session.spectator_state = jkr_game_jka::client_begin::SPECTATOR_FREE;
+            self.siege_connect_session(&mut session);
+            if let Some(peer) = self.peer_mut(client) {
+                peer.session = session;
+            }
+            self.queue_at_back(client);
+        }
+    }
+
     /// `ClientConnect` for a player or, with `bot`, for a bot (`isBot`): a bot has no
     /// address of its own (`Bot`), no limit of connections from one, and in a team game
     /// takes the team its userinfo names. `client` is the player's place in the profile's
@@ -254,5 +300,35 @@ impl NativeGame {
         self.log_about(client, |who| {
             jkr_game_jka::game_log::change_team(who, -1, team)
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Identity, NativeGame};
+    use jkr_network::LegacyGameHost;
+    use jkr_protocol::UserCommand;
+
+    /// A map with another game type starts every session again (`level.newSession`): the
+    /// Force rank and its menu are due once more. A map of the same game type keeps them.
+    #[test]
+    fn a_new_game_type_renews_the_sessions() {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/ffa3".to_vec(),
+        };
+        let cvars = crate::cvars::Cvars::server();
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        let userinfo = b"\\name\\a\\rate\\25000\\snaps\\40\\model\\kyle/default\\forcepowers\\7-1-032330000000001333\\color1\\4\\color2\\4\\handicap\\100\\cg_predictItems\\1\\saber1\\single_1\\saber2\\none\\char_color_red\\255\\char_color_green\\255\\char_color_blue\\255\\ip\\127.0.0.1:1";
+        game.client_connect(0, userinfo).unwrap();
+        game.enter_world(0, &UserCommand::default(), 100);
+        let told = |game: &NativeGame| game.peer(0).unwrap().session.told_force;
+        assert!(told(&game));
+        game.change_map("mp/ffa3", None, 200);
+        assert!(told(&game));
+        game.cvars.user_set(b"g_gametype", Some(b"6"), &mut |_| {});
+        game.change_map("mp/ffa3", None, 300);
+        assert_eq!(game.gametype, 6);
+        assert!(!told(&game));
     }
 }
