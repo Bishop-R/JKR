@@ -69,6 +69,15 @@ impl Default for Combat {
     }
 }
 
+/// `CG_GetStringEdString("MP_SVGAME", "BEGIN_DUEL")`: "BEGIN" in English.
+fn begin_duel(localization: &crate::Localization) -> &str {
+    localization
+        .strings
+        .get("BEGIN_DUEL")
+        .filter(|text| !text.is_empty())
+        .map_or("BEGIN", String::as_str)
+}
+
 impl ChatOverlay {
     /// Project the existing shared obituary feed and newly accepted entity events.
     pub(crate) fn observe_combat(
@@ -186,12 +195,23 @@ impl ChatOverlay {
                             .plum(origin, entity.time(), snapshot.server_time);
                     }
                 }
+                // `EV_GLOBAL_DUEL`: a duel game's round begins for its fighters
+                // (`cg_event.c:1497-1510`).
+                14 if [
+                    entity.other_entity_num(),
+                    entity.other_entity_num2(),
+                    entity.ground_entity_num(),
+                ]
+                .contains(&snapshot.player.client_num()) =>
+                {
+                    self.announcement(begin_duel(localization), 120.0);
+                }
                 15 if entity.number() == snapshot.player.client_num()
                     && entity.event_parameter() == 2 =>
                 {
                     let mode = duel_sounds;
                     if mode != 0 && mode != 2 && !race(game, &snapshot.player) {
-                        self.announcement("BEGIN DUEL", 120.0);
+                        self.announcement(begin_duel(localization), 120.0);
                     }
                 }
                 _ => {}
