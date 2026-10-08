@@ -226,6 +226,23 @@ impl LocalPrediction {
         })
     }
 
+    /// The piloted vehicle for its HUD: its definition, predicted state and turbo time
+    /// (`cg.predictedVehicleState`, `m_pVehicle`).
+    pub(crate) fn piloted_vehicle(
+        &self,
+    ) -> Option<(
+        &jkr_game_jka::vehicle_fields::VehicleInfo,
+        &MovementState,
+        i32,
+    )> {
+        let ride = self
+            .rides
+            .preview
+            .as_ref()
+            .or(self.rides.committed.as_ref())?;
+        Some((self.rides.piloted_info()?, ride.state(), ride.turbo_time()))
+    }
+
     /// Vehicle strafing already computed by prediction; read-only camera input.
     pub(crate) fn vehicle_camera_strafe(&self) -> Option<i32> {
         self.rides

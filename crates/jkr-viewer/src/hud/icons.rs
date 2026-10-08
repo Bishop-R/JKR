@@ -335,6 +335,41 @@ impl Icons {
         }
     }
 
+    /// One of the vehicle HUD's pictures; `mirrored` turns it about (the right frame, which
+    /// stock draws with a negative width).
+    pub(super) fn vehicle(
+        &self,
+        list: &mut DrawList,
+        picture: usize,
+        rect: Rect,
+        color: Color,
+        mirrored: bool,
+    ) {
+        let Some(texture) = self
+            .handles
+            .get(assets::VEHICLE + picture)
+            .copied()
+            .flatten()
+        else {
+            return;
+        };
+        let _ = list.push(if mirrored {
+            DrawCommand::RotatedQuad {
+                rect,
+                degrees: 180.0,
+                texture,
+                color,
+                additive: false,
+            }
+        } else {
+            DrawCommand::TexturedQuad {
+                rect,
+                texture,
+                color,
+            }
+        });
+    }
+
     /// The icon of an item just picked up, at the right of the screen (`CG_DrawPickupItem`
     /// draws it at 573, 320 of 640 by 480).
     pub(super) fn pickup(&self, list: &mut DrawList, viewport: [f32; 2], item: u16, alpha: f32) {

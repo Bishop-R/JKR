@@ -22,6 +22,7 @@ mod pickup;
 mod selection;
 mod siege;
 mod spectator;
+mod vehicle;
 pub(crate) use siege::SiegeInputs;
 pub(crate) mod targeting;
 mod text_values;
@@ -128,6 +129,8 @@ pub(crate) struct HudOverlay {
     pub(crate) icons: icons::Icons,
     /// The last item picked up: its icon and the crosshair's swell.
     pub(crate) pickup: pickup::Pickup,
+    /// The piloted vehicle's HUD.
+    pub(crate) vehicle: vehicle::Panel,
     pub(crate) tints: tints::State,
     /// World-projected labels, sharing the chat roster's retained names.
     pub(crate) identification: identification::State,
@@ -226,6 +229,7 @@ impl HudOverlay {
             action_remaining: None,
             icons: icons::Icons::default(),
             pickup: pickup::Pickup::default(),
+            vehicle: vehicle::Panel::default(),
             tints: tints::State::default(),
             guides: movement::Guides::default(),
             family: family::Policy::default(),
@@ -332,8 +336,10 @@ impl HudOverlay {
             &self.classic_document
         };
         // `CG_Draw2D`: a free spectator sees no status, weapon or ammo, only what it is
-        // told and the crosshair; nor does a dead player.
-        let visibility = if self.spectator.hides_status() {
+        // told and the crosshair; nor does a dead player, nor a vehicle's pilot whose
+        // vehicle hides its rider (its own HUD stands in).
+        let status_allowed = visibility.status && !self.spectator.hides_status();
+        let visibility = if self.spectator.hides_status() || self.vehicle.hides_status() {
             HudVisibility {
                 status: false,
                 weapon: false,
@@ -455,6 +461,10 @@ impl HudOverlay {
                 },
                 &mut output,
             );
+        }
+        if status_allowed {
+            self.vehicle
+                .emit(&self.icons, &mut self.draw_list, viewport);
         }
         self.pickup.update(time_ms);
         self.targeting.swell = self.pickup.crosshair_scale(time_ms);

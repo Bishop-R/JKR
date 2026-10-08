@@ -104,6 +104,16 @@ impl Rides {
         }
     }
 
+    /// The definition of the vehicle the local player pilots, where the client has it.
+    pub(super) fn piloted_info(&self) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
+        let (index, _) = self.piloting?;
+        self.templates
+            .get(index)?
+            .1
+            .as_ref()
+            .map(|vehicle| vehicle.info.as_ref())
+    }
+
     /// Which vehicle, if any, the local player pilots in `snapshot` (`CG_Piloting`), and
     /// its definition from its model's configstring in `game_state`.
     pub(crate) fn resolve(&mut self, snapshot: &Snapshot, game_state: &GameState) {

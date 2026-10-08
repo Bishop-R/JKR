@@ -216,6 +216,11 @@ pub(crate) fn update(
             &gpu.localization,
             &snapshot.player,
         );
+        gpu.hud.vehicle.update(
+            gpu.local_prediction.piloted_vehicle(),
+            snapshot.vehicle_player.as_ref(),
+            presentation_time,
+        );
         gpu.hud.update_siege(
             hud::SiegeInputs {
                 game: session.game_state(),
@@ -310,6 +315,7 @@ pub(crate) fn update(
             &gpu.localization,
             &snapshot.player,
         );
+        gpu.hud.vehicle.update(None, None, presentation_time);
         gpu.hud.update_siege(
             hud::SiegeInputs {
                 game: session.game_state(),
