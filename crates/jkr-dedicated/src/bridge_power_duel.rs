@@ -42,12 +42,14 @@ impl NativeGame {
         self.gametype == GAMETYPE_POWERDUEL
     }
 
-    /// Everyone in the game as `G_PowerDuelCount` counts them.
+    /// Everyone in the game as `G_PowerDuelCount` counts them: its entity in use, which
+    /// a bot's is from its connection and a player's only once it spawns (`ClientSpawn`,
+    /// `g_client.c:3365`), so a player still loading the map counts on no side.
     fn counted(&self) -> impl Iterator<Item = Counted> + '_ {
         (0..self.players.places())
             .filter_map(|client| self.peer(client))
             .map(|peer| Counted {
-                in_game: true,
+                in_game: peer.bot || peer.begun,
                 spectator: peer.session.team == i32::from(TEAM_SPECTATOR),
                 duel_team: peer.session.duel_team,
             })
