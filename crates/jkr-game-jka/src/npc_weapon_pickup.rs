@@ -304,14 +304,15 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         self.host
             .log(&format!("Item: {number} {}\n", row.classname));
+        let respawns = self.host.item_respawns();
         let npc = &mut self.actors[me];
         let taken = crate::items::pick_up(
             item.item,
             &mut npc.player,
             &mut npc.health,
-            item.count,
-            item.dropped,
+            (item.count, item.dropped),
             level_time,
+            respawns,
         );
         if row.kind == Kind::Ammo
             && let Some(&(_, weapon)) = THROWN_AMMO.iter().find(|(ammo, _)| *ammo == row.tag)

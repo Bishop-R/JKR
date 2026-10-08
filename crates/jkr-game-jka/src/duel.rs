@@ -45,8 +45,8 @@ const HANDEXTEND_KNOCKDOWN: u32 = 8;
 /// The armour jaPRO leaves a Force or gun duel's winner with.
 const WINNER_ARMOR: u32 = 25;
 
-/// jaPRO's duel options (`g_duelStartHealth`, `g_duelStartArmor`, `g_duelDistanceLimit`);
-/// the defaults are stock's.
+/// jaPRO's duel options (`g_duelStartHealth`, `g_duelStartArmor`, `g_duelDistanceLimit`)
+/// and stock's `g_spawnInvulnerability`; the defaults are stock's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DuelRules {
     /// The duellists' health once a duel is accepted; 0 leaves it as it is.
@@ -55,6 +55,8 @@ pub struct DuelRules {
     pub start_armor: i32,
     /// A duel ends when the two are 1024 apart (stock; jaPRO's default lifts it).
     pub distance_limit: bool,
+    /// `g_spawnInvulnerability`: the winner's protection in milliseconds; 0 for none.
+    pub protection: i32,
 }
 
 impl Default for DuelRules {
@@ -63,6 +65,7 @@ impl Default for DuelRules {
             start_health: 0,
             start_armor: 0,
             distance_limit: true,
+            protection: 3_000,
         }
     }
 }
@@ -74,8 +77,6 @@ const GT_POWERDUEL: i32 = 4;
 const GT_TEAM: i32 = 6;
 const MOD_SABER: u32 = 3;
 const MAX_CLIENTS: u16 = 32;
-/// `g_spawnInvulnerability`: the winner's protection.
-const SPAWN_INVULNERABILITY: i32 = 3_000;
 
 /// Whether `state`'s player duels somebody other than player `other`.
 pub fn elsewhere(state: &PlayerState, other: u16) -> bool {
@@ -396,12 +397,12 @@ pub struct Thought {
 /// `ClientThink_real`'s duel for `me`, duelling `against` (`None` for one gone): the
 /// sabers lit once the wait is over; the duel ended when the other is gone or no longer
 /// duels `me`, when it is dead (the winner healed and protected), or when they are 1024
-/// units apart (unless jaPRO's `g_duelDistanceLimit 0` lifts that, `distance_limit`).
+/// units apart (unless jaPRO's `g_duelDistanceLimit 0` lifts that, `rules`).
 pub fn think(
     me: &mut Duellist,
     against: Option<&mut Duellist>,
     level_time: i32,
-    distance_limit: bool,
+    rules: &DuelRules,
     told: &mut Told,
 ) -> Thought {
     let mut thought = Thought::default();
@@ -449,7 +450,7 @@ pub fn think(
         end_both(me, other, told);
         let alive = *me.health > 0 && me.state.stats[STAT_HEALTH] as i32 > 0;
         if kind != DuelKind::Saber {
-            japro_end(me, other, alive, level_time, told);
+            japro_end(me, other, alive, (level_time, rules.protection), told);
             return thought;
         }
         if alive {
@@ -458,9 +459,7 @@ pub fn think(
                 *me.health = max;
                 me.state.stats[STAT_HEALTH] = max as u32;
             }
-            let flags = field(me.state, PS_EFLAGS);
-            me.state.set_raw_field(PS_EFLAGS, flags | EF_INVULNERABLE);
-            *me.invulnerable_until = level_time + SPAWN_INVULNERABILITY;
+            protect(me, level_time, rules.protection);
             told.commands.push((
                 None,
                 [
@@ -484,7 +483,7 @@ pub fn think(
         .map(|axis| (mine[axis] - theirs[axis]) * (mine[axis] - theirs[axis]))
         .sum::<f32>()
         .sqrt();
-    if distance_limit && apart >= 1_024.0 {
+    if rules.distance_limit && apart >= 1_024.0 {
         end_both(me, other, told);
         told.commands
             .push((None, b"print \"@@@PLDUELSTOP\n\"".to_vec()));
@@ -498,7 +497,13 @@ pub fn think(
 /// left (or every weapon given back to both), the winner healed to its maximum with 25
 /// armour and protected as at a spawn. A tie names both, with a Force duel's Force and
 /// damage.
-fn japro_end(me: &mut Duellist, other: &Duellist, alive: bool, level_time: i32, told: &mut Told) {
+fn japro_end(
+    me: &mut Duellist,
+    other: &Duellist,
+    alive: bool,
+    (level_time, protection): (i32, i32),
+    told: &mut Told,
+) {
     let kind = *me.kind;
     let label = kind.result_label().unwrap_or("");
     let (given, taken) = (me.record.damage_given, other.record.damage_given);
@@ -555,9 +560,16 @@ fn japro_end(me: &mut Duellist, other: &Duellist, alive: bool, level_time: i32, 
     *me.health = max as i32;
     me.state.stats[STAT_HEALTH] = max;
     me.state.stats[STAT_ARMOR] = WINNER_ARMOR;
-    let flags = me.state.raw_field(PS_EFLAGS).unwrap_or(0);
-    me.state.set_raw_field(PS_EFLAGS, flags | EF_INVULNERABLE);
-    *me.invulnerable_until = level_time + SPAWN_INVULNERABILITY;
+    protect(me, level_time, protection);
+}
+
+/// The winner's `g_spawnInvulnerability` milliseconds of protection, none at 0.
+fn protect(me: &mut Duellist, level_time: i32, protection: i32) {
+    if protection != 0 {
+        let flags = me.state.raw_field(PS_EFLAGS).unwrap_or(0);
+        me.state.set_raw_field(PS_EFLAGS, flags | EF_INVULNERABLE);
+        *me.invulnerable_until = level_time + protection;
+    }
 }
 
 #[cfg(test)]

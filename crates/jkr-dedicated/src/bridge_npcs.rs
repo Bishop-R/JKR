@@ -455,13 +455,15 @@ impl NativeGame {
             });
         let skill = self.integer_cvar(b"g_npcspskill", 0);
         let fighter_alt_control = self.integer_cvar(b"bg_fighterAltControl", 0) != 0;
-        let debug_saber_locks = self.debug_saber_locks();
+        let (debug_saber_locks, saber_locking) = (self.debug_saber_locks(), self.saber_locking());
+        let friendly_saber = self.friendly_saber();
         let gravity = self.gravity();
         let clients = self.gather_sights();
         let jedi_master = self.jedi_masters(None).and_then(|masters| masters.master);
         let intermission = self.match_end.intermission_time != 0;
         let score_npcs = self.integer_cvar(b"g_scoreNPCs", 2);
         let force_rules = self.force_rules;
+        let item_respawns = self.item_respawns();
         let gun_game = self.gun_game_runs();
         let ghoul2_time = if self.previous_frame_time == 0 {
             self.last_frame_time
@@ -521,6 +523,7 @@ impl NativeGame {
             intermission,
             score_npcs,
             force_rules,
+            item_respawns,
             gun_game,
             map,
             solids: obstacles,
@@ -547,6 +550,8 @@ impl NativeGame {
             force_touch,
             fighter_alt_control,
             debug_saber_locks,
+            saber_locking,
+            friendly_saber,
             limbs,
         }
     }

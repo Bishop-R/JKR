@@ -604,6 +604,11 @@ impl NativeGame {
         peer_surface_location(self.peer_mut(target)?, flags, spot, level_time, ghoul2_time)
     }
 
+    /// `g_friendlySaber`: blades hurt and clash with teammates' too (off by default).
+    pub(super) fn friendly_saber(&self) -> bool {
+        self.integer_cvar(b"g_friendlySaber", 0) != 0
+    }
+
     /// The flags of the siege class `client` plays, in a siege.
     pub(super) fn siege_class_flags(&self, client: usize) -> u32 {
         if self.gametype != super::GAMETYPE_SIEGE {
@@ -820,7 +825,7 @@ impl SaberTargets for BladeTargets<'_> {
             health: peer.health,
             disintegrated: state.entity_flags() & EF_DISINTEGRATION != 0,
             // `OnSameTeam` with `g_friendlySaber 0`.
-            spared_by_idle: team != 0 && team == peer.session.team,
+            spared_by_idle: !game.friendly_saber() && team != 0 && team == peer.session.team,
             duel_elsewhere: duelling(state, self.swinger)
                 || duelling(&swinger.state, usize::from(number)),
             knocked_down_on_ground: jkr_game_jka::saber_rules::knocked_down_on_ground(
@@ -880,6 +885,10 @@ impl SaberTargets for BladeTargets<'_> {
 impl ClashWorld for BladeTargets<'_> {
     fn debug_saber_locks(&self) -> bool {
         self.game.debug_saber_locks()
+    }
+
+    fn friendly_saber(&self) -> bool {
+        self.game.friendly_saber()
     }
 
     fn rng(&mut self) -> &mut Rng {

@@ -100,6 +100,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) score_npcs: i32,
     /// jaPRO's Force options, for the NPCs' powers and the players'.
     pub(super) force_rules: jkr_game_jka::force_powers::ForceRules,
+    /// How long the items the NPCs pick up stay away ([`NpcHost::item_respawns`]).
+    pub(super) item_respawns: jkr_game_jka::items::Respawns,
     /// jaPRO's gun game runs: an NPC's pull disarms no player.
     pub(super) gun_game: bool,
     pub(super) map: Option<&'a LoadedMap>,
@@ -147,6 +149,10 @@ pub(crate) struct ServerHost<'a> {
     pub(super) fighter_alt_control: bool,
     /// `g_debugSaberLocks`.
     pub(super) debug_saber_locks: bool,
+    /// `g_saberLocking`.
+    pub(super) saber_locking: bool,
+    /// `g_friendlySaber`.
+    pub(super) friendly_saber: bool,
     /// `g_dismember` and the clients with heavy melee ([`dismember`]).
     pub(super) limbs: dismember::LimbRules,
 }
@@ -630,6 +636,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn force_rules(&self) -> jkr_game_jka::force_powers::ForceRules {
         self.force_rules
+    }
+
+    fn item_respawns(&self) -> jkr_game_jka::items::Respawns {
+        self.item_respawns
     }
 
     fn warmup(&self) -> bool {
@@ -1172,6 +1182,14 @@ impl NpcHost for ServerHost<'_> {
 
     fn debug_saber_locks(&self) -> bool {
         self.debug_saber_locks
+    }
+
+    fn saber_locking(&self) -> bool {
+        self.saber_locking
+    }
+
+    fn friendly_saber(&self) -> bool {
+        self.friendly_saber
     }
 
     fn gunner(&mut self, number: u16) -> Option<jkr_game_jka::vehicle_turrets::Gunner> {

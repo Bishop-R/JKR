@@ -108,14 +108,60 @@ pub const ITEMS: [Item; 51] = [
 /// `ammoData[].max` (`bg_weapons.c:378-430`): how much of each kind a player may hold.
 const AMMO_MAX: [i32; 10] = [0, 100, 300, 300, 300, 25, 800, 10, 10, 10];
 /// `RESPAWN_ARMOR`, `RESPAWN_HEALTH`, `RESPAWN_AMMO`, `RESPAWN_HOLDABLE`,
-/// `RESPAWN_MEGAHEALTH`, `RESPAWN_POWERUP`; `g_weaponRespawn`'s default.
+/// `RESPAWN_MEGAHEALTH`, `RESPAWN_POWERUP`, `RESPAWN_TEAM_WEAPON`; `g_weaponRespawn`'s
+/// default.
 const RESPAWN_ARMOR: i32 = 20;
 const RESPAWN_HEALTH: i32 = 30;
 const RESPAWN_AMMO: i32 = 40;
 const RESPAWN_HOLDABLE: i32 = 60;
 const RESPAWN_MEGAHEALTH: i32 = 120;
 const RESPAWN_POWERUP: i32 = 120;
+const RESPAWN_TEAM_WEAPON: i32 = 30;
 pub const WEAPON_RESPAWN: i32 = 5;
+
+/// How long the items a pickup leaves stay away, as the server is set: `g_weaponRespawn`,
+/// Team FFA's slow weapons, and `g_adaptRespawn`'s count of playing clients (`None` with
+/// it off).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Respawns {
+    pub weapon: i32,
+    pub team_weapons: bool,
+    pub adapt_players: Option<usize>,
+}
+
+impl Default for Respawns {
+    fn default() -> Self {
+        Self {
+            weapon: WEAPON_RESPAWN,
+            team_weapons: false,
+            adapt_players: None,
+        }
+    }
+}
+
+/// `adjustRespawnTime` (`g_items.c:70-109`) after its thrown-weapon case: with
+/// `g_adaptRespawn` on and more than four playing clients, the time shrinks — to a half by
+/// twelve, then (stock's formula restarting) from 20/21 at thirteen to a half again at
+/// thirty-two, a quarter past that — but never under a second.
+pub fn adjust_respawn_time(base: i32, adapt_players: Option<usize>) -> i32 {
+    let Some(players) = adapt_players else {
+        return base;
+    };
+    let mut time = base as f32;
+    if players > 4 {
+        // The scale factors are doubles, the time a float.
+        let players = players as f64;
+        let scale = if players > 32.0 {
+            0.25
+        } else if players > 12.0 {
+            20.0 / (players + 8.0)
+        } else {
+            8.0 / (players + 4.0)
+        };
+        time = (f64::from(time) * scale) as f32;
+    }
+    time.max(1.0) as i32
+}
 /// `ITMSF_SUSPEND`: the item hangs where the map put it.
 const ITMSF_SUSPEND: i32 = 1;
 /// `ITMSF_ALLOWNPC`: NPCs may take the item.
@@ -468,16 +514,17 @@ pub struct Taken {
 
 /// `Touch_Item`'s pickup (`g_items.c:2560-2578` and the `Pickup_*` of `:2052-2320`) on a
 /// player that may take it: what it gives, and the seconds until it comes again
-/// (`adjustRespawnTime` with `g_adaptRespawn` off — the default: the thrown weapons take
-/// the ammo time). `health` is the entity's, which the stat follows.
+/// (`adjustRespawnTime` by `respawns`: the thrown weapons take the ammo time; powerups and
+/// the megahealth are never adapted). `health` is the entity's, which the stat follows.
 pub fn pick_up(
     item: usize,
     state: &mut PlayerState,
     health: &mut i32,
-    count: i32,
-    dropped: bool,
+    (count, dropped): (i32, bool),
     level_time: i32,
+    respawns: Respawns,
 ) -> Taken {
+    let adapt = |base| adjust_respawn_time(base, respawns.adapt_players);
     let row = ITEMS[item];
     let quantity = if count != 0 { count } else { row.quantity };
     match row.kind {
@@ -486,7 +533,7 @@ pub fn pick_up(
             state.stats[STAT_ARMOR] =
                 ((state.stats[STAT_ARMOR] as i32 + row.quantity).min(maximum)) as u32;
             Taken {
-                respawn: RESPAWN_ARMOR,
+                respawn: adapt(RESPAWN_ARMOR),
                 predicted: true,
             }
         }
@@ -502,7 +549,7 @@ pub fn pick_up(
                 respawn: if row.quantity == 100 {
                     RESPAWN_MEGAHEALTH
                 } else {
-                    RESPAWN_HEALTH
+                    adapt(RESPAWN_HEALTH)
                 },
                 predicted: true,
             }
@@ -517,7 +564,7 @@ pub fn pick_up(
                 add_ammo(state, row.tag as usize, quantity);
             }
             Taken {
-                respawn: RESPAWN_AMMO,
+                respawn: adapt(RESPAWN_AMMO),
                 predicted: true,
             }
         }
@@ -540,11 +587,13 @@ pub fn pick_up(
             add_ammo(state, ammo, quantity);
             let respawn = if matches!(row.tag, 12 | 13 | 14) {
                 RESPAWN_AMMO
+            } else if respawns.team_weapons {
+                RESPAWN_TEAM_WEAPON
             } else {
-                WEAPON_RESPAWN
+                respawns.weapon
             };
             Taken {
-                respawn,
+                respawn: adapt(respawn),
                 predicted: true,
             }
         }
@@ -552,7 +601,7 @@ pub fn pick_up(
             state.stats[STAT_HOLDABLE_ITEM] = item as u32;
             state.stats[STAT_HOLDABLE_ITEMS] |= 1 << row.tag;
             Taken {
-                respawn: RESPAWN_HOLDABLE,
+                respawn: adapt(RESPAWN_HOLDABLE),
                 predicted: true,
             }
         }
@@ -703,6 +752,21 @@ pub fn wrong_side(item: usize, side: u32) -> bool {
 mod tests {
     use super::*;
 
+    /// `adjustRespawnTime`'s scale by the playing clients, its jump back at thirteen and
+    /// its one-second floor; nothing with `g_adaptRespawn` off.
+    #[test]
+    fn respawn_times_adapt_to_the_playing_clients() {
+        for (players, time) in [(4, 20), (8, 13), (12, 10), (13, 19), (32, 10), (33, 5)] {
+            assert_eq!(
+                adjust_respawn_time(20, Some(players)),
+                time,
+                "{players} players"
+            );
+        }
+        assert_eq!(adjust_respawn_time(20, None), 20);
+        assert_eq!(adjust_respawn_time(2, Some(40)), 1);
+    }
+
     /// `eFlags` in the player state, which `Add_Ammo` reads `EF_DOUBLE_AMMO` from.
     const PS_EFLAGS: usize = 17;
 
@@ -715,12 +779,33 @@ mod tests {
         let mut state = PlayerState::zero();
         let mut health = 100;
         assert!(can_be_grabbed(boon, &state, false));
-        let taken = pick_up(boon, &mut state, &mut health, 0, false, 12_345);
+        let taken = pick_up(
+            boon,
+            &mut state,
+            &mut health,
+            (0, false),
+            12_345,
+            Respawns::default(),
+        );
         assert_eq!(state.powerups[14], 12_000 + 25_000);
         assert_eq!((taken.respawn, taken.predicted), (RESPAWN_POWERUP, false));
-        pick_up(boon, &mut state, &mut health, 0, false, 20_500);
+        pick_up(
+            boon,
+            &mut state,
+            &mut health,
+            (0, false),
+            20_500,
+            Respawns::default(),
+        );
         assert_eq!(state.powerups[14], 12_000 + 50_000);
-        pick_up(ysalamiri, &mut state, &mut health, 0, false, 21_000);
+        pick_up(
+            ysalamiri,
+            &mut state,
+            &mut health,
+            (0, false),
+            21_000,
+            Respawns::default(),
+        );
         assert_eq!(
             (state.powerups[14], state.powerups[15]),
             (0, 21_000 + 25_000)

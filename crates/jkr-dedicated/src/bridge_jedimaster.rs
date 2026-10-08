@@ -149,6 +149,7 @@ impl NativeGame {
         let Some(mut saber) = self.jedi_master.saber.take() else {
             return;
         };
+        let protection = self.cvars.integer(b"g_spawnInvulnerability");
         let became = self.peer_mut(client).and_then(|peer| {
             let (bottom, top) = peer.movement.box_bounds();
             if peer.health <= 0
@@ -165,7 +166,7 @@ impl NativeGame {
                 force: &mut peer.force,
                 invulnerable_until: &mut peer.invulnerable_until,
             };
-            let became = saber.touch(toucher, level_time)?;
+            let became = saber.touch(toucher, level_time, protection)?;
             peer.entity.event_raised(level_time);
             peer.movement = peer.movement.reseeded(&peer.state);
             Some((became, peer.name.clone()))

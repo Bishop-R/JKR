@@ -211,22 +211,39 @@ impl NativeGame {
         }
         // `G_HeldByMonster` (`g_active.c:2000-2003`): a monster's victim goes where it is held.
         self.held_by_monster(client, &mut command);
-        // `ClientThink_real` (`g_active.c:2356-2363`) sets the speed before EVERY move,
-        // not once at the spawn: `g_speed`, times a siege class's own multiplier. Doing
-        // it only at the spawn leaves a client that picked a class predicting one speed
-        // while the server moves it at another, which shows up as prediction misses a
-        // snapshot's worth of movement wide.
-        if let Some(siege) = self.siege.as_ref() {
-            let registry = std::sync::Arc::clone(&siege.registry);
-            if let Some(peer) = self.peer_mut(client)
-                && peer.playing()
-            {
-                let class_speed = peer
-                    .siege_class_index
-                    .map_or(1.0, |index| registry.classes[index].speed);
-                peer.state.set_speed(PLAYER_SPEED * class_speed);
-                peer.state
-                    .set_base_speed((PLAYER_SPEED * class_speed) as i32);
+        // `ClientThink_real` (`g_active.c:2353-2402`) sets the speed and the gravity before
+        // EVERY move, not once at the spawn: `g_speed` (off a vehicle, which keeps its
+        // rider's), times a siege class's own multiplier, and `g_gravity` (space's and a
+        // ship's wreck's come after, `space_gravity`). Doing it only at the spawn leaves a
+        // class predicting one speed while the server moves it at another, and a changed
+        // `g_speed` or `g_gravity` unfelt until the next life.
+        let (player_speed, gravity) = (self.player_speed(), self.gravity());
+        let registry = self
+            .siege
+            .as_ref()
+            .map(|siege| std::sync::Arc::clone(&siege.registry));
+        if let Some(peer) = self.peer_mut(client)
+            && peer.playing()
+        {
+            let mut changed = false;
+            if peer.state.vehicle_entity_num() == 0 {
+                let class_speed = registry
+                    .as_ref()
+                    .zip(peer.siege_class_index)
+                    .map_or(1.0, |(registry, index)| registry.classes[index].speed);
+                // The move derives its speed from the base (`BG_AdjustClientSpeed`).
+                let speed = player_speed * class_speed;
+                if peer.state.base_speed() != speed as i32 {
+                    peer.state.set_speed(speed);
+                    peer.state.set_base_speed(speed as i32);
+                    changed = true;
+                }
+            }
+            if peer.state.gravity() != gravity as i32 {
+                peer.state.set_gravity(gravity as i32);
+                changed = true;
+            }
+            if changed {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         }

@@ -235,7 +235,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             } else {
                 (&mut high[0], &mut low[them])
             };
-            let forced = host.debug_saber_locks();
+            let (forced, locking) = (host.debug_saber_locks(), host.saber_locking());
             let mut world = HostLockWorld {
                 host: &mut **host,
                 bodies,
@@ -256,7 +256,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                     &mut mine,
                     &mut theirs,
                     gametype,
-                    true,
+                    locking,
                     &mut rng,
                     lengths.as_ref(),
                     &mut world,

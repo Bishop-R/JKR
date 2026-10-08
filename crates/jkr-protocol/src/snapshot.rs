@@ -359,6 +359,11 @@ impl PlayerState {
         self.fields[37] = speed as u32;
     }
 
+    /// Server side: `basespeed` ([`Self::set_base_speed`]).
+    pub fn base_speed(&self) -> i32 {
+        self.fields[37] as i32
+    }
+
     /// Server side: gravity.
     pub fn set_gravity(&mut self, gravity: i32) {
         self.fields[46] = gravity as u32;

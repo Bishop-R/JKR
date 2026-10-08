@@ -461,12 +461,14 @@ impl NativeGame {
             // A power duel forces it a second on (`forceRes = 1`).
             // So does siege with its respawn waves on (`g_active.c:3466-3469`).
             let waves = self.siege.is_some() && self.cvars.integer(b"g_siegeRespawn") != 0;
+            // Otherwise `g_forceRespawn` seconds do; 0 or less never forces it.
             let force_seconds = if self.gametype == GAMETYPE_POWERDUEL || waves {
                 1
             } else {
-                FORCE_RESPAWN_SECONDS
+                self.cvars.integer(b"g_forceRespawn")
             };
-            let forced = level_time - respawn_time > force_seconds * 1_000;
+            let forced = force_seconds > 0
+                && level_time - respawn_time > force_seconds.saturating_mul(1_000);
             if forced || command.buttons & (BUTTON_ATTACK | BUTTON_USE_HOLDABLE) != 0 {
                 self.respawn(client, command, level_time, server_time);
                 return;

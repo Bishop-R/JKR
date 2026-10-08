@@ -81,6 +81,33 @@ impl NativeGame {
         self.run_match_end(self.last_frame_time);
     }
 
+    /// `level.numPlayingClients` without the ranks' allocations: the begun clients in the
+    /// game, or out of it as a duel's loser waiting its turn (as
+    /// [`jkr_game_jka::ranks::calculate_ranks_in`] counts them).
+    pub(super) fn playing_clients(&self) -> usize {
+        let Some(world) = self.server.world(self.world) else {
+            return 0;
+        };
+        self.players
+            .holders()
+            .filter_map(|handle| world.entity(handle?))
+            .filter(|peer| {
+                peer.begun && (peer.session.team != i32::from(TEAM_SPECTATOR) || peer.loser)
+            })
+            .count()
+    }
+
+    /// How long the items a pickup leaves stay away (`Pickup_*`, `adjustRespawnTime`):
+    /// `g_weaponRespawn`, Team FFA's slow weapons, and `g_adaptRespawn`'s playing clients.
+    pub(super) fn item_respawns(&self) -> jkr_game_jka::items::Respawns {
+        let adapt = self.cvars.integer(b"g_adaptRespawn") != 0;
+        jkr_game_jka::items::Respawns {
+            weapon: self.cvars.integer(b"g_weaponRespawn"),
+            team_weapons: self.gametype == GAMETYPE_TEAM,
+            adapt_players: adapt.then(|| self.playing_clients()),
+        }
+    }
+
     /// Everyone connected, as the ranking and the scoreboard see them.
     pub(super) fn contenders(&self) -> Vec<Contender> {
         let Some(world) = self.server.world(self.world) else {

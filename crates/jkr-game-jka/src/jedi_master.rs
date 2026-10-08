@@ -39,8 +39,6 @@ pub const CS_CLIENT_JEDIMASTER: usize = 28;
 pub const DEFAULT_SABER_MODEL: &[u8] = b"models/weapons2/saber/saber_w.glm";
 /// `JMSABER_RESPAWN_TIME`: "in case it gets stuck somewhere no one can reach".
 const RESPAWN_TIME: i32 = 20_000;
-/// `g_spawnInvulnerability`'s default: the new master's protection.
-const SPAWN_INVULNERABILITY: i32 = 3_000;
 /// `EVENT_VALID_MSEC`.
 const EVENT_VALID_MS: i32 = 300;
 /// `EV_BECOME_JEDIMASTER`.
@@ -440,8 +438,14 @@ impl JediMasterSaber {
     }
 
     /// `JMSaberTouch`: a living player without a saber, not already the master, takes the
-    /// saber lying about and becomes the master. `level_time` is the touch's.
-    pub fn touch(&mut self, player: Toucher<'_>, level_time: i32) -> Option<Became> {
+    /// saber lying about and becomes the master. `level_time` is the touch's; `protection`
+    /// is `g_spawnInvulnerability`, the new master's protection in milliseconds.
+    pub fn touch(
+        &mut self,
+        player: Toucher<'_>,
+        level_time: i32,
+        protection: i32,
+    ) -> Option<Became> {
         if *player.health < 1
             || !self.lying()
             || player.state.stats[STAT_WEAPONS] & (1 << WP_SABER) != 0
@@ -456,9 +460,11 @@ impl JediMasterSaber {
         player.entity.set_raw_field(es::WEAPON, WP_SABER);
         state.set_raw_field(ps::ZOOM_MODE, 0);
         crate::player_entity::add_event(state, EV_BECOME_JEDIMASTER, 0);
-        let flags = state.raw_field(ps::EFLAGS).unwrap_or(0);
-        state.set_raw_field(ps::EFLAGS, flags | EF_INVULNERABLE);
-        *player.invulnerable_until = level_time + SPAWN_INVULNERABILITY;
+        if protection != 0 {
+            let flags = state.raw_field(ps::EFLAGS).unwrap_or(0);
+            state.set_raw_field(ps::EFLAGS, flags | EF_INVULNERABLE);
+            *player.invulnerable_until = level_time + protection;
+        }
         state.set_raw_field(ps::JEDI_MASTER, 1);
         if *player.health < 200 && *player.health > 0 {
             *player.health = 200;

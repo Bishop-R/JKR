@@ -194,7 +194,7 @@ impl ServerHost<'_> {
             state: &mut state,
         };
         let (gametype, mut rng, count) = (self.gametype, self.deaths.rng, bodies.len());
-        let forced = self.debug_saber_locks;
+        let (forced, locking) = (self.debug_saber_locks, self.saber_locking);
         let (locked, origin_linked) = {
             let mut world = HostLockWorld {
                 host: &mut *self,
@@ -221,7 +221,7 @@ impl ServerHost<'_> {
                     one,
                     two,
                     gametype,
-                    true,
+                    locking,
                     &mut rng,
                     lengths.as_ref(),
                     &mut world,

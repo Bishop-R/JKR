@@ -727,6 +727,15 @@ pub trait NpcHost: SaberParseHost {
     fn debug_saber_locks(&self) -> bool {
         false
     }
+    /// `g_saberLocking`: whether blades that meet may lock at all
+    /// ([`crate::saber_lock::check_lock`]). On by default.
+    fn saber_locking(&self) -> bool {
+        true
+    }
+    /// `g_friendlySaber`: blades hurt and clash with teammates' too. Off by default.
+    fn friendly_saber(&self) -> bool {
+        false
+    }
     /// Entity `number`'s wire state as the host keeps it (an NPC's saber entity's, which its
     /// flight writes). None by default.
     fn entity_state(&self, _number: u16) -> Option<&EntityState> {
@@ -978,6 +987,10 @@ pub trait NpcHost: SaberParseHost {
     /// jaPRO's Force options, which an NPC's powers obey too.
     fn force_rules(&self) -> crate::force_powers::ForceRules {
         crate::force_powers::ForceRules::default()
+    }
+    /// How long the items an NPC picks up stay away ([`crate::items::Respawns`]).
+    fn item_respawns(&self) -> crate::items::Respawns {
+        crate::items::Respawns::default()
     }
     /// `level.warmupTime`: no scoring during the warm-up.
     fn warmup(&self) -> bool {

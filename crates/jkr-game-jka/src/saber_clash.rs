@@ -618,6 +618,10 @@ pub trait ClashWorld {
     fn debug_saber_locks(&self) -> bool {
         false
     }
+    /// `g_friendlySaber`: teammates' blades clash too. Off by default.
+    fn friendly_saber(&self) -> bool {
+        false
+    }
     /// The game's generator (`Q_irand`), which the clash rules draw from.
     fn rng(&mut self) -> &mut Rng;
     /// `WP_SabersCheckLock(me, other)` on the two players themselves: whether they
@@ -640,7 +644,7 @@ pub fn clash(
     world: &mut dyn ClashWorld,
 ) -> Option<Clash> {
     // `OnSameTeam` with `g_friendlySaber 0`, then the duels.
-    if me.team != 0 && me.team == other.team {
+    if me.team != 0 && me.team == other.team && !world.friendly_saber() {
         return None;
     }
     // "don't hit your teammate's sabers if you are an NPC" (`w_saber.c:4773-4778`).

@@ -3,7 +3,7 @@
 //! (`G_Damage`'s duel rule, `G_MissileImpact`'s `killProj`). The rules themselves are
 //! [`jkr_game_jka::duel`]'s.
 
-use super::{NativeGame, PLAYER_SPEED, Told};
+use super::{NativeGame, Told};
 use crate::collision::{Void, WithPlayers, WorldCollision};
 use crate::peer::Peer;
 use jkr_game_jka::damage::{DamageRequest, Target};
@@ -263,9 +263,9 @@ impl NativeGame {
             }
         }
         let mut told = duel::Told::default();
-        let distance_limit = self.duel_rules().distance_limit;
+        let rules = self.duel_rules();
         let Some(thought) = self.with_duellists(client, other, |me, them| {
-            duel::think(me, them, level_time, distance_limit, &mut told)
+            duel::think(me, them, level_time, &rules, &mut told)
         }) else {
             return;
         };
@@ -275,6 +275,7 @@ impl NativeGame {
             self.apply_duel(told, [client, other], level_time);
         }
         // `speed`, `basespeed`: `g_speed` every think, 0 while held still.
+        let player_speed = self.player_speed();
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -287,8 +288,8 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         } else if base_speed == 0 {
-            peer.state.set_speed(PLAYER_SPEED);
-            peer.state.set_base_speed(PLAYER_SPEED as i32);
+            peer.state.set_speed(player_speed);
+            peer.state.set_base_speed(player_speed as i32);
             peer.movement = peer.movement.reseeded(&peer.state);
         }
     }

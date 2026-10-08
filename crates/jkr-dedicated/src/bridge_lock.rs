@@ -112,12 +112,10 @@ impl NativeGame {
         rng: &mut Rng,
         level_time: i32,
     ) -> bool {
-        // `g_saberLocking`, on by default.
-        const LOCKING: bool = true;
         if second >= self.players.places() {
             return self.check_lock_with_npc(first, second as u16, rng, level_time);
         }
-        let forced = self.debug_saber_locks();
+        let (forced, locking) = (self.debug_saber_locks(), self.saber_locking());
         let Self {
             server,
             world,
@@ -181,7 +179,7 @@ impl NativeGame {
                 &mut first_fighter,
                 &mut second_fighter,
                 *gametype,
-                LOCKING,
+                locking,
                 rng,
                 lengths,
                 &mut traces,
@@ -205,7 +203,7 @@ impl NativeGame {
         rng: &mut Rng,
         level_time: i32,
     ) -> bool {
-        let forced = self.debug_saber_locks();
+        let (forced, locking) = (self.debug_saber_locks(), self.saber_locking());
         let Self {
             server,
             world,
@@ -278,7 +276,7 @@ impl NativeGame {
                 &mut player,
                 &mut npc_fighter,
                 *gametype,
-                true,
+                locking,
                 rng,
                 lengths.as_ref(),
                 &mut traces,
@@ -465,5 +463,10 @@ impl NativeGame {
     /// `g_debugSaberLocks` (a cheat): any two blades that meet lock.
     pub(super) fn debug_saber_locks(&self) -> bool {
         self.integer_cvar(b"g_debugSaberLocks", 0) != 0
+    }
+
+    /// `g_saberLocking`: whether blades that meet may lock at all (on by default).
+    pub(super) fn saber_locking(&self) -> bool {
+        self.integer_cvar(b"g_saberLocking", 1) != 0
     }
 }

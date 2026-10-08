@@ -326,13 +326,14 @@ fn give_item(
     {
         return false;
     }
+    // A given item is never a world item: how long it would stay away does not matter.
     let _ = items::pick_up(
         item,
         &mut peer.state,
         &mut peer.health,
-        0,
-        false,
+        (0, false),
         level_time,
+        items::Respawns::default(),
     );
     ITEMS[item].kind == Kind::Powerup
 }

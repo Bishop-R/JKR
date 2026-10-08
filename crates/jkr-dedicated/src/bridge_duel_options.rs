@@ -69,6 +69,7 @@ impl NativeGame {
             start_health: self.cvars.integer(START_HEALTH),
             start_armor: self.cvars.integer(START_ARMOR),
             distance_limit: self.cvars.integer(DISTANCE_LIMIT) != 0,
+            protection: self.cvars.integer(b"g_spawnInvulnerability"),
         }
     }
 

@@ -151,11 +151,12 @@ impl<H: NpcHost> SaberTargets for BladeWorld<'_, '_, H> {
                 disintegrated: npc.state.raw_field(ES_EFLAGS).unwrap_or(0)
                     & crate::disruptor::EF_DISINTEGRATION
                     != 0,
-                spared_by_idle: npcs_on_same_team(
-                    self.world.host.gametype(),
-                    swinger.session_team,
-                    npc.session_team,
-                ),
+                spared_by_idle: !self.world.host.friendly_saber()
+                    && npcs_on_same_team(
+                        self.world.host.gametype(),
+                        swinger.session_team,
+                        npc.session_team,
+                    ),
                 duel_elsewhere: false,
                 knocked_down_on_ground: crate::saber_rules::knocked_down_on_ground(
                     legs,
@@ -198,6 +199,10 @@ impl<H: NpcHost> SaberTargets for BladeWorld<'_, '_, H> {
 impl<H: NpcHost> ClashWorld for BladeWorld<'_, '_, H> {
     fn debug_saber_locks(&self) -> bool {
         self.world.host.debug_saber_locks()
+    }
+
+    fn friendly_saber(&self) -> bool {
+        self.world.host.friendly_saber()
     }
 
     fn rng(&mut self) -> &mut Rng {

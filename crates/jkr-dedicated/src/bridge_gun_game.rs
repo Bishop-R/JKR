@@ -185,6 +185,7 @@ impl NativeGame {
     /// server's own move; and a saber rung that may swing runs 28% faster.
     pub(super) fn gun_game_think(&mut self, client: usize) {
         let runs = self.gun_game_runs();
+        let player_speed = self.player_speed();
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -197,9 +198,9 @@ impl NativeGame {
         // follows the speed.
         let fast = peer.state.weapon() == WP_SABER && peer.gun_fire != FireMode::Alternate;
         let speed = if fast {
-            PLAYER_SPEED * gun_game::SABER_SPEED
+            player_speed * gun_game::SABER_SPEED
         } else {
-            PLAYER_SPEED
+            player_speed
         };
         peer.state.set_speed(speed);
         peer.state.set_base_speed(speed as i32);

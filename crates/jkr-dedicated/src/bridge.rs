@@ -540,6 +540,7 @@ impl NativeGame {
         game.pool = EntityPool::with_budget(0, game.entity_budget());
         // The level is built under the rules the process was started with.
         game.refresh_rule_settings();
+        game.worldspawn_gravity();
         game.spawn_items();
         game.spawn_triggers();
         game.spawn_movers();
@@ -1200,6 +1201,7 @@ impl NativeGame {
             ) {
                 continue;
             }
+            let respawns = self.item_respawns();
             let Some(peer) = self.peer_mut(client) else {
                 return;
             };
@@ -1213,9 +1215,9 @@ impl NativeGame {
                 item,
                 &mut peer.state,
                 &mut peer.health,
-                dropped.unwrap_or(0),
-                dropped.is_some(),
+                (dropped.unwrap_or(0), dropped.is_some()),
                 level_time,
+                respawns,
             );
             if taken.predicted && peer.accepted.predict_item_pickup {
                 jkr_game_jka::items::add_predictable_event(
@@ -1527,6 +1529,7 @@ impl NativeGame {
         let siege_place = self.siege_spawn_place(client, &aim, server_time);
         // jaPRO's gun game: the rung whose weapon is the loadout.
         let gun_rung = self.gun_game_rung(client);
+        let protection = self.cvars.integer(b"g_spawnInvulnerability");
         let Self {
             server,
             world,
@@ -1583,7 +1586,7 @@ impl NativeGame {
             &peer.userinfo,
             &peer.accepted,
             settings,
-            SPAWN_INVULNERABILITY,
+            protection,
             trial_place,
             None,
             lengths_ref,
@@ -1615,7 +1618,7 @@ impl NativeGame {
             &peer.userinfo,
             &peer.accepted,
             settings,
-            SPAWN_INVULNERABILITY,
+            protection,
             place,
             Some(&peer.state),
             lengths_ref,
@@ -1663,6 +1666,7 @@ impl NativeGame {
         let siege_place = self.siege_spawn_place(client, &command, level_time);
         // jaPRO's gun game: the rung whose weapon is the loadout.
         let gun_rung = self.gun_game_rung(client);
+        let protection = self.cvars.integer(b"g_spawnInvulnerability");
         let Self {
             server,
             world,
@@ -1721,7 +1725,7 @@ impl NativeGame {
             &peer.userinfo,
             &peer.accepted,
             settings,
-            SPAWN_INVULNERABILITY,
+            protection,
             place,
             &peer.state,
             lengths_ref,
@@ -3176,16 +3180,25 @@ impl NativeGame {
         self.missiles.extend(waiting);
     }
 
-    /// `g_gravity` as worldspawn set it, read the way a cvar's value is; 800 without a map.
+    /// `g_gravity`: worldspawn's at each level's start ([`Self::worldspawn_gravity`]), then
+    /// whatever the server sets.
     fn gravity(&self) -> f32 {
+        self.cvars.value(b"g_gravity")
+    }
+
+    /// `SP_worldspawn`'s `trap->Cvar_Set("g_gravity", ...)`: the map's `gravity` key, 800
+    /// without one or without a map.
+    pub(super) fn worldspawn_gravity(&mut self) {
         let text = self
             .map
             .as_ref()
-            .map_or(&b"800"[..], |map| &map.world.gravity);
-        std::str::from_utf8(text)
-            .ok()
-            .and_then(|text| text.trim().parse().ok())
-            .unwrap_or(0.0)
+            .map_or(b"800".to_vec(), |map| map.world.gravity.clone());
+        self.cvars.set(b"g_gravity", &text);
+    }
+
+    /// `g_speed`: how fast a player on foot runs.
+    pub(super) fn player_speed(&self) -> f32 {
+        self.cvars.value(b"g_speed")
     }
 
     /// Player `client`, when it is one in the world; `None` for any other number (a dead
@@ -3589,15 +3602,9 @@ const SETTINGS: ForceServerSettings = ForceServerSettings {
     weapons_disabled: 0,
     cheats: false,
 };
-/// `g_spawnInvulnerability`'s default, in milliseconds.
-const SPAWN_INVULNERABILITY: i32 = 3_000;
-/// `g_forceRespawn`'s default: a dead player is respawned after this many seconds.
-const FORCE_RESPAWN_SECONDS: i32 = 60;
 /// `BUTTON_ATTACK`, `BUTTON_USE_HOLDABLE`: either respawns a dead player.
 const BUTTON_ATTACK: u16 = 1;
 const BUTTON_USE_HOLDABLE: u16 = 4;
-/// `g_speed`'s default.
-const PLAYER_SPEED: f32 = 250.0;
 /// Wire field `saberEntityNum`.
 const SABER_ENTITY: usize = 31;
 /// `persistant[PERS_SCORE]`, `PERS_RANK`, `PERS_EXCELLENT_COUNT` (the hit counters are
