@@ -216,7 +216,7 @@ impl NativeGame {
     /// this frame and box its saber entity, then sweep every lit blade of its sabers
     /// (`w_saber.c:8786-9092`), their blows dealt once all are swept.
     pub(super) fn swing_saber(&mut self, client: usize, level_time: i32) {
-        let (gametype, rules) = (self.gametype, self.saber_damage_rules());
+        let (gametype, settings) = (self.gametype, self.saber_settings);
         let more_saber_damage = self.siege_class_flags(client) & MORE_SABER_DAMAGE != 0;
         let Some(peer) = self.peer_mut(client) else {
             return;
@@ -383,7 +383,7 @@ impl NativeGame {
                     more_saber_damage,
                     // A player's `saberEventFlags` are read by nothing on this server.
                     enemy: None,
-                    rules,
+                    settings,
                 };
                 let trail = peer.saber_cut.trails[saber][blade];
                 self.gather_obstacles(client);
@@ -536,7 +536,7 @@ impl NativeGame {
     /// `WP_SaberApplyDamage`: each victim's total as one `G_Damage`, a player's placed
     /// by the surface the blade struck on it.
     fn deal_saber_blows(&mut self, client: usize, hits: &SaberHits, level_time: i32) {
-        let (peers, wall_scale) = (self.players.places(), self.saber_damage_rules().wall_scale);
+        let (peers, wall_scale) = (self.players.places(), self.saber_settings.wall_scale);
         let Some(swinger) = self.peer(client) else {
             return;
         };
@@ -604,30 +604,6 @@ impl NativeGame {
             self.previous_frame_time
         };
         peer_surface_location(self.peer_mut(target)?, flags, spot, level_time, ghoul2_time)
-    }
-
-    /// `g_friendlySaber`: blades hurt and clash with teammates' too (off by default).
-    pub(super) fn friendly_saber(&self) -> bool {
-        self.integer_cvar(b"g_friendlySaber", 0) != 0
-    }
-
-    /// How hard blows push: `g_knockback` and `g_saberDmgVelocityScale`.
-    pub(super) fn knockback_rules(&self) -> jkr_game_jka::damage::KnockbackRules {
-        jkr_game_jka::damage::KnockbackRules {
-            strength: self.cvars.value(b"g_knockback"),
-            saber_scale: self.cvars.value(b"g_saberDmgVelocityScale"),
-            saber_push_holds: self.cvars.integer(b"g_saberDmgVelocityScale") != 0,
-        }
-    }
-
-    /// The saber damage settings: `g_saberDmgDelay_Idle`, `g_saberDmgDelay_Wound` and
-    /// `g_saberWallDamageScale`.
-    pub(super) fn saber_damage_rules(&self) -> jkr_game_jka::saber_damage::SaberDamageRules {
-        jkr_game_jka::saber_damage::SaberDamageRules {
-            idle_delay: self.cvars.integer(b"g_saberDmgDelay_Idle"),
-            wound_delay: self.cvars.integer(b"g_saberDmgDelay_Wound"),
-            wall_scale: self.cvars.value(b"g_saberWallDamageScale"),
-        }
     }
 
     /// The flags of the siege class `client` plays, in a siege.
@@ -846,7 +822,7 @@ impl SaberTargets for BladeTargets<'_> {
             health: peer.health,
             disintegrated: state.entity_flags() & EF_DISINTEGRATION != 0,
             // `OnSameTeam` with `g_friendlySaber 0`.
-            spared_by_idle: !game.friendly_saber() && team != 0 && team == peer.session.team,
+            spared_by_idle: !game.saber_settings.friendly && team != 0 && team == peer.session.team,
             duel_elsewhere: duelling(state, self.swinger)
                 || duelling(&swinger.state, usize::from(number)),
             knocked_down_on_ground: jkr_game_jka::saber_rules::knocked_down_on_ground(
@@ -908,8 +884,8 @@ impl ClashWorld for BladeTargets<'_> {
         self.game.debug_saber_locks()
     }
 
-    fn friendly_saber(&self) -> bool {
-        self.game.friendly_saber()
+    fn saber_settings(&self) -> jkr_game_jka::saber_damage::SaberSettings {
+        self.game.saber_settings
     }
 
     fn rng(&mut self) -> &mut Rng {

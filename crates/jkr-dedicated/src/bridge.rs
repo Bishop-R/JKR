@@ -321,6 +321,13 @@ pub struct NativeGame {
     quitting: bool,
     /// jaPRO's Force options (`bridge_force_options`), kept from the cvar hook.
     force_rules: jkr_game_jka::force_powers::ForceRules,
+    /// The saber settings (`g_saberDamageScale`, the delays, locks, `g_friendlySaber`),
+    /// kept from the cvar hook.
+    saber_settings: jkr_game_jka::saber_damage::SaberSettings,
+    /// How blows push and where they land count, kept from the cvar hook.
+    damage_rules: jkr_game_jka::damage::DamageRules,
+    /// The animation fixes the moves run (`CS_LEGACY_FIXES`), kept from the cvar hook.
+    legacy_fixes: u32,
     /// jaPRO's `g_gunGame` (`bridge_gun_game`), kept from the cvar hook.
     gun_game: i32,
     /// Its turrets (`bridge_map_turrets`).
@@ -532,6 +539,9 @@ impl NativeGame {
             auto_quit_days: 0,
             quitting: false,
             force_rules: Default::default(),
+            saber_settings: Default::default(),
+            damage_rules: Default::default(),
+            legacy_fixes: authoritative().legacy_fixes,
             gun_game: 0,
             map_turrets: Default::default(),
             stock: Default::default(),
@@ -540,7 +550,7 @@ impl NativeGame {
         game.pool = EntityPool::with_budget(0, game.entity_budget());
         // The level is built under the rules the process was started with.
         game.refresh_rule_settings();
-        game.worldspawn_gravity();
+        game.worldspawn_cvars();
         game.spawn_items();
         game.spawn_triggers();
         game.spawn_movers();
@@ -2685,7 +2695,7 @@ impl NativeGame {
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
         let self_damage = jkr_game_jka::damage::self_damage(self.gametype, self.self_damage_scale);
-        let knockback = self.knockback_rules();
+        let rules = self.damage_rules;
         // jaPRO's statistics read what the victim had before the blow.
         let had = self.health_and_armor(target);
         // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`),
@@ -2724,7 +2734,7 @@ impl NativeGame {
             god_mode,
             jetpack: Some(&mut victim.gear.packs),
             self_damage,
-            knockback,
+            rules,
         };
         let damaged = if sheltered {
             jkr_game_jka::damage::shock(&mut target_view, &request, &mut rng);
@@ -2854,6 +2864,7 @@ impl NativeGame {
         // `G_RunFrame`'s pass over the entities in number order: the players first (the
         // saber's fields, the look target), the missiles after them.
         for client in 0..self.players.places() {
+            self.forced_client_update(client, server_time);
             self.client_frame(client, server_time);
             self.look_around(client, server_time);
             self.run_bot_client(client, server_time);
@@ -3188,14 +3199,40 @@ impl NativeGame {
         self.cvars.value(b"g_gravity")
     }
 
-    /// `SP_worldspawn`'s `trap->Cvar_Set("g_gravity", ...)`: the map's `gravity` key, 800
-    /// without one or without a map.
-    pub(super) fn worldspawn_gravity(&mut self) {
+    /// `SP_worldspawn`'s settings: `g_gravity` from the map's `gravity` key (800 without
+    /// one or without a map), and the message of the day (`g_motd`) as `CS_MOTD`, which
+    /// the loading screen shows.
+    pub(super) fn worldspawn_cvars(&mut self) {
         let text = self
             .map
             .as_ref()
             .map_or(b"800".to_vec(), |map| map.world.gravity.clone());
         self.cvars.set(b"g_gravity", &text);
+        let motd = self.cvars.string(b"g_motd").to_vec();
+        self.set_config_string(jkr_game_jka::worldspawn::CS_MOTD, &motd);
+        self.publish_legacy_fixes();
+    }
+
+    /// `UpdateLegacyFixesConfigstring` (`g_cvar.c:33-60`): the animation fixes the moves
+    /// run, from `g_fixSaberMoveData`, `g_fixWeaponAttackAnim` and `g_fixRunWalkAnims`,
+    /// told to every client, which predicts with them.
+    pub(super) fn publish_legacy_fixes(&mut self) {
+        let fixes = [
+            b"g_fixSaberMoveData".as_slice(),
+            b"g_fixWeaponAttackAnim",
+            b"g_fixRunWalkAnims",
+        ];
+        self.legacy_fixes = fixes
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| self.cvars.integer(name) != 0)
+            .fold(0, |mask, (bit, _)| mask | 1 << bit);
+        let (index, value) = jkr_game_jka::pmove::MovementConfig {
+            legacy_fixes: self.legacy_fixes,
+            ..authoritative()
+        }
+        .legacy_fixes_config_string();
+        self.set_config_string(index, &value);
     }
 
     /// `g_speed`: how fast a player on foot runs.

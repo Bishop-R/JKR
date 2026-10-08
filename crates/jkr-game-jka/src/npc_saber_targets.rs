@@ -151,7 +151,7 @@ impl<H: NpcHost> SaberTargets for BladeWorld<'_, '_, H> {
                 disintegrated: npc.state.raw_field(ES_EFLAGS).unwrap_or(0)
                     & crate::disruptor::EF_DISINTEGRATION
                     != 0,
-                spared_by_idle: !self.world.host.friendly_saber()
+                spared_by_idle: !self.world.host.saber_settings().friendly
                     && npcs_on_same_team(
                         self.world.host.gametype(),
                         swinger.session_team,
@@ -201,8 +201,8 @@ impl<H: NpcHost> ClashWorld for BladeWorld<'_, '_, H> {
         self.world.host.debug_saber_locks()
     }
 
-    fn friendly_saber(&self) -> bool {
-        self.world.host.friendly_saber()
+    fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
+        self.world.host.saber_settings()
     }
 
     fn rng(&mut self) -> &mut Rng {
@@ -278,7 +278,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 || host.players().iter().any(|player| player.number == victim)
         };
         let mut blows = [None; 16];
-        let wall_scale = host.saber_damage_rules().wall_scale;
+        let wall_scale = host.saber_settings().wall_scale;
         for (slot, blow) in blows.iter_mut().zip(hits.blows(&is_client, wall_scale)) {
             *slot = Some(blow);
         }

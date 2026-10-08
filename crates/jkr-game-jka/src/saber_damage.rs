@@ -46,23 +46,41 @@ const KATAS: [u16; 3] = [911, 912, 913];
 /// `GT_DUEL`, `GT_POWERDUEL`, `GT_SIEGE`: the slower games, where sabers are not doubled.
 const SLOWER_GAMES: [i32; 3] = [3, 4, 7];
 
-/// The server's saber damage settings; the defaults are stock's.
+/// The server's saber settings; the defaults are stock's.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SaberDamageRules {
+pub struct SaberSettings {
+    /// `g_saberDamageScale`: every blow's damage, before its saber's own scale.
+    pub damage_scale: f32,
     /// `g_saberDmgDelay_Idle`: once an idle touch lands, how long until the next may.
     pub idle_delay: i32,
     /// `g_saberDmgDelay_Wound`: once a blow lands, how long until the next may.
     pub wound_delay: i32,
     /// `g_saberWallDamageScale`: the share of a blow that what is not a client takes.
     pub wall_scale: f32,
+    /// `g_saberLocking`: blades that meet may lock at all.
+    pub locking: bool,
+    /// `g_saberLockFactor`: in twenty, the chance that a clash tries for a lock.
+    pub lock_factor: i32,
+    /// `g_saberLockRandomNess`: what the game adds to a press in a lock, drawn up to this.
+    pub lock_randomness: i32,
+    /// `g_friendlySaber`: blades hurt and clash with teammates' too.
+    pub friendly: bool,
+    /// `g_fixSaberDisarmBonus`: a lit second saber's `disarmBonus` counts as well.
+    pub disarm_bonus_fix: bool,
 }
 
-impl Default for SaberDamageRules {
+impl Default for SaberSettings {
     fn default() -> Self {
         Self {
+            damage_scale: 1.0,
             idle_delay: 350,
             wound_delay: 0,
             wall_scale: 0.4,
+            locking: true,
+            lock_factor: 2,
+            lock_randomness: 2,
+            friendly: false,
+            disarm_bonus_fix: true,
         }
     }
 }
@@ -110,8 +128,8 @@ pub struct Swinger {
     /// Whom the swinger fights (`self->enemy`): a client struck is its enemy
     /// (`SEF_HITENEMY`) or not (`SEF_HITOBJECT`).
     pub enemy: Option<u16>,
-    /// The server's settings for the delays between blows.
-    pub rules: SaberDamageRules,
+    /// The server's saber settings.
+    pub settings: SaberSettings,
 }
 
 /// A swing while the swinger's saber is in the air (`ps.saberInFlight`): the thrown first
@@ -695,7 +713,8 @@ fn check(
         return;
     }
     if damage > SABER_NONATTACK_DAMAGE {
-        // `g_saberDamageScale` 1; the saber's own scale for this blade's style.
+        // `g_saberDamageScale`, then the saber's own scale for this blade's style.
+        damage = (damage as f32 * swinger.settings.damage_scale) as i32;
         let scale = combat.damage_scale[style];
         if scale != 1.0 {
             damage = (damage as f32 * scale).ceil() as i32;
@@ -798,7 +817,7 @@ fn check(
         {
             return;
         }
-        swinger.idle_wound = time + swinger.rules.idle_delay;
+        swinger.idle_wound = time + swinger.settings.idle_delay;
         // SP style: no fake block — a blow is stopped only by the saber it meets.
         if victim.client && damage > SABER_NONATTACK_DAMAGE {
             damage = (f64::from(damage) * 1.5) as i32;
@@ -856,6 +875,7 @@ fn check(
             level_time: time,
             gametype: swinger.gametype,
             thrown,
+            lock_factor: swinger.settings.lock_factor,
         };
         let Some(outcome) = clash(&mut swinger.fighter, &mut other, &blow, targets) else {
             return;
@@ -864,13 +884,13 @@ fn check(
         if outcome.locked && !outcome.met {
             return;
         }
-        swinger.idle_wound = time + swinger.rules.idle_delay;
+        swinger.idle_wound = time + swinger.settings.idle_delay;
         hits.clash = Some((trace.end_position, trace.plane_normal));
         state.hit_saber = true;
         state.fraction = trace.fraction;
         hits.collapsed |= trace.fraction == 0.0;
         if outcome.wound {
-            swinger.attack_wound = time + swinger.rules.wound_delay;
+            swinger.attack_wound = time + swinger.settings.wound_delay;
         }
         targets.set_saber_owner(&other);
     }

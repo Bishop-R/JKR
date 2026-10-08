@@ -446,7 +446,7 @@ impl NativeGame {
             disintegrated: npc.state.raw_field(ES_EFLAGS).unwrap_or(0)
                 & jkr_game_jka::disruptor::EF_DISINTEGRATION
                 != 0,
-            spared_by_idle: !self.friendly_saber()
+            spared_by_idle: !self.saber_settings.friendly
                 && self.gametype == GT_POWERDUEL
                 && player.session.duel_team == 0,
             duel_elsewhere: player.state.duel_in_progress() && player.state.duel_index() != number,

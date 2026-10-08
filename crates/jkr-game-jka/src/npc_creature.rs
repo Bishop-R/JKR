@@ -456,7 +456,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
 
     /// `G_Throw(target, dir, push)` on a client (`g_combat.c`, [`crate::saber_splash::throw`]).
     pub(crate) fn creature_throw(&mut self, target: u16, direction: [f32; 3], push: f32) {
-        let strength = self.host.knockback_rules().strength;
+        let strength = self.host.damage_rules().strength;
         self.with_client(target, |state, _| {
             crate::saber_splash::throw(state, direction, push, strength)
         });

@@ -112,7 +112,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         let attacker_number = attacker.map_or(ENTITY_WORLD, |attacker| attacker.client);
         let by_another = attacker_number != self.actors[me].number;
         let attacker_body = attacker.and_then(|attacker| self.body(attacker.client));
-        let (gametype, knockback_rules) = (self.host.gametype(), self.host.knockback_rules());
+        let (gametype, rules) = (self.host.gametype(), self.host.damage_rules());
         // The DEMP2's electrocution, the first thing it does to a client.
         if request.means == MOD_DEMP2
             && (self.actors[me]
@@ -161,6 +161,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         // Where it landed, for a blow by a client or an NPC (`g_combat.c:4602-4610`).
         let placed = attacker_body.is_some()
+            && rules.location_based
             && flags & DAMAGE_NO_HIT_LOC == 0
             && !(request.means == MOD_SABER && damage <= 1)
             && crate::vehicle_damage::located(npc);
@@ -214,7 +215,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 direction,
                 (knockback, flags, request.means),
                 level_time,
-                &knockback_rules,
+                &rules,
             );
         }
         // A vehicle remembers who shot it for longer, pushed or not.
@@ -431,7 +432,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
 }
 
 /// The knockback's push (`g_combat.c:4630-4738`): the velocity along the blow
-/// ([`crate::damage::KnockbackRules::push`]), the attacker (a client) remembered as the
+/// ([`crate::damage::DamageRules::push`]), the attacker (a client) remembered as the
 /// one who pushed, and the movement held while the push lasts.
 #[allow(clippy::too_many_arguments)]
 fn push(
@@ -441,7 +442,7 @@ fn push(
     direction: [f32; 3],
     (knockback, flags, means): (i32, u32, u32),
     level_time: i32,
-    rules: &crate::damage::KnockbackRules,
+    rules: &crate::damage::DamageRules,
 ) {
     let saber_knockback = attacker.map(|attacker| attacker.saber_knockback);
     let (scale, holds) = rules.push(knockback, flags, means == MOD_SABER, saber_knockback);

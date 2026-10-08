@@ -12,19 +12,28 @@ use jkr_game_jka::game_log;
 /// `pers.netnameTime`'s wait between two names.
 const RENAME_INTERVAL: i32 = 5_000;
 
+/// What the server's settings ask of a userinfo.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct UserinfoRules {
+    /// `g_userinfoValidate`: the checks a userinfo must pass, a bit each.
+    pub(super) validate: u32,
+    /// `g_charRestrictRGB`: a tint too dark to see is replaced with white.
+    pub(super) restrict_dark_tints: bool,
+}
+
 /// `ClientUserinfoChanged` on `team`: the reason a userinfo is refused, or what the game
 /// keeps of it. A team game names the player's leadership (`tl`); a siege game its class
 /// and the side it wants (`siegeclass`, `sdt`), and a `class` it plays forces its model
 /// and replaces the handicap with its own maximum health.
 pub(super) fn judge(
     userinfo: &[u8],
-    rules: u32,
+    rules: UserinfoRules,
     session: &PlayerSession,
     gametype: i32,
     sabers: &jkr_game_jka::saber_definition::SaberParms,
     class: Option<&jkr_game_jka::siege_class::SiegeClass>,
 ) -> Result<AcceptedUserinfo, String> {
-    validate_userinfo(userinfo, rules)?;
+    validate_userinfo(userinfo, rules.validate)?;
     // A duel's scoreboard shows every client's wins and losses (`w`, `l`).
     let duel_record = matches!(gametype, GAMETYPE_DUEL | GAMETYPE_POWERDUEL)
         .then_some((session.wins, session.losses));
@@ -56,7 +65,12 @@ pub(super) fn judge(
         class_max_health,
         ..Default::default()
     };
-    Ok(accept_userinfo(userinfo, session, sabers, true))
+    Ok(accept_userinfo(
+        userinfo,
+        session,
+        sabers,
+        rules.restrict_dark_tints,
+    ))
 }
 
 impl NativeGame {

@@ -511,6 +511,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         let grappling = npc.mind.grapple.state != 0;
         npc.movement
             .set_melee_rules(host.force_rules().debug_melee, grappling);
+        npc.movement.set_legacy_fixes(host.legacy_fixes());
         let level = |power: usize| npc.force_levels[power].clamp(0, 255) as u8;
         let legs_of = |number: u16| {
             body_legs

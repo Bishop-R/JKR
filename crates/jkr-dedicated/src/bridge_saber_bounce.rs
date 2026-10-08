@@ -206,7 +206,7 @@ impl SplashWorld for Splash<'_> {
     }
 
     fn throw(&mut self, number: u16, direction: [f32; 3], push: f32) {
-        let strength = self.game.knockback_rules().strength;
+        let strength = self.game.damage_rules.strength;
         // An NPC restarts its movement from its state at its next move.
         if let Some(npc) = self
             .game

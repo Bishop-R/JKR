@@ -186,7 +186,34 @@ impl NativeGame {
     }
 
     /// `ClientThink`: one movement command from the player at `client`'s place.
+    /// `G_RunClient`'s forced update (`g_active.c:3625-3638`): a player who has sent no
+    /// command for `g_forceClientUpdateRate` milliseconds is thought for anyway with its
+    /// last command emptied of moves and buttons, so that its body still falls, drowns
+    /// and respawns while it lags. Bots think on their own.
+    pub(super) fn forced_client_update(&mut self, client: usize, level_time: i32) {
+        let rate = self.cvars.integer(b"g_forceClientUpdateRate");
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        if rate == 0 || peer.bot || !peer.begun || peer.last_command_time >= level_time - rate {
+            return;
+        }
+        let command = UserCommand {
+            server_time: level_time,
+            buttons: 0,
+            forward_move: 0,
+            right_move: 0,
+            up_move: 0,
+            ..peer.last_command
+        };
+        self.player_think(client, &command, level_time);
+    }
+
     pub(super) fn player_think(&mut self, client: usize, command: &UserCommand, server_time: i32) {
+        // `ClientThink`: "mark the time we got info" (`lastCmdTime`), before anything.
+        if let Some(peer) = self.peer_mut(client) {
+            peer.last_command_time = server_time;
+        }
         // `ClientThink_real` (g_active.c:2006-2012) keeps a command's time within a
         // second behind and a fifth of a second ahead of the server's.
         let mut command = *command;

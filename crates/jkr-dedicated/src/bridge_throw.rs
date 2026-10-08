@@ -583,10 +583,12 @@ impl NativeGame {
         other: usize,
         level_time: i32,
     ) -> bool {
+        let fixed = self.saber_settings.disarm_bonus_fix;
         let (storage, chance) = self.peer(other).map_or((Default::default(), 1), |peer| {
             (
                 peer.saber_cut.storage,
-                peer.sabers.disarm_chance(peer.state.saber_holstered()),
+                peer.sabers
+                    .disarm_chance(peer.state.saber_holstered(), fixed),
             )
         });
         self.with_saber(client, |saber, world| {

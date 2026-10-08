@@ -93,7 +93,7 @@ impl NativeGame {
         self.usable_entities.clear();
         self.map_effects.forget_entities();
         self.map_turrets.forget_entities();
-        self.worldspawn_gravity();
+        self.worldspawn_cvars();
         self.spawn_items();
         self.spawn_triggers();
         self.spawn_movers();

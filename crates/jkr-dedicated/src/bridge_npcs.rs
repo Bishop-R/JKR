@@ -455,9 +455,9 @@ impl NativeGame {
             });
         let skill = self.integer_cvar(b"g_npcspskill", 0);
         let fighter_alt_control = self.integer_cvar(b"bg_fighterAltControl", 0) != 0;
-        let (debug_saber_locks, saber_locking) = (self.debug_saber_locks(), self.saber_locking());
-        let (friendly_saber, saber_damage) = (self.friendly_saber(), self.saber_damage_rules());
-        let knockback = self.knockback_rules();
+        let debug_saber_locks = self.debug_saber_locks();
+        let (saber, damage, legacy_fixes) =
+            (self.saber_settings, self.damage_rules, self.legacy_fixes);
         let gravity = self.gravity();
         let clients = self.gather_sights();
         let jedi_master = self.jedi_masters(None).and_then(|masters| masters.master);
@@ -551,10 +551,9 @@ impl NativeGame {
             force_touch,
             fighter_alt_control,
             debug_saber_locks,
-            saber_locking,
-            friendly_saber,
-            saber_damage,
-            knockback,
+            saber,
+            damage,
+            legacy_fixes,
             limbs,
         }
     }

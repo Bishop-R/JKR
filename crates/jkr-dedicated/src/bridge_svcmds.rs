@@ -137,9 +137,12 @@ impl NativeGame {
         print(told(names[index as usize], flipped & (1 << index) != 0).as_bytes());
     }
 
-    /// `g_userinfoValidate`: the rules a userinfo is held to.
-    pub(super) fn userinfo_rules(&self) -> u32 {
-        self.cvars.integer(b"g_userinfoValidate") as u32
+    /// `g_userinfoValidate` and `g_charRestrictRGB`: the rules a userinfo is held to.
+    pub(super) fn userinfo_rules(&self) -> super::bridge_userinfo::UserinfoRules {
+        super::bridge_userinfo::UserinfoRules {
+            validate: self.cvars.integer(b"g_userinfoValidate") as u32,
+            restrict_dark_tints: self.cvars.integer(b"g_charRestrictRGB") != 0,
+        }
     }
 
     /// `G_FilterPacket` for a connecting client's `ip` (`ClientConnect`'s first check).

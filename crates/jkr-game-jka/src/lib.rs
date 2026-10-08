@@ -90,6 +90,7 @@ pub mod force_config;
 mod force_jump;
 pub mod force_powers;
 pub mod holocron;
+pub mod inactivity;
 pub(crate) mod item_physics;
 pub mod items;
 pub mod jedi_master;

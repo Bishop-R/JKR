@@ -10,6 +10,30 @@ const GT_DUEL: i32 = 3;
 const GT_POWERDUEL: i32 = 4;
 
 impl NativeGame {
+    /// `ClientInactivityTimer` for player `client`'s `command`: whether `g_inactivity`
+    /// seconds without a move or an attack have dropped it, warned ten seconds before.
+    fn inactive(&mut self, client: usize, command: &UserCommand) -> bool {
+        use jkr_game_jka::inactivity::Verdict;
+        let (seconds, level_time) = (self.cvars.integer(b"g_inactivity"), self.last_frame_time);
+        // A spectator's think returns before the timer (`g_active.c:2057-2064`).
+        let Some(peer) = self.peer_mut(client).filter(|peer| peer.playing()) else {
+            return false;
+        };
+        match peer.inactivity.check(seconds, command, level_time) {
+            Verdict::Stay => false,
+            Verdict::Warn => {
+                let warning = b"cp \"Ten seconds until inactivity drop!\n\"";
+                self.told.push(Told::One(client, warning.to_vec()));
+                false
+            }
+            Verdict::Drop => {
+                let reason = b"Dropped due to inactivity".to_vec();
+                self.told.push(Told::Drop { client, reason });
+                true
+            }
+        }
+    }
+
     /// The rest of `ClientThink_real`, for a player in the world or a spectator flying
     /// free: the duel, the fall, the lock, the move and all that follows it.
     pub(super) fn think_in_world(
@@ -18,6 +42,10 @@ impl NativeGame {
         mut command: UserCommand,
         server_time: i32,
     ) {
+        // `ClientInactivityTimer` (`g_active.c:2074-2079`): idle too long, dropped.
+        if self.inactive(client, &command) {
+            return;
+        }
         // `ClientThink_real`'s duel: a duel begun, ended or held still (`g_active.c:2405`).
         self.duel_think(client, &mut command, self.last_frame_time);
         // The fall to death a pit's brush began ends here, three seconds on; then who
@@ -39,11 +67,12 @@ impl NativeGame {
         // jaPRO's `g_flagDrag`, which only the server's `Pmove` runs; and its god chat's
         // `pers.lastChatTime`, from the command's talk button (`EF_TALK`), which a dead
         // player's think leaves as it was.
-        let flag_drag = self.flag_drag;
+        let (flag_drag, legacy_fixes) = (self.flag_drag, self.legacy_fixes);
         let debug_melee = self.debug_melee;
         let god_chat = self.god_chat && self.gametype == GAMETYPE_FFA;
         if let Some(peer) = self.peer_mut(client) {
             peer.movement.set_flag_drag(flag_drag);
+            peer.movement.set_legacy_fixes(legacy_fixes);
             peer.movement
                 .set_melee_rules(debug_melee, peer.grapple.state != 0);
             if peer.state.stats[0] as i32 > 0 {

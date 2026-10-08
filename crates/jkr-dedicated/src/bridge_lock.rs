@@ -115,7 +115,7 @@ impl NativeGame {
         if second >= self.players.places() {
             return self.check_lock_with_npc(first, second as u16, rng, level_time);
         }
-        let (forced, locking) = (self.debug_saber_locks(), self.saber_locking());
+        let (forced, locking) = (self.debug_saber_locks(), self.saber_settings.locking);
         let Self {
             server,
             world,
@@ -203,7 +203,7 @@ impl NativeGame {
         rng: &mut Rng,
         level_time: i32,
     ) -> bool {
-        let (forced, locking) = (self.debug_saber_locks(), self.saber_locking());
+        let (forced, locking) = (self.debug_saber_locks(), self.saber_settings.locking);
         let Self {
             server,
             world,
@@ -309,6 +309,7 @@ impl NativeGame {
             .then(|| self.peer(enemy))
             .flatten()
             .map(|other| other.state.origin());
+        let randomness = self.saber_settings.lock_randomness;
         let Self {
             server,
             world,
@@ -334,7 +335,7 @@ impl NativeGame {
             command.angles,
             rage,
             recovery,
-            bonus,
+            (bonus, randomness),
             level_time,
             &mut deaths.rng,
         );
@@ -431,6 +432,7 @@ impl NativeGame {
     /// `pmove.checkDuelLoss` for NPC `loser`, beaten by player `client`'s lock: finished or
     /// disarmed through the roster ([`jkr_game_jka::npc_roster::NpcRoster::lost_lock_to_player`]).
     fn npc_lost_lock(&mut self, client: usize, loser: u16, level_time: i32) {
+        let disarm_bonus_fix = self.saber_settings.disarm_bonus_fix;
         let Some(winner) = self.peer(client) else {
             return;
         };
@@ -441,7 +443,9 @@ impl NativeGame {
         );
         let (storage, chance) = (
             winner.saber_cut.storage,
-            winner.sabers.disarm_chance(winner.state.saber_holstered()),
+            winner
+                .sabers
+                .disarm_chance(winner.state.saber_holstered(), disarm_bonus_fix),
         );
         let attacker = Attacker {
             npc: false,
@@ -463,10 +467,5 @@ impl NativeGame {
     /// `g_debugSaberLocks` (a cheat): any two blades that meet lock.
     pub(super) fn debug_saber_locks(&self) -> bool {
         self.integer_cvar(b"g_debugSaberLocks", 0) != 0
-    }
-
-    /// `g_saberLocking`: whether blades that meet may lock at all (on by default).
-    pub(super) fn saber_locking(&self) -> bool {
-        self.integer_cvar(b"g_saberLocking", 1) != 0
     }
 }

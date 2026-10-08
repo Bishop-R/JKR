@@ -273,6 +273,7 @@ impl NativeGame {
         if self.sorted().1 >= 2 {
             return;
         }
+        let high_ping_duelists = self.cvars.integer(b"g_allowHighPingDuelist") != 0;
         let waiting: Vec<Waiting> = (0..self.players.places())
             .filter_map(|client| {
                 let peer = self.peer(client)?;
@@ -281,8 +282,7 @@ impl NativeGame {
                     connected: peer.begun,
                     spectator: peer.session.team == i32::from(TEAM_SPECTATOR),
                     spectator_num: peer.session.spectator_num,
-                    // `g_allowHighPingDuelist` is on by default.
-                    lagging: false,
+                    lagging: !high_ping_duelists && peer.ping >= 999,
                     scoreboard: peer.session.spectator_state
                         == jkr_game_jka::client_begin::SPECTATOR_SCOREBOARD
                         || peer.session.spectator_client < 0,

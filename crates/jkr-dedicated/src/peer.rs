@@ -169,6 +169,8 @@ pub struct Peer {
     pub(crate) command_msec: i32,
     /// jaPRO's god chat: since when the player has been typing (`pers.lastChatTime`).
     pub(crate) typing: jkr_game_jka::god_chat::Typing,
+    /// `g_inactivity`'s clock (`inactivityTime`, `inactivityWarning`).
+    pub(crate) inactivity: jkr_game_jka::inactivity::Inactivity,
     /// jaPRO's statistics for the match (`pers.stats`), which its gun game climbs by.
     pub(crate) stats: jkr_game_jka::japro_stats::Stats,
     /// jaPRO's duel statistics (`duelDamageGiven`, `lowestHP`), for a Force duel's end.
@@ -326,6 +328,7 @@ impl Peer {
             last_spotted_time: 0,
             command_msec: 0,
             typing: Default::default(),
+            inactivity: Default::default(),
             stats: Default::default(),
             duel_record: Default::default(),
             target_laser_until: 0,

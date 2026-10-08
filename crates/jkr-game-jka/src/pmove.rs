@@ -885,6 +885,12 @@ impl Predictor {
         self.config.grappling = grappling;
     }
 
+    /// The `CS_LEGACY_FIXES` mask the server runs (`g_fixSaberMoveData`,
+    /// `g_fixWeaponAttackAnim`, `g_fixRunWalkAnims`), for its own moves.
+    pub fn set_legacy_fixes(&mut self, legacy_fixes: u32) {
+        self.config.legacy_fixes = legacy_fixes;
+    }
+
     /// Refresh movement policy without discarding the replay state.
     pub fn set_config(&mut self, config: MovementConfig) {
         self.config = config;

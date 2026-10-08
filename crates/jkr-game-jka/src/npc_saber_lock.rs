@@ -235,7 +235,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             } else {
                 (&mut high[0], &mut low[them])
             };
-            let (forced, locking) = (host.debug_saber_locks(), host.saber_locking());
+            let (forced, locking) = (host.debug_saber_locks(), host.saber_settings().locking);
             let mut world = HostLockWorld {
                 host: &mut **host,
                 bodies,
@@ -321,9 +321,10 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             crate::npc_saber_throw::npc_attacker(winner),
         );
         let [first, second] = &winner.definition.sabers;
+        let fixed = self.host.saber_settings().disarm_bonus_fix;
         let chance = 1
             + first.disarm_bonus[0]
-            + if second.is_held() && winner.player.saber_holstered() == 0 {
+            + if fixed && second.is_held() && winner.player.saber_holstered() == 0 {
                 second.disarm_bonus[0]
             } else {
                 0
@@ -451,6 +452,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 0
             };
         let angles = npc.mind.command.angles;
+        let randomness = self.host.saber_settings().lock_randomness;
         let mut rng = *self.host.rng();
         let npc = &mut self.actors[me];
         let locked = npc.player.saber_lock_time() > level_time;
@@ -461,7 +463,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             angles,
             rage,
             recovery,
-            bonus,
+            (bonus, randomness),
             level_time,
             &mut rng,
         );

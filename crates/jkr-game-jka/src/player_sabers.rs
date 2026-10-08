@@ -147,11 +147,11 @@ impl PlayerSabers {
 
     /// `disarmChance` against a player holding these at `saberHolstered` `holstered`
     /// (`w_saber.c:6755-6764`): 1, the first saber's `disarmBonus`, and — with
-    /// `g_fixSaberDisarmBonus`, on by default — a fully lit second saber's.
-    pub fn disarm_chance(&self, holstered: u8) -> i32 {
+    /// `g_fixSaberDisarmBonus` (`fixed`), on by default — a fully lit second saber's.
+    pub fn disarm_chance(&self, holstered: u8, fixed: bool) -> i32 {
         let [first, second] = &self.hands;
         1 + first.disarm_bonus[0]
-            + if second.is_held() && holstered == 0 {
+            + if fixed && second.is_held() && holstered == 0 {
                 second.disarm_bonus[0]
             } else {
                 0

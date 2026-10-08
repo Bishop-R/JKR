@@ -133,7 +133,7 @@ impl ServerHost<'_> {
             takes_damage: peer.begun && peer.playing(),
             health: peer.health,
             disintegrated: state.entity_flags() & EF_DISINTEGRATION != 0,
-            spared_by_idle: !self.friendly_saber
+            spared_by_idle: !self.saber.friendly
                 && self.gametype == GAMETYPE_POWERDUEL
                 && peer.session.duel_team == 0,
             duel_elsewhere: state.duel_in_progress() && state.duel_index() != swinger.number,

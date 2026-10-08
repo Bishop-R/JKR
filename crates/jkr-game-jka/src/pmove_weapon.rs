@@ -70,6 +70,25 @@ const BOTH_ATTACK4: u16 = 116;
 const WEAPON_ATTACK_ANIM: [u16; LEGACY_WEAPON_COUNT] = [
     113, 115, 115, 917, 114, 115, 115, 115, 115, 115, 115, 115, 125, 115, 115, 115, 114, 0, 0,
 ];
+/// `CS_LEGACY_FIXES` bit for `g_fixWeaponAttackAnim` (`bg_public.h:162-165`).
+pub const LEGACY_FIX_WEAPON_ATTACK_ANIM: u32 = 1 << 1;
+/// `BOTH_ATTACK2` and `BOTH_STAND1`, what the unfixed table fires with.
+const BOTH_ATTACK2: u16 = 114;
+const BOTH_STAND1: u16 = 915;
+
+/// `BG_FixWeaponAttackAnim` (`bg_misc.c:323-347`): the fire animation of `weapon`. Without
+/// `LEGACYFIX_WEAPONATTACKANIM` in `legacy_fixes` the concussion rifle fires with
+/// `BOTH_ATTACK2` and the old Bryar with `BOTH_STAND1`, as the original table had them.
+fn weapon_attack_anim(weapon: u8, legacy_fixes: u32) -> u16 {
+    if legacy_fixes & LEGACY_FIX_WEAPON_ATTACK_ANIM == 0 {
+        match weapon {
+            WP_CONCUSSION => return BOTH_ATTACK2,
+            WP_BRYAR_OLD => return BOTH_STAND1,
+            _ => {}
+        }
+    }
+    WEAPON_ATTACK_ANIM[usize::from(weapon)]
+}
 
 /// Whether this bounded port owns the current command's weapon result.
 ///
@@ -314,7 +333,7 @@ fn advance_command(
         && matches!(state.weapon, WP_THERMAL | WP_TRIP_MINE | WP_DET_PACK)
     {
         let early = if state.weapon == WP_THERMAL { 200 } else { 700 };
-        if state.torso_anim == WEAPON_ATTACK_ANIM[usize::from(state.weapon)]
+        if state.torso_anim == weapon_attack_anim(state.weapon, legacy_fixes)
             && state.weapon_time - early <= 0
         {
             crate::pmove_anim::start_torso(
@@ -459,7 +478,7 @@ fn advance_command(
             return;
         }
     } else {
-        crate::pmove_anim::start_torso(state, WEAPON_ATTACK_ANIM[usize::from(state.weapon)]);
+        crate::pmove_anim::start_torso(state, weapon_attack_anim(state.weapon, legacy_fixes));
     }
     state.weapon_state = WEAPON_FIRING;
     if state.client_num < MAX_CLIENTS && state.ammo[data.ammo_index] != -1 {

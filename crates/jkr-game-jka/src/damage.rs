@@ -299,14 +299,14 @@ pub struct Target<'a> {
     pub jetpack: Option<&'a mut crate::holdables::Packs>,
     /// The share of its own blows it takes ([`self_damage`]).
     pub self_damage: f32,
-    /// How hard the blow pushes it.
-    pub knockback: KnockbackRules,
+    /// How the blow pushes it and where it lands counts.
+    pub rules: DamageRules,
 }
 
-/// How hard blows push (`g_knockback`, `g_saberDmgVelocityScale`); the defaults are
-/// stock's.
+/// How blows push and where they land count (`g_knockback`, `g_saberDmgVelocityScale`,
+/// `g_locationBasedDamage`); the defaults are stock's.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct KnockbackRules {
+pub struct DamageRules {
     /// `g_knockback`: the speed a blow of 200 gives a body of mass 200.
     pub strength: f32,
     /// `g_saberDmgVelocityScale`: the share of a saber blow's push that lands. At 0 a
@@ -315,19 +315,22 @@ pub struct KnockbackRules {
     /// The same setting's whole part is not 0: every saber blow's push holds the target's
     /// movement for a while, as other blows' do.
     pub saber_push_holds: bool,
+    /// `g_locationBasedDamage`: where a blow lands scales it ([`location_modified`]).
+    pub location_based: bool,
 }
 
-impl Default for KnockbackRules {
+impl Default for DamageRules {
     fn default() -> Self {
         Self {
             strength: 1_000.0,
             saber_scale: 0.0,
             saber_push_holds: false,
+            location_based: true,
         }
     }
 }
 
-impl KnockbackRules {
+impl DamageRules {
     /// `G_Damage`'s push (`g_combat.c:4651-4741`) of `knockback` points on a body of mass
     /// 200: the speed added along the blow, and whether it holds the target's movement
     /// (`PMF_TIME_KNOCKBACK`). A saber's push is scaled by `saber_scale`, or — the blow
@@ -501,8 +504,9 @@ pub fn damage_at(
     {
         damage = damage * attacker.max_health / 100;
     }
-    // The hit's location, for a player hit by a player.
-    if flags & DAMAGE_NO_HIT_LOC == 0
+    // The hit's location, for a player hit by a player, unless `g_locationBasedDamage` is 0.
+    if target.rules.location_based
+        && flags & DAMAGE_NO_HIT_LOC == 0
         && by_a_client
         && !(saber && damage <= 1)
         && let Some(point) = request.point
@@ -531,9 +535,7 @@ pub fn damage_at(
     // The momentum, even where the damage will not be taken.
     if knockback != 0 {
         let saber_knockback = request.attacker.map(|attacker| attacker.saber_knockback);
-        let (scale, holds) = target
-            .knockback
-            .push(knockback, flags, saber, saber_knockback);
+        let (scale, holds) = target.rules.push(knockback, flags, saber, saber_knockback);
         let velocity = target.state.velocity();
         target.state.set_velocity(std::array::from_fn(|axis| {
             velocity[axis] + direction[axis] * scale

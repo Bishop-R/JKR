@@ -149,14 +149,12 @@ pub(crate) struct ServerHost<'a> {
     pub(super) fighter_alt_control: bool,
     /// `g_debugSaberLocks`.
     pub(super) debug_saber_locks: bool,
-    /// `g_saberLocking`.
-    pub(super) saber_locking: bool,
-    /// `g_friendlySaber`.
-    pub(super) friendly_saber: bool,
-    /// `g_saberDmgDelay_Idle`, `g_saberDmgDelay_Wound`, `g_saberWallDamageScale`.
-    pub(super) saber_damage: jkr_game_jka::saber_damage::SaberDamageRules,
-    /// `g_knockback`, `g_saberDmgVelocityScale`.
-    pub(super) knockback: jkr_game_jka::damage::KnockbackRules,
+    /// The server's saber settings.
+    pub(super) saber: jkr_game_jka::saber_damage::SaberSettings,
+    /// How blows push and where they land count.
+    pub(super) damage: jkr_game_jka::damage::DamageRules,
+    /// The animation fixes the moves run (`CS_LEGACY_FIXES`).
+    pub(super) legacy_fixes: u32,
     /// `g_dismember` and the clients with heavy melee ([`dismember`]).
     pub(super) limbs: dismember::LimbRules,
 }
@@ -1188,20 +1186,16 @@ impl NpcHost for ServerHost<'_> {
         self.debug_saber_locks
     }
 
-    fn saber_locking(&self) -> bool {
-        self.saber_locking
+    fn saber_settings(&self) -> jkr_game_jka::saber_damage::SaberSettings {
+        self.saber
     }
 
-    fn friendly_saber(&self) -> bool {
-        self.friendly_saber
+    fn damage_rules(&self) -> jkr_game_jka::damage::DamageRules {
+        self.damage
     }
 
-    fn saber_damage_rules(&self) -> jkr_game_jka::saber_damage::SaberDamageRules {
-        self.saber_damage
-    }
-
-    fn knockback_rules(&self) -> jkr_game_jka::damage::KnockbackRules {
-        self.knockback
+    fn legacy_fixes(&self) -> u32 {
+        self.legacy_fixes
     }
 
     fn gunner(&mut self, number: u16) -> Option<jkr_game_jka::vehicle_turrets::Gunner> {

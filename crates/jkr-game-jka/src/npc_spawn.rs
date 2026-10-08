@@ -727,23 +727,20 @@ pub trait NpcHost: SaberParseHost {
     fn debug_saber_locks(&self) -> bool {
         false
     }
-    /// `g_saberLocking`: whether blades that meet may lock at all
-    /// ([`crate::saber_lock::check_lock`]). On by default.
-    fn saber_locking(&self) -> bool {
-        true
+    /// The server's saber settings ([`crate::saber_damage::SaberSettings`]). Stock's by
+    /// default.
+    fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
+        crate::saber_damage::SaberSettings::default()
     }
-    /// `g_friendlySaber`: blades hurt and clash with teammates' too. Off by default.
-    fn friendly_saber(&self) -> bool {
-        false
+    /// The `CS_LEGACY_FIXES` mask the moves run ([`crate::pmove::MovementConfig`]). All
+    /// three fixes by default, as stock.
+    fn legacy_fixes(&self) -> u32 {
+        0b111
     }
-    /// How hard blows push (`g_knockback`, `g_saberDmgVelocityScale`). Stock's by default.
-    fn knockback_rules(&self) -> crate::damage::KnockbackRules {
-        crate::damage::KnockbackRules::default()
-    }
-    /// The saber damage settings (`g_saberDmgDelay_Idle`, `g_saberDmgDelay_Wound`,
-    /// `g_saberWallDamageScale`). Stock's by default.
-    fn saber_damage_rules(&self) -> crate::saber_damage::SaberDamageRules {
-        crate::saber_damage::SaberDamageRules::default()
+    /// How blows push and where they land count ([`crate::damage::DamageRules`]).
+    /// Stock's by default.
+    fn damage_rules(&self) -> crate::damage::DamageRules {
+        crate::damage::DamageRules::default()
     }
     /// Entity `number`'s wire state as the host keeps it (an NPC's saber entity's, which its
     /// flight writes). None by default.

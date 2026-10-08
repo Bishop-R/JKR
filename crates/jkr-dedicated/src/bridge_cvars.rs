@@ -70,6 +70,9 @@ impl NativeGame {
             let key = String::from_utf8_lossy(&name).into_owned();
             match key.to_ascii_lowercase().as_str() {
                 "sv_hostname" => self.identity.hostname = value.clone(),
+                // The process's configuration runs once the level is up: a message of the
+                // day it sets reaches this level's loading screens too.
+                "g_motd" => self.set_config_string(jkr_game_jka::worldspawn::CS_MOTD, &value),
                 "fraglimit" => self.limits.fraglimit = integer,
                 "timelimit" => self.limits.timelimit = var.value(),
                 "capturelimit" => self.limits.capturelimit = integer,
@@ -88,6 +91,24 @@ impl NativeGame {
                 "g_flagdrag" => self.flag_drag = var.value(),
                 "g_forceregentime" => self.force_rules.regen_time = integer,
                 "g_usewhilethrowing" => self.force_rules.use_while_throwing = integer != 0,
+                "g_saberdamagescale" => self.saber_settings.damage_scale = var.value(),
+                "g_saberdmgdelay_idle" => self.saber_settings.idle_delay = integer,
+                "g_saberdmgdelay_wound" => self.saber_settings.wound_delay = integer,
+                "g_saberwalldamagescale" => self.saber_settings.wall_scale = var.value(),
+                "g_saberlocking" => self.saber_settings.locking = integer != 0,
+                "g_saberlockfactor" => self.saber_settings.lock_factor = integer,
+                "g_saberlockrandomness" => self.saber_settings.lock_randomness = integer,
+                "g_friendlysaber" => self.saber_settings.friendly = integer != 0,
+                "g_fixsaberdisarmbonus" => self.saber_settings.disarm_bonus_fix = integer != 0,
+                "g_fixsabermovedata" | "g_fixweaponattackanim" | "g_fixrunwalkanims" => {
+                    self.publish_legacy_fixes()
+                }
+                "g_knockback" => self.damage_rules.strength = var.value(),
+                "g_saberdmgvelocityscale" => {
+                    self.damage_rules.saber_scale = var.value();
+                    self.damage_rules.saber_push_holds = integer != 0;
+                }
+                "g_locationbaseddamage" => self.damage_rules.location_based = integer != 0,
                 "g_debugmelee" => {
                     self.debug_melee = integer != 0;
                     self.force_rules.debug_melee = integer != 0;

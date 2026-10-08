@@ -16,6 +16,8 @@ impl NativeGame {
     ) {
         let (gravity, player_speed) = (self.gravity(), self.player_speed());
         let protection = self.cvars.integer(b"g_spawnInvulnerability");
+        let inactivity = self.cvars.integer(b"g_inactivity");
+        let legacy_fixes = self.legacy_fixes;
         let (parms, rules) = (self.saber_parms(), self.userinfo_rules());
         // The class a siege player spawns as (`ClientUserinfoChanged`'s, kept in `siegeClass`).
         let siege_class = if self.siege.is_some() {
@@ -115,6 +117,7 @@ impl NativeGame {
         peer.time_residual = 0;
         peer.block_time = 0;
         peer.entity.spawned(place.angles);
+        peer.inactivity = jkr_game_jka::inactivity::Inactivity::spawned(server_time, inactivity);
         peer.invulnerable_until = if playing && protection != 0 {
             server_time + protection
         } else {
@@ -183,7 +186,10 @@ impl NativeGame {
         }
         peer.movement = Predictor::from_state(
             MovementState::from_player_state(&peer.state),
-            authoritative(),
+            jkr_game_jka::pmove::MovementConfig {
+                legacy_fixes,
+                ..authoritative()
+            },
         );
         if let Some(lengths) = map.as_ref().and_then(|map| map.animations.clone()) {
             peer.movement.set_animation_lengths(lengths);
@@ -291,6 +297,21 @@ mod tests {
             assert_eq!(peer.invulnerable_until, until);
             let flagged = peer.state.entity_flags() & EF_INVULNERABLE != 0;
             assert_eq!(flagged, until != 0);
+        }
+    }
+
+    /// `G_RunClient`'s forced update: a player silent past `g_forceClientUpdateRate`
+    /// milliseconds is thought for with an empty command; 0 leaves it be.
+    #[test]
+    fn a_silent_player_is_thought_for_after_the_update_rate() {
+        for (rate, thought) in [(b"250".as_slice(), true), (b"0", false)] {
+            let mut game = respawned(b"g_forceClientUpdateRate", rate);
+            game.peer_mut(0).unwrap().last_command_time = 1_000;
+            game.forced_client_update(0, 1_200);
+            assert_eq!(game.peer(0).unwrap().last_command_time, 1_000);
+            game.forced_client_update(0, 1_300);
+            let peer = game.peer(0).unwrap();
+            assert_eq!(peer.last_command_time == 1_300, thought, "rate {rate:?}");
         }
     }
 
