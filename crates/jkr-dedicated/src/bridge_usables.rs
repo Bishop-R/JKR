@@ -1,7 +1,7 @@
-//! `func_usable` on this server ([`jkr_game_jka::usables`]): each an `ET_MOVER` of its
-//! inline model — with its `model2` — standing where the map put it, met by every trace
-//! while it is there and sent to nobody while it is away. Uses reach it from what
-//! targets it, from a player's use key and, given health, from blows.
+//! `func_usable` and `func_wall` on this server ([`jkr_game_jka::usables`]): each an
+//! `ET_MOVER` of its inline model — with its `model2` — standing where the map put it, met
+//! by every trace while it is there and sent to nobody while it is away. Uses reach it
+//! from what targets it, from a player's use key and, given health, from blows.
 
 use super::*;
 use jkr_game_jka::usables::{Usable, Used};
@@ -203,6 +203,11 @@ impl NativeGame {
         let (name, activator) = match used {
             Used::Target => (usable.target.clone(), activator),
             Used::Returned => (usable.target2.clone(), usize::MAX),
+            Used::Portal { open } => {
+                let (origin, bounds) = (usable.origin, usable.bounds);
+                self.adjust_portal(origin, bounds, open);
+                return;
+            }
             Used::Nothing | Used::Waiting => return,
         };
         let firing = self.stock.usables.firing.replace(index);

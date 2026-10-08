@@ -6,6 +6,10 @@
 //! then answers no use until `wait` seconds have passed; one with an `endframe` steps
 //! its shader a frame instead. One with `health` is used by every blow
 //! (`G_Damage`'s mover branch), its health never touched.
+//!
+//! `func_wall` (`SP_func_wall`, `use_wall`, `g_mover.c:3238-3300`) is the same brush with
+//! less to it: used, it goes or comes back and fires nothing, and opens (or closes) the
+//! area portal it stands in unless it started off.
 
 use crate::use_key::{FL_INACTIVE, SVF_PLAYER_USABLE};
 use jkr_entity::Entity;
@@ -33,9 +37,19 @@ const FRAMETIME: i32 = 100;
 /// `GT_SIEGE`.
 const GT_SIEGE: i32 = 7;
 
-/// One placed `func_usable`.
+/// Which of the two toggled brushes it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// `func_usable`.
+    Usable,
+    /// `func_wall`.
+    Wall,
+}
+
+/// One placed `func_usable` or `func_wall`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Usable {
+    pub kind: Kind,
     /// The inline model it is made of, and that model's box (`r.mins`, `r.maxs`).
     pub model: usize,
     pub bounds: ([f32; 3], [f32; 3]),
@@ -97,17 +111,24 @@ pub enum Used {
     Returned,
     /// It is on its way back, waiting for its box to clear.
     Waiting,
+    /// A wall went (`open`) or came back: the area portal it stands in follows.
+    Portal { open: bool },
 }
 
-/// `SP_func_usable` for `entity`, or `None` when it is something else or names no inline
-/// model `bounds_of` knows.
+/// `SP_func_usable` or `SP_func_wall` for `entity`, or `None` when it is something else
+/// or names no inline model `bounds_of` knows. A wall reads no `endframe` and no `health`.
 pub fn spawn(
     entity: &Entity,
     bounds_of: impl FnOnce(usize) -> Option<([f32; 3], [f32; 3])>,
 ) -> Option<Usable> {
-    if !entity.classname()?.eq_ignore_ascii_case("func_usable") {
+    let classname = entity.classname()?;
+    let kind = if classname.eq_ignore_ascii_case("func_usable") {
+        Kind::Usable
+    } else if classname.eq_ignore_ascii_case("func_wall") {
+        Kind::Wall
+    } else {
         return None;
-    }
+    };
     let model = entity
         .get("model")
         .and_then(|name| name.strip_prefix('*'))
@@ -119,7 +140,8 @@ pub fn spawn(
             .map_or(0, |value| crate::userinfo::atoi(value.as_bytes()))
     };
     let spawnflags = integer("spawnflags") as u32;
-    let end_frame = integer("endframe");
+    let usable = kind == Kind::Usable;
+    let end_frame = if usable { integer("endframe") } else { 0 };
     let model2 = entity
         .get("model2")
         .filter(|name| !name.is_empty() && !name.contains(".glm"))
@@ -129,6 +151,7 @@ pub fn spawn(
         .or_else(|| entity.get("alliedteam"))
         .map_or(0, |value| crate::userinfo::atoi(value.as_bytes()));
     let mut usable = Usable {
+        kind,
         model,
         bounds,
         origin: crate::fx_runner::vector(entity, "origin"),
@@ -146,7 +169,7 @@ pub fn spawn(
         wait: entity
             .get("wait")
             .map_or(0.0, |value| crate::text_parse::atof(value.as_bytes())),
-        takes_damage: integer("health") != 0,
+        takes_damage: usable && integer("health") != 0,
         end_frame,
         frame: 0,
         has_use: true,
@@ -171,6 +194,9 @@ impl Usable {
     pub fn used(&mut self, level_time: i32, clear: bool) -> Used {
         if self.inactive || !self.has_use {
             return Used::Nothing;
+        }
+        if self.kind == Kind::Wall {
+            return self.use_wall();
         }
         if self.eflags & EF_SHADER_ANIM != 0 {
             self.frame += 1;
@@ -296,6 +322,25 @@ impl Usable {
         }
     }
 
+    /// `use_wall`: back solid and drawn when it was away, else away; a wall that started
+    /// off leaves the area portals alone.
+    fn use_wall(&mut self) -> Used {
+        let back = self.contents == 0;
+        if back {
+            self.contents = CONTENTS_SOLID;
+            self.svflags &= !SVF_NOCLIENT;
+            self.eflags &= !EF_NODRAW;
+            self.present = true;
+        } else {
+            self.go_away();
+        }
+        if self.spawnflags & START_OFF != 0 {
+            Used::Nothing
+        } else {
+            Used::Portal { open: !back }
+        }
+    }
+
     /// Gone: no contents, not sent, not drawn.
     fn go_away(&mut self) {
         self.contents = 0;
@@ -410,6 +455,33 @@ mod tests {
             .collect();
         assert_eq!(frames, [1, 2, 0, 1]);
         assert_eq!(panel.contents, CONTENTS_SOLID);
+    }
+
+    /// `func_wall`: each use takes it away (opening its portal) or brings it back (closing
+    /// it), firing nothing; one that started off leaves the portals alone; no health.
+    #[test]
+    fn a_wall_toggles_its_portal() {
+        let wall = |pairs: &[(&str, &str)]| {
+            let mut text = String::from("{\n\"classname\" \"func_wall\"\n\"model\" \"*3\"\n");
+            for (key, value) in pairs {
+                text.push_str(&format!("\"{key}\" \"{value}\"\n"));
+            }
+            text.push('}');
+            let entity = jkr_entity::parse_entity_lump(text.as_bytes())
+                .unwrap()
+                .remove(0);
+            spawn(&entity, |_| Some(([-8.0; 3], [8.0; 3]))).unwrap()
+        };
+        let mut gate = wall(&[("target", "never"), ("health", "5")]);
+        assert_eq!((gate.kind, gate.takes_damage), (Kind::Wall, false));
+        assert_eq!(gate.used(0, false), Used::Portal { open: true });
+        assert_eq!((gate.contents, gate.sent()), (0, false));
+        assert_eq!(gate.used(0, false), Used::Portal { open: false });
+        assert_eq!((gate.contents, gate.sent()), (CONTENTS_SOLID, true));
+        let mut hidden = wall(&[("spawnflags", "1")]);
+        assert_eq!(hidden.contents, 0);
+        assert_eq!(hidden.used(0, false), Used::Nothing);
+        assert_eq!(hidden.contents, CONTENTS_SOLID);
     }
 
     /// `INACTIVE`, Siege's `teamuser`, `health`, `model2`, `origin` and `light`.

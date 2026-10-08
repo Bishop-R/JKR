@@ -287,6 +287,7 @@ impl NpcHost for ServerHost<'_> {
         // always on.
         let removable = self.usables.iter().any(|(known, usable)| {
             known.legacy_number() == number
+                && usable.kind == jkr_game_jka::usables::Kind::Usable
                 && usable.eflags & EF_SHADER_ANIM == 0
                 && usable.spawnflags & jkr_game_jka::usables::ALWAYS_ON == 0
                 && !usable.targetname.is_empty()

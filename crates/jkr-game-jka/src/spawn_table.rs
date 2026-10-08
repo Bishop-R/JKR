@@ -50,7 +50,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("func_timer", Ported),
     ("func_train", Ported),
     ("func_usable", Ported),
-    ("func_wall", Unported),
+    ("func_wall", Ported),
     ("fx_rain", Ported),
     ("fx_runner", Ported),
     ("fx_snow", Ported),
