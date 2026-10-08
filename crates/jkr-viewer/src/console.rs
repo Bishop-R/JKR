@@ -2,6 +2,8 @@
 
 use super::{TextVertex, UiFont};
 use crate::keybind_editor;
+#[path = "console_auto_login.rs"]
+mod auto_login;
 #[path = "console_browser.rs"]
 mod browser;
 #[path = "console_chat_log.rs"]

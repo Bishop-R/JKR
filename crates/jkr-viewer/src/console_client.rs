@@ -62,6 +62,10 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
     ("togglemenu", "Toggle the in-game menu"),
     ("briefing", "Show your side's Siege objectives"),
     ("cmd", "Forward arguments as a reliable server command"),
+    (
+        "autoLogin",
+        "amLogin on this server with its cg_autoLoginServer/Pass pair (EternalJK)",
+    ),
     ("clientinfo", "Print client state and userinfo"),
     ("userinfo", "Print userinfo"),
     ("model", "Set player model and optional skin"),
