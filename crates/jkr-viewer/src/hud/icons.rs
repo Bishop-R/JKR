@@ -85,6 +85,9 @@ pub(crate) struct Icons {
     powers_hidden: bool,
     /// `holocronBits`: the holocrons held.
     holocrons: u32,
+    /// `CG_DrawFlagStatus`'s two icons, bottom up: the enemy flag the viewer's team holds,
+    /// the viewer's own flag taken.
+    flag_status: [Option<usize>; 2],
 }
 
 impl Default for Icons {
@@ -106,6 +109,7 @@ impl Default for Icons {
             rage_recovery: false,
             powers_hidden: true,
             holocrons: 0,
+            flag_status: [None; 2],
         }
     }
 }
@@ -153,6 +157,7 @@ impl Icons {
             .config_string(0)
             .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"))
             == Some(9);
+        self.flag_status = flag_status(game, snapshot.player.team());
         for (seconds, end) in self.seconds.iter_mut().zip(snapshot.player.powerups) {
             let remaining = i64::from(end) - i64::from(snapshot.server_time);
             *seconds = if remaining > 0 {
@@ -196,6 +201,16 @@ impl Icons {
         if visibility.hud && !self.powers_hidden {
             self.holocrons(list, viewport);
             self.active_powers(list, viewport);
+        }
+        if visibility.status && self.alive {
+            // `CG_DrawFlagStatus`: up the left edge from about two thirds down (2, 328 of
+            // 640 by 480), 32 high with 2 between.
+            let size = h * 32.0 / 480.0;
+            let mut y = h * 328.0 / 480.0;
+            for slot in self.flag_status.into_iter().flatten() {
+                self.quad(list, slot, Rect::new(8.0 * s, y, size, size), white);
+                y -= size + h * 2.0 / 480.0;
+            }
         }
         if self.enabled && visibility.status && self.alive {
             let item = assets::WEAPONS
@@ -384,3 +399,62 @@ const NUMBERS: [[u8; 3]; 999] = {
     }
     values
 };
+
+/// `CG_DrawFlagStatus`'s icons for a player of `team` (`CS_FLAGSTATUS`, `CG_YourTeamHasFlag`,
+/// `CG_OtherTeamHasFlag`): in CTF and CTY only, the enemy flag when the team holds it, then
+/// the team's own flag, crossed out, when the enemy holds it.
+fn flag_status(game: &GameState, team: u8) -> [Option<usize>; 2] {
+    const GT_CTF: i32 = 8;
+    const GT_CTY: i32 = 9;
+    const CS_FLAGSTATUS: usize = 23;
+    const TEAM_RED: u8 = 1;
+    const TEAM_BLUE: u8 = 2;
+    let gametype = game
+        .config_string(0)
+        .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"));
+    let own = match team {
+        TEAM_RED => 0,
+        TEAM_BLUE => 1,
+        _ => return [None; 2],
+    };
+    let enemy = 1 - own;
+    let flags = match gametype {
+        Some(GT_CTF) => assets::FLAGS,
+        Some(GT_CTY) => assets::CTY_FLAGS,
+        _ => return [None; 2],
+    };
+    // Red's status, then blue's; '1' is taken.
+    let status = game.config_string(CS_FLAGSTATUS).unwrap_or_default();
+    let taken = |side: usize| status.get(side) == Some(&b'1');
+    [
+        taken(enemy).then_some(flags[enemy]),
+        taken(own).then_some(assets::TAKEN_FLAGS[own]),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game(gametype: u8, status: &str) -> GameState {
+        let mut game = GameState::empty_local(0);
+        let info = format!("\\g_gametype\\{gametype}").into_bytes();
+        game.replace_config_string(0, info).unwrap();
+        game.replace_config_string(23, status.as_bytes().to_vec())
+            .unwrap();
+        game
+    }
+
+    #[test]
+    fn flag_status_shows_whose_flag_is_out() {
+        // Red holds blue's flag: red sees blue's flag; blue sees its own crossed out.
+        let ctf = game(8, "01");
+        assert_eq!(flag_status(&ctf, 1), [Some(47), None]);
+        assert_eq!(flag_status(&ctf, 2), [None, Some(116)]);
+        // Both out, in capture the ysalamiri: the ysalamiri flag, then the crossed one.
+        assert_eq!(flag_status(&game(9, "11"), 1), [Some(95), Some(115)]);
+        // A spectator, or another game type, sees none.
+        assert_eq!(flag_status(&ctf, 3), [None, None]);
+        assert_eq!(flag_status(&game(6, "11"), 1), [None, None]);
+    }
+}

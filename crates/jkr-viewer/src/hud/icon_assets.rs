@@ -5,12 +5,17 @@ use jkr_ui::TextureId;
 use jkr_vfs::VirtualFileSystem;
 
 /// Existing item catalogue, then 43 cause-of-death cells, then two CTY flag variants, then
-/// the Force powers' icons and rage recovery's.
-pub(super) const COUNT: usize = 115;
+/// the Force powers' icons and rage recovery's, then the two taken-flag icons.
+pub(super) const COUNT: usize = 117;
 const _: () = assert!(COUNT as u32 <= ui_renderer::HUD_CELL_COUNT);
 /// The first Force power icon's slot (`FORCE_ICONS` order); rage recovery follows them.
 pub(super) const FORCE: usize = 96;
 pub(super) const RAGE_RECOVERY: usize = FORCE + 18;
+/// The flags' item icons (`mpi_rflag`, `mpi_bflag`), their CTY variants (`_ys`) and the
+/// taken ones (`_x`), red then blue.
+pub(super) const FLAGS: [usize; 2] = [46, 47];
+pub(super) const CTY_FLAGS: [usize; 2] = [94, 95];
+pub(super) const TAKEN_FLAGS: [usize; 2] = [115, 116];
 /// `HolocronIcons` (`ui_shared.c:41-60`), by Force power, and `rageRecShader`.
 const FORCE_ICONS: [&str; 19] = [
     "gfx/mp/f_icon_lt_heal",
@@ -130,7 +135,9 @@ pub(super) fn load(
             51..=93 => format!("hud/mod/{}", MOD_NAMES[slot - 51]),
             94 => "gfx/hud/mpi_rflag_ys".to_owned(),
             95 => "gfx/hud/mpi_bflag_ys".to_owned(),
-            _ => FORCE_ICONS[slot - FORCE].to_owned(),
+            96..=114 => FORCE_ICONS[slot - FORCE].to_owned(),
+            115 => "gfx/hud/mpi_rflag_x".to_owned(),
+            _ => "gfx/hud/mpi_bflag_x".to_owned(),
         };
         if name.is_empty() {
             return None;
