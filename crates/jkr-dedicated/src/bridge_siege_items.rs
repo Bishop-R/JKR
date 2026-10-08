@@ -581,6 +581,28 @@ impl NativeGame {
             .collect()
     }
 
+    /// Siege's own Force regeneration pace for player `client` (`w_force.c:5448-5455`): a
+    /// point every 7 s while it carries an item that limits the Force (`forcelimit`), a
+    /// fifth of `g_forceRegenTime` (one at least) for a class with fast regeneration
+    /// (`CFL_FASTFORCEREGEN`); `None` for the usual pace.
+    pub(super) fn siege_regen_pace(&self, client: usize) -> Option<f64> {
+        let holding = self.peer(client)?.siege_hands.holding;
+        let limited = holding != 0
+            && self.siege.as_ref().is_some_and(|siege| {
+                siege.items.iter().any(|placed| {
+                    placed.id.legacy_number() == holding
+                        && !placed.item.freed
+                        && placed.item.force_limit
+                })
+            });
+        let fast = 1 << jkr_game_jka::siege_class::CFL_FASTFORCEREGEN;
+        jkr_game_jka::force_powers::siege_regen_pace(
+            limited,
+            self.siege_class_flags(client) & fast != 0,
+            self.force_rules.regen_time,
+        )
+    }
+
     /// The item player `client` carries, as a goal trigger reads it.
     pub(super) fn carried_item(
         &self,

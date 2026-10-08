@@ -26,8 +26,6 @@ use jkr_game_jka::npc_roster::{Fired, NpcRoster};
 use jkr_game_jka::player_death::Rng;
 use jkr_game_jka::pmove::{MovementCollision, MovementTrace};
 
-/// `g_forceRegenTime`'s default: a point of Force every 200 ms.
-const FORCE_REGEN_TIME: i32 = 200;
 /// `CONTENTS_BODY`.
 const CONTENTS_BODY: u32 = 0x100;
 
@@ -78,6 +76,13 @@ impl NativeGame {
             self.limits.duel_fraglimit,
             self.gametype,
         );
+        // Regeneration's own paces: Siege's (`w_force.c:5448-5455`), and Holocron FFA's
+        // point per holocron with no carry limit.
+        let siege_pace = (gametype == GAMETYPE_SIEGE)
+            .then(|| self.siege_regen_pace(client))
+            .flatten();
+        let holocron_regen = gametype == jkr_game_jka::holocron::GT_HOLOCRON
+            && self.cvars.value(b"g_maxHolocronCarry") == 0.0;
         // The Jedi Master's rule for the user's blows on an NPC, which is never the master.
         let spared_by_master = self.jedi_master_spares(Some(client as u16), usize::MAX);
         let mut scratch = std::mem::take(&mut self.force_scratch);
@@ -97,6 +102,7 @@ impl NativeGame {
                 gametype,
                 spared_by_master,
             ),
+            (siege_pace, holocron_regen),
             run,
         );
         let (telefrags, outcomes) = (
@@ -170,6 +176,7 @@ fn run_frame<T>(
         i32,
         bool,
     ),
+    (siege_pace, holocron_regen): (Option<f64>, bool),
     run: impl FnOnce(&mut PlayerState, &mut ForcePowers, &mut ForceFrame) -> T,
 ) -> Option<(T,)> {
     let ForceScratch {
@@ -212,7 +219,7 @@ fn run_frame<T>(
         && peer.session.duel_team == jkr_game_jka::power_duel::DUELTEAM_LONE)
         .then(|| {
             jkr_game_jka::power_duel::lone_regen_time(
-                FORCE_REGEN_TIME,
+                rules.regen_time,
                 peer.session.wins,
                 duel_fraglimit,
             )
@@ -232,14 +239,15 @@ fn run_frame<T>(
     let mut frame = ForceFrame {
         level_time: server_time,
         gametype,
-        regen_time: FORCE_REGEN_TIME,
+        regen_time: rules.regen_time,
         since_last_frame,
         client: client as u16,
         npc: false,
         team,
         saber_style,
         saber_only,
-        lone_regen,
+        regen_pace: siege_pace.or(lone_regen),
+        holocron_regen,
         health: &mut health,
         hand_extend_time: &mut hand,
         invulnerable_until: &mut invulnerable,

@@ -19,8 +19,6 @@ use crate::npc_world::NpcWorld;
 use crate::player_death::Rng;
 use crate::pmove::MovementTrace;
 
-/// `g_forceRegenTime`'s default: a point every 200 ms.
-const FORCE_REGEN_TIME: i32 = 200;
 /// `ps.genericEnemyIndex`; `EF_SEEKERDRONE` (`ps.eFlags`).
 const PS_GENERIC_ENEMY: usize = 26;
 const PS_EFLAGS: usize = 17;
@@ -291,14 +289,15 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             let mut frame = ForceFrame {
                 level_time,
                 gametype,
-                regen_time: FORCE_REGEN_TIME,
+                regen_time: rules.regen_time,
                 since_last_frame,
                 client: number,
                 npc: true,
                 team,
                 saber_style: 1,
                 saber_only: false,
-                lone_regen: None,
+                regen_pace: None,
+                holocron_regen: false,
                 health: &mut health,
                 hand_extend_time: &mut hand_extend_time,
                 invulnerable_until: &mut invulnerable,

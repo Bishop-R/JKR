@@ -355,6 +355,8 @@ pub struct ForceRules {
     /// `g_debugMelee`: no offensive power while holding a wall
     /// ([`crate::debug_melee::offensive`]), and a push or a pull takes one off it.
     pub debug_melee: bool,
+    /// `g_forceRegenTime`: milliseconds a point of Force takes to come back.
+    pub regen_time: i32,
 }
 
 impl Default for ForceRules {
@@ -366,6 +368,7 @@ impl Default for ForceRules {
             team_absorb_scale: 1.0,
             disabled_outside_duels: 0,
             debug_melee: false,
+            regen_time: 200,
         }
     }
 }
@@ -391,9 +394,15 @@ pub struct ForceFrame<'a> {
     /// saber-only (`HasSetSaberOnly`): Holocron FFA's.
     pub saber_style: u8,
     pub saber_only: bool,
-    /// A power duel's lone: its own regeneration pace
-    /// ([`crate::power_duel::lone_regen_time`]), added as the reference adds a double.
-    pub lone_regen: Option<f64>,
+    /// A regeneration pace of the user's own, added as the reference adds a double: a
+    /// power duel's lone's ([`crate::power_duel::lone_regen_time`]), a Siege class's with
+    /// fast regeneration (`CFL_FASTFORCEREGEN`: a fifth of `g_forceRegenTime`), a Siege
+    /// item carrier's whose item limits the Force (`forcelimit`: a point every 7 s)
+    /// (`w_force.c:5448-5467`).
+    pub regen_pace: Option<f64>,
+    /// Holocron FFA with no carry limit (`g_maxHolocronCarry` 0): a point regenerates for
+    /// each holocron carried, one without any, and neither the boon nor the master count.
+    pub holocron_regen: bool,
     pub health: &'a mut i32,
     /// `forceHandExtendTime` (the knockdown's memory keeps it).
     pub hand_extend_time: &'a mut i32,
@@ -869,15 +878,15 @@ impl Forcer<'_, '_> {
                 // "jedi master regenerates 4 times as fast".
                 let master = self.frame.gametype == crate::jedi_master::GT_JEDIMASTER
                     && crate::jedi_master::is_master(self.state);
-                let amount = if self.state.powerups[PW_FORCE_BOON] != 0 {
-                    6
-                } else if master {
-                    4
-                } else {
-                    1
-                };
+                let amount = regen_amount(
+                    self.frame
+                        .holocron_regen
+                        .then(|| self.force.holocrons.count()),
+                    self.state.powerups[PW_FORCE_BOON] != 0,
+                    master,
+                );
                 self.set_pool((self.pool() + amount).min(self.force.max));
-                self.force.regen_debounce = match self.frame.lone_regen {
+                self.force.regen_debounce = match self.frame.regen_pace {
                     Some(pace) => (f64::from(self.force.regen_debounce) + pace) as i32,
                     None => self.force.regen_debounce + self.frame.regen_time.max(1),
                 };
@@ -1619,6 +1628,32 @@ pub fn usable(
     available(state, force, power, 0)
 }
 
+/// The points one regeneration gives (`w_force.c:5425-5446`, `WP_ForcePowerRegenerate`):
+/// in Holocron FFA with no carry limit one for each holocron `carried` (one without any);
+/// else six under the boon, four for the Jedi Master, one otherwise.
+pub fn regen_amount(carried: Option<usize>, boon: bool, master: bool) -> i32 {
+    match carried {
+        Some(carried) => (carried as i32).max(1),
+        None if boon => 6,
+        None if master => 4,
+        None => 1,
+    }
+}
+
+/// Siege's own regeneration pace (`w_force.c:5448-5455`): a point every 7 s for the
+/// carrier of an item that limits the Force (`forcelimit`), a fifth of `regen_time` (one
+/// at least) for a class with fast regeneration (`CFL_FASTFORCEREGEN`); `None` for the
+/// usual pace.
+pub fn siege_regen_pace(force_limited: bool, fast_class: bool, regen_time: i32) -> Option<f64> {
+    if force_limited {
+        Some(7_000.0)
+    } else if fast_class {
+        Some((f64::from(regen_time) * 0.2).max(1.0))
+    } else {
+        None
+    }
+}
+
 /// `BG_ForcePowerDrain`: the cost taken from the pool, levitation's by how fast the
 /// player rises.
 pub(crate) fn drain(
@@ -1705,5 +1740,20 @@ mod rules_tests {
         assert!(usable_with(FP_GRIP, ForceRules::default()));
         assert!(!usable_with(FP_GRIP, debug_melee));
         assert!(usable_with(FP_PUSH, debug_melee));
+    }
+
+    /// Regeneration's amounts and Siege's paces (`w_force.c:5425-5455`).
+    #[test]
+    fn regeneration_follows_the_game_type_and_class() {
+        assert_eq!(regen_amount(None, false, false), 1);
+        assert_eq!(regen_amount(None, true, true), 6);
+        assert_eq!(regen_amount(None, false, true), 4);
+        // Holocron FFA without a carry limit: a point per holocron, the boon aside.
+        assert_eq!(regen_amount(Some(3), true, false), 3);
+        assert_eq!(regen_amount(Some(0), false, false), 1);
+        assert_eq!(siege_regen_pace(false, true, 200), Some(40.0));
+        assert_eq!(siege_regen_pace(false, true, 2), Some(1.0));
+        assert_eq!(siege_regen_pace(true, true, 200), Some(7_000.0));
+        assert_eq!(siege_regen_pace(false, false, 200), None);
     }
 }

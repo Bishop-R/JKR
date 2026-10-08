@@ -86,6 +86,7 @@ impl NativeGame {
                 | "g_duelweapondisable" => self.refresh_rule_settings(),
                 "sv_cheats" => self.settings.cheats = integer != 0,
                 "g_flagdrag" => self.flag_drag = var.value(),
+                "g_forceregentime" => self.force_rules.regen_time = integer,
                 "g_debugmelee" => {
                     self.debug_melee = integer != 0;
                     self.force_rules.debug_melee = integer != 0;
