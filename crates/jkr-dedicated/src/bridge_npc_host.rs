@@ -98,6 +98,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) intermission: bool,
     /// jaPRO's `g_scoreNPCs` ([`NpcHost::score_npcs`]).
     pub(super) score_npcs: i32,
+    /// jaPRO's Force options, for the NPCs' powers and the players'.
+    pub(super) force_rules: jkr_game_jka::force_powers::ForceRules,
     pub(super) map: Option<&'a LoadedMap>,
     /// Everything solid but the NPCs: the players first, then missiles and brushes.
     pub(super) solids: &'a [BoxObstacle],
@@ -622,6 +624,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn score_npcs(&self) -> i32 {
         self.score_npcs
+    }
+
+    fn force_rules(&self) -> jkr_game_jka::force_powers::ForceRules {
+        self.force_rules
     }
 
     fn warmup(&self) -> bool {

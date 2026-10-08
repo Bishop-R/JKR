@@ -331,6 +331,31 @@ impl ForcePowers {
     }
 }
 
+/// jaPRO's Force options; [`Default`] is stock's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ForceRules {
+    /// `g_teamHealScale`, `g_teamEnergizeScale`: what team heal and team replenish give,
+    /// against stock's 50, 33 or 25.
+    pub team_heal_scale: f32,
+    pub team_energize_scale: f32,
+    /// `g_teamAbsorbScale`: what absorb takes from a teammate's power.
+    pub team_absorb_scale: f32,
+    /// `g_forcePowerDisableFFA`: the powers (a bit each) no one may use outside a duel —
+    /// in every game type, despite the name.
+    pub disabled_outside_duels: u32,
+}
+
+impl Default for ForceRules {
+    fn default() -> Self {
+        Self {
+            team_heal_scale: 1.0,
+            team_energize_scale: 1.0,
+            team_absorb_scale: 1.0,
+            disabled_outside_duels: 0,
+        }
+    }
+}
+
 /// What an update is run in: the time, the game type, the server's regeneration pace,
 /// the player's number, team, health (the game's), hand and spawn protection, and
 /// everyone else — with the entities its sounds become and the sound table
@@ -368,6 +393,8 @@ pub struct ForceFrame<'a> {
     /// The user's typing under jaPRO's god chat ([`crate::god_chat`]): typing, its powers
     /// reach no one. Never an NPC's.
     pub typing: crate::god_chat::Typing,
+    /// jaPRO's Force options.
+    pub rules: ForceRules,
 }
 
 /// A hand's off-sound as `Cmd_ToggleSaber_f` plays it (`g_cmds.c:2720-2730`).
@@ -879,6 +906,7 @@ impl Forcer<'_, '_> {
             power,
             self.frame.level_time,
             self.frame.gametype,
+            self.frame.rules,
         )
     }
 
@@ -1469,7 +1497,8 @@ pub(crate) fn available(
     pool >= drain
 }
 
-/// `WP_ForcePowerUsable` for a player in the game (never a spectator).
+/// `WP_ForcePowerUsable` for a player in the game (never a spectator), under jaPRO's
+/// `rules`.
 pub fn usable(
     state: &PlayerState,
     force: &ForcePowers,
@@ -1477,12 +1506,17 @@ pub fn usable(
     power: usize,
     level_time: i32,
     gametype: i32,
+    rules: ForceRules,
 ) -> bool {
     if has_ysalamiri(state, gametype)
         || health <= 0
         || state.stats[STAT_HEALTH] as i32 <= 0
         || state.raw_field(PS_EFLAGS).unwrap_or(0) & EF_DEAD != 0
     {
+        return false;
+    }
+    // jaPRO's `g_forcePowerDisableFFA`.
+    if !state.duel_in_progress() && rules.disabled_outside_duels & (1 << power) != 0 {
         return false;
     }
     if !can_use_now(state, power, level_time, gametype)
@@ -1543,4 +1577,30 @@ pub(crate) fn drain(
         cost
     };
     state.set_raw_field(PS_FORCE_POWER, (pool - cost).max(0) as u32);
+}
+
+#[cfg(test)]
+mod rules_tests {
+    use super::*;
+
+    /// jaPRO's `g_forcePowerDisableFFA` withholds a power outside a duel only.
+    #[test]
+    fn a_power_withheld_outside_duels_is_used_in_one() {
+        let mut state = PlayerState::default();
+        state.stats[STAT_HEALTH] = 100;
+        state.set_raw_field(PS_KNOWN, 1 << FP_LEVITATION);
+        state.set_raw_field(PS_FORCE_POWER, 100);
+        let mut force = ForcePowers::with_levels([0; NUM_FORCE_POWERS]);
+        force.levels[FP_LEVITATION] = 3;
+        let withheld = ForceRules {
+            disabled_outside_duels: 1 << FP_LEVITATION,
+            ..ForceRules::default()
+        };
+        let usable_with =
+            |state: &PlayerState, rules| usable(state, &force, 100, FP_LEVITATION, 1_000, 0, rules);
+        assert!(usable_with(&state, ForceRules::default()));
+        assert!(!usable_with(&state, withheld));
+        state.set_raw_field(PS_DUEL_IN_PROGRESS, 1);
+        assert!(usable_with(&state, withheld));
+    }
 }

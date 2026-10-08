@@ -143,6 +143,7 @@ impl NativeGame {
             gametype: self.gametype,
             thrower: client as u16,
             pull,
+            rules: self.force_rules,
         };
         // What every player was, to tell afterwards whom the throw changed (a throw is a
         // button press, not a per-frame cost).

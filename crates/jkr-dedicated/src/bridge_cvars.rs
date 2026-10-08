@@ -95,6 +95,12 @@ impl NativeGame {
                 "g_lagicon" => self.lag_icon = integer != 0,
                 "g_godchat" => self.god_chat = integer != 0,
                 "g_autoquit" => self.auto_quit_days = integer,
+                "g_teamhealscale" => self.force_rules.team_heal_scale = var.value(),
+                "g_teamenergizescale" => self.force_rules.team_energize_scale = var.value(),
+                "g_teamabsorbscale" => self.force_rules.team_absorb_scale = var.value(),
+                "g_forcepowerdisableffa" => {
+                    self.force_rules.disabled_outside_duels = integer as u32
+                }
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }

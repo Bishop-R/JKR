@@ -975,6 +975,10 @@ pub trait NpcHost: SaberParseHost {
     fn score_npcs(&self) -> i32 {
         2
     }
+    /// jaPRO's Force options, which an NPC's powers obey too.
+    fn force_rules(&self) -> crate::force_powers::ForceRules {
+        crate::force_powers::ForceRules::default()
+    }
     /// `level.warmupTime`: no scoring during the warm-up.
     fn warmup(&self) -> bool {
         false

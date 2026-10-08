@@ -171,6 +171,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             gametype: self.host.gametype(),
             thrower,
             pull,
+            rules: self.host.force_rules(),
         };
         let Some(players) = self.host.player_force() else {
             return;

@@ -14,7 +14,7 @@ impl NativeGame {
     /// the dodge taken on it. Anything but a client in the game never dodges.
     pub(super) fn shot_dodge(&mut self, number: u16, hit_location: i32, level_time: i32) -> bool {
         let mode = self.integer_cvar(b"g_forceDodge", 1);
-        let gametype = self.gametype;
+        let (gametype, force_rules) = (self.gametype, self.force_rules);
         let Some(peer) = self.peer(usize::from(number)) else {
             return false;
         };
@@ -38,6 +38,7 @@ impl NativeGame {
                     FP_SPEED,
                     level_time,
                     gametype,
+                    force_rules,
                 ),
         };
         let rng = &mut self.deaths.rng;

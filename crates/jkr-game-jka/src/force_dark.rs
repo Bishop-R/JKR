@@ -245,7 +245,13 @@ impl Forcer<'_, '_> {
     /// level left, or `None` where nothing is absorbed.
     fn absorbed(&mut self, number: u16, power: usize, spent: i32) -> Option<i32> {
         let (level_time, level) = (self.frame.level_time, i32::from(self.force.levels[power]));
+        let (gametype, team, scale) = (
+            self.frame.gametype,
+            self.frame.team,
+            self.frame.rules.team_absorb_scale,
+        );
         let victim = self.frame.others.player(number)?;
+        let teammate = same_team(gametype, team, victim.team);
         let (left, event) = crate::force_throw::absorb_conversion(
             victim.state,
             victim.force,
@@ -253,6 +259,7 @@ impl Forcer<'_, '_> {
             level,
             spent,
             level_time,
+            teammate.then_some(scale),
         )?;
         if let Some(event) = event {
             self.raise(event);

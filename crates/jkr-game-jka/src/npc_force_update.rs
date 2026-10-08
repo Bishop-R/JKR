@@ -283,6 +283,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         );
         let mut invulnerable = 0;
         let saber_off_sounds = crate::npc_jedi_glue::saber_off_sounds(npc);
+        let rules = self.host.force_rules();
         self.host.player_force()?.force_begin();
         let out = {
             let mut others = NpcOthers::new(&mut *self, number);
@@ -303,6 +304,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 others: &mut others,
                 saber_off_sounds,
                 typing: Default::default(),
+                rules,
             };
             let out = run(&mut state, &mut force, &mut frame);
             others.credit(&mut state);

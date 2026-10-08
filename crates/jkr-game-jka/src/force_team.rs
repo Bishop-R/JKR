@@ -74,6 +74,14 @@ impl Forcer<'_, '_> {
             2 => 33,
             _ => 25,
         };
+        // jaPRO's `g_teamHealScale` and `g_teamEnergizeScale`: `50 * value`, truncated.
+        let rules = self.frame.rules;
+        let scale = if heal {
+            rules.team_heal_scale
+        } else {
+            rules.team_energize_scale
+        };
+        let amount = (amount as f32 * scale) as i32;
         self.force.debounce[power] = level_time + 2_000;
         let cost = FORCE_POWER_NEEDED[usize::from(level)][power];
         if !heal {

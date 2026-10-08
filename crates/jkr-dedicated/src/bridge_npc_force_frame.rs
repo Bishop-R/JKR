@@ -205,6 +205,7 @@ fn run_frame<T>(
     );
     let saber_style = peer.sabers.base_style();
     let typing = peer.typing;
+    let rules = host.force_rules;
     // `Cmd_ToggleSaber_f`'s off-sounds: each held saber's own, where it has one.
     let hands = &peer.sabers.hands;
     let saber_off_sounds = std::array::from_fn(|hand| match hands[hand].sound_off {
@@ -251,6 +252,7 @@ fn run_frame<T>(
         others: &mut others,
         saber_off_sounds,
         typing,
+        rules,
     };
     let result = run(state, &mut force, &mut frame);
     let world = host.server.world_mut(host.world)?;

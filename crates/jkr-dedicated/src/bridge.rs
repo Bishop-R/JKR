@@ -316,6 +316,8 @@ pub struct NativeGame {
     /// jaPRO's `g_autoQuit` days, and whether the quit it asks for is queued.
     auto_quit_days: i32,
     quitting: bool,
+    /// jaPRO's Force options (`bridge_force_options`), kept from the cvar hook.
+    force_rules: jkr_game_jka::force_powers::ForceRules,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -523,6 +525,7 @@ impl NativeGame {
             god_chat: false,
             auto_quit_days: 0,
             quitting: false,
+            force_rules: Default::default(),
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
@@ -3527,6 +3530,8 @@ mod bridge_duel;
 mod bridge_follow;
 #[path = "bridge_force.rs"]
 mod bridge_force;
+#[path = "bridge_force_options.rs"]
+mod bridge_force_options;
 #[path = "bridge_generic.rs"]
 mod bridge_generic;
 #[path = "bridge_holocron.rs"]

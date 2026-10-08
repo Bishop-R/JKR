@@ -206,13 +206,15 @@ const ES_SABER_ENTITY: usize = 37;
 const ES_TRICKED: usize = 58;
 const EV_GENERAL_SOUND: u32 = 76;
 
-/// The throw's context: the time, the game type, the thrower's number.
+/// The throw's context: the time, the game type, the thrower's number, and jaPRO's
+/// Force options.
 #[derive(Clone, Copy, Debug)]
 pub struct Throw {
     pub level_time: i32,
     pub gametype: i32,
     pub thrower: u16,
     pub pull: bool,
+    pub rules: crate::force_powers::ForceRules,
 }
 
 /// What the thrower brings to every target, read once.
@@ -310,6 +312,7 @@ fn begin(context: Throw, world: &mut dyn ThrowWorld) -> Option<Thrower> {
         power,
         level_time,
         context.gametype,
+        context.rules,
     ) {
         return None;
     }
@@ -588,6 +591,7 @@ fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dy
         let Some(victim) = world.player(candidate.number) else {
             return;
         };
+        let teammate = on_same_team(context.gametype, thrower.team, victim.team);
         match absorb_conversion(
             victim.state,
             victim.force,
@@ -595,6 +599,7 @@ fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dy
             thrower.level as i32,
             thrower.cost,
             level_time,
+            teammate.then_some(context.rules.team_absorb_scale),
         ) {
             Some((level, event)) => {
                 events.extend(event);
@@ -789,8 +794,10 @@ fn break_grip(context: Throw, number: u16, level: i32, world: &mut dyn ThrowWorl
 /// `WP_AbsorbConversion` (`w_force.c:791-848`) on player `number` for a push, pull,
 /// grip, lightning or drain at `level` that cost `spent`: with absorption running, the
 /// power loses the victim's absorb levels and the victim's pool gains a third of the cost
-/// for each (one at least), with the absorbing hit's sound at most every 400 ms. Returns
-/// the power's level now and that sound's event, or `None` where nothing is absorbed.
+/// for each (one at least) — scaled by `teammate_scale` when the user is its teammate
+/// (jaPRO's `g_teamAbsorbScale`) — with the absorbing hit's sound at most every 400 ms.
+/// Returns the power's level now and that sound's event, or `None` where nothing is
+/// absorbed.
 pub(crate) fn absorb_conversion(
     state: &mut PlayerState,
     force: &mut ForcePowers,
@@ -798,6 +805,7 @@ pub(crate) fn absorb_conversion(
     level: i32,
     spent: i32,
     level_time: i32,
+    teammate_scale: Option<f32>,
 ) -> Option<(i32, Option<EventEntity>)> {
     let absorb = i32::from(force.levels[FP_ABSORB]);
     if absorb == 0 || state.raw_field(PS_ACTIVE).unwrap_or(0) & (1 << FP_ABSORB) == 0 {
@@ -806,6 +814,10 @@ pub(crate) fn absorb_conversion(
     let mut gain = (spent / 3) * absorb;
     if gain < 1 && spent >= 1 {
         gain = 1;
+    }
+    // jaPRO's `g_teamAbsorbScale`, for a teammate's power: `addTot *= value`.
+    if let Some(scale) = teammate_scale {
+        gain = (gain as f32 * scale) as i32;
     }
     let pool = (state.raw_field(PS_FORCE_POWER).unwrap_or(0) as i32 + gain).min(force.max);
     state.set_raw_field(PS_FORCE_POWER, pool as u32);
@@ -859,6 +871,7 @@ fn can_counter_throw(
         power,
         context.level_time,
         context.gametype,
+        context.rules,
     ) {
         return false;
     }
@@ -981,5 +994,29 @@ fn normalize(v: &mut [f32; 3]) {
         for axis in v.iter_mut() {
             *axis *= inverse;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// jaPRO's `g_teamAbsorbScale` scales what absorb takes from a teammate's power only.
+    #[test]
+    fn absorb_scales_a_teammates_power() {
+        let mut state = PlayerState::default();
+        state.set_raw_field(PS_ACTIVE, 1 << FP_ABSORB);
+        let mut force = ForcePowers::with_levels([0; crate::force_powers::NUM_FORCE_POWERS]);
+        force.levels[FP_ABSORB] = 3;
+        let mut gained = |scale| {
+            state.set_raw_field(PS_FORCE_POWER, 0);
+            let _ = absorb_conversion(&mut state, &mut force, 1, 3, 20, 0, scale);
+            state.raw_field(PS_FORCE_POWER).unwrap_or(0)
+        };
+        // A third of the cost per absorb level: (20 / 3) * 3.
+        assert_eq!(gained(None), 18);
+        assert_eq!(gained(Some(1.0)), 18);
+        assert_eq!(gained(Some(0.5)), 9);
+        assert_eq!(gained(Some(0.0)), 0);
     }
 }
