@@ -55,6 +55,8 @@ mod permanent_entities;
 mod player_angle_rules;
 mod player_angles;
 mod player_identity;
+mod siege_looks;
+pub use siege_looks::{SiegeClassLook, SiegeClassLooks};
 pub mod speed_trail;
 mod vehicle_missile_effects;
 pub use client_info::{LegacyClientInfo, legacy_body_frame};
@@ -194,8 +196,8 @@ pub use player_angles::{
     LegacyPlayerAngleController, LegacyPlayerAngleInputs, LegacyPlayerAngleSample,
 };
 pub use player_identity::{
-    legacy_client_appearance, legacy_client_appearance_forced, legacy_client_saber_name,
-    legacy_client_saber_names,
+    legacy_client_appearance, legacy_client_appearance_dressed, legacy_client_appearance_forced,
+    legacy_client_saber_name, legacy_client_saber_names,
 };
 pub use player_profile::{
     PlayerProfile, PlayerProfileError, SaberColor, pack_saber_rgb, unpack_saber_rgb,

@@ -249,18 +249,22 @@ pub(crate) fn submit(
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
     }
+    // A siege class's blade colour goes with its thrown saber (the presented level's looks).
+    let siege_looks = std::sync::Arc::clone(gpu.clientinfo_watch.siege_looks.current());
     let thrown = snapshot.zip(game_state).map(|(snapshot, game)| {
-        jkr_client::LegacyThrownSabers::new(snapshot, game).with_saber_options(
-            gpu.console
-                .as_ref()
-                .and_then(|console| console.bool_cvar("cg_saberTeamColors"))
-                .unwrap_or(true),
-            gpu.console
-                .as_ref()
-                .and_then(|console| console.integer_cvar("cg_noRGBSabers"))
-                .unwrap_or(0)
-                == 0,
-        )
+        jkr_client::LegacyThrownSabers::new(snapshot, game)
+            .with_siege_looks(&siege_looks)
+            .with_saber_options(
+                gpu.console
+                    .as_ref()
+                    .and_then(|console| console.bool_cvar("cg_saberTeamColors"))
+                    .unwrap_or(true),
+                gpu.console
+                    .as_ref()
+                    .and_then(|console| console.integer_cvar("cg_noRGBSabers"))
+                    .unwrap_or(0)
+                    == 0,
+            )
     });
     let mut overlay_count = 0;
     for entity in active_world

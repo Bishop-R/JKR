@@ -227,6 +227,14 @@ impl Session {
         self.adapter.set_rgb_sabers(on);
     }
 
+    /// The siege classes' looks for the demo's level.
+    pub(crate) fn set_siege_class_looks(
+        &mut self,
+        looks: &std::sync::Arc<jkr_client::SiegeClassLooks>,
+    ) {
+        self.adapter.set_siege_class_looks(looks);
+    }
+
     /// Open and prime a demo at its first authoritative snapshot.
     pub(crate) fn open(path: &Path, camera: Camera, fps: u32) -> Result<Self, Box<dyn Error>> {
         let mut stream = DemoPlayback::new(BufReader::new(File::open(path)?))?;

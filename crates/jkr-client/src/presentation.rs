@@ -124,6 +124,11 @@ impl LegacyWorldAdapter {
         self.rgb_sabers = on;
     }
 
+    /// The siege classes' looks ([`crate::SiegeClassLooks`]) for the level being shown.
+    pub fn set_siege_class_looks(&mut self, looks: &std::sync::Arc<crate::SiegeClassLooks>) {
+        self.player_identities.set_looks(looks);
+    }
+
     pub fn apply_snapshot(
         &mut self,
         snapshot: &Snapshot,
@@ -243,7 +248,7 @@ impl LegacyWorldAdapter {
                 } else {
                     legacy_equipment(
                         game_state,
-                        color_policy,
+                        (color_policy, self.player_identities.looks()),
                         state.client_num(),
                         state.weapon(),
                         state.saber_holstered(),
@@ -333,7 +338,7 @@ impl LegacyWorldAdapter {
                 local_id,
                 legacy_equipment(
                     game_state,
-                    color_policy,
+                    (color_policy, self.player_identities.looks()),
                     snapshot.player.client_num(),
                     snapshot.player.weapon(),
                     snapshot.player.saber_holstered(),

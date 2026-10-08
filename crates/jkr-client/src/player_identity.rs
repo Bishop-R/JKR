@@ -24,6 +24,19 @@ pub fn legacy_client_appearance(game_state: &GameState, client_num: u16) -> Opti
     legacy_client_appearance_forced(game_state, client_num, None)
 }
 
+/// [`legacy_client_appearance_forced`], then the model and skin the player's siege class
+/// forces (`cg_players.c:1705-1725`), which come after `cg_forceModel`.
+pub fn legacy_client_appearance_dressed(
+    game_state: &GameState,
+    client_num: u16,
+    forced: Option<&str>,
+    looks: &crate::SiegeClassLooks,
+) -> Option<Appearance> {
+    let mut appearance = legacy_client_appearance_forced(game_state, client_num, forced)?;
+    looks.dress(game_state, client_num, &mut appearance);
+    Some(appearance)
+}
+
 /// Apply cg_forceModel before the existing team-skin policy (cg_players.c:1656-1696).
 pub fn legacy_client_appearance_forced(
     game_state: &GameState,
@@ -187,11 +200,27 @@ fn appearance_from_config(config: &[u8]) -> Option<Appearance> {
 pub(crate) struct LegacyPlayerIdentities {
     corpse_appearances: BTreeMap<EntityId, Appearance>,
     copied: BTreeSet<EntityId>,
+    /// The siege classes' looks, which dress live players and the bodies they leave.
+    looks: std::sync::Arc<crate::SiegeClassLooks>,
 }
 
 impl LegacyPlayerIdentities {
+    pub(crate) fn set_looks(&mut self, looks: &std::sync::Arc<crate::SiegeClassLooks>) {
+        if !std::sync::Arc::ptr_eq(&self.looks, looks) {
+            self.looks = std::sync::Arc::clone(looks);
+        }
+    }
+
+    pub(crate) fn looks(&self) -> &crate::SiegeClassLooks {
+        &self.looks
+    }
+
+    fn dressed(&self, game_state: &GameState, client_num: u16) -> Option<Appearance> {
+        legacy_client_appearance_dressed(game_state, client_num, None, &self.looks)
+    }
+
     pub(crate) fn live(&self, game_state: &GameState, client_num: u16) -> Option<Appearance> {
-        legacy_client_appearance(game_state, client_num)
+        self.dressed(game_state, client_num)
     }
 
     pub(crate) fn corpse(
@@ -203,7 +232,7 @@ impl LegacyPlayerIdentities {
         if let Some(appearance) = self.corpse_appearances.get(&entity_id) {
             return Some(appearance.clone());
         }
-        let appearance = legacy_client_appearance(game_state, client_num)?;
+        let appearance = self.dressed(game_state, client_num)?;
         Some(self.capture_corpse(entity_id, appearance))
     }
 
@@ -219,7 +248,7 @@ impl LegacyPlayerIdentities {
         client_num: u16,
         body_id: EntityId,
     ) {
-        if let Some(appearance) = legacy_client_appearance(game_state, client_num) {
+        if let Some(appearance) = self.dressed(game_state, client_num) {
             self.corpse_appearances.insert(body_id, appearance);
         }
     }

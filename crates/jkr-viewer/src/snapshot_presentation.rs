@@ -345,6 +345,12 @@ impl GpuState {
                     mesh.angle_controller = jkr_client::LegacyPlayerAngleController::new();
                 }
             }
+            // `CG_NewClientInfo`'s siege classes: each player dressed in its class's looks.
+            let looks = self
+                .clientinfo_watch
+                .siege_looks
+                .for_level(session.game_state(), self.vfs.as_deref());
+            adapter.set_siege_class_looks(looks);
             adapter.apply_snapshot(snapshot, session.game_state(), &mut self.live_world);
             if session.is_local() {
                 self.presentation_clock

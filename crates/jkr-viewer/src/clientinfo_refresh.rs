@@ -15,12 +15,14 @@ use super::*;
 use crate::actor_load::{build_actor_mesh, client_saber_names};
 use crate::player_assets::{GlaCache, load_player_appearance_with};
 use crate::shared_geometry::relocate;
-use jkr_client::legacy_client_appearance_forced;
+use jkr_client::legacy_client_appearance_dressed;
 
 #[path = "corpse_actors.rs"]
 mod corpse_actors;
 #[path = "clientinfo_forcing.rs"]
 mod forcing;
+#[path = "siege_looks.rs"]
+pub(crate) mod siege_looks;
 
 /// Per-world appearance loading caches used by dirty clientinfo notifications.
 pub(crate) struct ClientInfoWatch {
@@ -32,6 +34,8 @@ pub(crate) struct ClientInfoWatch {
     local_identity: (i32, i32),
     /// Appearances whose load failed; not retried until the string changes.
     pub(crate) failed: BTreeSet<Appearance>,
+    /// The siege classes' looks for the level shown.
+    pub(crate) siege_looks: siege_looks::SiegeLooksCache,
 }
 
 impl ClientInfoWatch {
@@ -44,6 +48,7 @@ impl ClientInfoWatch {
             overrides: std::array::from_fn(|_| String::new()),
             local_identity: (-1, -1),
             failed: BTreeSet::new(),
+            siege_looks: Default::default(),
         }
     }
 }
@@ -147,10 +152,16 @@ impl GpuState {
                 self.clientinfo_watch.local_identity,
                 forcing::team(game_state, client),
             );
-            let Some(appearance) = legacy_client_appearance_forced(
+            // A siege class's model and skin come after `cg_forceModel` (`CG_NewClientInfo`).
+            let looks = self
+                .clientinfo_watch
+                .siege_looks
+                .for_level(game_state, self.vfs.as_deref());
+            let Some(appearance) = legacy_client_appearance_dressed(
                 game_state,
                 client,
                 override_model.as_deref().or(forced),
+                looks,
             ) else {
                 return Ok(());
             };

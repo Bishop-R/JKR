@@ -1,7 +1,7 @@
 //! Snapshot-indexed thrown saber ownership; no renderer or predicted state.
 
 use crate::player_identity::saber_names_from_config;
-use crate::presentation_equipment::{saber_color_from_config, team_saber_color};
+use crate::presentation_equipment::{saber_color_from_config, saber_index_rgb, team_saber_color};
 use jkr_protocol::{EntityState, GameState, Snapshot};
 
 /// Owner-authored presentation of the primary saber detached from the hand.
@@ -42,6 +42,7 @@ pub struct LegacyThrownSabers<'a> {
     snapshot: &'a Snapshot,
     game: &'a GameState,
     policy: crate::TeamColorPolicy,
+    looks: Option<&'a crate::SiegeClassLooks>,
 }
 
 impl<'a> LegacyThrownSabers<'a> {
@@ -58,7 +59,14 @@ impl<'a> LegacyThrownSabers<'a> {
             snapshot,
             game,
             policy: crate::TeamColorPolicy::from_game_state(game),
+            looks: None,
         }
+    }
+
+    /// The siege classes' looks: a class's own blade colour goes with its thrown saber.
+    pub fn with_siege_looks(mut self, looks: &'a crate::SiegeClassLooks) -> Self {
+        self.looks = Some(looks);
+        self
     }
 
     /// EternalJK's `cg_saberTeamColors` and `cg_noRGBSabers` for the thrown blades' colours.
@@ -89,8 +97,14 @@ impl<'a> LegacyThrownSabers<'a> {
         Some(LegacyThrownSaber {
             owner,
             name: saber_names_from_config(config)[0]?,
-            color: team_saber_color(self.policy, config, 0)
-                .unwrap_or_else(|| saber_color_from_config(config, 0, self.policy.rgb_sabers)),
+            color: match self
+                .looks
+                .and_then(|looks| looks.saber_color(self.game, owner, 0))
+            {
+                Some(color) => saber_index_rgb(color),
+                None => team_saber_color(self.policy, config, 0)
+                    .unwrap_or_else(|| saber_color_from_config(config, 0, self.policy.rgb_sabers)),
+            },
             in_flight,
             extra_blades: holstered != 1,
             returning: !state.saber_in_flight(),

@@ -7,7 +7,7 @@ use jkr_runtime::{HeldEquipment, HeldItemKind};
 #[allow(clippy::too_many_arguments)]
 pub(super) fn legacy_equipment(
     game_state: &GameState,
-    policy: crate::TeamColorPolicy,
+    (policy, looks): (crate::TeamColorPolicy, &crate::SiegeClassLooks),
     client_num: u16,
     weapon: u8,
     saber_holstered: u8,
@@ -21,9 +21,9 @@ pub(super) fn legacy_equipment(
         weapon,
         primary_in_flight: kind == HeldItemKind::EnergyBlade && saber_in_flight,
         active: equipment_active(kind, saber_holstered, alive),
-        color: client_saber_color_at(game_state, policy, client_num, 0),
+        color: client_saber_color_at(game_state, (policy, looks), client_num, 0),
         secondary_active: secondary_equipment_active(kind, saber_holstered, alive),
-        secondary_color: client_saber_color_at(game_state, policy, client_num, 1),
+        secondary_color: client_saber_color_at(game_state, (policy, looks), client_num, 1),
         trail_duration_millis: trail_duration(kind, saber_move),
     })
 }
@@ -64,14 +64,18 @@ pub(super) fn equipment_active(kind: HeldItemKind, saber_holstered: u8, alive: b
     kind != HeldItemKind::EnergyBlade || (alive && saber_holstered < 2)
 }
 
-/// Blade colour of the selected primary or secondary clientinfo slot.
+/// Blade colour of the selected primary or secondary clientinfo slot: a siege class's own
+/// colour first (`CG_NewClientInfo`), else the team's or the player's.
 fn client_saber_color_at(
     game_state: &GameState,
-    policy: crate::TeamColorPolicy,
+    (policy, looks): (crate::TeamColorPolicy, &crate::SiegeClassLooks),
     client_num: u16,
     saber: usize,
 ) -> [u8; 3] {
     const CS_PLAYERS: usize = 1_131;
+    if let Some(color) = looks.saber_color(game_state, client_num, saber) {
+        return saber_index_rgb(color);
+    }
     game_state
         .config_string(CS_PLAYERS + usize::from(client_num))
         .map_or(legacy_blade_rgb(4), |config| {
@@ -125,6 +129,19 @@ pub(super) fn saber_color_from_config(config: &[u8], saber: usize, rgb: bool) ->
         Some(packed) => crate::unpack_saber_rgb(legacy_atoi(packed) as u32),
         None => legacy_blade_rgb(color - SABER_RGB),
     }
+}
+
+/// The stock tint of a `saber_colors_t` number, one past purple rolled over as
+/// `ClampSaberColor` does without a custom tint.
+pub(super) fn saber_index_rgb(color: i32) -> [u8; 3] {
+    const NUM_SABER_COLORS: i32 = 12;
+    const SABER_RGB: i32 = 6;
+    let color = color.rem_euclid(NUM_SABER_COLORS);
+    legacy_blade_rgb(if color < SABER_RGB {
+        color
+    } else {
+        color - SABER_RGB
+    })
 }
 
 /// Stock blade tints of `saber_colors_t` 0..=5 (`cg_players.c:6371-6394`).

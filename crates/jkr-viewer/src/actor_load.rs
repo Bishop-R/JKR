@@ -5,7 +5,7 @@
 //! replacement mesh for a player who changed model.
 
 use super::*;
-use jkr_client::{legacy_client_appearance, legacy_client_saber_names};
+use jkr_client::legacy_client_saber_names;
 
 /// The player everyone falls back to when their model cannot be loaded.
 pub(crate) fn fallback_appearance() -> Appearance {
@@ -183,8 +183,12 @@ pub(crate) fn load_actor_meshes(
     // can only use the shared Kyle fallback and cannot hold its own pose.
     let mut actors = BTreeMap::new();
     if let Some(game_state) = game_state {
+        let mut looks = crate::clientinfo_refresh::siege_looks::SiegeLooksCache::default();
+        let looks = looks.for_level(game_state, Some(vfs));
         for client_num in 0..32_u16 {
-            if let Some(appearance) = legacy_client_appearance(game_state, client_num) {
+            if let Some(appearance) =
+                jkr_client::legacy_client_appearance_dressed(game_state, client_num, None, looks)
+            {
                 actors.insert(EntityId::new(u64::from(client_num) + 1), appearance);
             }
         }

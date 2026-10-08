@@ -52,6 +52,12 @@ impl GpuState {
         if let Some(session) = &mut self.demo_session {
             session.set_saber_team_colors(saber_team_colors);
             session.set_rgb_sabers(rgb_sabers);
+            let looks = std::sync::Arc::clone(
+                self.clientinfo_watch
+                    .siege_looks
+                    .for_level(session.game_state(), self.vfs.as_deref()),
+            );
+            session.set_siege_class_looks(&looks);
         }
         self.effect_aux.marks.limit = console
             .integer_cvar("cg_ghoul2Marks")
