@@ -5,6 +5,19 @@ use jkr_protocol::{GameState, Snapshot};
 use jkr_ui::{Color, FontWeight, Rect, TextAlign};
 use std::fmt::Write;
 
+/// `RANK_TIED_FLAG`.
+const RANK_TIED: i32 = 0x4000;
+
+/// A kill of ours, as the obituary tells it.
+#[derive(Clone, Copy)]
+struct Kill {
+    victim: u16,
+    /// The victim was the Jedi Master.
+    victim_was_master: bool,
+    /// Someone is the Jedi Master (`CG_ThereIsAMaster`, over the players in view).
+    master: bool,
+}
+
 struct Plum {
     text: String,
     origin: glam::Vec3,
@@ -111,7 +124,17 @@ impl ChatOverlay {
                 && event.local_fragged
                 && kill_mode > 0
             {
-                self.kill_announcement(event.target, &snapshot.player, gametype, kill_mode);
+                let master = snapshot.player.is_jedi_master()
+                    || snapshot
+                        .entities
+                        .iter()
+                        .any(|entity| entity.number() < 32 && entity.is_jedi_master());
+                let kill = Kill {
+                    victim: event.target,
+                    victim_was_master: event.victim_was_master,
+                    master,
+                };
+                self.kill_announcement(kill, &snapshot.player, gametype, kill_mode, localization);
             }
         }
         self.combat.obituaries = tracker.decoded();
@@ -202,28 +225,58 @@ impl ChatOverlay {
         self.center.as_mut().unwrap().0.push_str(value);
     }
 
-    pub(super) fn kill_announcement(
+    /// `CG_Obituary`'s centre print for a kill of ours (`cg_event.c:271-330`): "You
+    /// killed X." and our place with our score in the free-for-all games, a Jedi Master
+    /// hint in Jedi Master, the name alone elsewhere or with `cg_killMessage 2`.
+    fn kill_announcement(
         &mut self,
-        victim: u16,
+        kill: Kill,
         player: &jkr_protocol::PlayerState,
         gametype: i32,
         mode: i64,
+        localization: &crate::Localization,
     ) {
         self.prepare_announcement(if mode > 2 { 48.0 } else { 144.0 }, false);
         let name = self
             .roster
-            .target(Some(victim))
+            .target(Some(kill.victim))
             .and_then(|t| self.roster.display_name(t));
         let text = &mut self.center.as_mut().unwrap().0;
-        text.push_str("You killed ");
+        let string = |key: &str, english: &'static str| {
+            localization
+                .strings
+                .get(key)
+                .filter(|text| !text.is_empty())
+                .map_or(english, String::as_str)
+        };
+        text.push_str(string("KILLED_MESSAGE", "You killed"));
+        text.push(' ');
         for character in name.unwrap_or("player").chars().take(48) {
             text.push(character);
         }
-        if mode != 2 && gametype < 6 && !matches!(gametype, 2 | 3 | 4) {
+        text.push_str("^7");
+        // Free-for-all, holocron and single player; Jedi Master when one of the two is it.
+        let ranked = mode != 2 && matches!(gametype, 0 | 1 | 2 | 5);
+        let neither_master = !kill.victim_was_master && !player.is_jedi_master();
+        if ranked && gametype == 2 && neither_master {
+            text.push('\n');
+            if kill.master {
+                text.push_str(string("JMKILLED_NOTJM", "The Jedi Master scores a point!"));
+                text.push('\n');
+            }
+        } else if ranked {
+            let rank = player.persistent[2] as i32;
+            if rank & RANK_TIED != 0 {
+                text.push_str(string("TIED_FOR", "Tied for"));
+                text.push(' ');
+            }
+            let place = (rank & !RANK_TIED) + 1;
+            let (key, english) = ordinal(place);
+            let suffix = string(key, english);
             let _ = write!(
                 text,
-                "\nRank {} with {} points.",
-                (player.persistent[2] & !0x4000) + 1,
+                ".\n{place}{suffix} {} {}.",
+                string("PLACE_WITH", "place with"),
                 player.score()
             );
         }
@@ -305,4 +358,31 @@ pub(crate) fn race(game: &GameState, player: &jkr_protocol::PlayerState) -> bool
         && game
             .config_string(0)
             .is_some_and(|info| info.windows(5).any(|w| w.eq_ignore_ascii_case(b"japro")))
+}
+
+/// `CG_PlaceString`'s ending for a place: its string and English text (only 11 to 13 are
+/// exceptions, so 111 is "111st").
+fn ordinal(place: i32) -> (&'static str, &'static str) {
+    match place {
+        11..=13 => ("NUMBER_TH", "th"),
+        _ if place % 10 == 1 => ("NUMBER_ST", "st"),
+        _ if place % 10 == 2 => ("NUMBER_ND", "nd"),
+        _ if place % 10 == 3 => ("NUMBER_RD", "rd"),
+        _ => ("NUMBER_TH", "th"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn places_end_as_stock_ends_them() {
+        let ending = |place| super::ordinal(place).1;
+        let endings: Vec<_> = [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 111].map(ending).into();
+        assert_eq!(
+            endings,
+            [
+                "st", "nd", "rd", "th", "th", "th", "th", "st", "nd", "rd", "st"
+            ]
+        );
+    }
 }

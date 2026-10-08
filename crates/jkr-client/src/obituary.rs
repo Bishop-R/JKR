@@ -41,6 +41,8 @@ pub struct ObituaryEvent {
     pub local_fragged: bool,
     /// Whether another player killed the current client.
     pub local_was_killed: bool,
+    /// Whether the victim was the Jedi Master (the event's `isJediMaster`).
+    pub victim_was_master: bool,
     /// Snapshot server time at which the event was accepted.
     pub server_time: i32,
 }
@@ -188,6 +190,7 @@ pub fn legacy_obituary(
         attacker_message,
         local_fragged: attacker == local_client && target != attacker,
         local_was_killed: target == local_client && attacker != target,
+        victim_was_master: entity.is_jedi_master(),
         server_time,
     }
 }
