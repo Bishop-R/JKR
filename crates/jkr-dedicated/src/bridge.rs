@@ -2102,8 +2102,9 @@ impl NativeGame {
             muzzle,
             forward,
             level_time,
+            // A plain trace, unlike the disruptor's (`g_weapon.c:1458`).
             &mut |skip, start, end, mask| {
-                DisruptorTargets::trace(&mut targets, skip, start, end, mask)
+                targets.box_trace(skip, start, ([0.0; 3], [0.0; 3]), end, mask)
             },
         );
         if let Some(number) = self.pool.spawn_hidden(level_time) {
@@ -2112,10 +2113,16 @@ impl NativeGame {
     }
 
     /// The shock spheres' thinks (`DEMP2_AltDetonate`, `DEMP2_AltRadiusDamage`) at
-    /// `server_time`, after the missiles: the effect, the shockwave's damage on every
-    /// player it reaches for the first time (the owner spared), the freeing.
+    /// `server_time`, after the missiles: the effect, the shockwave's damage on everything
+    /// it reaches for the first time that can be hurt and has a body (`EntitiesInBox`:
+    /// players, NPCs, turrets, guns, shields and corpses; the owner spared), a cloak it
+    /// reaches switched off, the freeing.
     fn run_spheres(&mut self, server_time: i32) {
+        if self.spheres.is_empty() {
+            return;
+        }
         let mut spheres = std::mem::take(&mut self.spheres);
+        let mut targets = Vec::new();
         spheres.retain_mut(|(number, sphere)| {
             let owner = usize::from(sphere.owner);
             let Some(shooter) = self.peer_mut(owner) else {
@@ -2128,36 +2135,21 @@ impl NativeGame {
                 team: shooter.session.team,
                 saber_knockback: [0.0; 4],
             };
-            let mut targets = Vec::with_capacity(self.players.places());
-            if let Some(world) = self.server.world(self.world) {
-                for (other, handle) in self.players.holders().enumerate() {
-                    let peer = handle
-                        .and_then(|handle| world.entity(handle))
-                        .filter(|peer| {
-                            peer.begun
-                                && peer.playing()
-                                && peer.corpse.is_none_or(|(contents, _)| contents != 0)
-                        });
-                    if let Some(peer) = peer {
-                        let (bottom, mut top) = peer.movement.box_bounds();
-                        if let Some((_, corpse_top)) = peer.corpse {
-                            top[2] = corpse_top;
-                        }
-                        let origin = peer.state.origin();
-                        let bounds = (
-                            std::array::from_fn(|axis| origin[axis] + bottom[axis] - 1.0),
-                            std::array::from_fn(|axis| origin[axis] + top[axis] + 1.0),
-                        );
-                        targets.push(ShockTarget {
-                            number: other as u16,
-                            bounds,
-                            origin,
-                        });
-                    }
-                }
-            }
+            self.gather_splash_targets();
+            targets.clear();
+            targets.extend(
+                self.splash_targets
+                    .iter()
+                    .filter(|target| target.takes_damage)
+                    .map(|target| ShockTarget {
+                        number: target.number,
+                        bounds: target.bounds,
+                        origin: target.origin,
+                    }),
+            );
             let mut hurt = |target: u16, request: DamageRequest| {
                 let _ = self.strike(owner, usize::from(target), request, false);
+                self.shock_decloak(target, server_time);
             };
             match run_sphere(sphere, server_time, attacker, &targets, &mut hurt) {
                 SphereRun::Waiting | SphereRun::Expanded | SphereRun::Done => true,
@@ -3231,13 +3223,14 @@ struct InstantTargets<'a> {
     level_time: i32,
 }
 
-impl jkr_game_jka::melee::MeleeTargets for InstantTargets<'_> {
-    fn trace(
+impl InstantTargets<'_> {
+    /// `trap->Trace` through the map and the boxes `gather_obstacles` collects, passing
+    /// `skip` (and what it owns).
+    fn box_trace(
         &mut self,
         skip: u16,
         start: [f32; 3],
-        mins: [f32; 3],
-        maxs: [f32; 3],
+        (mins, maxs): ([f32; 3], [f32; 3]),
         end: [f32; 3],
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
@@ -3258,6 +3251,63 @@ impl jkr_game_jka::melee::MeleeTargets for InstantTargets<'_> {
             }
             .trace(start, mins, maxs, end, mask),
         }
+    }
+
+    /// A hitscan shot's `trap->Trace` under `d_projectileGhoul2Collision` (the disruptor's
+    /// and the concussion beam's, `g_weapon.c:575-602`, `3127-3150`): through the posed
+    /// models, so a box the ray only crosses — a body lying on the floor — is passed;
+    /// a client's model struck keeps the surface (`g2LastSurfaceHit`, which places the
+    /// damage), and the trace's surface index is cleared. With the cvar 0, the boxes.
+    fn shot_trace(
+        &mut self,
+        skip: u16,
+        start: [f32; 3],
+        bounds: ([f32; 3], [f32; 3]),
+        end: [f32; 3],
+        mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        if self.game.cvars.integer(b"d_projectileGhoul2Collision") == 0 {
+            return self.box_trace(skip, start, bounds, end, mask);
+        }
+        let level_time = self.level_time;
+        let mut trace = self.game.shot_sweep(
+            usize::from(skip),
+            start,
+            bounds,
+            end,
+            mask,
+            true,
+            level_time,
+        );
+        let struck = trace.entity_number;
+        let surface = trace.surface_flags;
+        let modelled = if let Some(peer) = self.game.peer_mut(usize::from(struck)) {
+            if peer.skeleton.is_some() {
+                peer.saber_cut.stamp_surface(surface as usize, level_time);
+            }
+            peer.skeleton.is_some()
+        } else {
+            self.game.npcs.roster.is_npc(struck)
+                && self.game.npcs.stamp_struck(struck, surface, level_time)
+        };
+        if modelled {
+            trace.surface_flags = 0;
+        }
+        trace
+    }
+}
+
+impl jkr_game_jka::melee::MeleeTargets for InstantTargets<'_> {
+    fn trace(
+        &mut self,
+        skip: u16,
+        start: [f32; 3],
+        mins: [f32; 3],
+        maxs: [f32; 3],
+        end: [f32; 3],
+        mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        self.box_trace(skip, start, (mins, maxs), end, mask)
     }
     fn struck(&self, number: u16) -> Option<jkr_game_jka::melee::Struck> {
         let Some(peer) = self
@@ -3317,23 +3367,7 @@ impl ConcussionTargets for InstantTargets<'_> {
         end: [f32; 3],
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
-        self.game.gather_obstacles(usize::from(skip));
-        let NativeGame { map, obstacles, .. } = &*self.game;
-        match map {
-            Some(map) => WithPlayers {
-                world: WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                },
-                players: obstacles,
-            }
-            .trace(start, [-1.0; 3], [1.0; 3], end, mask),
-            None => WithPlayers {
-                world: Void,
-                players: obstacles,
-            }
-            .trace(start, [-1.0; 3], [1.0; 3], end, mask),
-        }
+        self.shot_trace(skip, start, ([-1.0; 3], [1.0; 3]), end, mask)
     }
     fn player(&self, number: u16) -> Option<jkr_game_jka::concussion::StruckPlayer> {
         let peer = self
@@ -3418,23 +3452,7 @@ impl DisruptorTargets for InstantTargets<'_> {
         end: [f32; 3],
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
-        self.game.gather_obstacles(usize::from(skip));
-        let NativeGame { map, obstacles, .. } = &*self.game;
-        match map {
-            Some(map) => WithPlayers {
-                world: WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                },
-                players: obstacles,
-            }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
-            None => WithPlayers {
-                world: Void,
-                players: obstacles,
-            }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
-        }
+        self.shot_trace(skip, start, ([0.0; 3], [0.0; 3]), end, mask)
     }
     fn player(&self, number: u16) -> Option<StruckPlayer> {
         let peer = self

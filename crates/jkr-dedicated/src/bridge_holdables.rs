@@ -260,6 +260,49 @@ impl NativeGame {
         self.general_sound(sound, origin, CHAN_ITEM, level_time);
     }
 
+    /// The shockwave's decloak (`DEMP2_AltRadiusDamage`, `g_weapon.c:3061-3066`): a cloaked
+    /// client it struck is uncloaked (`Jedi_Decloak`: targetable again, the sound) and kept
+    /// from cloaking again for 3 to 10 s (`cloakToggleTime`, which only a player's cloak
+    /// reads).
+    pub(super) fn shock_decloak(&mut self, number: u16, level_time: i32) {
+        const FL_NOTARGET: u32 = jkr_game_jka::cheat_flags::FL_NOTARGET;
+        let cloaked = |state: &PlayerState| state.powerups[PW_CLOAKED] != 0;
+        if let Some(peer) = self.peer(usize::from(number)) {
+            if !cloaked(&peer.state) {
+                return;
+            }
+            let toggle_time = level_time + self.deaths.rng.irand(3_000, 10_000);
+            self.cloak_toggled(usize::from(number), Toggled::Decloaked, level_time);
+            if let Some(peer) = self.peer_mut(usize::from(number)) {
+                peer.riding.flags &= !FL_NOTARGET;
+                peer.gear.packs.cloak_toggle_time = toggle_time;
+            }
+            return;
+        }
+        let Some(npc) = self
+            .npcs
+            .roster
+            .actors
+            .iter_mut()
+            .find(|npc| npc.number == number)
+        else {
+            return;
+        };
+        if !cloaked(&npc.player) {
+            return;
+        }
+        npc.flags &= !FL_NOTARGET;
+        npc.player.powerups[PW_CLOAKED] = 0;
+        let origin = npc.current_origin;
+        let _ = self.deaths.rng.irand(3_000, 10_000);
+        self.general_sound(
+            b"sound/chars/shadowtrooper/decloak.wav",
+            origin,
+            CHAN_ITEM,
+            level_time,
+        );
+    }
+
     /// `G_AddEvent` on a player: its external event (`EV_EVENT_BITS` stepped).
     fn external_event(&mut self, client: usize, event: u32, parm: u32, level_time: i32) {
         let Some(peer) = self.peer_mut(client) else {

@@ -41,8 +41,10 @@ const ET_NPC: u32 = 13;
 const TR_STATIONARY: u32 = 0;
 const TR_LINEAR: u32 = 2;
 const EF_ALT_FIRING: u32 = 1 << 10;
-/// `WP_BRYAR_PISTOL`, `WP_BLASTER`, `WP_BOWCASTER`, `WP_ROCKET_LAUNCHER`.
+/// `WP_BRYAR_PISTOL`, `WP_BLASTER`, `WP_BOWCASTER`, `WP_ROCKET_LAUNCHER`; `WP_BRYAR_OLD`,
+/// the siege classes' pistol, which fires the pistol's bolt (`g_weapon.c:4599-4601`).
 const WP_BRYAR_PISTOL: u32 = 4;
+const WP_BRYAR_OLD: u32 = 16;
 const WP_BLASTER: u32 = 5;
 const WP_BOWCASTER: u32 = 7;
 const WP_ROCKET_LAUNCHER: u32 = 11;
@@ -410,6 +412,7 @@ pub fn fire_weapon(
     if !matches!(
         weapon,
         WP_BRYAR_PISTOL
+            | WP_BRYAR_OLD
             | WP_BLASTER
             | WP_BOWCASTER
             | WP_REPEATER
@@ -423,7 +426,7 @@ pub fn fire_weapon(
     }
     let (muzzle, forward) = muzzle_point(state, entity);
     match weapon {
-        WP_BRYAR_PISTOL => fired.push(fire_bryar_pistol(
+        WP_BRYAR_PISTOL | WP_BRYAR_OLD => fired.push(fire_bryar_pistol(
             state, muzzle, forward, level_time, alternate,
         )),
         WP_BLASTER => fired.push(fire_blaster(
@@ -1972,4 +1975,46 @@ fn missile_impact(
 /// build but 32-bit MSVC, so it truncates where the engine's rounds.
 pub(crate) fn snap_vector(vector: [f32; 3]) -> [f32; 3] {
     vector.map(|value| value as i32 as f32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The siege classes' old Bryar fires the pistol's bolt, as the pistol does
+    /// (`g_weapon.c:4599-4601`); it fired nothing before.
+    #[test]
+    fn the_old_bryar_fires_the_pistol_bolt() {
+        let fire = |weapon: u32| {
+            let mut state = PlayerState::default();
+            state.set_raw_field(PS_WEAPON, weapon);
+            let mut fired = Vec::new();
+            fire_weapon(
+                &mut state,
+                &EntityState::zero(0, &LEGACY_ENTITY_FIELDS),
+                1_000,
+                false,
+                &mut Rng::default(),
+                0.0,
+                &|_| false,
+                &mut |_| 0,
+                &mut fired,
+            );
+            fired
+                .iter()
+                .map(|missile| {
+                    (
+                        missile.state.raw_field(ES_WEAPON),
+                        missile.damage,
+                        missile.method_of_death,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            fire(WP_BRYAR_OLD),
+            vec![(Some(WP_BRYAR_PISTOL), 10, MOD_BRYAR_PISTOL)]
+        );
+        assert_eq!(fire(WP_BRYAR_OLD), fire(WP_BRYAR_PISTOL));
+    }
 }
