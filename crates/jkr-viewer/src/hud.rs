@@ -228,6 +228,15 @@ pub(crate) struct HudLayout {
     pub(crate) force_bar: [f32; 4],
 }
 
+/// The status widgets' bindings (`CG_DrawStats`), which a fall to death's fade covers.
+fn status_binding(binding: Option<&str>) -> bool {
+    binding.is_some_and(|binding| {
+        ["health", "armor", "force", "weapon", "ammo", "style"]
+            .iter()
+            .any(|status| binding.starts_with(status))
+    })
+}
+
 impl HudOverlay {
     pub(crate) fn new() -> Self {
         let override_document = crate::platform::user_config_file()
@@ -447,9 +456,22 @@ impl HudOverlay {
         let pulse = Tween::pulse(0.68, 1.0, time_ms, self.theme.motion.slow);
         self.force_flash.update(time_ms, visibility.status);
         let force_flash = self.force_flash.red(time_ms);
+        // `CG_Draw2D`: falling to death, the screen goes black over half `FALL_FADE_TIME`,
+        // over the status. Text is drawn above every shape here, so what the black covers in
+        // stock fades with it instead.
+        let fall_fade = if visibility.hud && self.falling_since != 0 {
+            ((time_ms as f32 - self.falling_since as f32) / 1_500.0).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let covered = jkr_ui::DrawCommand::PushOpacity(1.0 - fall_fade);
         for (index, (widget, rect)) in document.widgets.iter().zip(rectangles).enumerate() {
             if !visible[index] {
                 continue;
+            }
+            let fading = fall_fade > 0.0 && status_binding(widget.binding.as_deref());
+            if fading {
+                let _ = self.draw_list.push(covered.clone());
             }
             widgets::emit(
                 &mut self.draw_list,
@@ -487,7 +509,11 @@ impl HudOverlay {
                 },
                 &mut output,
             );
+            if fading {
+                let _ = self.draw_list.push(jkr_ui::DrawCommand::PopOpacity);
+            }
         }
+        let _ = self.draw_list.push(covered);
         if status_allowed {
             self.vehicle
                 .emit(&self.icons, &mut self.draw_list, viewport);
@@ -507,12 +533,11 @@ impl HudOverlay {
             self.icons
                 .pickup(&mut self.draw_list, viewport, item, alpha);
         }
-        // `CG_Draw2D`: falling to death, the screen goes black over half `FALL_FADE_TIME`.
-        if visibility.hud && self.falling_since != 0 {
-            let fallen = time_ms as f32 - self.falling_since as f32;
+        let _ = self.draw_list.push(jkr_ui::DrawCommand::PopOpacity);
+        if fall_fade > 0.0 {
             let _ = self.draw_list.push(jkr_ui::DrawCommand::SolidRect {
                 rect: jkr_ui::Rect::new(0.0, 0.0, viewport[0], viewport[1]),
-                color: jkr_ui::Color::new(0.0, 0.0, 0.0, (fallen / 1_500.0).clamp(0.0, 1.0)),
+                color: jkr_ui::Color::new(0.0, 0.0, 0.0, fall_fade),
             });
         }
         if visibility.crosshair {

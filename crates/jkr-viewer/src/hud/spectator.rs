@@ -24,7 +24,7 @@ pub(crate) struct Lines {
     hint: String,
     follow: String,
     followed: String,
-    /// The player shown is dead (`STAT_HEALTH` at or below 0).
+    /// The player shown is dead (`STAT_HEALTH`, a signed short, at or below 0).
     dead: bool,
 }
 
@@ -75,7 +75,7 @@ impl Lines {
         self.hint.clear();
         self.follow.clear();
         self.followed.clear();
-        self.dead = player.stats[0] as i32 <= 0;
+        self.dead = player.health() <= 0;
         let string = |key: &str, english: &'static str| {
             localization
                 .strings

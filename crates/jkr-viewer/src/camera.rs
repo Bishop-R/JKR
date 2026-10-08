@@ -217,7 +217,7 @@ pub(crate) fn damped_third_person(
     let (yaw, pitch) = if let Some(yaw) = held {
         framing[2] = crate::actor_world_submission::monster_hold::HELD_CAMERA_RANGE;
         (yaw.to_radians(), 0.0)
-    } else if snapshot.is_some_and(|s| (s.player.stats[0] as i32) <= 0) {
+    } else if snapshot.is_some_and(|s| s.player.health() <= 0) {
         (
             snapshot.unwrap().player.stats[6] as i32 as f32 * std::f32::consts::PI / 180.0,
             state.camera_pitch,
