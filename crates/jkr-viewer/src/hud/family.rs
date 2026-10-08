@@ -302,9 +302,11 @@ impl HudOverlay {
                 row += 1;
             }
         }
+        // The score is part of `CG_DrawHUD`, drawn with the status (see `layout`).
+        let status = !self.spectator.hides_status() && !self.vehicle.hides_status();
         for (enabled, id, y, offset) in [
             (
-                self.family.score != 0,
+                self.family.score != 0 && status,
                 315,
                 viewport[1] - 160.0 * s,
                 self.family.score_offset,

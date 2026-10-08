@@ -50,6 +50,27 @@ impl Default for DuelPanel {
     }
 }
 
+/// `CG_DrawDuelistHealth` through `CG_DrawHealthBarRough` (64 by 8 at `x`, `y`): a red
+/// filling for the health left, a darker red for the health lost, a white shell.
+fn health_bar(list: &mut DrawList, x: f32, y: f32, s: f32, health: i32) {
+    // `MAX_HEALTH_FOR_IFACE`.
+    let ratio = (health as f32 / 100.0).clamp(0.0, 1.0);
+    let red = ratio * 0.2 + 0.5;
+    let filled = (SIZE * ratio - 1.0).max(0.0);
+    for (left, width, red) in [(1.0, filled, red), (filled, SIZE - filled, red * 0.5)] {
+        let _ = list.push(DrawCommand::SolidRect {
+            rect: Rect::new(x + left * s, y + s, width * s, 5.0 * s),
+            color: Color::new(red, 0.0, 0.0, 0.7),
+        });
+    }
+    let _ = list.push(DrawCommand::Border {
+        rect: Rect::new(x, y, SIZE * s, 8.0 * s),
+        radius: 0.0,
+        width: s,
+        color: Color::new(1.0, 1.0, 1.0, 1.0),
+    });
+}
+
 /// Numbers split by `|` (`SetDuelistHealthsFromConfigString` and the duellists' list).
 fn numbers<const N: usize>(game: &GameState, index: usize, missing: i32) -> [i32; N] {
     let mut values = [missing; N];
@@ -135,18 +156,7 @@ impl DuelPanel {
         }
         if self.show_healths {
             for (x, health) in [(left, self.healths[0]), (right, self.healths[1])] {
-                let rect = Rect::new(x, (top - 12.0) * s, size, 8.0 * s);
-                let ratio = (health as f32 / 100.0).clamp(0.0, 1.0);
-                let _ = list.push(DrawCommand::Border {
-                    rect,
-                    radius: 0.0,
-                    width: s,
-                    color: Color::new(0.0, 0.0, 0.0, 1.0),
-                });
-                let _ = list.push(DrawCommand::SolidRect {
-                    rect: Rect::new(x + s, (top - 11.0) * s, (size - 2.0 * s) * ratio, 6.0 * s),
-                    color: Color::new(ratio * 0.2 + 0.5, 0.0, 0.0, 0.7),
-                });
+                health_bar(list, x, (top - 12.0) * s, s, health);
             }
         }
         if !self.power {

@@ -12,9 +12,10 @@ use jkr_game_jka::player_death::DeathRequest;
 use jkr_game_jka::ranks::calculate_ranks_in;
 use jkr_game_jka::tournament::{self, Duellist, Waiting};
 
-/// `CS_CLIENT_DUELISTS`, `CS_CLIENT_DUELWINNER`.
+/// `CS_CLIENT_DUELISTS`, `CS_CLIENT_DUELWINNER`, `CS_CLIENT_DUELHEALTHS`.
 const CS_CLIENT_DUELISTS: usize = 30;
 const CS_CLIENT_DUELWINNER: usize = 29;
+const CS_CLIENT_DUELHEALTHS: usize = 31;
 /// `persistant[PERS_SCORE]`, `stats[STAT_ARMOR]`.
 const PERS_SCORE: usize = 0;
 const STAT_ARMOR: usize = 5;
@@ -247,6 +248,17 @@ impl NativeGame {
                     &tournament::duelists_string(usize::from(sorted[0]), usize::from(sorted[1])),
                 );
             }
+        }
+        // `DUEL_HEALTH` (`g_main.c:2307-2317`): with `g_showDuelHealths`, the two
+        // duellists' health for the spectators' panel and the duellists' HUDs.
+        let (sorted, playing) = self.sorted();
+        if playing >= 2 && self.integer_cvar(b"g_showDuelHealths", 0) >= 1 {
+            let health = |client: u16| {
+                self.peer(usize::from(client))
+                    .map_or(0, |peer| peer.state.stats[0] as i32)
+            };
+            let healths = tournament::healths_string(health(sorted[0]), health(sorted[1]));
+            self.set_config_string(CS_CLIENT_DUELHEALTHS, &healths);
         }
     }
 
