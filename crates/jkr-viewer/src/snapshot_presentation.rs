@@ -179,14 +179,17 @@ impl GpuState {
         let Some(mut session) = self.demo_session.take() else {
             return;
         };
-        let relative = session.paced_relative_millis(self.ui_epoch.elapsed());
-        let relative = self.console.as_ref().map_or(relative, |console| {
-            console.demo_time(
-                relative,
-                (session.current_server_time() - i64::from(session.first_server_time())).max(0)
-                    as u64,
-            )
-        });
+        // The demo's clock holds while its map loads, as stock reads no demo then.
+        let loading = self.pending_map_reload
+            || self.world_load_task.is_some()
+            || self.world_install_task.is_some();
+        let scale = match &self.console {
+            _ if loading => 0.0,
+            Some(console) => console.demo_time_scale(),
+            None => 1.0,
+        };
+        let before = session.current_server_time();
+        let relative = session.clock_millis(self.ui_epoch.elapsed(), scale);
         let advance = session.advance_with_config(relative, |snapshot, game_state, changes| {
             if let (Some(audio), Some(vfs)) = (game_audio.as_mut(), &self.vfs) {
                 audio.prepare_config_strings(changes, game_state, vfs);
@@ -228,15 +231,32 @@ impl GpuState {
         });
         if let Err(error) = advance {
             eprintln!("demo playback stopped: {error}");
-            self.quit_requested = true;
-            self.demo_session = Some(session);
+            if let Some(console) = &mut self.console {
+                console.push_log(format!("^1Demo playback stopped: {error}"));
+            }
+            self.end_demo(session);
             return;
         }
         if session.ended() {
-            self.quit_requested = true;
+            self.end_demo(session);
+            return;
+        }
+        if let Some(console) = &mut self.console {
+            console.glide_timescale((session.current_server_time() - before) as f64);
         }
         update_demo_camera(self, &session);
         self.demo_session = Some(session);
+    }
+
+    /// A demo has ended (`CL_DemoCompleted`): one played from the command line quits,
+    /// one played from the console goes back to the menu.
+    fn end_demo(&mut self, session: demo_playback::Session) {
+        if session.quits_at_end() {
+            self.quit_requested = true;
+            self.demo_session = Some(session);
+        } else {
+            self.disconnect_to_menu();
+        }
     }
 }
 

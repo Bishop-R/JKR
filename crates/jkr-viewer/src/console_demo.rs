@@ -159,7 +159,7 @@ impl GpuState {
         };
         let session =
             match demo_playback::Session::open(&path, demo_playback::Camera::FirstPerson, 60) {
-                Ok(session) => session,
+                Ok(session) => session.returning_to_menu(),
                 Err(error) => {
                     if let Some(console) = &mut self.console {
                         console.push_log(format!("^1Could not play demo: {error}"));

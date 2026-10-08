@@ -241,7 +241,9 @@ impl GpuState {
     }
 
     pub(crate) fn poll_world_install(&mut self) -> Result<Option<GpuState>, Box<dyn Error>> {
-        if self.is_menu_world {
+        // A demo played from the menu loads its own map as any session's; the gate only
+        // opens onto servers.
+        if self.is_menu_world && self.demo_session.is_none() {
             return self.poll_gate_destination();
         }
         if self.join_task.is_some()
