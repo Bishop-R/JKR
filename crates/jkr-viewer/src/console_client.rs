@@ -10,6 +10,8 @@ impl ViewerConsole {
 use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
 
+#[path = "console_aimed.rs"]
+mod aimed;
 #[path = "console_hud_commands.rs"]
 mod hud_commands;
 #[path = "console_identity.rs"]
@@ -60,6 +62,16 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "Search commands and cvars and edit cvar values (F3 in the console)",
     ),
     ("togglemenu", "Toggle the in-game menu"),
+    (
+        "tell_target",
+        "Privately message the player under the crosshair",
+    ),
+    ("tell_attacker", "Privately message your last attacker"),
+    (
+        "tcmd",
+        "Give the player under the crosshair an order (gc), by number",
+    ),
+    ("clientlist", "List the players with their teams"),
     ("briefing", "Show your side's Siege objectives"),
     ("cmd", "Forward arguments as a reliable server command"),
     (
@@ -334,6 +346,8 @@ impl crate::GpuState {
         let args = &tokens[1..];
         match name.as_str() {
             "remapshader" | "listremaps" => return self.remap_command(&name, args),
+            "tell_target" | "tell_attacker" | "tcmd" => return self.aimed_command(&name, args),
+            "clientlist" => return self.client_list(),
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,

@@ -105,15 +105,43 @@ pub fn legacy_direct_weapon(
     if inventory.following || inventory.emplaced || !(1..=WP_BRYAR_OLD).contains(&slot) {
         return None;
     }
-    let mut selected = if slot == 1 {
-        if inventory.owned & (1 << WP_SABER) != 0 {
-            WP_SABER
-        } else {
-            2
-        }
+    let selected = if slot == 1 {
+        saber_or_melee(inventory)
     } else {
         slot.saturating_add(2)
     };
+    direct(inventory, current_weapon, selected)
+}
+
+/// `CG_WeaponClean_f` (`cg_weapons.c`): `weaponclean` names a weapon by its own number
+/// rather than its key, 1 standing for the saber (melee without one), and otherwise
+/// chooses as `weapon` does.
+pub fn legacy_clean_weapon(
+    inventory: &LegacyWeaponInventory,
+    current_weapon: u8,
+    number: u8,
+) -> Option<u8> {
+    if inventory.following || inventory.emplaced || !(1..=WP_BRYAR_OLD).contains(&number) {
+        return None;
+    }
+    let selected = if number == 1 {
+        saber_or_melee(inventory)
+    } else {
+        number
+    };
+    direct(inventory, current_weapon, selected)
+}
+
+fn saber_or_melee(inventory: &LegacyWeaponInventory) -> u8 {
+    if inventory.owned & (1 << WP_SABER) != 0 {
+        WP_SABER
+    } else {
+        2
+    }
+}
+
+/// The weapon `selected` names, the explosives cycling as `CG_Weapon_f` cycles them.
+fn direct(inventory: &LegacyWeaponInventory, current_weapon: u8, mut selected: u8) -> Option<u8> {
     if selected > WP_BRYAR_OLD + 1 {
         return None;
     }

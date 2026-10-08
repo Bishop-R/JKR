@@ -44,6 +44,8 @@ pub(crate) enum InputAction {
     SaberToggle,
     SaberStyle,
     Weapon(u8),
+    /// `weaponclean`: a weapon by its own number.
+    WeaponClean(u8),
     WeaponCycle(i8),
     /// Local force/inventory cycling; never a reliable server command.
     SelectionCycle(bool, i8),
@@ -162,6 +164,7 @@ impl GameplayInput {
                     | "joinmenu"
                     | "vote"
                     | "weapon"
+                    | "weaponclean"
             )
     }
 
@@ -283,6 +286,10 @@ impl GameplayInput {
                 .next()
                 .and_then(|word| word.parse::<u8>().ok())
                 .map(InputAction::Weapon),
+            "weaponclean" => words
+                .next()
+                .and_then(|word| word.parse::<u8>().ok())
+                .map(InputAction::WeaponClean),
             _ => None,
         }
     }
@@ -355,7 +362,8 @@ impl super::GpuState {
                     self.camera_pitch = 0.0;
                 }
             }
-            Some(InputAction::Weapon(weapon)) => self.select_weapon(weapon),
+            Some(InputAction::Weapon(weapon)) => self.select_weapon(weapon, false),
+            Some(InputAction::WeaponClean(weapon)) => self.select_weapon(weapon, true),
             Some(InputAction::WeaponCycle(direction)) => self.cycle_weapon(direction),
             Some(InputAction::SelectionCycle(inventory, direction)) => {
                 let snapshot = self
@@ -421,7 +429,8 @@ impl super::GpuState {
         }
     }
 
-    pub(super) fn select_weapon(&mut self, slot: u8) {
+    /// `weapon <key>` (`CG_Weapon_f`), or with `clean`, `weaponclean <weapon number>`.
+    pub(super) fn select_weapon(&mut self, slot: u8, clean: bool) {
         let Some(session) = &self.live_session else {
             return;
         };
@@ -436,11 +445,12 @@ impl super::GpuState {
         }
         let inventory =
             jkr_client::LegacyWeaponInventory::from_player_state(&session.latest_snapshot().player);
-        if let Some(weapon) = jkr_client::legacy_direct_weapon(
-            &inventory,
-            session.latest_snapshot().player.weapon(),
-            slot,
-        ) {
+        let choose = if clean {
+            jkr_client::legacy_clean_weapon
+        } else {
+            jkr_client::legacy_direct_weapon
+        };
+        if let Some(weapon) = choose(&inventory, session.latest_snapshot().player.weapon(), slot) {
             self.select_weapon_exact(weapon);
         }
     }
