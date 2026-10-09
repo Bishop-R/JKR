@@ -21,7 +21,7 @@ impl NativeGame {
         if let Some(next) = self.next_map() {
             self.at_map = self.at_map.wrapping_add(1);
             let loaded = self.game_data.as_ref().and_then(|game_data| {
-                match crate::map::load(game_data, &next) {
+                match crate::map::load(game_data, &self.game_directory(), &next) {
                     Ok(map) => Some(map),
                     Err(error) => {
                         // A map that will not load must not take the server down with it:
@@ -78,6 +78,11 @@ impl NativeGame {
     /// The maps this server plays after the one it started on, in order, for the process
     /// to set from its options. An empty rotation means the current map for ever, which
     /// is what a server started without one does.
+    /// The mod directory the server runs (`fs_game`, fixed once it runs); empty for none.
+    pub(super) fn game_directory(&self) -> String {
+        String::from_utf8_lossy(self.cvars.string(b"fs_game")).into_owned()
+    }
+
     pub fn set_rotation(&mut self, maps: Vec<String>, game_data: Option<std::path::PathBuf>) {
         self.rotation = maps;
         self.at_map = 0;

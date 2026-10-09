@@ -292,11 +292,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     let game_data = (options.game_data.clone())
         .or_else(|| launch::startup_path(&cvars, b"fs_basepath"));
     let home = (options.home.clone()).or_else(|| launch::startup_path(&cvars, b"fs_homepath"));
+    // `fs_game`: the mod directory searched before `base`, and written to.
+    let game = String::from_utf8_lossy(cvars.string(b"fs_game")).into_owned();
     // Without `--map` the server waits for one, as the reference's does until its
     // command line's `+map` runs.
     let map = match &game_data {
         Some(game_data) if options.mapname != "nomap" => {
-            Some(map::load(game_data, &options.mapname)?)
+            Some(map::load(game_data, &game, &options.mapname)?)
         }
         _ => None,
     };
@@ -307,7 +309,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             map.spawn_points.len()
         );
     }
-    let mut files = ConfigFiles::new(home.clone(), game_data.clone());
+    let mut files = ConfigFiles::new(home.clone(), game_data.clone(), &game);
     startup_configs(&mut cvars, &mut files);
     startup_variables(&mut cvars, &options);
     cvars.register_server();

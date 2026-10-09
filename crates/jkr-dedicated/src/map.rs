@@ -110,21 +110,43 @@ pub fn brush_bounds(bsp: &Bsp, model: usize) -> Option<([f32; 3], [f32; 3])> {
     ))
 }
 
-/// Mount `<game_data>/base/*.pk3` in the reference's search order and load
-/// `maps/<name>.bsp`, as `SV_SpawnServer` finds a map.
-pub fn load(game_data: &Path, name: &str) -> Result<LoadedMap, Box<dyn Error>> {
-    let base = game_data.join("base");
+/// The game directories searched, in mount order: `base`, then the mod's (`fs_game`)
+/// when it names one, whose files win. A mod name that could climb out of the game data
+/// (`FS_CheckDirTraversal`) or name `base` itself adds nothing.
+pub fn game_directories(game: &str) -> Vec<&str> {
+    let usable = !game.is_empty()
+        && !game.eq_ignore_ascii_case("base")
+        && game
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        && !game.contains("..");
+    if usable { vec!["base", game] } else { vec!["base"] }
+}
+
+/// Mount `<game_data>/base/*.pk3`, then the mod's (`fs_game`), in the reference's search
+/// order and load `maps/<name>.bsp`, as `SV_SpawnServer` finds a map.
+pub fn load(game_data: &Path, game: &str, name: &str) -> Result<LoadedMap, Box<dyn Error>> {
+    let directories = game_directories(game);
     let mut files = VirtualFileSystem::new();
-    files.mount_pk3_directory_with_warnings(&base, |archive, error| {
-        eprintln!("skipping {}: {error}", archive.display());
-    })?;
+    for directory in &directories {
+        let path = game_data.join(directory);
+        // A mod folder that is not there adds nothing; `base` must be.
+        if *directory != "base" && !path.is_dir() {
+            continue;
+        }
+        files.mount_pk3_directory_with_warnings(&path, |archive, error| {
+            eprintln!("skipping {}: {error}", archive.display());
+        })?;
+    }
     let mut map = load_from(files, name)?;
     // The reference names a pak by the game directory it is found in (`base/<file>`),
     // even where that file is a link to one elsewhere; the mount reports where links lead.
     if let Some(pak) = &mut map.pak
-        && let Some(listed) = listed_as(&base, &pak.path)
+        && let Some((directory, listed)) = directories.iter().rev().find_map(|directory| {
+            Some((*directory, listed_as(&game_data.join(directory), &pak.path)?))
+        })
     {
-        pak.name = format!("base/{listed}");
+        pak.name = format!("{directory}/{listed}");
     }
     Ok(map)
 }

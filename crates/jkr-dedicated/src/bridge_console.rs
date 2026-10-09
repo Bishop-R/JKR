@@ -101,7 +101,7 @@ impl NativeGame {
         }
         let name = String::from_utf8_lossy(name).into_owned();
         let loaded = match &self.game_data {
-            Some(game_data) => match crate::map::load(game_data, &name) {
+            Some(game_data) => match crate::map::load(game_data, &self.game_directory(), &name) {
                 Ok(map) => Some(map),
                 Err(error) => {
                     println!("map {name} does not load: {error}");
