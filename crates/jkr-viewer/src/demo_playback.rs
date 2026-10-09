@@ -222,6 +222,11 @@ impl Session {
         self.adapter.set_saber_team_colors(on);
     }
 
+    /// EternalJK's `cg_noFX`, as the live session's adapter has it.
+    pub(crate) fn set_no_fx(&mut self, level: i64) {
+        self.adapter.set_no_fx(level);
+    }
+
     /// EternalJK's `cg_noRGBSabers`, as the live session's adapter has it.
     pub(crate) fn set_rgb_sabers(&mut self, on: bool) {
         self.adapter.set_rgb_sabers(on);

@@ -40,7 +40,9 @@ impl GpuState {
         self.effect_aux.options = crate::effect_aux::EffectOptions {
             no_teleport: console.bool_cvar("cg_noTeleFX").unwrap_or(false),
             flesh_sparks: console.integer_cvar("cg_fleshSparks").unwrap_or(7),
+            no_fx: console.integer_cvar("cg_noFX").unwrap_or(0),
         };
+        let no_fx = self.effect_aux.options.no_fx;
         self.first_person_view
             .set_instant_duck(console.bool_cvar("cg_instantDuck").unwrap_or(false));
         let saber_team_colors = console.bool_cvar("cg_saberTeamColors").unwrap_or(true);
@@ -48,10 +50,12 @@ impl GpuState {
         if let Some(adapter) = &mut self.legacy_world_adapter {
             adapter.set_saber_team_colors(saber_team_colors);
             adapter.set_rgb_sabers(rgb_sabers);
+            adapter.set_no_fx(no_fx);
         }
         if let Some(session) = &mut self.demo_session {
             session.set_saber_team_colors(saber_team_colors);
             session.set_rgb_sabers(rgb_sabers);
+            session.set_no_fx(no_fx);
             let looks = std::sync::Arc::clone(
                 self.clientinfo_watch
                     .siege_looks

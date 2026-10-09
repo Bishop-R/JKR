@@ -688,6 +688,12 @@ impl LegacySoundAdapter {
         self.no_teleport = on;
     }
 
+    /// EternalJK's `cg_noFX 2` (`cg_ents.c:3690-3694`): the map's speakers are left out,
+    /// their sounds and their loops.
+    pub fn set_no_speakers(&mut self, on: bool) {
+        self.loops.skip_speakers = on;
+    }
+
     /// Resolve and decode all static tables, CS_SOUNDS, and model custom sounds.
     ///
     /// `register` is called at most once per distinct resolved asset and is

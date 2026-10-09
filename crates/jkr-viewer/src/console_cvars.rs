@@ -530,6 +530,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Saber hits on flesh: 0 no sparks to 7 all of stock's",
         ),
         CvarDefinition::new(
+            "cg_noFX",
+            0_i64,
+            archive,
+            "Effects left out: 1 the map's, 2 and its speakers, 3 general models drawn as blocks, 4 hidden, 5 every effect",
+        ),
+        CvarDefinition::new(
             "cg_noTeleFX",
             false,
             archive,

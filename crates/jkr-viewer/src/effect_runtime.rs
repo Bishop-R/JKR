@@ -171,6 +171,10 @@ pub(crate) fn spawn_map_effect_requests(
     audio: &mut Option<GameAudio>,
     now: Instant,
 ) {
+    // EternalJK's `cg_noFX`: no map effects at all (`cg_ents.c:3690-3692`).
+    if auxiliary.options.no_fx != 0 {
+        return;
+    }
     for request in map_effects.requests() {
         spawn_effect(
             particles,
@@ -202,7 +206,8 @@ pub(crate) fn spawn_effect(
     audio: &mut Option<GameAudio>,
     rotation: Quat,
 ) {
-    if depth >= 4 || particles.len() >= MAX_PARTICLES {
+    // EternalJK's `cg_noFX 5`: no scheduled effect is drawn (`cg_view.c:3011`).
+    if depth >= 4 || particles.len() >= MAX_PARTICLES || auxiliary.options.no_fx == 5 {
         return;
     }
 

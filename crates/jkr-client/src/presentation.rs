@@ -98,6 +98,8 @@ pub struct LegacyWorldAdapter {
     /// EternalJK's `cg_saberTeamColors` and `!cg_noRGBSabers`.
     saber_team_colors: bool,
     rgb_sabers: bool,
+    /// EternalJK's `cg_noFX`.
+    no_fx: i64,
 }
 
 impl LegacyWorldAdapter {
@@ -110,6 +112,7 @@ impl LegacyWorldAdapter {
             smooth_clients: false,
             saber_team_colors: true,
             rgb_sabers: true,
+            no_fx: 0,
         }
     }
 
@@ -122,6 +125,12 @@ impl LegacyWorldAdapter {
     /// EternalJK's `cg_noRGBSabers`: custom blade tints roll over to stock colours.
     pub fn set_rgb_sabers(&mut self, on: bool) {
         self.rgb_sabers = on;
+    }
+
+    /// EternalJK's `cg_noFX`: from 3 a general entity without a Ghoul2 model is drawn as a
+    /// black block (3) or not at all (4 and 5) (`CG_General`, `cg_ents.c:1734-1753`).
+    pub fn set_no_fx(&mut self, level: i64) {
+        self.no_fx = level;
     }
 
     /// The siege classes' looks ([`crate::SiegeClassLooks`]) for the level being shown.
@@ -160,6 +169,10 @@ impl LegacyWorldAdapter {
             if !legacy_entity_visible(state.entity_type(), state.e_flags()) {
                 continue;
             }
+            let blocked = self.no_fx > 2 && state.entity_type() == 0 && state.model_ghoul2() == 0;
+            if blocked && self.no_fx > 3 {
+                continue;
+            }
             let id = EntityId::new(u64::from(state.number()) + 1);
             let mut angles = legacy_evaluate_trajectory(
                 state.angular_trajectory_base(),
@@ -184,7 +197,7 @@ impl LegacyWorldAdapter {
                 angles[0] = 0.0;
                 angles[2] = 0.0;
             }
-            let transform = Transform {
+            let mut transform = Transform {
                 translation: remote_motion::translation(
                     state,
                     snapshot.player.client_num(),
@@ -194,6 +207,14 @@ impl LegacyWorldAdapter {
                 rotation: legacy_angles_to_quaternion(angles),
                 scale: [1.0; 3],
             };
+            if blocked {
+                // The block, tilted and grown, set back to cover where the model stood.
+                for (axis, shift) in [-40.0, -40.0, -24.0].into_iter().enumerate() {
+                    transform.translation[axis] += shift;
+                }
+                transform.rotation = legacy_angles_to_quaternion([65.0, 45.0, 0.0]);
+                transform.scale = [3.2; 3];
+            }
             let sample = MotionSample {
                 time_millis: i64::from(snapshot.server_time),
                 transform,
@@ -273,6 +294,11 @@ impl LegacyWorldAdapter {
                     id,
                     if matches!(state.entity_type(), 2 | 5) {
                         legacy_item_appearance(state.model_index())
+                    } else if blocked {
+                        Some(Appearance {
+                            model: "models/map_objects/mp/dk_blck.md3".to_owned(),
+                            variant: String::new(),
+                        })
                     } else {
                         legacy_entity_model_appearance(game_state, state)
                     },
@@ -617,4 +643,64 @@ pub fn legacy_angles_to_quaternion(angles: [f32; 3]) -> [f32; 4] {
         roll_cosine * pitch_cosine * yaw_sine - roll_sine * pitch_sine * yaw_cosine,
         roll_cosine * pitch_cosine * yaw_cosine + roll_sine * pitch_sine * yaw_sine,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jkr_protocol::{GameState, LEGACY_ENTITY_FIELDS, PlayerState};
+
+    /// A general entity drawing `models/map_objects/x.md3`, as the adapter shows it at
+    /// `cg_noFX` `level`: its model, scale and height, or `None` when it is not drawn.
+    fn general_entity_at(level: i64) -> Option<(String, f32, f32)> {
+        const CS_MODELS: usize = 298;
+        let mut game = GameState::empty_local(0);
+        game.replace_config_string(CS_MODELS + 1, b"models/map_objects/x.md3".to_vec())
+            .unwrap();
+        let mut entity = jkr_protocol::EntityState::zero(100, &LEGACY_ENTITY_FIELDS);
+        entity.set_raw_field(46, 1); // modelindex
+        let snapshot = Snapshot {
+            message_sequence: 0,
+            reliable_acknowledge: 0,
+            server_commands: Vec::new(),
+            server_time: 1_000,
+            delta_from: None,
+            flags: 0,
+            area_mask: Vec::new(),
+            player: PlayerState::zero(),
+            vehicle_player: None,
+            entities: vec![entity],
+            consumed_bits: 0,
+        };
+        let world_id = WorldId::new(1);
+        let mut world = World::new(world_id);
+        let mut adapter = LegacyWorldAdapter::new(world_id);
+        adapter.set_no_fx(level);
+        adapter.apply_snapshot(&snapshot, &game, &mut world);
+        let shown = world.entity(EntityId::new(101))?;
+        let sample = shown.sample(1_000);
+        Some((
+            shown.appearance()?.model.clone(),
+            sample.scale[0],
+            sample.translation[2],
+        ))
+    }
+
+    #[test]
+    fn eternaljk_no_fx_blocks_or_hides_general_models() {
+        assert_eq!(
+            general_entity_at(0),
+            Some(("models/map_objects/x.md3".into(), 1.0, 0.0))
+        );
+        assert_eq!(
+            general_entity_at(2),
+            Some(("models/map_objects/x.md3".into(), 1.0, 0.0))
+        );
+        assert_eq!(
+            general_entity_at(3),
+            Some(("models/map_objects/mp/dk_blck.md3".into(), 3.2, -24.0))
+        );
+        assert_eq!(general_entity_at(4), None);
+        assert_eq!(general_entity_at(5), None);
+    }
 }

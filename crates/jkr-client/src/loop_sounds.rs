@@ -160,6 +160,8 @@ pub(crate) struct LegacyLoopAdapter {
     speaker_random: crate::animation_events::Random,
     speaker_shots: Vec<LegacySoundDecision>,
     speaker_stops: Vec<SourceId>,
+    /// EternalJK's `cg_noFX 2`: speakers are left out altogether (`CG_AddCEntity`).
+    pub(crate) skip_speakers: bool,
 }
 
 impl LegacyLoopAdapter {
@@ -246,6 +248,7 @@ impl LegacyLoopAdapter {
             speaker_random: Default::default(),
             speaker_shots: Vec::with_capacity(MAX_ENTITIES),
             speaker_stops: Vec::with_capacity(MAX_ENTITIES),
+            skip_speakers: false,
         }
     }
 
@@ -295,6 +298,9 @@ impl LegacyLoopAdapter {
         self.speaker_stops.clear();
 
         for state in &snapshot.entities {
+            if self.skip_speakers && state.entity_type() == 9 {
+                continue;
+            }
             if state.entity_type() == 9 {
                 let random = &mut self.speaker_random;
                 if self.speaker_clock.due(state, presented_time, || {

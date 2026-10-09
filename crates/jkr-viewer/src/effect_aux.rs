@@ -92,6 +92,8 @@ pub(crate) struct EffectOptions {
     pub(crate) no_teleport: bool,
     /// `cg_fleshSparks`, 0 to 7: how many of a saber's flesh hit effects play.
     pub(crate) flesh_sparks: i64,
+    /// `cg_noFX`: from 1 no map effects (`ET_FX`), at 5 no effects at all.
+    pub(crate) no_fx: i64,
 }
 
 impl Default for EffectOptions {
@@ -99,6 +101,7 @@ impl Default for EffectOptions {
         Self {
             no_teleport: false,
             flesh_sparks: 7,
+            no_fx: 0,
         }
     }
 }
