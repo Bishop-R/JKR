@@ -114,6 +114,8 @@ pub(crate) fn spawn_snapshot_particles(
         let Some(effect_name) = combat_effects::for_event(raw_event, entity, game_state) else {
             continue;
         };
+        // `EFFECT_EXPLOSION_DEMP2ALT` bursts a shell too (`cg_event.c:2988-2990`).
+        let demp2_shell = raw_event == 68 && entity.event_parameter() == 9;
         let origin = if matches!(raw_event, 69 | 70) {
             Vec3::from_array(jkr_client::legacy_evaluate_trajectory(
                 entity.trajectory_base(),
@@ -136,6 +138,9 @@ pub(crate) fn spawn_snapshot_particles(
         } else {
             Vec3::from_array(entity.trajectory_base())
         };
+        if demp2_shell {
+            auxiliary.demp2_shells.start(origin, entity.weapon(), now);
+        }
         spawn_effect(
             particles,
             auxiliary,

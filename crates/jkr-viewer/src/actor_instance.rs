@@ -98,6 +98,16 @@ impl ActorInstance {
     /// glow (`RF_DISINTEGRATE2`).
     pub(crate) const DISSOLVE_SHIFT: u32 = 4;
 
+    /// `view_flags` bit of `RF_VOLUMETRIC` ([`Self::volumetric`]).
+    pub(crate) const VOLUMETRIC: u32 = 1 << 6;
+
+    /// This instance drawn as `RF_VOLUMETRIC` (`tr_shade.cpp:1161-1188`): every stage's
+    /// colour is the entity colour's red, dimmed where the model's surface faces the view.
+    pub(crate) fn volumetric(mut self) -> Self {
+        self.view_flags |= Self::VOLUMETRIC;
+        self
+    }
+
     /// This instance drawn as a disintegration pass `mode` (1 the body, 2 the glow) burning
     /// `radius` units out from `center`, a point in the model's own space with its scale
     /// applied (`RB_CalcDisintegrateColors`, `tr_shade_calc.cpp:1262-1340`).

@@ -255,6 +255,7 @@ pub(crate) fn submit(
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
     }
+    spheres::submit_demp2_shells(&mut sinks, visual_now);
     // A siege class's blade colour goes with its thrown saber (the presented level's looks).
     let siege_looks = std::sync::Arc::clone(gpu.clientinfo_watch.siege_looks.current());
     let thrown = snapshot.zip(game_state).map(|(snapshot, game)| {

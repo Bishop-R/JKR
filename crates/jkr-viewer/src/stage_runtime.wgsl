@@ -180,6 +180,16 @@ fn entity_vertex(input: VertexInput, instance: InstanceInput, index: u32) -> Ver
         output.color = burn.color;
         output.animation_index = -1 - i32(dissolve);
     }
+    // RF_VOLUMETRIC (`tr_shade.cpp:1161-1188`), a generator killed the same way: the entity
+    // colour's red in every channel, less the fourth power of how squarely the model's own
+    // normal faces the view (none below a fifth).
+    if (instance.view_flags & 64u) != 0u {
+        let facing = dot(vertex.normal, camera.view_forward);
+        var dim = facing * facing * facing * facing;
+        if dim < 0.2 { dim = 0.0; }
+        output.color = vec4(instance.entity_color.r * (1.0 - dim));
+        output.animation_index = -4;
+    }
     // RF_DEPTHHACK: rd-vanilla narrows the depth range to 0..0.3
     // (`tr_backend.cpp:906`) so the view weapon draws over the world.
     output.position = clip_position(position, instance.position.w);

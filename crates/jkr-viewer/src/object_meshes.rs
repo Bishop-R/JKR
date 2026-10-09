@@ -58,10 +58,15 @@ pub(super) fn load<'a>(
         .filter_map(|entity| entity.appearance().cloned())
         .collect::<BTreeSet<_>>();
     pickups::extend_appearances(&mut appearances);
-    appearances.insert(Appearance {
-        model: "models/weaphits/testboom.md3".to_owned(),
-        variant: String::new(),
-    });
+    for model in [
+        "models/weaphits/testboom.md3",
+        crate::effect_aux::demp2_shell::MODEL,
+    ] {
+        appearances.insert(Appearance {
+            model: model.to_owned(),
+            variant: String::new(),
+        });
+    }
     static_models::extend_appearances(bsp, &mut appearances);
     crate::effect_aux::breakage::extend_appearances(bsp, &mut appearances);
     first_person_weapon::Catalog::extend_appearances(&mut appearances);

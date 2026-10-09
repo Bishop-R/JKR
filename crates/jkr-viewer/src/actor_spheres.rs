@@ -123,3 +123,38 @@ pub(super) fn player_bits(state: Option<&EntityState>, snapshot: Option<&Snapsho
         (None, None) => (0, 0),
     }
 }
+
+/// The DEMP2's bursting alternate-fire shells (`effect_aux::demp2_shell`), the sphere model
+/// under their shader, unturned, shaded as `RF_VOLUMETRIC`.
+pub(super) fn submit_demp2_shells(sinks: &mut Sinks<'_>, now: std::time::Instant) {
+    use crate::effect_aux::demp2_shell;
+    let Some(material) = sinks.material_overrides.force(demp2_shell::SHADER) else {
+        return;
+    };
+    let mut mesh = None;
+    for shape in sinks.effect_aux.demp2_shells.frame(now) {
+        let Some(mesh) = *mesh.get_or_insert_with(|| {
+            sinks
+                .object_meshes
+                .iter()
+                .position(|mesh| mesh.appearance.model == demp2_shell::MODEL)
+        }) else {
+            return;
+        };
+        let mut instance =
+            ActorInstance::new(shape.origin.to_array(), [0.0, 0.0, 0.0, 1.0], shape.scale)
+                .volumetric();
+        instance.entity_color = [shape.level, shape.level, shape.level, 0.0];
+        if sinks.overrides.len() < sinks.overrides.capacity() {
+            sinks.overrides.push(OverrideInstance {
+                mesh: OverrideMesh::Object(mesh),
+                material: Some(material),
+                instance,
+                no_depth: false,
+                forced_alpha: false,
+                switched_off: None,
+            });
+        }
+    }
+}
+

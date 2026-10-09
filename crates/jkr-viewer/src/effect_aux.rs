@@ -21,6 +21,9 @@ pub(crate) mod cadence;
 #[path = "breakage.rs"]
 pub(crate) mod breakage;
 
+#[path = "demp2_shell.rs"]
+pub(crate) mod demp2_shell;
+
 const MAX_EFFECT_PRIMITIVES: usize = 1_800;
 const MAX_PENDING_SHAKES: usize = 64;
 
@@ -81,6 +84,8 @@ pub(crate) struct Runtime {
     pub(crate) breakage: breakage::Runtime,
     /// Ghoul2 damage marks waiting for this frame's poses (`actor_marks.rs`).
     pub(crate) marks: crate::actor_marks::Runtime,
+    /// The DEMP2's bursting alternate-fire shells (`demp2_shell.rs`).
+    pub(crate) demp2_shells: demp2_shell::Shells,
     /// EternalJK's effect options.
     pub(crate) options: EffectOptions,
 }
@@ -128,6 +133,7 @@ impl Default for Runtime {
             continuous: cadence::Cadence::default(),
             breakage: breakage::Runtime::default(),
             marks: crate::actor_marks::Runtime::default(),
+            demp2_shells: demp2_shell::Shells::default(),
             options: EffectOptions::default(),
         }
     }
