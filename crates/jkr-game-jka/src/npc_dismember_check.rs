@@ -200,6 +200,14 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             )
         });
         let at = self.dismember_bolt(check.victim, &victim, limb);
+        if self.host.austrian_duel() {
+            let name = String::from_utf8_lossy(&self.host.client_name(check.victim)).into_owned();
+            let line = format!(
+                "Duel Dismemberment: {name} dismembered at {}",
+                location.name()
+            );
+            self.host.log(&line);
+        }
         self.dismember(
             check.victim,
             check.enemy,

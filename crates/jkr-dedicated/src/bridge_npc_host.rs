@@ -872,6 +872,10 @@ impl NpcHost for ServerHost<'_> {
         self.limbs.dismember
     }
 
+    fn austrian_duel(&self) -> bool {
+        self.limbs.austrian_duel
+    }
+
     fn heavy_melee(&self, attacker: u16) -> bool {
         self.heavy_melee_of(attacker)
     }

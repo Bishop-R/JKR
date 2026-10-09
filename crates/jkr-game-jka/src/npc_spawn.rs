@@ -660,6 +660,11 @@ pub trait NpcHost: SaberParseHost {
     fn dismember_setting(&self) -> i32 {
         0
     }
+    /// `g_austrian` in a duel or power duel: each limb a client loses is logged ("Duel
+    /// Dismemberment"). Off by default.
+    fn austrian_duel(&self) -> bool {
+        false
+    }
     /// `G_HeavyMelee(attacker)` (`g_combat.c:52-63`): in a siege, the attacker plays a class
     /// with `CFL_HEAVYMELEE`, whose melee cuts as a blade does. None by default.
     fn heavy_melee(&self, _attacker: u16) -> bool {

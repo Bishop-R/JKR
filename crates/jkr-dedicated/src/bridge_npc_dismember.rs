@@ -17,6 +17,8 @@ const CFL_HEAVYMELEE: u32 = 4;
 pub(in super::super) struct LimbRules {
     pub(in super::super) dismember: i32,
     pub(in super::super) heavy_melee: u64,
+    /// `g_austrian` in a duel or power duel: limbs lost are logged.
+    pub(in super::super) austrian_duel: bool,
 }
 
 impl NativeGame {
@@ -26,9 +28,11 @@ impl NativeGame {
         let heavy_melee = (0..self.players.places().min(64))
             .filter(|client| self.siege_class_flags(*client) & (1 << CFL_HEAVYMELEE) != 0)
             .fold(0, |mask, client| mask | 1 << client);
+        let duel = matches!(self.gametype, GAMETYPE_DUEL | GAMETYPE_POWERDUEL);
         LimbRules {
             dismember,
             heavy_melee,
+            austrian_duel: duel && self.integer_cvar(b"g_austrian", 0) != 0,
         }
     }
 }

@@ -38,6 +38,32 @@ pub enum HitLocation {
     Head,
 }
 
+impl HitLocation {
+    /// `hitLocName` (`g_combat.c:3072-3097`): the part as the game log names it, the
+    /// reference's own spelling kept ("front right shouler").
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::FootRight => "right foot",
+            Self::FootLeft => "left foot",
+            Self::LegRight => "right leg",
+            Self::LegLeft => "left leg",
+            Self::Waist => "waist",
+            Self::BackRight => "back right shoulder",
+            Self::BackLeft => "back left shoulder",
+            Self::Back => "back",
+            Self::ChestRight => "front right shouler",
+            Self::ChestLeft => "front left shoulder",
+            Self::Chest => "chest",
+            Self::ArmRight => "right arm",
+            Self::ArmLeft => "left arm",
+            Self::HandRight => "right hand",
+            Self::HandLeft => "left hand",
+            Self::Head => "head",
+        }
+    }
+}
+
 /// `DAMAGE_*` flags (`g_local.h:1165-1185`).
 pub const DAMAGE_NO_ARMOR: u32 = 0x2;
 pub const DAMAGE_NO_KNOCKBACK: u32 = 0x4;
