@@ -79,8 +79,7 @@ impl crate::GpuState {
         let info = session.game_state().config_string(0).unwrap_or_default();
         let restricts =
             jkr_protocol::info_value(info, b"restricts").map_or(0, jkr_game_jka::userinfo::atoi);
-        let japro = jkr_protocol::info_value(info, b"gamename")
-            .is_some_and(|name| name.len() >= 5 && name[..5].eq_ignore_ascii_case(b"japro"));
+        let japro = jkr_client::ServerMod::from_serverinfo(info) == jkr_client::ServerMod::JaPro;
         let racing = japro && session.latest_snapshot().player.stats[STAT_RACEMODE] != 0;
         restricts & RESTRICT_DO != 0 || racing
     }

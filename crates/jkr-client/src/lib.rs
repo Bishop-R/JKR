@@ -111,6 +111,7 @@ mod visual_effect_events;
 mod vote_state;
 mod weapon_shake;
 use jkr_game_jka::weapon_data;
+mod server_mod;
 mod weapon_selection;
 
 pub use actor_color::{TeamColorPolicy, legacy_body_color, legacy_player_color};
@@ -228,6 +229,7 @@ pub use saber_definitions::{
 pub use saber_move::legacy_saber_trail_length;
 pub use server_address::{LegacyAddressError, LegacyServerAddress};
 pub use server_clock::ServerClock;
+pub use server_mod::ServerMod;
 pub use session_transition::{SessionTransition, SessionTransitionKind};
 pub use sound_events::{
     LegacyMusicAction, LegacySoundAdapter, LegacySoundDecision, LegacySoundEvent,

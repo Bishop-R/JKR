@@ -2,6 +2,8 @@
 
 use super::{TextVertex, UiFont};
 use crate::keybind_editor;
+#[path = "console_anti_kiss.rs"]
+mod anti_kiss;
 #[path = "console_auto_kill.rs"]
 mod auto_kill;
 #[path = "console_auto_login.rs"]

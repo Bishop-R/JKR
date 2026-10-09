@@ -37,9 +37,7 @@ pub(crate) fn damage_kick(state: &GpuState) -> bool {
     let info = game
         .and_then(|game| game.config_string(0))
         .unwrap_or_default();
-    let japro = jkr_protocol::info_value(info, b"gamename")
-        .is_some_and(|name| name.len() >= 5 && name[..5].eq_ignore_ascii_case(b"japro"));
-    if japro {
+    if jkr_client::ServerMod::from_serverinfo(info) == jkr_client::ServerMod::JaPro {
         let jcinfo =
             jkr_protocol::info_value(info, b"jcinfo").map_or(0, jkr_game_jka::userinfo::atoi);
         return jcinfo & JAPRO_SCREEN_SHAKE != 0;

@@ -270,6 +270,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "EternalJK: falling to your death, ask to die at once and respawn",
         ),
+        // TaystJK `cg_xcvar.h:97`.
+        CvarDefinition::new(
+            "cg_antiAmKiss",
+            0_i64,
+            archive,
+            "TaystJK: on a JA+ server, push free at once when another player's amkiss holds you",
+        ),
         // TaystJK `cg_xcvar.h:60`.
         CvarDefinition::new(
             "cg_weaponCycleAmmo",

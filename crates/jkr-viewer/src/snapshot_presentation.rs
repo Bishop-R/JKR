@@ -300,6 +300,10 @@ impl GpuState {
         if let Some(console) = &mut self.console {
             let falling = snapshot.player.falling_to_death() != 0;
             console.auto_kill_when_falling(falling && !snapshot.player.is_spectator(), visual_now);
+            console.anti_am_kiss(&snapshot.player, || {
+                let info = session.game_state().config_string(0).unwrap_or_default();
+                jkr_client::ServerMod::from_serverinfo(info) == jkr_client::ServerMod::JaPlus
+            });
         }
         if self.live_presentation_ready() {
             self.world_materials.areas.update(&snapshot.area_mask);
