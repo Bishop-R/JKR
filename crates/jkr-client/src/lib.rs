@@ -60,6 +60,7 @@ pub use siege_looks::{SiegeClassLook, SiegeClassLooks};
 pub mod speed_trail;
 mod vehicle_missile_effects;
 pub use client_info::{LegacyClientInfo, legacy_body_frame};
+pub mod player_lookup;
 mod player_profile;
 mod player_sprites;
 pub use jkr_game_jka::pmove;

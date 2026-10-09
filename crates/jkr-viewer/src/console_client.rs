@@ -77,6 +77,14 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "List the players with their teams (EternalJK's name)",
     ),
     ("do", "Run a vstr after a delay in milliseconds (EternalJK)"),
+    (
+        "ignoreVGS",
+        "Mute a player's voice commands, -1 for everyone (EternalJK)",
+    ),
+    (
+        "chatlog",
+        "List or toggle the cg_logChat settings (EternalJK)",
+    ),
     ("lowjump", "Tap jump for one frame (EternalJK)"),
     ("+duck", "Crouch without rolling (EternalJK)"),
     ("briefing", "Show your side's Siege objectives"),
@@ -356,6 +364,8 @@ impl crate::GpuState {
             "tell_target" | "tell_attacker" | "tcmd" => return self.aimed_command(&name, args),
             "clientlist" | "showplayerid" => return self.client_list(),
             "do" | "lowjump" | "+duck" | "-duck" => return self.deferred_command(&name, args),
+            "ignorevgs" => return self.ignore_vgs(args, audio),
+            "chatlog" => return self.chat_log_settings(args),
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,

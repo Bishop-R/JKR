@@ -22,6 +22,8 @@ mod console_cvars;
 mod deferred;
 #[path = "demo_director.rs"]
 pub(crate) mod director;
+#[path = "console_ignore_vgs.rs"]
+mod ignore_vgs;
 #[path = "console_qcommon.rs"]
 mod qcommon;
 #[path = "console_window_options.rs"]

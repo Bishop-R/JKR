@@ -82,6 +82,11 @@ pub(crate) struct GameAudio {
 }
 
 impl GameAudio {
+    /// The legacy sound events' resolver, once a level's sounds are in.
+    pub(crate) fn sound_adapter_mut(&mut self) -> Option<&mut LegacySoundAdapter> {
+        self.legacy.as_mut()
+    }
+
     /// Feed immediate local movement through the snapshot sound resolver and mixer.
     pub(crate) fn observe_predicted_event(
         &mut self,

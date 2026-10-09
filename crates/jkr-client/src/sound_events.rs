@@ -602,6 +602,8 @@ pub struct LegacySoundAdapter {
     /// A duel or power duel: players' duel taunts play (`cg_customDuelSoundNames`).
     duel: bool,
     client_teams: [u8; MAX_CLIENTS],
+    /// EternalJK's `cgs.ignoredVGS`: the players whose voice commands go unheard.
+    ignored_voice: u32,
     taunt_random: crate::animation_events::Random,
     saber_attack: [Option<u16>; 8],
     saber_hit: [Option<u16>; 3],
@@ -655,6 +657,16 @@ pub struct LegacySoundAdapter {
 }
 
 impl LegacySoundAdapter {
+    /// EternalJK's `ignoreVGS` list: one bit per player whose voice commands go unheard.
+    pub fn ignored_voice_commands(&self) -> u32 {
+        self.ignored_voice
+    }
+
+    /// Replace the [`Self::ignored_voice_commands`] list.
+    pub fn set_ignored_voice_commands(&mut self, players: u32) {
+        self.ignored_voice = players;
+    }
+
     /// Select TaystJK chat notification variants (cg_servercmds.c:1715-1761).
     pub fn set_chat_sound_mode(&mut self, mode: i64, clean: bool) {
         self.local.chat_mode = mode;
@@ -862,6 +874,7 @@ impl LegacySoundAdapter {
             npc_voices,
             duel: matches!(gametype, 3 | 4),
             client_teams,
+            ignored_voice: 0,
             predicted_events: Default::default(),
             taunt_random: Default::default(),
             saber_attack,
@@ -1763,7 +1776,8 @@ impl LegacySoundAdapter {
 
     fn emit_voice_command(&mut self, parameter: u8, entity: EventSubject, snapshot: &Snapshot) {
         let client = usize::from(entity.ground);
-        if client >= MAX_CLIENTS {
+        // EternalJK's `ignoreVGS` (`cg_event.c:3579`).
+        if client >= MAX_CLIENTS || self.ignored_voice & (1 << client) != 0 {
             return;
         }
         // The speaker is the client in `groundEntityNum`, not the event's own entity.
