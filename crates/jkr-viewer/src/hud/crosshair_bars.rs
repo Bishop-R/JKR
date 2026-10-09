@@ -349,7 +349,8 @@ mod tests {
         });
         let mut list = DrawList::new(8);
         // A 24-unit crosshair in the middle of a 640 by 480 screen.
-        state.emit(&mut list, [640.0, 480.0], [0.0, 0.0, 640.0, 480.0]);
+        let technician = Some(jkr_ui::TextureId(7));
+        state.emit(&mut list, [640.0, 480.0], [0.0, 0.0, 640.0, 480.0], technician);
         match list.commands() {
             [
                 DrawCommand::Border { rect: outline, .. },
@@ -359,6 +360,17 @@ mod tests {
                 assert_eq!(*outline, Rect::new(295.0, 260.0, 50.0, 5.0));
                 assert_eq!(*full, Rect::new(296.0, 261.0, 24.0, 4.0));
                 assert_eq!(*rest, Rect::new(320.0, 261.0, 24.0, 4.0));
+            }
+            commands => panic!("unexpected commands: {commands:?}"),
+        }
+        // The hack bar carries the technician a bar's width square above it.
+        state.bars[0] = state.bars[0].map(|bar| Bar { hack: true, ..bar });
+        let mut list = DrawList::new(8);
+        state.emit(&mut list, [640.0, 480.0], [0.0, 0.0, 640.0, 480.0], technician);
+        match list.commands().last() {
+            Some(DrawCommand::TexturedQuad { rect, texture, .. }) => {
+                assert_eq!(*rect, Rect::new(295.0, 210.0, 50.0, 50.0));
+                assert_eq!(Some(*texture), technician);
             }
             commands => panic!("unexpected commands: {commands:?}"),
         }
