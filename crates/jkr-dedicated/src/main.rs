@@ -8,6 +8,7 @@ use jkr_dedicated::command_buffer::{CommandBuffer, CommandPass};
 use jkr_dedicated::config_files::ConfigFiles;
 use jkr_dedicated::cvars::Cvars;
 use jkr_dedicated::frame_clock::FrameClock;
+use jkr_dedicated::launch;
 use jkr_dedicated::map;
 use jkr_dedicated::master::Masters;
 use jkr_network::{LegacyClock, LegacyConsoleSettings, LegacyServerSession, LegacySessionSettings};
@@ -18,7 +19,8 @@ use std::{
 };
 
 struct Options {
-    bind: SocketAddr,
+    /// `--bind`: exactly this address; without it `net_ip` and `net_port` decide.
+    bind: Option<SocketAddr>,
     mapname: String,
     wire_clients: usize,
     peers: usize,
@@ -46,8 +48,13 @@ const USAGE: &str = "jkr-dedicated [--bind ADDRESS:PORT] [--hostname NAME] [--ma
                      [--set NAME VALUE]... [--home DIRECTORY] [--quit-on-eof]
                      [+COMMAND ARGUMENTS...]...
 
+  --bind          exactly this address and port. Without it the server listens as the
+                  reference's does: on `net_ip` (`localhost`, the default, is every
+                  interface) at `net_port` (29070), else at the first free one of the
+                  nine ports above it — `+set net_ip 10.0.0.2 +set net_port 29071`
   --game-data     the game's GameData directory; with it the map is loaded from
-                  base/*.pk3, without it only its name is advertised
+                  base/*.pk3, without it only its name is advertised. `+set
+                  fs_basepath DIRECTORY` names it as the reference's start scripts do
   --maps          the maps played after this one, in order, comma-separated; the list
                   wraps. Without it the server replays its own map when a match ends,
                   which is what a server with no `nextmap` set does
@@ -97,7 +104,7 @@ const USAGE: &str = "jkr-dedicated [--bind ADDRESS:PORT] [--hostname NAME] [--ma
                   route file, else a graph sampled from the map's collision. Either way
                   combat points are placed at cover. Read as a level begins (`--set
                   jkr_npcNav 2`, or `jkr_npcNav 2` then `map_restart`)
-  --home          the operator's directory: `exec` looks in its `base` first, and the
+  --home          the operator's directory (`+set fs_homepath DIRECTORY`): `exec` looks in its `base` first, and the
                   archived variables are kept in `base/jkr_server.cfg` there (read at
                   start, rewritten when one changes). Without it nothing is written
   +COMMAND        a console line, as the reference's command line takes them: `+set`
@@ -114,7 +121,7 @@ const USAGE: &str = "jkr-dedicated [--bind ADDRESS:PORT] [--hostname NAME] [--ma
 
 fn options() -> Result<Options, Box<dyn Error>> {
     let mut options = Options {
-        bind: "0.0.0.0:29070".parse()?,
+        bind: None,
         mapname: "nomap".to_owned(),
         wire_clients: 32,
         peers: 64,
@@ -176,7 +183,7 @@ fn options() -> Result<Options, Box<dyn Error>> {
             continue;
         }
         match flag.as_str() {
-            "--bind" => options.bind = value()?.parse()?,
+            "--bind" => options.bind = Some(value()?.parse()?),
             "--map" => options.mapname = value()?,
             "--wire-clients" => options.wire_clients = value()?.parse()?,
             "--gametype" => {
@@ -279,9 +286,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut secret = [0; 16];
     getrandom::fill(&mut secret)
         .map_err(|error| format!("no operating-system randomness: {error}"))?;
-    let map = match &options.game_data {
-        Some(game_data) => Some(map::load(game_data, &options.mapname)?),
-        None => None,
+    // `FS_Startup` takes its paths from the command line before any config runs.
+    let mut cvars = Cvars::new();
+    startup_variables(&mut cvars, &options);
+    let game_data = (options.game_data.clone())
+        .or_else(|| launch::startup_path(&cvars, b"fs_basepath"));
+    let home = (options.home.clone()).or_else(|| launch::startup_path(&cvars, b"fs_homepath"));
+    // Without `--map` the server waits for one, as the reference's does until its
+    // command line's `+map` runs.
+    let map = match &game_data {
+        Some(game_data) if options.mapname != "nomap" => {
+            Some(map::load(game_data, &options.mapname)?)
+        }
+        _ => None,
     };
     if let Some(map) = &map {
         println!(
@@ -290,12 +307,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             map.spawn_points.len()
         );
     }
-    let mut cvars = Cvars::new();
-    startup_variables(&mut cvars, &options);
-    let mut files = ConfigFiles::new(options.home.clone(), options.game_data.clone());
+    let mut files = ConfigFiles::new(home.clone(), game_data.clone());
     startup_configs(&mut cvars, &mut files);
     startup_variables(&mut cvars, &options);
     cvars.register_server();
+    launch::register(&mut cvars, game_data.as_deref(), home.as_deref());
+    // `NET_Init`, before the game starts.
+    let socket = match options.bind {
+        Some(bind) => UdpSocket::bind(bind)?,
+        None => launch::open_ip(&mut cvars)?,
+    };
     let identity = Identity {
         hostname: cvars.string(b"sv_hostname").to_vec(),
         mapname: options.mapname.clone().into_bytes(),
@@ -305,7 +326,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     if options.cheats {
         game.set_cvar("sv_cheats", "1");
     }
-    game.set_rotation(options.maps.clone(), options.game_data.clone());
+    game.set_rotation(options.maps.clone(), game_data.clone());
     let offered = game.offered_votes();
     let names = |mask: i32| {
         let names: Vec<&str> = jkr_game_jka::vote::VOTES
@@ -317,7 +338,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         names.join(" ")
     };
     game.set_spawn_order(options.spawn_order);
-    let socket = UdpSocket::bind(options.bind)?;
     socket.set_read_timeout(Some(Duration::from_millis(1)))?;
     let bound = socket.local_addr()?;
     let mut settings = LegacySessionSettings::default();

@@ -11,6 +11,7 @@ pub mod config_files;
 pub mod cvars;
 pub(crate) mod damage_numbers;
 pub mod frame_clock;
+pub mod launch;
 pub mod map;
 pub mod master;
 pub(crate) mod motd;
