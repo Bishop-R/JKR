@@ -116,10 +116,11 @@ impl ServerWorld<'_> {
         }
     }
 
-    /// The wire client number a script owner stands for, `usize::MAX` for none.
-    fn client_number(owner: Option<ScriptOwner>) -> usize {
+    /// The entity number a script's activator fires targets for — a player's or an NPC's,
+    /// as `G_UseTargets2(ent, ent, ...)` hands either on — `usize::MAX` for none.
+    fn activator_number(owner: Option<ScriptOwner>) -> usize {
         match owner {
-            Some(ScriptOwner::Client(client)) => usize::from(client),
+            Some(ScriptOwner::Client(number) | ScriptOwner::Npc(number)) => usize::from(number),
             _ => usize::MAX,
         }
     }
@@ -397,7 +398,7 @@ impl ScriptWorld for ServerWorld<'_> {
         // by the same call and used here, the one firing excepted.
         let queued = self.game.scripts.pending.len();
         self.game
-            .fire_targets(target, Self::client_number(activator), level_time);
+            .fire_targets(target, Self::activator_number(activator), level_time);
         for pending in self.game.scripts.pending.iter_mut().skip(queued) {
             pending.from = Some(ent);
         }

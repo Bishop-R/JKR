@@ -89,6 +89,31 @@ impl NpcRoster {
             .script_set_bstate(at, behavior_state_named(name))
     }
 
+    /// `Q3_SetEnemy` on NPC `number` (`g_ICARUScb.c:2170-2220`): `enemy` taken
+    /// (`G_SetEnemy`, its can't-hit counter reset), or none (`G_ClearEnemy`). The names it
+    /// fired on the way.
+    pub fn script_set_enemy(
+        &mut self,
+        number: u16,
+        enemy: Option<u16>,
+        level_time: i32,
+        host: &mut impl NpcHost,
+    ) -> crate::npc_roster::Fired {
+        let mut fired = Vec::new();
+        let Some(at) = self.actors.iter().position(|npc| npc.number == number) else {
+            return fired;
+        };
+        let mut world = self.world(level_time, host, &mut fired);
+        match enemy {
+            Some(enemy) => {
+                world.set_enemy(at, enemy);
+                world.actors[at].mind.cant_hit_enemy_counter = 0;
+            }
+            None => world.clear_enemy(at),
+        }
+        fired
+    }
+
     /// `Q3_SetTempBState` (`g_ICARUScb.c:2725-2763`): the temporary state, where `name`
     /// is one. Its task completes at once.
     pub fn script_set_temp_bstate(&mut self, number: u16, name: &str) {

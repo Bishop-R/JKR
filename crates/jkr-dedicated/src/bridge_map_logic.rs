@@ -275,18 +275,21 @@ impl NativeGame {
                     activator,
                 } => self.use_one_named(index, &name, pick, activator, level_time),
                 Deed::Kill { activator } => {
-                    let client = self.client_of(Some(activator));
-                    if self.peer(client).is_some() {
-                        let request = DamageRequest {
-                            level_time,
-                            attacker: None,
-                            direction: None,
-                            point: None,
-                            damage: 100_000,
-                            flags: DAMAGE_NO_PROTECTION,
-                            means: MOD_TELEFRAG,
-                        };
-                        let _ = self.hurt(client, request);
+                    // `target_kill_use`: `G_Damage` on the activator, a player, an NPC or
+                    // anything else that takes damage.
+                    let request = DamageRequest {
+                        level_time,
+                        attacker: None,
+                        direction: None,
+                        point: None,
+                        damage: 100_000,
+                        flags: DAMAGE_NO_PROTECTION,
+                        means: MOD_TELEFRAG,
+                    };
+                    if self.peer(activator).is_some() {
+                        let _ = self.hurt(activator, request);
+                    } else if activator != usize::MAX {
+                        let _ = self.strike(usize::MAX, activator, request, false);
                     }
                 }
                 Deed::Teleport {

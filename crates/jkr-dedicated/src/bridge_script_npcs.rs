@@ -9,15 +9,16 @@
 //! The sets on an NPC's behaviour states apply through the roster (`Q3_SetBState`,
 //! `Q3_SetTempBState`, `Q3_SetDefaultBState`, and `G_ActivateBehavior` of a set naming a
 //! state), and `remove` frees it; its other sets, client actions and `kill` are reported
-//! once a level and complete at once. An NPC whose AI activates one of its behaviour sets
-//! (`G_ActivateBehavior`: its pain, death, anger script ...) becomes one then, and the
-//! script starts with the NPCs' scripts that frame. Before that an NPC without a spawn
-//! script is no script entity, so no script reaches it by name — none of the stock maps'
-//! scripts names an NPC.
+//! once a level and complete at once. Every other NPC becomes one too once it has begun
+//! (`ICARUS_InitEnt`), so scripts reach it by name; a behaviour set it activates
+//! (`G_ActivateBehavior`: its pain, death, anger script ...) starts with the NPCs' scripts
+//! that frame.
 
 use super::bridge_icarus::ScriptOwner;
 use super::*;
-use jkr_game_jka::icarus_set_table::{SET_BEHAVIOR_STATE, SET_DEFAULT_BSTATE, SET_TEMP_BSTATE};
+use jkr_game_jka::icarus_set_table::{
+    SET_BEHAVIOR_STATE, SET_DEFAULT_BSTATE, SET_ENEMY, SET_TEMP_BSTATE,
+};
 use jkr_game_jka::npc_spawn::NpcThink;
 use jkr_game_jka::script_entity::{BSET_SPAWN, EntityKind, ScriptEntity, Think};
 use jkr_game_jka::script_runner;
@@ -54,6 +55,7 @@ impl NativeGame {
     /// scripts of an NPC that is gone go with it. A script's `remove` (`Q3_RemoveEnt`:
     /// `G_FreeEntity` for the NPC's think, a tenth of a second on) becomes the NPC's think.
     pub(super) fn run_npc_scripts(&mut self) {
+        self.init_npc_script_entities();
         self.run_npc_behaviors();
         if self.scripts.npcs.is_empty() {
             return;
@@ -108,6 +110,32 @@ impl NativeGame {
         Some(ent)
     }
 
+    /// `NPC_Begin`'s `ICARUS_InitEnt` (`NPC_spawn.c:1107`) for every NPC that has begun:
+    /// each a script entity named as it is, so a script reaches it by name whether or not
+    /// it runs one itself. Looked over only when fewer NPCs are script entities than have
+    /// begun.
+    fn init_npc_script_entities(&mut self) {
+        if self.scripts.npcs.len() >= self.npcs.roster.begun().count() {
+            return;
+        }
+        let missing: Vec<u16> = self
+            .npcs
+            .roster
+            .begun()
+            .map(|npc| npc.number)
+            .filter(|number| !self.scripts.npcs.iter().any(|(known, _)| known == number))
+            .collect();
+        for number in missing {
+            let Some(ent) = self.npc_as_script_entity(number) else {
+                continue;
+            };
+            self.with_scripts(|world, icarus| {
+                world.game.scripts.npcs.push((number, ent));
+                script_runner::init_entity(world, icarus, ScriptOwner::Npc(number));
+            });
+        }
+    }
+
     /// The scripts of the behaviour sets the NPCs activated (`G_ActivateBehavior`'s
     /// `ICARUS_RunScript`), started before the NPCs' scripts take their turn: an NPC not yet
     /// a script entity becomes one (`ICARUS_InitEnt`); one already gone is passed over.
@@ -159,6 +187,39 @@ impl NativeGame {
                 value,
             } => {
                 self.npcs.roster.script_set_default_bstate(number, &value);
+                true
+            }
+            NpcAction::Set {
+                set: SET_ENEMY,
+                value,
+            } => {
+                // `G_Find(targetname)`: an NPC answers to its `NPC_targetname`; a player has
+                // no name in multiplayer.
+                let clearing =
+                    value.eq_ignore_ascii_case("NONE") || value.eq_ignore_ascii_case("NULL");
+                let enemy = self
+                    .npcs
+                    .roster
+                    .actors
+                    .iter()
+                    .find(|npc| {
+                        npc.targetname
+                            .as_deref()
+                            .is_some_and(|name| name.eq_ignore_ascii_case(value.as_bytes()))
+                    })
+                    .map(|npc| npc.number);
+                if !clearing && enemy.is_none() {
+                    self.scripts.report_once("npc SET_ENEMY", || {
+                        format!("SET_ENEMY \"{value}\" on an NPC: only an NPC is taken as one here")
+                    });
+                    return true;
+                }
+                let fired = self.with_roster(|roster, _, host| {
+                    roster.script_set_enemy(number, enemy, level_time, host)
+                });
+                if let Some(fired) = fired {
+                    self.fire_from_npcs(fired, level_time);
+                }
                 true
             }
             NpcAction::BehaviorState(name) => {
