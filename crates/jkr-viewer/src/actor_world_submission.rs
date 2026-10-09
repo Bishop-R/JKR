@@ -504,6 +504,13 @@ fn submit_actor(
                 .then_some(fallback_mesh)
                 .flatten()
         });
+    // jaPRO's `cg_stylePlayer` no-bodies bit: no cut-off limbs either (EternalJK
+    // `cg_ents.c:1122-1125`).
+    if mesh.is_some_and(|index| sinks.actor_meshes[index].limb_pool)
+        && sinks.style & jkr_client::style_player::NO_BODIES != 0
+    {
+        return 0;
+    }
     transform.rotation = actor_pose::world_rotation(
         mesh.and_then(|index| sinks.actor_meshes.get(index)),
         transform.rotation,
@@ -926,7 +933,9 @@ fn fade_passes(
     } else {
         "gfx/effects/sabers/red_glow"
     };
-    if let Some(material) = sinks.material_overrides.force(glow) {
+    if passes.glow != 0
+        && let Some(material) = sinks.material_overrides.force(glow)
+    {
         let grey = f32::from(passes.glow) / 255.0;
         let mut tinted = instance.with_rgb_tint([grey; 4]);
         if let Some(since) = passes.burning_since {

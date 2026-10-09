@@ -5,8 +5,7 @@
 //! duel shell, which EternalJK draws only with [`SHELL`].
 //!
 //! Not yet carried: the racing bits (3 to 7, for jaPRO's race mode), the player LOD (12),
-//! no bodies and their fade effects (13, 14), cosmetics (16), breathing (17) and the old
-//! grapple line (18).
+//! cosmetics (16), breathing (17) and the old grapple line (18).
 
 use crate::ServerMod;
 
@@ -23,6 +22,11 @@ pub const DUELLIST_STAND_IN: u32 = 1 << 8;
 pub const HIDE_NON_DUELLISTS: u32 = 1 << 10;
 /// `JAPRO_STYLE_HIDEYSALSHELL`: one's own ysalamiri shell hidden.
 pub const HIDE_OWN_YSALAMIRI: u32 = 1 << 11;
+/// `JAPRO_STYLE_NOBODIES`: bodies fade as soon as they fall and are gone in five seconds,
+/// with no cut-off limbs.
+pub const NO_BODIES: u32 = 1 << 13;
+/// `JAPRO_STYLE_NOFADESFX`: a fading body's crackle, hum and electric shell left out.
+pub const NO_FADE_EFFECTS: u32 = 1 << 14;
 /// `JAPRO_STYLE_COLOREDSPAWNBUBBLE`: the spawn bubble in the player's team colour.
 pub const TEAM_SPAWN_BUBBLE: u32 = 1 << 15;
 /// JKR's default `cg_stylePlayer`: stock's look.

@@ -20,8 +20,11 @@ use jkr_runtime::EntityId;
 /// `EV_BODYFADE`, and the two bits `G_AddEvent` steps (`EV_EVENT_BITS`).
 const EV_BODYFADE: u16 = 100;
 const EV_EVENT_BITS: u16 = 0x300;
-/// How long the fade's passes stand in for the body (`bodyFadeTime = cg.time + 60000`).
+/// How long the fade's passes stand in for the body (`bodyFadeTime = cg.time + 60000`),
+/// and with jaPRO's `cg_stylePlayer` no-bodies bit (`cg.time + 5000`, after which the body
+/// is not drawn at all).
 const FADE_MS: i64 = 60_000;
+const NO_BODIES_MS: i64 = 5_000;
 /// Until when a dark-sided body crackles and a light-sided one hums.
 const ELECTRIC_MS: i64 = 3_400;
 const HUM_MS: i64 = 2_200;
@@ -53,6 +56,8 @@ pub(crate) struct CorpseFade {
     hummed: i64,
     /// This frame's passes, worked out once by [`Self::update`].
     current: Option<Passes>,
+    /// jaPRO's no-bodies style was asked for when the fade was last observed.
+    no_bodies: bool,
 }
 
 /// What a fading corpse draws and plays this frame.
@@ -60,7 +65,7 @@ pub(crate) struct CorpseFade {
 pub(crate) struct Passes {
     /// The body's own alpha (`RF_FORCE_ENT_ALPHA`), when it is drawn at all.
     pub(crate) body_alpha: Option<u8>,
-    /// The glow's grey tint and alpha (`RF_RGB_TINT`).
+    /// The glow's grey tint and alpha (`RF_RGB_TINT`); 0, which a fade never draws, for none.
     pub(crate) glow: u8,
     /// When the glow began to burn away from the body's origin (`RF_DISINTEGRATE2`).
     pub(crate) burning_since: Option<i64>,
@@ -75,12 +80,30 @@ impl CorpseFade {
     /// the fade; another entity in the slot starts afresh (`CG_BodyQueueCopy`), and one
     /// first seen with the event already raised fades from then (`CG_ResetEntity` clears
     /// `previousEvent`, so `CG_CheckEvents` takes it).
-    pub(crate) fn observe(&mut self, entity: Option<EntityId>, event: u16, now: i64) {
+    ///
+    /// With `no_bodies` (jaPRO's `cg_stylePlayer` 8192) the fade begins as the body is first
+    /// seen and the server's `EV_BODYFADE` is left alone (EternalJK `cg_ents.c:943-944`,
+    /// `cg_event.c:3178-3181`).
+    pub(crate) fn observe(
+        &mut self,
+        entity: Option<EntityId>,
+        event: u16,
+        now: i64,
+        no_bodies: bool,
+    ) {
         if self.entity != entity {
             *self = Self {
                 entity,
                 ..Self::default()
             };
+        }
+        self.no_bodies = no_bodies;
+        if no_bodies {
+            if self.since.is_none() {
+                self.since = Some(now);
+                self.rolled = now - ROLL_MS;
+            }
+            return;
         }
         if event != self.last_event {
             self.last_event = event;
@@ -96,9 +119,26 @@ impl CorpseFade {
         }
     }
 
-    /// This frame's passes, once a frame before the drawing reads them ([`Self::current`]).
-    pub(crate) fn update(&mut self, now: i64, light_side: bool, random: impl FnMut() -> f32) {
-        self.current = self.passes(now, light_side, random);
+    /// This frame's passes, once a frame before the drawing reads them ([`Self::current`]);
+    /// `no_effects` (jaPRO's `cg_stylePlayer` 16384) leaves out the crackle, hum, burning
+    /// sounds and electric shell (EternalJK `cg_ents.c:1676`).
+    pub(crate) fn update(
+        &mut self,
+        now: i64,
+        (light_side, no_effects): (bool, bool),
+        random: impl FnMut() -> f32,
+    ) {
+        self.current = self.passes(now, light_side, random).map(|passes| {
+            if no_effects {
+                Passes {
+                    electric: None,
+                    sounds: [false; 4],
+                    ..passes
+                }
+            } else {
+                passes
+            }
+        });
     }
 
     /// The passes [`Self::update`] worked out this frame.
@@ -116,6 +156,16 @@ impl CorpseFade {
     ) -> Option<Passes> {
         let since = self.since?;
         let elapsed = now - since;
+        if self.no_bodies && elapsed >= NO_BODIES_MS {
+            // Faded already: nothing of the body is drawn.
+            return Some(Passes {
+                body_alpha: None,
+                glow: 0,
+                burning_since: None,
+                electric: None,
+                sounds: [false; 4],
+            });
+        }
         if !(0..FADE_MS).contains(&elapsed) {
             return None;
         }
@@ -185,9 +235,9 @@ mod tests {
     fn fading(light_side: bool) -> CorpseFade {
         let mut fade = CorpseFade::default();
         let body = Some(EntityId::new(40));
-        fade.observe(body, 0, 0);
-        fade.observe(body, EV_BODYFADE | 0x100, 1_000);
-        fade.observe(body, EV_BODYFADE | 0x100, 1_200);
+        fade.observe(body, 0, 0, false);
+        fade.observe(body, EV_BODYFADE | 0x100, 1_000, false);
+        fade.observe(body, EV_BODYFADE | 0x100, 1_200, false);
         assert!(fade.passes(999, light_side, || 0.0).is_none());
         fade
     }
@@ -220,12 +270,28 @@ mod tests {
         assert!(start.sounds[3] && !start.sounds[2]);
         assert_eq!(fade.passes(4_401, false, || 1.0).unwrap().electric, None);
         // Another body in the slot starts afresh; one first seen fading fades from then.
-        fade.observe(Some(EntityId::new(41)), 0, 5_000);
+        fade.observe(Some(EntityId::new(41)), 0, 5_000, false);
         assert!(fade.passes(5_000, false, || 1.0).is_none());
-        fade.observe(Some(EntityId::new(42)), EV_BODYFADE, 6_000);
+        fade.observe(Some(EntityId::new(42)), EV_BODYFADE, 6_000, false);
         assert_eq!(
             fade.passes(6_000, false, || 1.0).unwrap().body_alpha,
             Some(254)
         );
+    }
+
+    #[test]
+    fn no_bodies_fade_at_once_and_go_and_no_effects_stay_quiet() {
+        let mut fade = CorpseFade::default();
+        let body = Some(EntityId::new(40));
+        fade.observe(body, 0, 2_000, true);
+        // The server's later fade event changes nothing.
+        fade.observe(body, EV_BODYFADE | 0x100, 2_500, true);
+        let start = fade.passes(2_000, false, || 1.0).unwrap();
+        assert_eq!(start.body_alpha, Some(254));
+        let gone = fade.passes(7_000, false, || 1.0).unwrap();
+        assert_eq!((gone.body_alpha, gone.glow), (None, 0));
+        fade.update(2_032, (false, true), || 1.0);
+        let quiet = fade.current().unwrap();
+        assert_eq!((quiet.electric, quiet.sounds), (None, [false; 4]));
     }
 }

@@ -573,7 +573,7 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "cg_stylePlayer",
             i64::from(jkr_client::style_player::DEFAULT),
             archive,
-            "jaPRO player style bits: 1 fullbright, 2 duel shell, 4 hide duellists, 256 duellists as a stand-in, 1024 hide non-duellists, 2048 hide own ysalamiri, 32768 team spawn bubbles",
+            "jaPRO player style bits: 1 fullbright, 2 duel shell, 4 hide duellists, 256 duellists as a stand-in, 1024 hide non-duellists, 2048 hide own ysalamiri, 8192 no bodies, 16384 no body fade effects, 32768 team spawn bubbles",
         ),
         CvarDefinition::new(
             "cg_instantDuck",

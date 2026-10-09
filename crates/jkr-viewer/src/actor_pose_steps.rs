@@ -18,6 +18,8 @@ pub(super) struct Frame<'a> {
     /// EternalJK's `cg_headTurn`: 0 never turns heads toward look targets, else the
     /// seconds a look holds (stock's 1).
     pub head_turn: i64,
+    /// jaPRO's `cg_stylePlayer`, for its body bits.
+    pub style: u32,
 }
 
 /// Prepare one actor without allowing a bad attachment or angle query to stop its peers.
@@ -31,6 +33,7 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         game_state,
         presentation_time,
         head_turn,
+        style,
     } = *frame;
     let frame_millis = mesh.angle_controller.begin_frame(presentation_time);
     // A limb's copy plays on the animation its owner had when it was cut, with none of
@@ -62,20 +65,25 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         crate::actor_dissolve::entity_flags(mesh.entity_id, local_entity, predicted, snapshot);
     crate::actor_dissolve::hold_pose(mesh, flags, presentation_time, &mut state);
     if mesh.corpse_pool {
+        use jkr_client::style_player::{NO_BODIES, NO_FADE_EFFECTS};
         let event = crate::corpse_fade::entity_event(mesh.entity_id, snapshot);
-        mesh.fade.observe(mesh.entity_id, event, presentation_time);
+        let no_bodies = style & NO_BODIES != 0;
+        mesh.fade
+            .observe(mesh.entity_id, event, presentation_time, no_bodies);
         let light_side = mesh
             .body_identity
             .as_ref()
             .is_some_and(|body| body.light_side);
         let mut seed =
             (mesh.entity_id.map_or(1, |id| id.get() as u32) ^ (presentation_time as u32)) | 1;
-        mesh.fade.update(presentation_time, light_side, move || {
-            seed ^= seed << 13;
-            seed ^= seed >> 17;
-            seed ^= seed << 5;
-            (seed >> 8) as f32 / (1 << 24) as f32
-        });
+        let quiet = style & NO_FADE_EFFECTS != 0;
+        mesh.fade
+            .update(presentation_time, (light_side, quiet), move || {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                (seed >> 8) as f32 / (1 << 24) as f32
+            });
     }
     // `PW_CLOAKED`'s two-second turn (`cloak_fade`).
     mesh.cloak = (!mesh.corpse_pool)
