@@ -19,7 +19,7 @@ impl NativeGame {
     /// Everyone a mover may push: the players in the game — a dead one by its corpse's
     /// box — the NPCs that have begun, a dead one's body among them, and the physics
     /// objects: the dropped items, the bodies in the body queue, the det packs, the
-    /// holocrons and the Jedi Master's saber lying in the world.
+    /// holocrons and the Jedi Master's saber lying in the world, the sentries and E-Webs.
     pub(super) fn pushees(&self) -> Vec<Pushee> {
         let players = (0..self.players.places()).filter_map(|client| {
             let peer = self.peer(client)?;
@@ -91,6 +91,7 @@ impl NativeGame {
             .chain(charges)
             .chain(holocrons)
             .chain(saber)
+            .chain(self.turret_pushees())
             .collect()
     }
 
@@ -99,6 +100,9 @@ impl NativeGame {
     /// (`delta_angles[YAW]`), an NPC's entity moved as far and linked where it now is; a
     /// dropped item or a body there, its ground gone unless it was `carried`.
     pub(super) fn shove(&mut self, number: u16, to: [f32; 3], yaw: i32, carried: bool) {
+        if self.shove_turret(number, to, carried) {
+            return;
+        }
         if let Some(peer) = self.peer_mut(usize::from(number)) {
             peer.state.set_origin(to);
             let turned = (peer.state.raw_field(PS_DELTA_YAW).unwrap_or(0) as i32).wrapping_add(yaw);

@@ -268,7 +268,7 @@ impl NativeGame {
 
     /// E-Web `index`'s wire state into the pool, its box for the clients' PVS where it was
     /// last linked.
-    fn publish_eweb(&mut self, index: usize) {
+    pub(super) fn publish_eweb(&mut self, index: usize) {
         let (id, placed) = &self.map_turrets.ewebs[index];
         self.pool.set_state(*id, &placed.state);
         let base: [f32; 3] = std::array::from_fn(|axis| {

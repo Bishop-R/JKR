@@ -552,3 +552,18 @@ fn distance_to_box(point: [f32; 3], (low, high): ([f32; 3], [f32; 3])) -> f32 {
 fn overlaps(a: ([f32; 3], [f32; 3]), b: ([f32; 3], [f32; 3])) -> bool {
     (0..3).all(|axis| a.0[axis] <= b.1[axis] && a.1[axis] >= b.0[axis])
 }
+
+impl Sentry {
+    /// The sentry, entity `number`, as a mover's push takes it (a physics object,
+    /// `SP_PAS`, `g_items.c:1044`): it blocks a mover it is in the way of — no owner
+    /// (`r.ownerNum`) makes it one a stuck mover breaks.
+    pub fn pushee(&self, number: u16) -> crate::path_movers::Pushee {
+        let fate = crate::path_movers::Fate::Blocks;
+        crate::item_physics::pushee(number, &self.state, BOUNDS, fate, false)
+    }
+
+    /// `G_TryPushingEntity` moving the sentry to `to` ([`crate::item_physics::shove`]).
+    pub fn shove(&mut self, to: [f32; 3], carried: bool) {
+        crate::item_physics::shove(&mut self.state, &mut self.origin, to, carried);
+    }
+}

@@ -688,6 +688,23 @@ fn read3(state: &EntityState, fields: [usize; 3]) -> [f32; 3] {
     fields.map(|field| f32::from_bits(state.raw_field(field).unwrap_or(0)))
 }
 
+impl EWeb {
+    /// The E-Web, entity `number`, as a mover's push takes it (a physics object,
+    /// `EWeb_Create`, `g_items.c:1921`): it blocks a mover it is in the way of — unarmed
+    /// (`s.weapon` none), it is no one a stuck mover breaks.
+    pub fn pushee(&self, number: u16) -> crate::path_movers::Pushee {
+        let fate = crate::path_movers::Fate::Blocks;
+        crate::item_physics::pushee(number, &self.state, BOUNDS, fate, false)
+    }
+
+    /// `G_TryPushingEntity` moving the E-Web to `to` ([`crate::item_physics::shove`]),
+    /// linked there.
+    pub fn shove(&mut self, to: [f32; 3], carried: bool) {
+        crate::item_physics::shove(&mut self.state, &mut self.origin, to, carried);
+        link(self, BOUNDS);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

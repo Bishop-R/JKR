@@ -562,6 +562,47 @@ impl NativeGame {
         self.carry_out_turret_work(level_time);
     }
 
+    /// The sentries and E-Webs set down in the world, as a mover's push takes them.
+    pub(super) fn turret_pushees(&self) -> impl Iterator<Item = jkr_game_jka::path_movers::Pushee> {
+        let turrets = &self.map_turrets;
+        let sentries = turrets
+            .sentries
+            .iter()
+            .map(|(id, sentry)| sentry.pushee(id.legacy_number()));
+        let ewebs = turrets
+            .ewebs
+            .iter()
+            .map(|(id, eweb)| eweb.pushee(id.legacy_number()));
+        sentries.chain(ewebs)
+    }
+
+    /// `G_TryPushingEntity` moving sentry or E-Web `number` to `to`, published there.
+    /// Whether it was one.
+    pub(super) fn shove_turret(&mut self, number: u16, to: [f32; 3], carried: bool) -> bool {
+        let Self {
+            map_turrets, pool, ..
+        } = self;
+        if let Some((id, sentry)) = map_turrets
+            .sentries
+            .iter_mut()
+            .find(|(id, _)| id.legacy_number() == number)
+        {
+            sentry.shove(to, carried);
+            pool.set_state(*id, &sentry.state);
+            return true;
+        }
+        let Some(index) = map_turrets
+            .ewebs
+            .iter()
+            .position(|(id, _)| id.legacy_number() == number)
+        else {
+            return false;
+        };
+        map_turrets.ewebs[index].1.shove(to, carried);
+        self.publish_eweb(index);
+        true
+    }
+
     /// A turret's wire state and box into the pool (both halves of a `misc_turret`); a
     /// turret `ObjectDie` freed leaves it.
     pub(super) fn publish_turret(&mut self, number: u16) {
