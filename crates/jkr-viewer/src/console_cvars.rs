@@ -256,6 +256,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "EternalJK: see-through amount of a flag you carry, seen in third person (1 is solid)",
         ),
+        // TaystJK's (`cg_xcvar.h`), none by default.
+        CvarDefinition::new(
+            "cg_vehicleRange",
+            0.0_f64,
+            archive,
+            "TaystJK: extra camera distance on vehicles that set their own",
+        ),
         // EternalJK's (`cg_xcvar.h`), off by default.
         CvarDefinition::new(
             "cg_autoKillWhenFalling",

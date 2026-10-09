@@ -107,6 +107,7 @@ pub(crate) struct ViewerConsole {
     no_predict: console_cvars::IntegerSetting,
     gun_alpha: console_cvars::FloatSetting,
     flag_alpha: console_cvars::FloatSetting,
+    vehicle_range: console_cvars::FloatSetting,
     /// When `cg_autoKillWhenFalling` last asked to die (`cg.lastAutoKillTime`).
     last_auto_kill: Option<std::time::Instant>,
     /// EternalJK's deferred script and when it runs (`cg.doVstr`, `cg.doVstrTime`).
@@ -181,6 +182,12 @@ impl ViewerConsole {
     pub(crate) fn own_flag_alpha(&self) -> Option<u8> {
         let alpha = self.flag_alpha.value();
         (alpha as i32 != 1).then(|| (alpha * 255.0).clamp(0.0, 255.0) as u8)
+    }
+
+    /// TaystJK's `cg_vehicleRange`: added to the camera range of a vehicle that sets its
+    /// own (`cg_view.c:423-425`).
+    pub(crate) fn vehicle_range(&self) -> f32 {
+        self.vehicle_range.value()
     }
 
     /// Cached `cl_showtimedelta` state for the allocation-free runtime read.

@@ -194,12 +194,19 @@ pub(crate) fn damped_third_person(
                         .and_then(|p| p.raw_field(91))
                         .unwrap_or(0) as i32
                 });
+            let extra_range = state
+                .console
+                .as_ref()
+                .map_or(0.0, |console| console.vehicle_range());
             profile.apply(
                 &mut framing,
                 &mut horizontal,
-                snapshot.player.view_angles()[0],
-                -state.camera_pitch.to_degrees(),
+                (
+                    snapshot.player.view_angles()[0],
+                    -state.camera_pitch.to_degrees(),
+                ),
                 strafe,
+                extra_range,
             );
         }
         let game = state

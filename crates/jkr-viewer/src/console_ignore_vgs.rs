@@ -2,7 +2,6 @@
 //! listed, toggled one by one or all at once (`-1`); and `chatlog` (`CG_ChatLogSettings_f`):
 //! `cg_logChat`'s settings listed by number and toggled one at a time.
 
-
 /// `CS_PLAYERS`.
 const CS_PLAYERS: usize = 1_131;
 /// `MAX_CLIENTS`.

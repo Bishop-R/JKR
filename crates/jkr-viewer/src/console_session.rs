@@ -127,6 +127,7 @@ impl ViewerConsole {
         let gun_alpha = console_cvars::FloatSetting::bind(&mut cvars, "cg_gunAlpha", 1.0)?;
         let flag_alpha =
             console_cvars::FloatSetting::bind(&mut cvars, "cg_thirdPersonFlagAlpha", 1.0)?;
+        let vehicle_range = console_cvars::FloatSetting::bind(&mut cvars, "cg_vehicleRange", 0.0)?;
         let remaps = console_cvars::IntegerSetting::bind(&mut cvars, "cg_remaps", 1)?;
         let draw_fog = console_cvars::IntegerSetting::bind(&mut cvars, "r_drawfog", 2)?;
         let packet_dup = console_cvars::IntegerSetting::bind(&mut cvars, "cl_packetdup", 1)?;
@@ -268,6 +269,7 @@ impl ViewerConsole {
             no_predict,
             gun_alpha,
             flag_alpha,
+            vehicle_range,
             last_auto_kill: None,
             deferred: None,
             draw_fog,
