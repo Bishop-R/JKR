@@ -3,8 +3,9 @@
 //! answer and others do not are gated on it.
 
 /// `svmod_t`, in TaystJK's order: a later mod compares greater (`serverMod >= SVMOD_JAPLUS`).
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ServerMod {
+    #[default]
     BaseJka,
     BaseEnhanced,
     OjkAlt,

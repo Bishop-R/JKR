@@ -98,7 +98,7 @@ pub(super) fn submit(
         ActorInstance::new(pack_origin.to_array(), pack_rotation.to_array(), [1.0; 3]);
     instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
-    super::body_draw::push_part(parts, (sinks.body, sinks.cloak), pack.mesh, instance);
+    super::body_draw::push_part(parts, (sinks.body, sinks.cloak, sinks.tint), pack.mesh, instance);
     // Re-played on the reference 8 ms cadence, not per rendered frame (`effect_cadence.rs`).
     if flags & EF_JETPACK_ACTIVE == 0 || !sinks.effect_aux.continuous.due(now) {
         return;

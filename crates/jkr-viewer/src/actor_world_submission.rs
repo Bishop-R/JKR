@@ -108,6 +108,12 @@ struct Sinks<'a> {
     body: BodyDraw,
     /// What its cloak changes in that (`body_draw::cloak`).
     cloak: Option<body_draw::Cloak>,
+    /// Its `RF_RGB_TINT` colour (duel colouring, `cg_stylePlayer` fullbright), which its
+    /// bolted parts share.
+    tint: Option<[f32; 4]>,
+    /// jaPRO's `cg_stylePlayer`, and the mod the server runs.
+    style: u32,
+    server_mod: jkr_client::ServerMod,
     /// `cg_speedTrail`: Force Speed's afterimages.
     speed_trails: bool,
     /// Where this frame's view is seen from (`cg.refdef.vieworg`).
@@ -155,6 +161,11 @@ pub(crate) fn submit(
             .as_ref()
             .and_then(|console| console.bool_cvar("cg_alwaysShowAbsorb"))
             .unwrap_or(false),
+        style: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_stylePlayer"))
+            .map_or(jkr_client::style_player::DEFAULT, |style| style as u32),
     };
     let trails = crate::saber_submission::Options {
         trails: gpu
@@ -254,6 +265,11 @@ pub(crate) fn submit(
             .and_then(|console| console.own_flag_alpha()),
         body: BodyDraw::Opaque,
         cloak: None,
+        tint: None,
+        style: overlays.style,
+        server_mod: game_state.map_or(jkr_client::ServerMod::BaseJka, |game| {
+            jkr_client::ServerMod::from_serverinfo(game.config_string(0).unwrap_or_default())
+        }),
         speed_trails,
         view_origin: gpu.ground_hud.view_origin(),
         gametype: gametype.into(),
@@ -515,6 +531,18 @@ fn submit_actor(
             .iter()
             .find(|state| u64::from(state.number()) + 1 == entity.id.get())
     });
+    style_player(sinks, entity, state, snapshot, local_entity_id);
+    sinks.tint = match (snapshot, game_state, mesh) {
+        (Some(snapshot), Some(game_state), Some(_)) => force_overlay_submission::duel_tint(
+            entity.id,
+            snapshot,
+            game_state,
+            entity.color(),
+            presentation_time as i32,
+            (sinks.predicted_force_powers_active, sinks.style),
+        ),
+        _ => None,
+    };
     crate::vehicle_pose::place(
         sinks.world,
         sinks.actor_meshes,
@@ -662,7 +690,12 @@ fn submit_actor(
     }
     if entity.kind == EntityKind::Actor {
         let bits = spheres::player_bits(state, snapshot.filter(|_| local));
-        spheres::submit(sinks, lerp_origin, bits, sinks.gametype);
+        let team = u16::try_from(entity.id.get().saturating_sub(1))
+            .ok()
+            .and_then(|number| game_state?.config_string(1_131 + usize::from(number)))
+            .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("t"))
+            .unwrap_or(0);
+        spheres::submit(sinks, lerp_origin, bits, (sinks.gametype, local, team.into()));
     }
     if (draw_actor || sinks.portal_view)
         && let Some(mesh) = mesh
@@ -718,18 +751,9 @@ fn submit_actor(
         }
         // Stock's duel colouring of the model itself (`RF_RGB_TINT`); the overlays below
         // start from the untinted instance, as stock clears the tint for each shell.
-        let body = match (snapshot, game_state) {
-            (Some(snapshot), Some(game_state)) => force_overlay_submission::duel_tint(
-                entity.id,
-                snapshot,
-                game_state,
-                entity.color(),
-                presentation_time as i32,
-                sinks.predicted_force_powers_active,
-            )
-            .map_or(instance, |tint| instance.with_rgb_tint(tint)),
-            _ => instance,
-        };
+        let body = sinks
+            .tint
+            .map_or(instance, |tint| instance.with_rgb_tint(tint));
         if body_draw::passes(
             sinks.overrides,
             (sinks.body, sinks.cloak),
@@ -781,6 +805,44 @@ fn submit_actor(
         });
     }
     0
+}
+
+/// jaPRO's `cg_stylePlayer` for another player (`jkr_client::style_player`): hidden as a
+/// duellist or a bystander, or drawn as the duel stand-in; a cloak wins over the stand-in.
+fn style_player(
+    sinks: &mut Sinks<'_>,
+    entity: &jkr_runtime::SceneEntity,
+    state: Option<&jkr_protocol::EntityState>,
+    snapshot: Option<&jkr_protocol::Snapshot>,
+    local_entity_id: Option<u64>,
+) {
+    use jkr_client::style_player::{DUEL_SHADER, LocalView, duellist_stand_in, hides};
+    let (Some(snapshot), Some(state)) = (snapshot, state) else {
+        return;
+    };
+    if entity.kind != EntityKind::Actor || Some(entity.id.get()) == local_entity_id {
+        return;
+    }
+    // One's own vehicle is never hidden.
+    if state.entity_type() == 13 && state.npc_class() == 53 && state.owner() == snapshot.player.client_num() {
+        return;
+    }
+    const PMF_FOLLOW: u16 = 4096;
+    let view = LocalView {
+        duelling: snapshot.player.duel_in_progress(),
+        partner: snapshot.player.duel_index(),
+        free_spectator: snapshot.player.team() == 3
+            && snapshot.player.movement_flags() & PMF_FOLLOW == 0,
+    };
+    let bolt1 = state.raw_field(91).unwrap_or(0);
+    if hides(sinks.style, sinks.server_mod, view, state.number(), bolt1) {
+        sinks.body = BodyDraw::Hidden;
+    } else if sinks.cloak.is_none()
+        && duellist_stand_in(sinks.style, view, bolt1)
+        && let Some(material) = sinks.material_overrides.force(DUEL_SHADER)
+    {
+        sinks.cloak = Some(body_draw::Cloak::stand_in(material));
+    }
 }
 
 /// A burning actor's two passes (`CG_Disintegration`): `instance` returned as the body
@@ -942,7 +1004,7 @@ fn submit_equipment(
         let (hand, _) = saber::world_attachment(origin, rotation, attachment);
         thrown_saber::hand_glow(sinks, hand, visual_now);
     }
-    let draw = (sinks.body, sinks.cloak);
+    let draw = (sinks.body, sinks.cloak, sinks.tint);
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
     let mut hilt = |mesh: usize, instance: ActorInstance| {
         body_draw::push_part((&mut *parts.0, &mut *parts.1), draw, mesh, instance);
@@ -996,7 +1058,7 @@ fn submit_equipment(
     let mut instance = ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]);
     instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
-    body_draw::push_part(parts, (sinks.body, sinks.cloak), weapon_mesh, instance);
+    body_draw::push_part(parts, (sinks.body, sinks.cloak, sinks.tint), weapon_mesh, instance);
     // The main first-person flash already owns event/audio spawning. A
     // second view must never advance effects or play a second sound.
     if !draw_actor {

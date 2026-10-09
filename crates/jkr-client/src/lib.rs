@@ -107,6 +107,7 @@ mod team_info;
 mod thrown_sabers;
 pub mod trick_fade;
 pub mod cloak_fade;
+pub mod style_player;
 mod userinfo_update;
 mod view_bob;
 mod view_weapon;

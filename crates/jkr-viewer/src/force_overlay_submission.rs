@@ -16,6 +16,8 @@ pub(crate) const CAPACITY: usize = 1_024;
 pub(crate) struct Options {
     pub(crate) aura_shell: bool,
     pub(crate) always_show_absorb: bool,
+    /// jaPRO's `cg_stylePlayer`.
+    pub(crate) style: u32,
 }
 
 /// Submit every cgame force overlay for one actor using the same pose instance.
@@ -48,6 +50,7 @@ pub(crate) fn submit(
     );
     context.duel_distance = duel_distance(snapshot);
     context.always_show_absorb = options.always_show_absorb;
+    context.style = options.style;
     // `CG_Player` uses `cg.predictedPlayerState` for the local absorb gate
     // (`codemp/cgame/cg_players.c:10953-10958`). Other overlay inputs remain
     // snapshot/currentState driven.
@@ -162,13 +165,14 @@ pub(crate) fn duel_tint(
     game_state: &GameState,
     base: [u8; 4],
     now: i32,
-    predicted_force_powers_active: Option<u32>,
+    (predicted_force_powers_active, style): (Option<u32>, u32),
 ) -> Option<[f32; 4]> {
     let number = u16::try_from(entity_id.get().saturating_sub(1)).ok()?;
     let actor = actor_state(number, snapshot, game_state, now)?;
     let mut context =
         LegacyForceOverlayContext::from_player(game_state, &snapshot.player, now, false, false);
     context.duel_distance = duel_distance(snapshot);
+    context.style = style;
     if let Some(active) = predicted_force_powers_active {
         context.local_force_powers_active = active;
     }

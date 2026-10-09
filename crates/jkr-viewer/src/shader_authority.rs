@@ -16,18 +16,48 @@ fn authoritative(source: &AssetSource) -> bool {
     })
 }
 
-/// Load with the frozen startup policy, logging each discarded definition once per catalogue.
+/// The shaders JKR carries for client options the retail data lacks (`assets/shaders`).
+const CARRIED: [(&str, &[u8]); 1] = [(
+    "jkr/eternaljk/japro_players.shader",
+    include_bytes!("../assets/shaders/eternaljk/japro_players.shader"),
+)];
+
+/// Load with the frozen startup policy, logging each discarded definition once per catalogue,
+/// then the carried shaders where the content has none of their names.
 pub(crate) fn load(vfs: &VirtualFileSystem, protect: bool) -> ShaderCatalog {
     let warning = |path: &jkr_vfs::VirtualPath, error: &jkr_shader::ShaderError| {
         crate::log::progress(format_args!("warning: shader recovery in {path}: {error}"));
     };
-    if !protect {
-        return ShaderCatalog::load_with_warnings(vfs, warning);
+    let mut catalog = if protect {
+        ShaderCatalog::load_with_authority(vfs, authoritative, warning, |name, winner, loser| {
+            crate::log::progress(format_args!(
+                "shader authority: suppressed {name}; winner={} [{}]; loser={} [{}]",
+                winner.asset.mount_name, winner.script, loser.asset.mount_name, loser.script,
+            ));
+        })
+    } else {
+        ShaderCatalog::load_with_warnings(vfs, warning)
+    };
+    for (name, script) in CARRIED {
+        if let Err(error) = catalog.add_fallback_script(script, name) {
+            crate::log::progress(format_args!("warning: carried shaders {name}: {error}"));
+        }
     }
-    ShaderCatalog::load_with_authority(vfs, authoritative, warning, |name, winner, loser| {
-        crate::log::progress(format_args!(
-            "shader authority: suppressed {name}; winner={} [{}]; loser={} [{}]",
-            winner.asset.mount_name, winner.script, loser.asset.mount_name, loser.script,
-        ));
-    })
+    catalog
+}
+
+#[cfg(test)]
+mod carried_tests {
+    use super::*;
+
+    #[test]
+    fn the_carried_shaders_parse() {
+        let mut catalog = ShaderCatalog::default();
+        for (name, script) in CARRIED {
+            assert!(catalog.add_fallback_script(script, name).unwrap() > 0, "{name}");
+        }
+        let duel = catalog.get("gfx/effects/duelShader").expect("duel shader");
+        assert_eq!(duel.stages.len(), 3);
+        assert_eq!(catalog.get("gfx/effects/raceShader").unwrap().stages.len(), 1);
+    }
 }

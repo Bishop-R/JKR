@@ -24,13 +24,16 @@ const PW_YSALAMIRI: u32 = 15;
 const GT_CTY: i64 = 9;
 
 /// The spheres of a player at `origin` (`lerpOrigin`) with `flags` and `powerups`, in
-/// game type `gametype`.
+/// game type `gametype`; `own` for the viewer's player, `team` its team. jaPRO's
+/// `cg_stylePlayer` can hide one's own ysalamiri shell and colour spawn bubbles by team
+/// (EternalJK `cg_players.c:11610-11650`).
 pub(super) fn submit(
     sinks: &mut Sinks<'_>,
     origin: [f32; 3],
     (flags, powerups): (u32, u32),
-    gametype: i64,
+    (gametype, own, team): (i64, bool, i64),
 ) {
+    use jkr_client::style_player::{HIDE_OWN_YSALAMIRI, TEAM_SPAWN_BUBBLE};
     if flags & EF_DEAD != 0 {
         return;
     }
@@ -40,10 +43,20 @@ pub(super) fn submit(
         Some("powerups/ysaliredshell")
     } else if carries(PW_BLUEFLAG) {
         Some("powerups/ysaliblueshell")
-    } else if has(PW_YSALAMIRI) {
+    } else if has(PW_YSALAMIRI) && !(own && sinks.style & HIDE_OWN_YSALAMIRI != 0) {
         Some("powerups/ysalimarishell")
     } else {
         None
+    };
+    // `GT_TEAM` and above, but not Capture the Ysalamiri; red is `TEAM_RED`.
+    let bubble = if sinks.style & TEAM_SPAWN_BUBBLE != 0 && gametype >= 6 && gametype != GT_CTY {
+        if team == 1 {
+            ("powerups/ysaliredshell", 1.2)
+        } else {
+            ("powerups/ysaliblueshell", 1.2)
+        }
+    } else {
+        ("powerups/invulnerabilityshell", 1.0)
     };
     let enlightenment = if has(PW_FORCE_ENLIGHTENED_DARK) {
         Some("powerups/endarkenmentshell")
@@ -56,10 +69,7 @@ pub(super) fn submit(
         (ysalamiri, 1.4),
         (has(PW_FORCE_BOON).then_some("powerups/boonshell"), 2.0),
         (enlightenment, 2.0),
-        (
-            (flags & EF_INVULNERABLE != 0).then_some("powerups/invulnerabilityshell"),
-            1.0,
-        ),
+        ((flags & EF_INVULNERABLE != 0).then_some(bubble.0), bubble.1),
     ];
     for (shader, scale) in spheres {
         if let Some(shader) = shader {

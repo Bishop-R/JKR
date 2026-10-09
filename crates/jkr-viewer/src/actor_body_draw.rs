@@ -15,13 +15,24 @@ use jkr_client::trick_fade::BodyDraw;
 /// draws without it.
 pub(crate) const CLOAK_SHADER: &str = "gfx/effects/cloakedShader";
 
-/// How a cloak draws a player this frame ([`jkr_client::cloak_fade`]), its bolted parts with
-/// it: the model faded to an alpha (`None` not at all, 255 whole), and the cloak's shell
-/// (its material and level).
+/// How a cloak draws a player this frame ([`jkr_client::cloak_fade`]), or a style's stand-in
+/// (`cg_stylePlayer`), its bolted parts with it: the model faded to an alpha (`None` not at
+/// all, 255 whole), and the shell's material and its `RF_RGB_TINT` level (`None`: the
+/// shader's own colours).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct Cloak {
     model: Option<u8>,
-    shell: Option<(usize, f32)>,
+    shell: Option<(usize, Option<f32>)>,
+}
+
+impl Cloak {
+    /// The model replaced by `material` in its own colours (`cg_stylePlayer`'s duellists).
+    pub(super) fn stand_in(material: usize) -> Self {
+        Self {
+            model: None,
+            shell: Some((material, None)),
+        }
+    }
 }
 
 /// What `draw` asks of a player, `own` the viewer's, `sight` whether the viewer's Force
@@ -44,13 +55,13 @@ pub(super) fn cloak(
             } else {
                 255
             }),
-            shell: material.map(|material| (material, level)),
+            shell: material.map(|material| (material, Some(level))),
         }),
         CloakDraw::Cloaked => Some(Cloak {
             model: None,
             shell: material
                 .filter(|_| third_person || !own)
-                .map(|material| (material, 1.0)),
+                .map(|material| (material, Some(1.0))),
         }),
     }
 }
@@ -76,7 +87,9 @@ pub(super) fn passes(
         overrides.push(OverrideInstance {
             mesh,
             material: Some(material),
-            instance: instance.with_rgb_tint([level, level, level, 1.0]),
+            instance: level.map_or(instance, |level| {
+                instance.with_rgb_tint([level, level, level, 1.0])
+            }),
             no_depth: false,
             forced_alpha: false,
             switched_off: None,
@@ -104,14 +117,16 @@ pub(super) fn own(third_person: bool, riding: u16, alpha: f32) -> BodyDraw {
 }
 
 /// Adds one of a player's bolted parts (the held weapon, a hilt, a jetpack), drawn as the
-/// player's `body` and `cloak` are this frame.
+/// player's `body`, `cloak` and `tint` are this frame: stock bolts them into the player's
+/// own Ghoul2 refEntity, which carries the `RF_RGB_TINT` too.
 pub(super) fn push_part(
     (groups, overrides): (&mut [Vec<ActorInstance>], &mut Vec<OverrideInstance>),
-    draw: (BodyDraw, Option<Cloak>),
+    (body, cloak, tint): (BodyDraw, Option<Cloak>, Option<[f32; 4]>),
     mesh: usize,
     instance: ActorInstance,
 ) {
-    if passes(overrides, draw, OverrideMesh::Object(mesh), instance) {
+    let instance = tint.map_or(instance, |tint| instance.with_rgb_tint(tint));
+    if passes(overrides, (body, cloak), OverrideMesh::Object(mesh), instance) {
         groups[mesh].push(instance);
     }
 }
@@ -144,14 +159,14 @@ mod cloak_tests {
             cloak(turning, (false, false, false), Some(7)),
             Some(Cloak {
                 model: Some(191),
-                shell: Some((7, 0.25))
+                shell: Some((7, Some(0.25)))
             })
         );
         // Fully cloaked, the viewer's own first-person view shows nothing at all.
         let own = cloak(CloakDraw::Cloaked, (true, false, false), Some(7)).unwrap();
         assert_eq!((own.model, own.shell), (None, None));
         let seen = cloak(CloakDraw::Cloaked, (false, false, false), Some(7)).unwrap();
-        assert_eq!(seen.shell, Some((7, 1.0)));
+        assert_eq!(seen.shell, Some((7, Some(1.0))));
     }
 
     #[test]
@@ -163,7 +178,7 @@ mod cloak_tests {
         assert!(overrides.is_empty());
         let cloaked = Cloak {
             model: None,
-            shell: Some((7, 1.0)),
+            shell: Some((7, Some(1.0))),
         };
         assert!(!passes(&mut overrides, (BodyDraw::Opaque, Some(cloaked)), mesh, instance));
         assert_eq!(overrides.len(), 1);
