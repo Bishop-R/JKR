@@ -214,6 +214,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Extrapolate remote players and NPCs from snapshot velocity",
         ),
+        // `cg_xcvar.h:105`.
+        CvarDefinition::new(
+            "cg_noPredict",
+            0_i64,
+            archive,
+            "Show your own player from the server's snapshots alone, without predicting it",
+        ),
         CvarDefinition::new(
             "cg_errorDecay",
             100.0_f64,

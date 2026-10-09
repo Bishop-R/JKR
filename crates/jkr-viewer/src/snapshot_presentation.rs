@@ -293,6 +293,10 @@ impl GpuState {
             return;
         };
         let intermission = jkr_client::IntermissionView::from_player_state(&snapshot.player);
+        let no_predict = self
+            .console
+            .as_ref()
+            .is_some_and(|console| console.no_predict());
         if self.live_presentation_ready() {
             self.world_materials.areas.update(&snapshot.area_mask);
         }
@@ -317,7 +321,11 @@ impl GpuState {
                     third_person: self.third_person,
                     flash_point: self.last_first_person_flash,
                 },
-                !snapshot.player.is_spectator(),
+                !snapshot.player.is_spectator()
+                    && !crate::prediction_preview::interpolated::unpredicted_steps(
+                        session.game_state(),
+                        no_predict,
+                    ),
                 visual_now,
                 &mut Sinks {
                     audio: game_audio,
@@ -387,6 +395,7 @@ impl GpuState {
         } else if crate::prediction_preview::interpolated::interpolates_local_view(
             snapshot,
             session.game_state(),
+            no_predict,
         ) {
             // Follow, synchronous and E-Web movement are interpolated each rendered frame.
             let view_height = snapshot.player.view_height() as f32;

@@ -123,6 +123,7 @@ impl ViewerConsole {
         let time_nudge = crate::presentation_clock::CvarSetting::bind(&mut cvars)?;
         let smooth_clients =
             console_cvars::IntegerSetting::bind(&mut cvars, "cg_smoothClients", 0)?;
+        let no_predict = console_cvars::IntegerSetting::bind(&mut cvars, "cg_noPredict", 0)?;
         let remaps = console_cvars::IntegerSetting::bind(&mut cvars, "cg_remaps", 1)?;
         let draw_fog = console_cvars::IntegerSetting::bind(&mut cvars, "r_drawfog", 2)?;
         let packet_dup = console_cvars::IntegerSetting::bind(&mut cvars, "cl_packetdup", 1)?;
@@ -261,6 +262,7 @@ impl ViewerConsole {
             show_timedelta,
             time_nudge,
             smooth_clients,
+            no_predict,
             draw_fog,
             remaps,
             packet_dup,

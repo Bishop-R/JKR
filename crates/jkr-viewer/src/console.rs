@@ -98,6 +98,7 @@ pub(crate) struct ViewerConsole {
     show_timedelta: crate::net_timing::CvarSetting,
     time_nudge: crate::presentation_clock::CvarSetting,
     smooth_clients: console_cvars::IntegerSetting,
+    no_predict: console_cvars::IntegerSetting,
     draw_fog: console_cvars::IntegerSetting,
     remaps: console_cvars::IntegerSetting,
     packet_dup: console_cvars::IntegerSetting,
@@ -148,6 +149,11 @@ impl ViewerConsole {
     /// Cached `cg_smoothClients` for live and demo snapshot translation.
     pub(crate) fn smooth_clients(&self) -> bool {
         self.smooth_clients.enabled()
+    }
+
+    /// Cached `cg_noPredict`: the local view follows the snapshots, unpredicted.
+    pub(crate) fn no_predict(&self) -> bool {
+        self.no_predict.enabled()
     }
 
     /// Cached `cl_showtimedelta` state for the allocation-free runtime read.

@@ -28,11 +28,24 @@ pub(crate) fn using_eweb(snapshot: &Snapshot) -> bool {
 }
 
 /// Whether the local view is interpolated rather than predicted (`cg_predict.c:962`):
-/// following another player, a synchronous server, or on an E-Web.
-pub(crate) fn interpolates_local_view(snapshot: &Snapshot, game: &GameState) -> bool {
+/// following another player, `cg_noPredict` (`no_predict`), a synchronous server, or on
+/// an E-Web.
+pub(crate) fn interpolates_local_view(
+    snapshot: &Snapshot,
+    game: &GameState,
+    no_predict: bool,
+) -> bool {
     !crate::local_prediction::predicts_local_view(snapshot.player.movement_flags())
+        || no_predict
         || server_synchronous(game)
         || using_eweb(snapshot)
+}
+
+/// Whether a stair step is shown at once rather than smoothed (`cg_event.c:1482-1485`):
+/// whenever nothing predicts the local player's moves — demos and spectators aside,
+/// `cg_noPredict` and a synchronous server.
+pub(crate) fn unpredicted_steps(game: &GameState, no_predict: bool) -> bool {
+    no_predict || server_synchronous(game)
 }
 
 /// Do not bridge a teleport, a followed-player change, or a change of view mode.
@@ -82,7 +95,11 @@ pub(crate) fn present(gpu: &mut GpuState, time: i32) {
         return;
     }
     let following = latest.player.movement_flags() & 4096 != 0;
-    if !interpolates_local_view(latest, session.game_state()) {
+    let no_predict = gpu
+        .console
+        .as_ref()
+        .is_some_and(|console| console.no_predict());
+    if !interpolates_local_view(latest, session.game_state(), no_predict) {
         return;
     }
     let previous = session.snapshot_at_or_before(time);
