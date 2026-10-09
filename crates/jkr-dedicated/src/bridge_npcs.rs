@@ -133,6 +133,8 @@ impl NativeGame {
             .then(|| self.route_file(&map))
             .flatten();
         self.gather_obstacles(usize::MAX);
+        // NPCs pass through duellists and what is theirs (`DuelCull`).
+        self.isolate_obstacles(super::bridge_duel_cull::Party::Npc);
         let mut host = self.npc_host(Some(&map), Some(&mut items));
         let mut roster = NpcRoster::default();
         roster.level.native_sand_creatures = native_sand_creatures;
@@ -422,6 +424,8 @@ impl NativeGame {
         let map = self.map.take()?;
         let (parms, sabers) = (self.level_npc_parms(&map), map.sabers.clone());
         self.gather_obstacles(usize::MAX);
+        // NPCs pass through duellists and what is theirs (`DuelCull`).
+        self.isolate_obstacles(super::bridge_duel_cull::Party::Npc);
         let mut roster = std::mem::take(&mut self.npcs.roster);
         let mut host = self.npc_host(Some(&map), None);
         let result = run(

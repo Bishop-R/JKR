@@ -130,6 +130,8 @@ pub struct NativeGame {
     pool: EntityPool,
     /// The pool's entities as the snapshots cull them, worked out once a frame.
     pool_links: std::cell::RefCell<bridge_links::PoolLinks>,
+    /// TaystJK's duel isolation for this frame (`sv_snapShotDuelCull`).
+    duel_cull: std::cell::RefCell<bridge_duel_cull::DuelCull>,
     /// The server's clock at the last frame, for what happens between frames without one.
     last_frame_time: i32,
     /// Every missile in flight, by its entity number, run at every frame.
@@ -460,6 +462,7 @@ impl NativeGame {
             ),
             pool: EntityPool::new(0),
             pool_links: Default::default(),
+            duel_cull: Default::default(),
             last_frame_time: 0,
             missiles: Vec::new(),
             fired: Vec::new(),
@@ -3527,6 +3530,8 @@ mod bridge_ctf;
 mod bridge_dodge;
 #[path = "bridge_duel.rs"]
 mod bridge_duel;
+#[path = "bridge_duel_cull.rs"]
+mod bridge_duel_cull;
 #[path = "bridge_follow.rs"]
 mod bridge_follow;
 #[path = "bridge_force.rs"]

@@ -52,12 +52,14 @@ impl NativeGame {
     /// The game's own entities a client is sent, in number order, as
     /// `SV_AddEntitiesVisibleFromPoint` filters them: never an `EF_PERMANENT` one, not
     /// the one client a temp entity is not for, always a broadcast one, and otherwise only
-    /// what no closed door cuts off and the eye's cluster can see.
+    /// what no closed door cuts off and the eye's cluster can see. Each comes with whom it
+    /// belongs to, for the duel isolation the caller applies.
     pub(super) fn pool_entities_for(
         &self,
         client: usize,
         eye: &crate::visibility::Eye<'_>,
-        mut send: impl FnMut(&EntityState),
+        cull: &super::bridge_duel_cull::DuelCull,
+        mut send: impl FnMut(&EntityState, super::bridge_duel_cull::Party),
     ) {
         let mut kept = self.pool_links.borrow_mut();
         if let Some(map) = self.map.as_ref() {
@@ -121,7 +123,8 @@ impl NativeGame {
         }
         for (index, entity) in self.pool.linked().enumerate() {
             if sent[index] {
-                send(entity.state);
+                let number = entity.legacy_number().unwrap_or(jkr_protocol::ENTITY_NUMBER_NONE);
+                send(entity.state, cull.party_of(number, entity.state, entity.not_for));
             }
         }
         if withheld > 0 {

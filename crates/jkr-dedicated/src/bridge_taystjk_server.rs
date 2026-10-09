@@ -1,5 +1,6 @@
 //! TaystJK's server options beyond OpenJK's (`sv_init.cpp:997`, `1060-1070`): `sv_pingFix`,
-//! `sv_antiDST` and `sv_newfloodProtect`, which the endpoint applies, and hibernation — an empty server's frame rate drops to
+//! `sv_antiDST` and `sv_newfloodProtect`, which the endpoint applies, `sv_snapShotDuelCull`
+//! (`bridge_duel_cull`), and hibernation — an empty server's frame rate drops to
 //! `sv_hibernateFPS` once `sv_hibernateTime` milliseconds have passed since the last
 //! human left (`SV_Frame`), and is back the moment a client is let in (`SV_DirectConnect`).
 
@@ -63,6 +64,13 @@ impl NativeGame {
             b"1",
             CVAR_ARCHIVE,
             Some(b"Use new method of delaying commands with flood protection"),
+        );
+        // `sv_init.cpp:1063`: duellists cut off from everyone else ([`super::bridge_duel_cull`]).
+        self.cvars.get(
+            b"sv_snapShotDuelCull",
+            b"1",
+            0,
+            Some(b"Snapshot-based duel isolation"),
         );
     }
 

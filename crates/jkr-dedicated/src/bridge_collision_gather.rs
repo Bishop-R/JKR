@@ -149,6 +149,8 @@ impl NativeGame {
                     linked_box: None,
                 }),
         );
+        // What a duel cuts the tracer off from (`DuelCull` in `SV_ClipMoveToEntities`).
+        self.isolate_tracer_obstacles(client);
     }
 
     /// The players and NPCs a blast may reach, with their linked boxes.

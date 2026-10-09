@@ -8,6 +8,7 @@
 //! (`players.rs`).
 
 use super::*;
+use super::bridge_duel_cull::Isolation;
 use jkr_protocol::{LegacyClientNumbers, VehicleNetFields};
 
 /// The place of the player a legacy client number names; `None` for a number no legacy
@@ -329,6 +330,14 @@ impl LegacyGameHost for NativeGame {
             bits.iter_mut().for_each(|byte| *byte ^= 255);
             frame.set_area_mask(&bits[..bytes]);
         }
+        // TaystJK's duel isolation: what the viewed player (the followed one for a
+        // spectator) is cut off from is not sent, and what this client's own entity passes
+        // through is sent not solid.
+        let cull = self.duel_cull();
+        let (viewer, own) = (
+            cull.party(frame.player.client_num()),
+            cull.party(client as u16),
+        );
         for (id, handle) in self.players.occupied() {
             // Or sent wherever it is (`broadcastClients`: the master in view, Force sight).
             // A player a legacy client cannot number is not sent (the connect admits none).
@@ -347,13 +356,28 @@ impl LegacyGameHost for NativeGame {
                                 .is_some_and(|word| word & (1 << (client % 64)) != 0))
                 });
             if let Some(peer) = shown {
+                let party = cull.party(other as u16);
+                if cull.between(viewer, party) == Isolation::Cut {
+                    continue;
+                }
                 // 32 players fit any snapshot; a refusal would leave this one unseen.
-                let _ = frame.push(peer.entity.state());
+                let _ = if cull.between(own, party) == Isolation::Shared {
+                    frame.push(peer.entity.state())
+                } else {
+                    frame.push_not_solid(peer.entity.state())
+                };
             }
         }
         // Then the game's own entities, numbered above the players.
-        self.pool_entities_for(client, &eye, |state| {
-            let _ = frame.push(state);
+        self.pool_entities_for(client, &eye, &cull, |state, party| {
+            if cull.between(viewer, party) == Isolation::Cut {
+                return;
+            }
+            let _ = if cull.between(own, party) == Isolation::Shared {
+                frame.push(state)
+            } else {
+                frame.push_not_solid(state)
+            };
         });
     }
 }
