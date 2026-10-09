@@ -285,13 +285,6 @@ impl NativeGame {
             drawn,
             level_time,
         );
-        // Worth saying out loud: it is the one thing on this server that dies without
-        // being a player, and an operator watching a log wants to see it happen.
-        println!(
-            "breakable {number} broken at {level_time} ({} chunks, splash {:?})",
-            broken.debris.chunks,
-            broken.splash.map(|(damage, radius, _)| (damage, radius))
-        );
         // For what broke it, and only when something did (`attacker != NULL`).
         if let (Some(target), Some(enemy)) = (&broken.target, self.breakables[index].1.enemy) {
             self.fire_targets(target, usize::from(enemy), level_time);
