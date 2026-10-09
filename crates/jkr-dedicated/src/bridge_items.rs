@@ -18,11 +18,21 @@ impl NativeGame {
     pub(super) fn spawn_items(&mut self) {
         let spawns = self.item_spawns();
         let Some(map) = self.map.take() else { return };
+        let mut kept = Vec::new();
         for placed in &map.items {
             // `G_SpawnItem`: a powerup's return sound is registered as it is placed.
             if ITEMS[placed.item].kind == Kind::Powerup {
                 self.sound_index_for(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
             }
+            if spawns(placed.item) {
+                kept.push(placed.clone());
+            }
+        }
+        // `G_FindTeams` before the items finish spawning: a team's followers start out of
+        // the world.
+        let chains = jkr_game_jka::items::find_teams(&mut kept);
+        let mut spawned = vec![None; kept.len()];
+        for (index, placed) in kept.iter().enumerate() {
             let mut trace =
                 |start: [f32; 3], mins: [f32; 3], maxs: [f32; 3], end: [f32; 3], mask: u32| {
                     WorldCollision {
@@ -31,15 +41,21 @@ impl NativeGame {
                     }
                     .trace(start, mins, maxs, end, mask)
                 };
-            if !spawns(placed.item) {
-                continue;
-            }
             let Some(pickup) = jkr_game_jka::items::finish_spawning(placed, &mut trace) else {
                 continue;
             };
             if let Some(number) = self.pool.spawn_entity(pickup.state.clone(), 0) {
                 self.pool.set_bounds(number, pickup.bounds);
                 self.items.push((number, pickup));
+                spawned[index] = Some(number);
+            }
+        }
+        for chain in chains {
+            let members: Vec<EntityId> = chain.iter().filter_map(|&index| spawned[index]).collect();
+            for (number, pickup) in self.items.iter_mut() {
+                if members.contains(number) {
+                    pickup.team.clone_from(&members);
+                }
             }
         }
         self.map = Some(map);
@@ -137,16 +153,31 @@ impl NativeGame {
         }
         self.flags_in_death_pits(&landed_flags, server_time);
         for index in 0..self.items.len() {
-            let (_, pickup) = &self.items[index];
+            let (_, pickup) = &mut self.items[index];
             if pickup.respawn_at == 0 || pickup.respawn_at > server_time {
                 continue;
             }
+            // `G_RunThink` clears the think before `RespawnItem`, which may bring back
+            // another of the item's team.
+            pickup.respawn_at = 0;
             self.respawn_placed_item(index, server_time);
         }
     }
 
-    /// `RespawnItem` for item `index`: back in the world, a powerup's return heard.
+    /// `RespawnItem` for item `index`: back in the world — or, for an item of a team,
+    /// the one of its team `rand` draws (`rand() % count` down the chain from its
+    /// leader) — a powerup's return heard.
     fn respawn_placed_item(&mut self, index: usize, level_time: i32) {
+        let team = &self.items[index].1.team;
+        let index = if team.is_empty() {
+            index
+        } else {
+            let drawn = team[self.rand.next() as usize % team.len()];
+            self.items
+                .iter()
+                .position(|(number, _)| *number == drawn)
+                .unwrap_or(index)
+        };
         if ITEMS[self.items[index].1.item].kind == Kind::Powerup {
             let sound = self.sound_index_for(jkr_game_jka::items::POWERUP_RESPAWN_SOUND);
             if let Some(event) = jkr_game_jka::items::respawn_sound(&self.items[index].1, sound)

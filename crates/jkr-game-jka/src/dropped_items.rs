@@ -133,6 +133,7 @@ pub fn launch(item: usize, origin: [f32; 3], velocity: [f32; 3], level_time: i32
         allow_npc: false,
         no_global_sound: false,
         targetname: None,
+        team: Vec::new(),
     }
 }
 

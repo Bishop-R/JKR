@@ -244,6 +244,41 @@ pub struct Placed {
     /// `targetname`: an item something uses, out of the world until it is used
     /// (`Use_Item`).
     pub targetname: Option<String>,
+    /// `team`: the items one of which stands at a time ([`find_teams`]).
+    pub team: Option<String>,
+    /// `FL_TEAMSLAVE`: a team's follower, out of the world until its team respawns it.
+    pub team_slave: bool,
+}
+
+/// `G_FindTeams` (`g_main.c:83-127`) for the items: each `team` makes a chain led by the
+/// first item of the name in the map's order (the names compared exactly), the others
+/// following — each one found put right behind the leader, so the chain runs leader
+/// first, then the rest last found first. The followers are marked team slaves, and the
+/// leader takes the `targetname` of the last of them that had one ("make sure that
+/// targets only point at the master"). Returns the chains, as indices into `placed`.
+pub fn find_teams(placed: &mut [Placed]) -> Vec<Vec<usize>> {
+    let mut chains = Vec::new();
+    for leader in 0..placed.len() {
+        let Some(team) = placed[leader].team.clone() else {
+            continue;
+        };
+        if placed[leader].team_slave {
+            continue;
+        }
+        let mut chain = vec![leader];
+        for other in leader + 1..placed.len() {
+            if placed[other].team_slave || placed[other].team.as_deref() != Some(team.as_str()) {
+                continue;
+            }
+            chain.insert(1, other);
+            placed[other].team_slave = true;
+            if let Some(name) = placed[other].targetname.take() {
+                placed[leader].targetname = Some(name);
+            }
+        }
+        chains.push(chain);
+    }
+    chains
 }
 
 /// Every item dictionary of a map, in the entity lump's order (`G_SpawnItem` through
@@ -281,6 +316,11 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
                     .get("targetname")
                     .filter(|name| !name.is_empty() && !gametype_item)
                     .map(str::to_owned),
+                team: entity
+                    .get("team")
+                    .filter(|team| !team.is_empty())
+                    .map(str::to_owned),
+                team_slave: false,
             })
         })
         .collect()
@@ -324,6 +364,9 @@ pub struct Pickup {
     pub no_global_sound: bool,
     /// `targetname`: what uses it (`Use_Item`), when something does.
     pub targetname: Option<String>,
+    /// Its team's chain (`teammaster`, `teamchain`), leader first; empty for an item of no
+    /// team. A respawn brings back one of them, drawn with `rand`.
+    pub team: Vec<crate::entity_id::EntityId>,
 }
 
 /// `gametype_t` values the spawn filters below test (`bg_public.h`).
@@ -416,8 +459,9 @@ pub fn finish_spawning(
         state.set_raw_field(ES_POS_BASE[axis], origin[axis].to_bits());
         state.set_raw_field(ES_ORIGIN[axis], spawn[axis].to_bits());
     }
-    // "targeted items aren't present at start": undrawn and untouchable until used.
-    let targeted = placed.targetname.is_some();
+    // "team slaves and targeted items aren't present at start": undrawn and untouchable
+    // until used or respawned.
+    let targeted = placed.targetname.is_some() || placed.team_slave;
     if targeted {
         state.set_raw_field(ES_EFLAGS, EF_NODRAW);
     }
@@ -434,6 +478,7 @@ pub fn finish_spawning(
         allow_npc: placed.allow_npc,
         no_global_sound: placed.no_global_sound,
         targetname: placed.targetname.clone(),
+        team: Vec::new(),
     })
 }
 
@@ -884,6 +929,8 @@ mod tests {
             allow_npc: false,
             no_global_sound,
             targetname: None,
+            team: None,
+            team_slave: false,
         };
         let mut trace =
             |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
@@ -919,6 +966,48 @@ mod tests {
         assert_eq!(state.ammo[2], 600);
     }
 
+    /// `G_FindTeams`: a team's first item leads, the rest follow — the last found right
+    /// behind the leader — out of the world from the start; the leader takes the name of
+    /// the last follower that had one. Names match exactly; an item of no team is in none.
+    #[test]
+    fn items_of_a_team_chain_behind_their_leader() {
+        let item = |team: Option<&str>, targetname: Option<&str>| Placed {
+            item: find_named(b"weapon_blaster").unwrap(),
+            origin: [0.0; 3],
+            wait: 0.0,
+            random: 0.0,
+            suspended: true,
+            allow_npc: false,
+            no_global_sound: false,
+            targetname: targetname.map(str::to_owned),
+            team: team.map(str::to_owned),
+            team_slave: false,
+        };
+        let mut placed = vec![
+            item(Some("guns"), None),
+            item(None, None),
+            item(Some("guns"), Some("first")),
+            item(Some("Guns"), None),
+            item(Some("guns"), Some("second")),
+        ];
+        let chains = find_teams(&mut placed);
+        assert_eq!(chains, vec![vec![0, 4, 2], vec![3]]);
+        assert_eq!(
+            placed.iter().map(|p| p.team_slave).collect::<Vec<_>>(),
+            [false, false, true, false, true]
+        );
+        assert_eq!(placed[0].targetname.as_deref(), Some("second"));
+        assert!(placed[2].targetname.is_none() && placed[4].targetname.is_none());
+        let mut trace =
+            |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
+                unreachable!("a suspended item is not dropped to {end:?}")
+            };
+        let follower = finish_spawning(&placed[2], &mut trace).unwrap();
+        assert_eq!(follower.contents, 0);
+        let alone = finish_spawning(&placed[3], &mut trace).unwrap();
+        assert_eq!(alone.contents, CONTENTS_TRIGGER);
+    }
+
     /// `FinishSpawningItem`: an item something uses starts out of the world — undrawn,
     /// untouchable — and `Use_Target_Give` takes one out for good.
     #[test]
@@ -933,6 +1022,8 @@ mod tests {
             allow_npc: false,
             no_global_sound: false,
             targetname: Some("loot".to_owned()),
+            team: None,
+            team_slave: false,
         };
         let mut trace =
             |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
