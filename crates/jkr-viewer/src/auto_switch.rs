@@ -213,10 +213,11 @@ impl crate::GpuState {
 
     /// Apply automatic selection through the same retained input/HUD fields as binds.
     pub(crate) fn choose_auto_weapon(&mut self, weapon: u8) {
-        self.selected_weapon = Some(weapon);
-        self.weapon_selected_at = Some(std::time::Instant::now());
-        self.weapon_selection_label.clear();
-        self.weapon_selection_label
+        self.weapon_select.selected = Some(weapon);
+        self.weapon_select.selected_at = Some(std::time::Instant::now());
+        self.weapon_select.label.clear();
+        self.weapon_select
+            .label
             .push_str(crate::ingame_menu::weapon_name(weapon));
     }
 }

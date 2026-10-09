@@ -366,7 +366,7 @@ impl GpuState {
         self.resident.walk = None;
         self.resident.after_sequence = None;
         self.pending_generic_command = 0;
-        self.selected_weapon = None;
+        self.weapon_select.selected = None;
         self.legacy_world_adapter = Some(crate::LegacyWorldAdapter::new(self.live_world.id()));
         self.live_session = self.resident.session.take();
         if let Some(remote) = &mut self.live_session {

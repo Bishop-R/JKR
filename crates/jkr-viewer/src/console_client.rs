@@ -72,6 +72,10 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "Give the player under the crosshair an order (gc), by number",
     ),
     ("clientlist", "List the players with their teams"),
+    (
+        "showPlayerId",
+        "List the players with their teams (EternalJK's name)",
+    ),
     ("briefing", "Show your side's Siege objectives"),
     ("cmd", "Forward arguments as a reliable server command"),
     (
@@ -347,7 +351,7 @@ impl crate::GpuState {
         match name.as_str() {
             "remapshader" | "listremaps" => return self.remap_command(&name, args),
             "tell_target" | "tell_attacker" | "tcmd" => return self.aimed_command(&name, args),
-            "clientlist" => return self.client_list(),
+            "clientlist" | "showplayerid" => return self.client_list(),
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,

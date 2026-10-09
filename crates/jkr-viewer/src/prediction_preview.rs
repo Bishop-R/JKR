@@ -41,7 +41,8 @@ pub(crate) fn tick(
             .view_authority
             .command_delta()
             .unwrap_or(snapshot.player.delta_angles()),
-        gpu.selected_weapon
+        gpu.weapon_select
+            .selected
             .unwrap_or_else(|| snapshot.player.weapon()),
         snapshot.player.selected_force_power(),
         0,

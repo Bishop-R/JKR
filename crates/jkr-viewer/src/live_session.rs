@@ -192,7 +192,8 @@ impl GpuState {
             self.camera_pitch,
             self.camera_yaw,
             delta_angles,
-            self.selected_weapon
+            self.weapon_select
+                .selected
                 .unwrap_or_else(|| snapshot.player.weapon()),
             snapshot.player.selected_force_power(),
             self.pending_generic_command,

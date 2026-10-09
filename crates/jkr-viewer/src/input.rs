@@ -47,6 +47,8 @@ pub(crate) enum InputAction {
     /// `weaponclean`: a weapon by its own number.
     WeaponClean(u8),
     WeaponCycle(i8),
+    /// EternalJK's `weaplast`: back to the weapon before the last swap.
+    LastWeapon,
     /// Local force/inventory cycling; never a reliable server command.
     SelectionCycle(bool, i8),
     RequestScores,
@@ -156,6 +158,7 @@ impl GameplayInput {
                     | "-zoom"
                     | "weapnext"
                     | "weapprev"
+                    | "weaplast"
                     | "forcenext"
                     | "forceprev"
                     | "invnext"
@@ -272,6 +275,7 @@ impl GameplayInput {
             "+zoom" => Some(InputAction::Zoom(true)),
             "weapnext" => Some(InputAction::WeaponCycle(1)),
             "weapprev" => Some(InputAction::WeaponCycle(-1)),
+            "weaplast" => Some(InputAction::LastWeapon),
             "forcenext" => Some(InputAction::SelectionCycle(false, 1)),
             "forceprev" => Some(InputAction::SelectionCycle(false, -1)),
             "invnext" => Some(InputAction::SelectionCycle(true, 1)),
@@ -365,6 +369,7 @@ impl super::GpuState {
             Some(InputAction::Weapon(weapon)) => self.select_weapon(weapon, false),
             Some(InputAction::WeaponClean(weapon)) => self.select_weapon(weapon, true),
             Some(InputAction::WeaponCycle(direction)) => self.cycle_weapon(direction),
+            Some(InputAction::LastWeapon) => self.last_weapon(),
             Some(InputAction::SelectionCycle(inventory, direction)) => {
                 let snapshot = self
                     .live_session
@@ -412,8 +417,25 @@ impl super::GpuState {
         }
     }
 
+    /// `CG_LastWeapon_f`: nothing for a spectator or a follower.
+    fn last_weapon(&mut self) {
+        let Some(session) = &self.live_session else {
+            return;
+        };
+        let player = &session.latest_snapshot().player;
+        if player.is_spectator() || player.movement_flags() & 4096 != 0 {
+            return;
+        }
+        let held = player.weapon();
+        let select = self.weapon_select.selected.unwrap_or(held);
+        let inventory = jkr_client::LegacyWeaponInventory::from_player_state(player);
+        let selectable = |weapon| jkr_client::legacy_weapon_selectable(&inventory, weapon);
+        let weapon = self.weapon_select.last_weapon(select, held, selectable);
+        self.select_weapon_exact(weapon);
+    }
+
     fn cycle_weapon(&mut self, direction: i8) {
-        let current = self.selected_weapon.unwrap_or_else(|| {
+        let current = self.weapon_select.selected.unwrap_or_else(|| {
             self.live_session
                 .as_ref()
                 .map_or(3, |session| session.latest_snapshot().player.weapon())
@@ -463,11 +485,12 @@ impl super::GpuState {
             if !jkr_client::legacy_weapon_selectable(&inventory, weapon) {
                 return;
             }
-            self.selected_weapon = Some(weapon);
-            self.weapon_selected_at = Some(std::time::Instant::now());
-            self.weapon_selection_label.clear();
-            self.weapon_selection_label.push_str("^3");
-            self.weapon_selection_label
+            self.weapon_select.selected = Some(weapon);
+            self.weapon_select.selected_at = Some(std::time::Instant::now());
+            self.weapon_select.label.clear();
+            self.weapon_select.label.push_str("^3");
+            self.weapon_select
+                .label
                 .push_str(crate::ingame_menu::weapon_name(weapon));
         }
     }

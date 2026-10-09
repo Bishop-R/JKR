@@ -156,6 +156,7 @@ mod snapshot_presentation;
 mod static_models;
 mod text;
 mod ui_renderer;
+mod weapon_select;
 mod weapon_view;
 mod wgsl_source;
 mod world_materials;
@@ -365,9 +366,7 @@ struct GpuState {
     /// its entity transform instead of pinning it under the camera.
     detached_camera: bool,
 
-    selected_weapon: Option<u8>,
-    weapon_selected_at: Option<Instant>,
-    weapon_selection_label: String,
+    weapon_select: weapon_select::WeaponSelect,
     pending_generic_command: u8,
     vfs: Option<Arc<VirtualFileSystem>>,
     pending_map_reload: bool,
@@ -1108,9 +1107,7 @@ impl GpuState {
             third_person,
             detached_camera: false,
 
-            selected_weapon: None,
-            weapon_selected_at: None,
-            weapon_selection_label: String::with_capacity(40),
+            weapon_select: Default::default(),
             pending_generic_command: 0,
             effects,
             sound_prefetch,
@@ -1415,19 +1412,17 @@ impl GpuState {
             self.append_configured_chat(viewport, text_scale, scoreboard_visible);
         }
         if self
-            .weapon_selected_at
+            .weapon_select
+            .selected_at
             .is_some_and(|selected| selected.elapsed() < Duration::from_secs(2))
-            && !self.weapon_selection_label.is_empty()
+            && !self.weapon_select.label.is_empty()
         {
-            let width = visible_text_width(
-                &self.ui_font,
-                &self.weapon_selection_label,
-                text_scale * 1.1,
-            );
+            let width =
+                visible_text_width(&self.ui_font, &self.weapon_select.label, text_scale * 1.1);
             append_text(
                 &mut self.text_vertices,
                 &self.ui_font,
-                &self.weapon_selection_label,
+                &self.weapon_select.label,
                 [(viewport[0] - width) * 0.5, viewport[1] * 0.78],
                 text_scale * 1.1,
                 viewport,
