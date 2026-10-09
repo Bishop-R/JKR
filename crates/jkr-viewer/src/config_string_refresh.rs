@@ -127,6 +127,13 @@ impl GpuState {
                     if let Some(console) = &mut self.console {
                         console.refresh_movement_cvars(game);
                     }
+                    // `CL_SystemInfoChanged` sets nothing while a demo plays.
+                    if self.live_session.is_some() {
+                        let scale = presentation_clock::system_time_scale(game);
+                        let now = Instant::now();
+                        self.presentation_clock.set_time_scale(scale, now);
+                        self.server_clock.set_time_scale(scale, now);
+                    }
                 }
                 Consumer::ServerInfo => {
                     self.local_prediction.refresh_roll_rules(game);

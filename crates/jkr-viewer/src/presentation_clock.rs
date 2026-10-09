@@ -66,6 +66,9 @@ pub(crate) struct SnapshotPresentationClock {
     last_presented_micros: i64,
     extrapolated_snapshot: bool,
     local: bool,
+    /// The systeminfo's `timescale` ([`Self::set_time_scale`]): how fast the
+    /// realtime runs past the anchor.
+    time_scale: f64,
 }
 
 impl SnapshotPresentationClock {
@@ -95,7 +98,20 @@ impl SnapshotPresentationClock {
             last_presented_micros: i64::MIN,
             extrapolated_snapshot: false,
             local: false,
+            time_scale: 1.0,
         }
+    }
+
+    /// `timescale` from the systeminfo, which stock's `Com_ModifyMsec` applies
+    /// to the realtime this clock is paced by: anchored where it stands now,
+    /// the presentation runs `scale` times as fast from here.
+    pub(crate) fn set_time_scale(&mut self, scale: f64, now: Instant) {
+        if scale == self.time_scale {
+            return;
+        }
+        self.anchor_server_micros = self.raw_micros(now);
+        self.anchor_instant = now;
+        self.time_scale = scale;
     }
 
     /// Apply live `cl_timenudge`; positive values add presentation latency.
@@ -108,9 +124,9 @@ impl SnapshotPresentationClock {
         let server_time = i64::from(server_time);
         if server_time < self.upper_server_time {
             // A new map/time domain is the sole exception to monotonic time.
-            let nudge = self.time_nudge_millis;
+            let (nudge, scale) = (self.time_nudge_millis, self.time_scale);
             *self = Self::new(server_time as i32, now);
-            self.time_nudge_millis = nudge;
+            (self.time_nudge_millis, self.time_scale) = (nudge, scale);
             return TimingEvent::TimelineRestart;
         }
         if server_time == self.upper_server_time {
@@ -170,7 +186,51 @@ impl SnapshotPresentationClock {
 
     fn raw_micros(&self, now: Instant) -> i64 {
         let elapsed = now.saturating_duration_since(self.anchor_instant);
-        self.anchor_server_micros
-            .saturating_add(i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX))
+        let elapsed = i64::try_from(elapsed.as_micros()).unwrap_or(i64::MAX);
+        let elapsed = if self.time_scale == 1.0 {
+            elapsed
+        } else {
+            (elapsed as f64 * self.time_scale) as i64
+        };
+        self.anchor_server_micros.saturating_add(elapsed)
+    }
+}
+
+/// The systeminfo's `timescale` as the clocks apply it (`Com_ModifyMsec`):
+/// `atof` of it, 0 (or none) the normal speed, a negative one stopping time.
+pub(crate) fn system_time_scale(game: &jkr_protocol::GameState) -> f64 {
+    let scale = game
+        .config_string(1)
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .and_then(|text| jkr_protocol::InfoString::parse(text).ok())
+        .and_then(|info| {
+            info.get("timescale")
+                .map(|value| jkr_game_jka::text_parse::atof(value.as_bytes()))
+        })
+        .unwrap_or(1.0);
+    if scale == 0.0 {
+        1.0
+    } else {
+        f64::from(scale.max(0.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Between snapshots the presentation runs at the scale; a change of scale
+    /// takes over where the clock stands.
+    #[test]
+    fn a_time_scale_paces_the_presentation() {
+        let start = Instant::now();
+        let at = |millis| start + Duration::from_millis(millis);
+        let mut clock = SnapshotPresentationClock::new(1_025, start);
+        assert_eq!(clock.sample(at(100)), 1_100);
+        clock.set_time_scale(0.1, at(100));
+        assert_eq!(clock.sample(at(1_100)), 1_200);
+        clock.set_time_scale(1.0, at(1_100));
+        assert_eq!(clock.sample(at(1_150)), 1_250);
     }
 }

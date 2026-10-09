@@ -149,6 +149,18 @@ fn client_name(game: &GameState, client: u16) -> &str {
 }
 
 impl GpuState {
+    /// The live server's `timescale` (its systeminfo's) for both clocks that pace
+    /// against the wall: the commands' and the presentation's.
+    pub(crate) fn apply_system_time_scale(&mut self) {
+        let Some(session) = &self.live_session else {
+            return;
+        };
+        let scale = presentation_clock::system_time_scale(session.game_state());
+        let now = Instant::now();
+        self.presentation_clock.set_time_scale(scale, now);
+        self.server_clock.set_time_scale(scale, now);
+    }
+
     /// A prepared world or local authority cannot contribute samples to a new
     /// remote timeline, even when the numeric timestamps happen to increase.
     pub(crate) fn reset_live_presentation(&mut self) {
@@ -164,6 +176,7 @@ impl GpuState {
             session.latest_snapshot().server_time,
             Instant::now(),
         );
+        self.apply_system_time_scale();
         self.local_actor_state = Default::default();
         self.effect_aux.feedback = Default::default();
         for mesh in &mut self.actor_meshes {

@@ -54,6 +54,12 @@ pub struct ServerClock {
     /// still loading the new map, snapshots must not anchor the clock: they
     /// can still carry the server's inflated transition times.
     active: bool,
+    /// How fast `cls.realtime` runs against the wall clock: the systeminfo's
+    /// `timescale` ([`Self::set_time_scale`]), from `scale_from` on, where the
+    /// real time read `scale_base_micros`.
+    time_scale: f64,
+    scale_from: Instant,
+    scale_base_micros: i64,
 }
 
 impl ServerClock {
@@ -68,6 +74,9 @@ impl ServerClock {
             extrapolated: false,
             anchored: true,
             active: true,
+            time_scale: 1.0,
+            scale_from: now,
+            scale_base_micros: 0,
         }
     }
 
@@ -91,8 +100,22 @@ impl ServerClock {
     pub fn reset_connection(&mut self, now: Instant) {
         *self = Self {
             active: false,
+            time_scale: self.time_scale,
             ..Self::unanchored(now)
         };
+    }
+
+    /// `timescale` from the systeminfo (`CL_SystemInfoChanged`), which
+    /// `Com_ModifyMsec` applies to every frame's milliseconds: from `now` on,
+    /// the real time runs `scale` times as fast. The client keeps fractions of
+    /// a millisecond, where stock rounds each frame's down and never below one.
+    pub fn set_time_scale(&mut self, scale: f64, now: Instant) {
+        if scale == self.time_scale {
+            return;
+        }
+        self.scale_base_micros = self.realtime_micros(now);
+        self.scale_from = now;
+        self.time_scale = scale;
     }
 
     /// Drop the anchor because the server restarted its timeline (a new
@@ -117,7 +140,24 @@ impl ServerClock {
     }
 
     fn realtime(&self, now: Instant) -> i64 {
-        i64::try_from(now.saturating_duration_since(self.epoch).as_millis()).unwrap_or(i64::MAX)
+        if self.time_scale == 1.0 && self.scale_base_micros == 0 {
+            return i64::try_from(now.saturating_duration_since(self.epoch).as_millis())
+                .unwrap_or(i64::MAX);
+        }
+        self.realtime_micros(now) / 1_000
+    }
+
+    /// `cls.realtime` in microseconds: the wall clock since the epoch, scaled
+    /// from the last change of scale on.
+    fn realtime_micros(&self, now: Instant) -> i64 {
+        let since = |instant| {
+            i64::try_from(now.saturating_duration_since(instant).as_micros()).unwrap_or(i64::MAX)
+        };
+        if self.time_scale == 1.0 && self.scale_base_micros == 0 {
+            return since(self.epoch);
+        }
+        let scaled = since(self.scale_from) as f64 * self.time_scale;
+        self.scale_base_micros.saturating_add(scaled as i64)
     }
 
     /// Drift the estimate toward a newly received snapshot
@@ -192,5 +232,32 @@ impl ServerClock {
     /// Newest observed snapshot time, for diagnostics.
     pub fn latest_snapshot(&self) -> i32 {
         i32::try_from(self.latest_snapshot).unwrap_or(i32::MAX)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// Under `timescale` 0.5 a second of wall time is half a second of the
+    /// server's; back at 1 the clock runs on from where the slow part left it,
+    /// and a new connection keeps the scale.
+    #[test]
+    fn a_time_scale_slows_the_estimate_and_hands_back() {
+        let start = Instant::now();
+        let at = |millis| start + Duration::from_millis(millis);
+        let mut clock = ServerClock::new(10_000, start);
+        assert_eq!(clock.server_time(at(100)), 10_100);
+        clock.set_time_scale(0.5, at(100));
+        assert_eq!(clock.server_time(at(1_100)), 10_600);
+        clock.set_time_scale(1.0, at(1_100));
+        assert_eq!(clock.server_time(at(1_200)), 10_700);
+        // A new connection keeps the scale until the next systeminfo says otherwise.
+        clock.set_time_scale(0.5, at(1_200));
+        clock.reset_connection(at(1_200));
+        clock.activate();
+        clock.observe_snapshot(20_000, at(1_200));
+        assert_eq!(clock.server_time(at(1_400)), 20_100);
     }
 }
