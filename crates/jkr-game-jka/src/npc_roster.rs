@@ -590,6 +590,23 @@ impl NpcRoster {
         }
     }
 
+    /// `Jedi_DodgeEvasion` for NPC `number` struck by an instant-hit shot at `hit_loc`
+    /// (`g_weapon.c:614`, `:832`, `:3189`): whether it dodged, the dodge taken on it.
+    pub fn dodge_shot(
+        &mut self,
+        number: u16,
+        hit_loc: i32,
+        level_time: i32,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) -> bool {
+        let Some(at) = self.actors.iter().position(|npc| npc.number == number) else {
+            return false;
+        };
+        self.world(level_time, host, fired)
+            .jedi_dodge_evasion(at, None, None, hit_loc)
+    }
+
     /// `G_FreeEntity` on NPC `number` out of its turn: a scripted mover's `Blocked_Mover`
     /// on a corpse in its way (`g_ICARUScb.c:663-671`).
     pub fn free_now(&mut self, number: u16, host: &mut impl NpcHost) {

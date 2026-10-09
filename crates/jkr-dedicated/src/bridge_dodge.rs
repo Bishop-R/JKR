@@ -10,9 +10,21 @@ use jkr_game_jka::force_powers::{FP_SEE, FP_SPEED};
 const ENTITY_NONE: u16 = 1_023;
 
 impl NativeGame {
-    /// Whether the player at `number` dodges a shot striking it at `hit_location` (`HL_*`),
-    /// the dodge taken on it. Anything but a client in the game never dodges.
+    /// Whether the player or NPC at `number` dodges a shot striking it at `hit_location`
+    /// (`HL_*`), the dodge taken on it. Anything but a client in the game never dodges.
     pub(super) fn shot_dodge(&mut self, number: u16, hit_location: i32, level_time: i32) -> bool {
+        if self.npcs.roster.is_npc(number) {
+            let dodged = self.with_roster(|roster, _, host| {
+                let mut fired = Vec::new();
+                let dodged = roster.dodge_shot(number, hit_location, level_time, host, &mut fired);
+                (dodged, fired)
+            });
+            let Some((dodged, fired)) = dodged else {
+                return false;
+            };
+            self.fire_from_npcs(fired, level_time);
+            return dodged;
+        }
         let mode = self.integer_cvar(b"g_forceDodge", 1);
         let (gametype, force_rules) = (self.gametype, self.force_rules);
         let Some(peer) = self.peer(usize::from(number)) else {
@@ -73,8 +85,19 @@ impl NativeGame {
     }
 
     /// `G_GetHitLocation` for `point` on the player at `number`: its linked box grown by a
-    /// unit, its yaw `0`, as the reference leaves a player's `r.currentAngles`.
+    /// unit, its yaw `0`, as the reference leaves a player's `r.currentAngles`. An NPC's is
+    /// judged by its own linked box and yaw.
     pub(super) fn player_hit_location(&self, number: u16, point: [f32; 3]) -> i32 {
+        if let Some(npc) = self
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == number)
+        {
+            let yaw = npc.mind.current_angles[1];
+            return jkr_game_jka::damage::hit_location(yaw, npc.link, point) as i32;
+        }
         let Some(peer) = self.peer(usize::from(number)) else {
             return jkr_game_jka::force_dodge::HL_NONE;
         };
