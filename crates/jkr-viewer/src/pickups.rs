@@ -20,6 +20,8 @@ use jkr_vfs::VirtualFileSystem;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 pub(crate) mod simple;
+#[path = "pickup_respawns.rs"]
+pub(crate) mod respawns;
 
 const ET_ITEM: u8 = 2; // codemp/game/bg_public.h:1247
 const EF_DEAD: u32 = 1 << 1; // codemp/game/bg_public.h:638
@@ -27,6 +29,10 @@ const EF_NODRAW: u32 = 1 << 8; // codemp/game/bg_public.h:645
 const EF_ITEMPLACEHOLDER: u32 = 1 << 23; // codemp/game/bg_public.h:667
 const EF_DROPPEDWEAPON: u32 = 1 << 25; // codemp/game/bg_public.h:669
 const ITEM_COUNT: usize = 51; // bg_itemlist entries 0..50 in bg_misc.c:710-1686
+/// The first `IT_TEAM` item: the flags, then the cubes.
+const FIRST_TEAM_ITEM: usize = 46;
+/// `item_force_boon`'s entry.
+const FORCE_BOON: usize = 17;
 const HOLO_MODEL: &str = "models/map_objects/mp/holo.md3"; // cg_main.c:1217
 const ITEM_CONE_EFFECT: &str = "mp/itemcone"; // cg_main.c:1175
 const FORCE_LIGHTSIDE: u8 = 1; // codemp/qcommon/q_shared.h:1045
@@ -226,7 +232,9 @@ fn static_vertical_offset(index: usize, kind: Kind, dropped: bool) -> f32 {
     }
 }
 
-/// Append pickup instances using O(items) table lookup and preallocated groups.
+/// Append pickup instances using O(items) table lookup and preallocated groups; items that
+/// `respawns` says respawned under a second ago rez in.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn append_instances(
     presented: &[Presented],
     catalog: &Catalog,
@@ -234,6 +242,7 @@ pub(crate) fn append_instances(
     groups: &mut [Vec<ActorInstance>],
     overrides: model_materials::Overrides,
     override_instances: &mut Vec<OverrideInstance>,
+    (respawns, now): (&respawns::Respawns, Instant),
 ) {
     for item in presented {
         if item.simple {
@@ -267,7 +276,44 @@ pub(crate) fn append_instances(
             MaterialOverride::LightDisabled => overrides.light_disabled,
             MaterialOverride::DarkDisabled => overrides.dark_disabled,
         });
-        if let Some(material) = material {
+        let rezzing = (!item.placeholder && !item.dropped && item.item_index < FIRST_TEAM_ITEM)
+            .then(|| respawns.progress(item.entity_number, now))
+            .flatten();
+        if let Some(progress) = rezzing {
+            let mesh = crate::entity_materials::OverrideMesh::Object(mesh_index);
+            let faded = item.item_index != FORCE_BOON;
+            let passes = [
+                (faded || material.is_some()).then(|| OverrideInstance {
+                    mesh,
+                    material,
+                    instance: if faded {
+                        instance.with_forced_alpha(respawns::alpha(progress))
+                    } else {
+                        instance
+                    },
+                    no_depth: false,
+                    forced_alpha: faded,
+                    switched_off: None,
+                }),
+                Some(OverrideInstance {
+                    mesh,
+                    material: Some(overrides.rezout),
+                    instance: ActorInstance::new(position.to_array(), item.rotation, item.scale)
+                        .with_rgb_tint(respawns::TINT),
+                    no_depth: false,
+                    forced_alpha: false,
+                    switched_off: None,
+                }),
+            ];
+            if !faded && material.is_none() {
+                groups[mesh_index].push(instance);
+            }
+            for pass in passes.into_iter().flatten() {
+                if override_instances.len() < override_instances.capacity() {
+                    override_instances.push(pass);
+                }
+            }
+        } else if let Some(material) = material {
             if override_instances.len() < override_instances.capacity() {
                 override_instances.push(OverrideInstance {
                     mesh: crate::entity_materials::OverrideMesh::Object(mesh_index),

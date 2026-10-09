@@ -105,6 +105,7 @@ pub(crate) fn append_frame(gpu: &mut crate::GpuState, now: Instant) {
         &mut gpu.object_groups,
         gpu.model_material_overrides,
         &mut gpu.pickup_override_instances,
+        (&gpu.effect_aux.item_respawns, now),
     );
     for item in gpu.pickups.iter().filter(|item| item.simple) {
         if gpu.particles.len() == gpu.particles.capacity() {

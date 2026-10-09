@@ -61,6 +61,10 @@ pub(crate) fn spawn_snapshot_particles(
             continue;
         }
         previous_events.insert(entity.number(), latch);
+        // `EV_ITEM_RESPAWN` times the item's rez-in (`cg_event.c:2757-2760`).
+        if raw_event == 62 {
+            auxiliary.item_respawns.mark(entity.number(), now);
+        }
         if crate::effect_aux::breakage::handles(raw_event) {
             crate::effect_aux::breakage::present(
                 auxiliary,

@@ -14,6 +14,8 @@ pub(crate) struct Overrides {
     pub(crate) placeholder: usize,
     pub(crate) light_disabled: usize,
     pub(crate) dark_disabled: usize,
+    /// A respawned item's rez-in pass (`pickup_respawns.rs`).
+    pub(crate) rezout: usize,
     force: [usize; 18],
 }
 
@@ -24,6 +26,7 @@ pub(crate) fn append_overrides(materials: &mut Vec<ViewerMaterial>) -> Overrides
         placeholder: ensure(materials, "powerups/placeholder"),
         light_disabled: ensure(materials, "gfx/misc/mp_light_enlight_disable"),
         dark_disabled: ensure(materials, "gfx/misc/mp_dark_enlight_disable"),
+        rezout: ensure(materials, crate::pickups::respawns::SHADER),
         force: [0; 18],
     };
     for (slot, shader) in result.force.iter_mut().zip(FORCE_SHADERS) {

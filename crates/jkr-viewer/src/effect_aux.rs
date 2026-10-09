@@ -86,6 +86,8 @@ pub(crate) struct Runtime {
     pub(crate) marks: crate::actor_marks::Runtime,
     /// The DEMP2's bursting alternate-fire shells (`demp2_shell.rs`).
     pub(crate) demp2_shells: demp2_shell::Shells,
+    /// Items rezzing in after a respawn (`pickup_respawns.rs`).
+    pub(crate) item_respawns: crate::pickups::respawns::Respawns,
     /// EternalJK's effect options.
     pub(crate) options: EffectOptions,
 }
@@ -134,6 +136,7 @@ impl Default for Runtime {
             breakage: breakage::Runtime::default(),
             marks: crate::actor_marks::Runtime::default(),
             demp2_shells: demp2_shell::Shells::default(),
+            item_respawns: Default::default(),
             options: EffectOptions::default(),
         }
     }
