@@ -414,6 +414,32 @@ pub(crate) fn update(
             camera,
             time: presentation_time,
         });
+        let console = gpu.console.as_ref();
+        gpu.hud.update_lead_indicator(hud::LeadInputs {
+            snapshot,
+            game,
+            world,
+            camera,
+            time: i64::from(presentation_time),
+            bsp: &gpu.bsp,
+            scratch: &mut gpu.trace_scratch,
+            setting: console
+                .and_then(|console| console.float_cvar("cg_leadIndicator"))
+                .unwrap_or(0.0) as f32,
+            ping: gpu.lagometer.snapshot_newest(0).ping,
+            buttons: (
+                gpu.gameplay_input.held(input::GameButton::Button(0)),
+                gpu.gameplay_input.held(input::GameButton::Button(7)),
+            ),
+            origin: Vec3::from_array(
+                gpu.local_prediction
+                    .predicted_state()
+                    .map_or(snapshot.player.origin(), |state| state.origin),
+            ),
+            hidden: intermission
+                || gpu.gameplay_input.held(input::GameButton::Scores)
+                || console.is_some_and(|c| !c.bool_cvar("cg_draw2d").unwrap_or(true)),
+        });
         // `CG_DrawBracketedEntities`, for the fighter this client pilots.
         let fighter = gpu
             .local_prediction

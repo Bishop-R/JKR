@@ -530,6 +530,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Saber hits on flesh: 0 no sparks to 7 all of stock's",
         ),
         CvarDefinition::new(
+            "cg_leadIndicator",
+            0.0_f64,
+            archive,
+            "Where to aim at moving players with projectile weapons: 1 allows for your ping, other values are a ping in milliseconds",
+        ),
+        CvarDefinition::new(
             "cg_drainFX",
             2_i64,
             archive,

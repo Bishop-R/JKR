@@ -18,6 +18,8 @@ pub(crate) mod options;
 mod portrait;
 mod radar;
 pub(crate) use radar::{RadarAssets, RadarInputs};
+mod lead_indicator;
+pub(crate) use lead_indicator::LeadInputs;
 mod rocket_lock;
 pub(crate) use rocket_lock::RocketLockInputs;
 mod crosshair_bars;
@@ -211,6 +213,8 @@ pub(crate) struct HudOverlay {
     /// The radar of team games and vehicles.
     radar: radar::State,
     rocket_lock: rocket_lock::State,
+    /// jaPRO's `cg_leadIndicator`.
+    lead_indicator: lead_indicator::State,
     /// The health, ammunition and hack bars under the crosshair.
     crosshair_bars: crosshair_bars::State,
     /// The jetpack, cloak and E-Web meters at the right edge.
@@ -320,6 +324,7 @@ impl HudOverlay {
             siege: siege::State::default(),
             radar: radar::State::default(),
             rocket_lock: rocket_lock::State::default(),
+            lead_indicator: lead_indicator::State::default(),
             crosshair_bars: crosshair_bars::State::default(),
             meters: meters::State::default(),
             interrupted: false,
@@ -459,6 +464,7 @@ impl HudOverlay {
         self.tints.emit(&mut self.draw_list, viewport);
         // Stock draws the rocket lock straight after its screen tints, under the rest.
         self.rocket_lock.emit(&mut self.draw_list, &self.radar);
+        self.lead_indicator.emit(&mut self.draw_list);
         let mut output = HudLayout::default();
         let low_health = self.values.is_some_and(|value| value.health <= 25);
         let low_ammo = self
