@@ -514,3 +514,79 @@ pub fn taken(pickup: &mut Pickup, respawn: i32, level_time: i32) {
         dropped.taken = true;
     }
 }
+
+/// Whether `G_RunItem` moves dropped item `pickup`: it falls, or it was left with no
+/// ground, which sets it falling.
+pub fn moving(pickup: &Pickup) -> bool {
+    let read = |index: usize| pickup.state.raw_field(index).unwrap_or(0);
+    pickup.dropped.is_some()
+        && (read(ES_POS_TYPE) != TR_STATIONARY || read(ES_GROUND_ENTITY) == ENTITY_NUMBER_NONE)
+}
+
+/// Dropped item `pickup`, entity `number`, as a mover's push takes it (`physicsObject`,
+/// `G_MoverPush`): where it lies (`s.pos.trBase`), its box and what it lies on; a dropped
+/// weapon is freed where it would block. `None` for an item the map placed, or one taken.
+pub fn pushee(number: u16, pickup: &Pickup) -> Option<crate::path_movers::Pushee> {
+    use crate::path_movers::{Fate, Pushee};
+    pickup.dropped.filter(|dropped| !dropped.taken)?;
+    let read = |index: usize| pickup.state.raw_field(index).unwrap_or(0);
+    Some(Pushee {
+        number,
+        origin: ES_POS_BASE.map(|index| f32::from_bits(read(index))),
+        bounds: pickup.bounds,
+        ground: read(ES_GROUND_ENTITY) as u16,
+        client: false,
+        fate: if read(ES_EFLAGS) & EF_DROPPEDWEAPON != 0 {
+            Fate::Freed
+        } else {
+            Fate::Blocks
+        },
+    })
+}
+
+/// `G_TryPushingEntity` moving dropped item `pickup` to `to` (`g_mover.c:224-250`):
+/// `s.pos.trBase` and `r.currentOrigin` there, and its ground gone unless it rode the
+/// mover — which sets it falling.
+pub fn shove(pickup: &mut Pickup, to: [f32; 3], carried: bool) {
+    for (index, value) in ES_POS_BASE.into_iter().zip(to) {
+        pickup.state.set_raw_field(index, value.to_bits());
+    }
+    pickup.origin = to;
+    if !carried {
+        pickup
+            .state
+            .set_raw_field(ES_GROUND_ENTITY, ENTITY_NUMBER_NONE);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::path_movers::Fate;
+
+    /// A dropped weapon is freed where a mover would be blocked by it, any other dropped
+    /// item blocks it; shoved off, an item loses its ground and falls, carried it keeps it.
+    #[test]
+    fn a_dropped_item_is_pushed_as_a_physics_object() {
+        let weapon = item_for_weapon(WP_BOWCASTER).unwrap();
+        let mut pickup = launch(weapon, [0.0, 0.0, 64.0], [0.0; 3], 1_000);
+        pickup.state.set_raw_field(ES_EFLAGS, EF_DROPPEDWEAPON);
+        pickup.state.set_raw_field(ES_POS_TYPE, TR_STATIONARY);
+        pickup.state.set_raw_field(ES_GROUND_ENTITY, 77);
+        assert!(!moving(&pickup));
+        let pushee = pushee(300, &pickup).unwrap();
+        assert_eq!(
+            (pushee.fate, pushee.ground, pushee.client),
+            (Fate::Freed, 77, false)
+        );
+        pickup.state.set_raw_field(ES_EFLAGS, 0);
+        assert_eq!(super::pushee(300, &pickup).unwrap().fate, Fate::Blocks);
+        shove(&mut pickup, [8.0, 0.0, 80.0], true);
+        assert_eq!(pickup.origin, [8.0, 0.0, 80.0]);
+        assert!(!moving(&pickup));
+        shove(&mut pickup, [16.0, 0.0, 80.0], false);
+        assert!(moving(&pickup));
+        let base = ES_POS_BASE.map(|index| f32::from_bits(pickup.state.raw_field(index).unwrap()));
+        assert_eq!(base, [16.0, 0.0, 80.0]);
+    }
+}

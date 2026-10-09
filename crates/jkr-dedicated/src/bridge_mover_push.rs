@@ -1,12 +1,14 @@
 //! Who `G_MoverPush` moves (`g_mover.c:350-351`): players and NPCs — `ET_PLAYER` and
-//! `ET_NPC` — for every mover this server runs: a door, a path mover, a scripted brush.
-//! Each is offered as a [`Pushee`]; what the push decides is carried out here: moved (its
-//! view turned with a turning mover), crushed (`MOD_CRUSH`), or — a dead NPC that will
-//! not move — its body removed (`NPC_RemoveBody`).
+//! `ET_NPC` — and the physics objects, here dropped items and the body queue's bodies, for
+//! every mover this server runs: a door, a path mover, a scripted brush. Each is offered as
+//! a [`Pushee`]; what the push decides is carried out here: moved (a client's view turned
+//! with a turning mover), crushed (`MOD_CRUSH`), freed (a dropped weapon) or — a dead NPC
+//! that will not move — its body removed (`NPC_RemoveBody`).
 
 use super::*;
+use jkr_game_jka::entity_pool::BODIES;
 use jkr_game_jka::movers;
-use jkr_game_jka::path_movers::{Pushee, Unpushable};
+use jkr_game_jka::path_movers::{Fate, Pushee, Unpushable};
 
 /// `ps.delta_angles[YAW]` on the wire.
 const PS_DELTA_YAW: usize = 11;
@@ -15,7 +17,8 @@ const FL_NOTARGET: u32 = 0x20;
 
 impl NativeGame {
     /// Everyone a mover may push: the players in the game — a dead one by its corpse's
-    /// box — and the NPCs that have begun, a dead one's body among them.
+    /// box — the NPCs that have begun, a dead one's body among them, the dropped items and
+    /// the bodies in the body queue.
     pub(super) fn pushees(&self) -> Vec<Pushee> {
         let players = (0..self.players.places()).filter_map(|client| {
             let peer = self.peer(client)?;
@@ -31,8 +34,12 @@ impl NativeGame {
                 origin: peer.state.origin(),
                 bounds: (bottom, top),
                 ground: peer.state.ground_entity_num(),
-                dead: peer.health < 1,
-                npc_body: false,
+                client: true,
+                fate: if peer.health < 1 {
+                    Fate::Crushed
+                } else {
+                    Fate::Blocks
+                },
             })
         });
         let npcs = self
@@ -46,16 +53,29 @@ impl NativeGame {
                 origin: npc.player.origin(),
                 bounds: npc.bounds(),
                 ground: npc.player.ground_entity_num(),
-                dead: false,
-                npc_body: npc.health <= 0 && npc.flags & FL_NOTARGET == 0,
+                client: true,
+                fate: if npc.health <= 0 && npc.flags & FL_NOTARGET == 0 {
+                    Fate::BodyRemoved
+                } else {
+                    Fate::Blocks
+                },
             });
-        players.chain(npcs).collect()
+        let items = self.items.iter().filter_map(|(id, pickup)| {
+            jkr_game_jka::dropped_items::pushee(id.legacy_number(), pickup)
+        });
+        let bodies = (0..BODIES).filter_map(|slot| {
+            let id = self.pool.body(slot).filter(|id| self.pool.is_linked(*id))?;
+            self.corpses
+                .pushee(slot, id.legacy_number(), self.pool.state(id)?)
+        });
+        players.chain(npcs).chain(items).chain(bodies).collect()
     }
 
     /// `G_TryPushingEntity` having moved `number` to `to` (`g_mover.c:212-250`): a
     /// player's or an NPC's player state there, its view turned by the mover's `yaw`
-    /// (`delta_angles[YAW]`); an NPC's entity moved as far and linked where it now is.
-    pub(super) fn shove(&mut self, number: u16, to: [f32; 3], yaw: i32) {
+    /// (`delta_angles[YAW]`), an NPC's entity moved as far and linked where it now is; a
+    /// dropped item or a body there, its ground gone unless it was `carried`.
+    pub(super) fn shove(&mut self, number: u16, to: [f32; 3], yaw: i32, carried: bool) {
         if let Some(peer) = self.peer_mut(usize::from(number)) {
             peer.state.set_origin(to);
             let turned = (peer.state.raw_field(PS_DELTA_YAW).unwrap_or(0) as i32).wrapping_add(yaw);
@@ -63,21 +83,56 @@ impl NativeGame {
             peer.movement = peer.movement.reseeded(&peer.state);
             return;
         }
-        let actors = &mut self.npcs.roster.actors;
-        let Some(npc) = actors.iter_mut().find(|npc| npc.number == number) else {
-            return;
-        };
-        let from = npc.player.origin();
-        npc.player.set_origin(to);
-        let turned = (npc.player.raw_field(PS_DELTA_YAW).unwrap_or(0) as i32).wrapping_add(yaw);
-        npc.player.set_raw_field(PS_DELTA_YAW, turned as u32);
-        for (axis, field) in ES_POS_BASE.into_iter().enumerate() {
-            let base = f32::from_bits(npc.state.raw_field(field).unwrap_or(0));
-            npc.state
-                .set_raw_field(field, (base + (to[axis] - from[axis])).to_bits());
+        let Self {
+            npcs,
+            items,
+            pool,
+            corpses,
+            ..
+        } = self;
+        if let Some(npc) = npcs
+            .roster
+            .actors
+            .iter_mut()
+            .find(|npc| npc.number == number)
+        {
+            let from = npc.player.origin();
+            npc.player.set_origin(to);
+            let turned = (npc.player.raw_field(PS_DELTA_YAW).unwrap_or(0) as i32).wrapping_add(yaw);
+            npc.player.set_raw_field(PS_DELTA_YAW, turned as u32);
+            for (axis, field) in ES_POS_BASE.into_iter().enumerate() {
+                let base = f32::from_bits(npc.state.raw_field(field).unwrap_or(0));
+                npc.state
+                    .set_raw_field(field, (base + (to[axis] - from[axis])).to_bits());
+            }
+            npc.current_origin = to;
+            npc.relink();
+        } else if let Some((id, pickup)) = items
+            .iter_mut()
+            .find(|(id, _)| id.legacy_number() == number)
+        {
+            jkr_game_jka::dropped_items::shove(pickup, to, carried);
+            pool.set_state(*id, &pickup.state);
+        } else if let Some((slot, id)) = (0..BODIES)
+            .filter_map(|slot| Some((slot, pool.body(slot)?)))
+            .find(|(_, id)| id.legacy_number() == number)
+            && let Some(state) = pool.state_mut(id)
+        {
+            corpses.shove(slot, state, to, carried);
         }
-        npc.current_origin = to;
-        npc.relink();
+    }
+
+    /// `G_FreeEntity` on the dropped weapon `number` a mover cannot move ("keep dropped
+    /// weapons from blocking elevators").
+    pub(super) fn free_in_the_way(&mut self, number: u16, level_time: i32) {
+        if let Some(at) = self
+            .items
+            .iter()
+            .position(|(id, _)| id.legacy_number() == number)
+        {
+            let (id, _) = self.items.remove(at);
+            self.pool.free(id, level_time);
+        }
     }
 
     /// `G_Damage(check, pusher, pusher, NULL, NULL, damage, flags, MOD_CRUSH)`: mover
@@ -99,10 +154,11 @@ impl NativeGame {
             flags,
             means: movers::MOD_CRUSH,
         };
-        if self.npcs.roster.is_npc(victim) {
-            let _ = self.strike(usize::MAX, usize::from(victim), request, false);
-        } else {
+        // A player by `G_Damage` alone; an NPC, a body or anything else as any blow finds it.
+        if self.peer(usize::from(victim)).is_some() {
             let _ = self.hurt(usize::from(victim), request);
+        } else {
+            let _ = self.strike(usize::MAX, usize::from(victim), request, false);
         }
     }
 
@@ -138,7 +194,9 @@ impl NativeGame {
                 .iter()
                 .map(|check| {
                     let (low, mut high) = check.bounds;
-                    high[2] = high[2].max(1.0);
+                    if check.client {
+                        high[2] = high[2].max(1.0);
+                    }
                     (check.number, check.origin, (low, high), check.ground)
                 })
                 .collect();
@@ -194,8 +252,13 @@ impl NativeGame {
             };
             let blocker = match pushed {
                 movers::Push::Moved(shoved) => {
-                    for movers::Shoved { client, to, .. } in shoved {
-                        self.shove(client, to, 0);
+                    for movers::Shoved {
+                        client,
+                        to,
+                        carried,
+                    } in shoved
+                    {
+                        self.shove(client, to, 0, carried);
                     }
                     return None;
                 }
@@ -208,6 +271,7 @@ impl NativeGame {
                     self.crush(mover, blocker, damage, flags, level_time)
                 }
                 Unpushable::BodyRemoved => self.remove_body_in_the_way(blocker, level_time),
+                Unpushable::Freed => self.free_in_the_way(blocker, level_time),
             }
             candidates.retain(|check| check.number != blocker);
         }

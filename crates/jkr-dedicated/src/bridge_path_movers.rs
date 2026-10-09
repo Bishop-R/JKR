@@ -258,13 +258,16 @@ impl NativeGame {
         for pushed in &outcome.pushed {
             // (`s.groundEntityNum` of one pushed off is cleared; the player state's is its
             // next move's to change.)
-            self.shove(pushed.number, pushed.to, pushed.yaw);
+            self.shove(pushed.number, pushed.to, pushed.yaw, pushed.on_mover);
         }
         for (victim, damage, flags) in outcome.crushed {
             self.crush(number, victim, damage, flags, level_time);
         }
         for body in outcome.removed {
             self.remove_body_in_the_way(body, level_time);
+        }
+        for weapon in outcome.freed {
+            self.free_in_the_way(weapon, level_time);
         }
         outcome.blocked.is_none()
     }

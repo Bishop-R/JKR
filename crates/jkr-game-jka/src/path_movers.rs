@@ -748,19 +748,33 @@ pub fn constant_light(entity: &Entity) -> u32 {
     byte(color[0]) | byte(color[1]) << 8 | byte(color[2]) << 16 | intensity << 24
 }
 
-/// One entity a mover may push: its number, where it stands, its box, and what it stands
-/// on (`s.groundEntityNum`).
+/// One entity a mover may push: its number, where it stands (a client's `ps.origin`, else
+/// `s.pos.trBase`), its box, and what it stands on (`s.groundEntityNum`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Pushee {
     pub number: u16,
     pub origin: [f32; 3],
     pub bounds: ([f32; 3], [f32; 3]),
     pub ground: u16,
-    /// `health < 1`: a dead player is crushed rather than blocking.
-    pub dead: bool,
-    /// A dead NPC not in no-target mode (`ET_NPC`, `health <= 0`, no `FL_NOTARGET`): its
-    /// body is removed rather than blocking.
-    pub npc_body: bool,
+    /// A player or an NPC: `G_TestEntityPosition` tests its box at least a unit tall, and
+    /// a mover that crushes through crushes it.
+    pub client: bool,
+    /// What becomes of it when the mover can move it nowhere.
+    pub fate: Fate,
+}
+
+/// What `G_MoverPush` does with one it can neither move on nor leave where it was, by
+/// what it is (`g_mover.c:383-410`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Fate {
+    /// In the way: a living player or NPC, an item, any other physics object.
+    Blocks,
+    /// Crushed for 999: a dead player, a body in the body queue (`ET_BODY`).
+    Crushed,
+    /// Its body removed (`NPC_RemoveBody`): a dead NPC not in no-target mode.
+    BodyRemoved,
+    /// Freed: a dropped weapon (`EF_DROPPEDWEAPON`), a cut limb.
+    Freed,
 }
 
 /// What `G_MoverPush` did to one entity it moved.
@@ -784,6 +798,8 @@ pub struct Push {
     pub crushed: Vec<(u16, i32, u32)>,
     /// Dead NPCs it could not move, whose bodies go (`NPC_RemoveBody`).
     pub removed: Vec<u16>,
+    /// Dropped weapons and limbs it could not move, which go (`G_FreeEntity`).
+    pub freed: Vec<u16>,
     /// Who blocked it (`*obstacle`): the move is undone and nobody is moved.
     pub blocked: Option<u16>,
 }
@@ -797,25 +813,26 @@ pub enum Unpushable {
     Crushed(i32, u32),
     /// `NPC_RemoveBody`; the mover goes on.
     BodyRemoved,
+    /// `G_FreeEntity`; the mover goes on.
+    Freed,
     /// `*obstacle`: the move is undone.
     Blocks,
 }
 
 /// [`Unpushable`] for `check`, in the way of a mover dealing `damage` with `spawnflags`
-/// ([`CRUSH_THROUGH`]) that bobs or not: crushed through, crushed dead, its body removed,
-/// killed by a bobbing mover — or in the way. Every door, path mover and scripted brush
-/// answers by this.
+/// ([`CRUSH_THROUGH`]) that bobs or not: a client crushed through; else as its [`Fate`]
+/// says, one that would block killed by a bobbing mover. Every door, path mover and
+/// scripted brush answers by this.
 pub fn unpushable(damage: i32, spawnflags: u32, bobbing: bool, check: &Pushee) -> Unpushable {
-    if damage != 0 && spawnflags & CRUSH_THROUGH != 0 {
-        Unpushable::Crushed(damage, 0)
-    } else if check.dead {
-        Unpushable::Crushed(999, 0)
-    } else if check.npc_body {
-        Unpushable::BodyRemoved
-    } else if bobbing {
-        Unpushable::Crushed(99_999, 0)
-    } else {
-        Unpushable::Blocks
+    if check.client && damage != 0 && spawnflags & CRUSH_THROUGH != 0 {
+        return Unpushable::Crushed(damage, 0);
+    }
+    match check.fate {
+        Fate::Crushed => Unpushable::Crushed(999, 0),
+        Fate::BodyRemoved => Unpushable::BodyRemoved,
+        Fate::Freed => Unpushable::Freed,
+        Fate::Blocks if bobbing => Unpushable::Crushed(99_999, 0),
+        Fate::Blocks => Unpushable::Blocks,
     }
 }
 
@@ -840,6 +857,7 @@ pub fn push(
         pushed: Vec::new(),
         crushed: Vec::new(),
         removed: Vec::new(),
+        freed: Vec::new(),
         blocked: None,
     };
     let new_origin: [f32; 3] = std::array::from_fn(|axis| mover.origin[axis] + shift[axis]);
@@ -866,7 +884,9 @@ pub fn push(
         let on_mover = check.ground == number;
         // `G_TestEntityPosition` tests a client's box with its top at least 1 (a corpse's is -8).
         let mut bounds = check.bounds;
-        bounds.1[2] = bounds.1[2].max(1.0);
+        if check.client {
+            bounds.1[2] = bounds.1[2].max(1.0);
+        }
         if !on_mover {
             // `r.absmin`, `r.absmax`: a linked box has a unit of slack all round.
             let their_low: [f32; 3] =
@@ -913,6 +933,7 @@ pub fn push(
                 outcome.crushed.push((check.number, damage, flags))
             }
             Unpushable::BodyRemoved => outcome.removed.push(check.number),
+            Unpushable::Freed => outcome.freed.push(check.number),
             Unpushable::Blocks => {
                 outcome.pushed.clear();
                 outcome.blocked = Some(check.number);
@@ -955,17 +976,15 @@ mod tests {
             origin: [0.0; 3],
             bounds: ([-15.0, -15.0, -24.0], [15.0, 15.0, 40.0]),
             ground: 1023,
-            dead: false,
-            npc_body: false,
+            client: true,
+            fate: Fate::Blocks,
         };
-        let corpse = Pushee {
-            dead: true,
+        let with = |client, fate| Pushee {
+            client,
+            fate,
             ..living
         };
-        let body = Pushee {
-            npc_body: true,
-            ..living
-        };
+        let (corpse, body) = (with(true, Fate::Crushed), with(true, Fate::BodyRemoved));
         assert_eq!(
             unpushable(5, CRUSH_THROUGH, true, &body),
             Unpushable::Crushed(5, 0)
@@ -980,5 +999,28 @@ mod tests {
             Unpushable::Crushed(99_999, 0)
         );
         assert_eq!(unpushable(5, 0, false, &living), Unpushable::Blocks);
+        // Only a client is crushed through: a body in the queue is crushed for 999, a
+        // dropped weapon freed, an item in the way.
+        let (queued, weapon, item) = (
+            with(false, Fate::Crushed),
+            with(false, Fate::Freed),
+            with(false, Fate::Blocks),
+        );
+        assert_eq!(
+            unpushable(5, CRUSH_THROUGH, false, &queued),
+            Unpushable::Crushed(999, 0)
+        );
+        assert_eq!(
+            unpushable(5, CRUSH_THROUGH, true, &weapon),
+            Unpushable::Freed
+        );
+        assert_eq!(
+            unpushable(5, CRUSH_THROUGH, false, &item),
+            Unpushable::Blocks
+        );
+        assert_eq!(
+            unpushable(0, 0, true, &item),
+            Unpushable::Crushed(99_999, 0)
+        );
     }
 }

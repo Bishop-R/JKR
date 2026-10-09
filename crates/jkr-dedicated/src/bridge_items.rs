@@ -84,8 +84,21 @@ impl NativeGame {
         let flag_throw = self.flag_rules().throw;
         let mut gone_flags = Vec::new();
         let mut landed_flags = Vec::new();
+        // Its trace meets every entity: an item comes to rest on a mover, which then carries
+        // it.
+        if self
+            .items
+            .iter()
+            .any(|(_, pickup)| jkr_game_jka::dropped_items::moving(pickup))
+        {
+            self.gather_obstacles(usize::MAX);
+        }
         let Self {
-            items, pool, map, ..
+            items,
+            pool,
+            map,
+            obstacles,
+            ..
         } = self;
         items.retain_mut(|(number, pickup)| {
             if pickup.dropped.is_none() {
@@ -93,9 +106,12 @@ impl NativeGame {
             }
             let run = match map {
                 Some(map) => {
-                    let world = WorldCollision {
-                        bsp: &map.bsp,
-                        scratch: &map.scratch,
+                    let world = WithPlayers {
+                        world: WorldCollision {
+                            bsp: &map.bsp,
+                            scratch: &map.scratch,
+                        },
+                        players: obstacles,
                     };
                     jkr_game_jka::dropped_items::run(
                         pickup,

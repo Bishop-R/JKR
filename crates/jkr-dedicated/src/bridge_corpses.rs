@@ -8,19 +8,38 @@ use jkr_game_jka::entity_pool::BODIES;
 use jkr_game_jka::map_turret_world::{ObjectBlow, object_take};
 
 impl NativeGame {
-    /// `G_RunItem` for every linked body that falls: swept through the world with its box,
-    /// brought to rest on a floor, unlinked for good in a no-drop volume.
+    /// `G_RunItem` for every linked body that falls: swept with its box through the world
+    /// and every entity in it — it comes to rest on a mover, which then carries it — brought
+    /// to rest on a floor, unlinked for good in a no-drop volume.
     pub(super) fn run_corpses(&mut self, server_time: i32) {
         let previous_time = self.previous_frame_time;
+        let falling = (0..BODIES).any(|slot| {
+            self.pool
+                .body(slot)
+                .filter(|id| self.pool.is_linked(*id))
+                .and_then(|id| self.pool.state(id))
+                .is_some_and(corpses::moving)
+        });
+        if !falling {
+            return;
+        }
+        self.gather_obstacles(usize::MAX);
         let Self {
-            pool, corpses, map, ..
+            pool,
+            corpses,
+            map,
+            obstacles,
+            ..
         } = self;
         let Some(map) = map.as_ref() else {
             return;
         };
-        let world = WorldCollision {
-            bsp: &map.bsp,
-            scratch: &map.scratch,
+        let world = WithPlayers {
+            world: WorldCollision {
+                bsp: &map.bsp,
+                scratch: &map.scratch,
+            },
+            players: obstacles,
         };
         for slot in 0..BODIES {
             let Some(id) = pool
