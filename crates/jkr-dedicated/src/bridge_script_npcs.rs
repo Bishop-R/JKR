@@ -166,6 +166,11 @@ impl NativeGame {
                 true
             }
             NpcAction::Set { set, value } => {
+                // The flag sets (`Q3_SetChaseEnemies` and the rest) apply; any other is named.
+                let skill = self.integer_cvar(b"g_npcspskill", 0);
+                if self.npcs.roster.script_set_flag(number, set, &value, skill) {
+                    return true;
+                }
                 let name = jkr_game_jka::icarus_set_table::SET_TABLE
                     .iter()
                     .find(|(_, id)| *id == set)

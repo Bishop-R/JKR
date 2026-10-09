@@ -7,6 +7,7 @@
 //! the jump's state for `BS_JUMP`; and as `Q3_SetTempBState`, `Q3_SetDefaultBState` and
 //! `G_ActivateBehavior` do.
 
+use crate::icarus_set_table;
 use crate::npc_behavior::bstate;
 use crate::npc_roster::NpcRoster;
 use crate::npc_senses::{AEL_MINOR, subtract};
@@ -47,6 +48,29 @@ pub fn behavior_state_named(name: &str) -> Option<i32> {
         .map(|state| state as i32)
 }
 
+/// `Q3_Set`'s flag sets (`g_ICARUScb.c`): each turns one `scriptFlags` bit on or off
+/// (`b_public.h:48-73`).
+const SCRIPT_FLAG_SETS: [(i32, u32); 18] = [
+    (icarus_set_table::SET_CROUCHED, 0x1),
+    (icarus_set_table::SET_WALKING, 0x2),
+    (icarus_set_table::SET_RUNNING, 0x20),
+    (icarus_set_table::SET_ALT_FIRE, 0x40),
+    (icarus_set_table::SET_NO_RESPONSE, 0x80),
+    (icarus_set_table::SET_NO_COMBAT_TALK, 0x200),
+    (icarus_set_table::SET_CHASE_ENEMIES, 0x400),
+    (icarus_set_table::SET_LOOK_FOR_ENEMIES, 0x800),
+    (icarus_set_table::SET_FACE_MOVE_DIR, 0x1000),
+    (icarus_set_table::SET_DONTFIRE, 0x4000),
+    (icarus_set_table::SET_DONT_FLEE, 0x8000),
+    (icarus_set_table::SET_FORCED_MARCH, 0x1_0000),
+    (icarus_set_table::SET_FIRE_WEAPON, 0x4_0000),
+    (icarus_set_table::SET_USE_CP_NEAREST, 0x10_0000),
+    (icarus_set_table::SET_NO_FORCE, 0x20_0000),
+    (icarus_set_table::SET_NO_FALLTODEATH, 0x40_0000),
+    (icarus_set_table::SET_NO_ACROBATICS, 0x80_0000),
+    (icarus_set_table::SET_NO_ALERT_TALK, 0x200_0000),
+];
+
 impl NpcRoster {
     /// [`NpcWorld::script_set_bstate`] on the NPC numbered `number`, the state `name`:
     /// whether the script's task completes at once (it does where there is no such NPC).
@@ -85,6 +109,33 @@ impl NpcRoster {
         ) {
             npc.default_behavior = state;
         }
+    }
+
+    /// `Q3_Set`'s flag sets on NPC `number` (`Q3_SetChaseEnemies` and the rest,
+    /// `g_ICARUScb.c`): `set`'s `scriptFlags` bit on for a value of `true` (any case), off
+    /// for any other; `SET_ALT_FIRE` also re-arms its weapon (`ChangeWeapon`) at `skill`.
+    /// Whether `set` is one of them.
+    pub fn script_set_flag(&mut self, number: u16, set: i32, value: &str, skill: i32) -> bool {
+        let Some(flag) = SCRIPT_FLAG_SETS
+            .iter()
+            .find(|(id, _)| *id == set)
+            .map(|(_, flag)| *flag)
+        else {
+            return false;
+        };
+        let Some(npc) = self.actors.iter_mut().find(|npc| npc.number == number) else {
+            return true;
+        };
+        if value.eq_ignore_ascii_case("true") {
+            npc.script_flags |= flag;
+        } else {
+            npc.script_flags &= !flag;
+        }
+        if set == icarus_set_table::SET_ALT_FIRE {
+            let weapon = npc.player.weapon();
+            crate::npc_combat::change_weapon(npc, weapon, skill);
+        }
+        true
     }
 
     /// `G_ActivateBehavior` of a behaviour set that names a state (`NPC_utils.c:891-895`):
