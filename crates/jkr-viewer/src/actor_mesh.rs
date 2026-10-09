@@ -45,4 +45,7 @@ pub(crate) struct ActorMesh {
     pub(crate) trick: jkr_client::trick_fade::TrickFade,
     /// How much of the model this frame draws, for its trick.
     pub(crate) body: jkr_client::trick_fade::BodyDraw,
+    /// Its cloak's turning (`PW_CLOAKED`), and what this frame draws for it.
+    pub(crate) cloak_fade: jkr_client::cloak_fade::CloakFade,
+    pub(crate) cloak: Option<jkr_client::cloak_fade::CloakDraw>,
 }

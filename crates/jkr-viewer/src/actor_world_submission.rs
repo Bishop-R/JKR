@@ -31,6 +31,7 @@ pub(crate) mod jetpack;
 
 #[path = "actor_body_draw.rs"]
 mod body_draw;
+pub(crate) use body_draw::CLOAK_SHADER;
 
 #[path = "bolted_items.rs"]
 mod bolted;
@@ -105,6 +106,8 @@ struct Sinks<'a> {
     own_flag_alpha: Option<u8>,
     /// How the actor being submitted is drawn, its bolted parts with it.
     body: BodyDraw,
+    /// What its cloak changes in that (`body_draw::cloak`).
+    cloak: Option<body_draw::Cloak>,
     /// `cg_speedTrail`: Force Speed's afterimages.
     speed_trails: bool,
     /// Where this frame's view is seen from (`cg.refdef.vieworg`).
@@ -250,6 +253,7 @@ pub(crate) fn submit(
             .as_ref()
             .and_then(|console| console.own_flag_alpha()),
         body: BodyDraw::Opaque,
+        cloak: None,
         speed_trails,
         view_origin: gpu.ground_hud.view_origin(),
         gametype: gametype.into(),
@@ -494,6 +498,17 @@ fn submit_actor(
         Some(index) if entity.kind == EntityKind::Actor => sinks.actor_meshes[index].body,
         _ => BodyDraw::Opaque,
     };
+    // `FP_SEE` in the snapshot's player state sees through cloaks.
+    let sight = snapshot.is_some_and(|snapshot| snapshot.player.force_powers_active() & (1 << 14) != 0);
+    sinks.cloak = mesh
+        .and_then(|index| sinks.actor_meshes[index].cloak)
+        .and_then(|draw| {
+            body_draw::cloak(
+                draw,
+                (Some(entity.id.get()) == local_entity_id, sinks.third_person, sight),
+                sinks.material_overrides.force(body_draw::CLOAK_SHADER),
+            )
+        });
     let state = snapshot.and_then(|snapshot| {
         snapshot
             .entities
@@ -715,10 +730,12 @@ fn submit_actor(
             .map_or(instance, |tint| instance.with_rgb_tint(tint)),
             _ => instance,
         };
-        if let BodyDraw::Faded(alpha) = sinks.body {
-            let faded = body_draw::faded(entity_materials::OverrideMesh::Actor(mesh), body, alpha);
-            sinks.overrides.push(faded);
-        } else {
+        if body_draw::passes(
+            sinks.overrides,
+            (sinks.body, sinks.cloak),
+            entity_materials::OverrideMesh::Actor(mesh),
+            body,
+        ) {
             sinks.actor_groups[mesh].push(body);
         }
         let tricking = !local && matches!(sinks.body, BodyDraw::Faded(_));
@@ -925,10 +942,10 @@ fn submit_equipment(
         let (hand, _) = saber::world_attachment(origin, rotation, attachment);
         thrown_saber::hand_glow(sinks, hand, visual_now);
     }
-    let body = sinks.body;
+    let draw = (sinks.body, sinks.cloak);
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
     let mut hilt = |mesh: usize, instance: ActorInstance| {
-        body_draw::push_part((&mut *parts.0, &mut *parts.1), body, mesh, instance);
+        body_draw::push_part((&mut *parts.0, &mut *parts.1), draw, mesh, instance);
     };
     if saber_submission::submit(
         entity.id.get(),
@@ -979,7 +996,7 @@ fn submit_equipment(
     let mut instance = ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]);
     instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
-    body_draw::push_part(parts, sinks.body, weapon_mesh, instance);
+    body_draw::push_part(parts, (sinks.body, sinks.cloak), weapon_mesh, instance);
     // The main first-person flash already owns event/audio spawning. A
     // second view must never advance effects or play a second sound.
     if !draw_actor {

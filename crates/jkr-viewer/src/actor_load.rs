@@ -128,6 +128,8 @@ pub(crate) fn build_actor_mesh(
         speed_trail: Default::default(),
         trick: Default::default(),
         body: Default::default(),
+        cloak_fade: Default::default(),
+        cloak: None,
     })
 }
 

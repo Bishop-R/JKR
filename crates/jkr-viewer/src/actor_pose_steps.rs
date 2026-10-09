@@ -77,6 +77,11 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
             (seed >> 8) as f32 / (1 << 24) as f32
         });
     }
+    // `PW_CLOAKED`'s two-second turn (`cloak_fade`).
+    mesh.cloak = (!mesh.corpse_pool)
+        .then(|| cloaked(mesh.entity_id, local_entity, snapshot))
+        .flatten()
+        .map(|cloaked| mesh.cloak_fade.advance(cloaked, presentation_time as i32));
     // `CG_IsMindTricked`: a player who mind-tricks the viewer fades out of its sight.
     if !mesh.corpse_pool && mesh.entity_id != local_entity {
         let tricked = mind_tricked(mesh.entity_id, snapshot);
@@ -241,6 +246,26 @@ pub(super) fn failed(mesh: &mut ActorMesh, error: &dyn Error) {
 
 /// Whether the actor's entity mind-tricks the client whose view the snapshot holds
 /// (`CG_IsMindTricked(…, cg.snap->ps.clientNum)`).
+/// Whether the player `entity` is cloaked (`PW_CLOAKED`), the viewer's own from its player
+/// state; `None` when the snapshot does not hold it.
+fn cloaked(
+    entity: Option<EntityId>,
+    local: Option<EntityId>,
+    snapshot: Option<&Snapshot>,
+) -> Option<bool> {
+    const PW_CLOAKED: usize = 11;
+    let (entity, snapshot) = (entity?, snapshot?);
+    if Some(entity) == local {
+        return Some(snapshot.player.powerups[PW_CLOAKED] != 0);
+    }
+    let number = u16::try_from(entity.get().wrapping_sub(1)).ok()?;
+    let index = snapshot
+        .entities
+        .binary_search_by_key(&number, |state| state.number())
+        .ok()?;
+    Some(snapshot.entities[index].powerups() & (1 << PW_CLOAKED) != 0)
+}
+
 fn mind_tricked(entity: Option<EntityId>, snapshot: Option<&Snapshot>) -> bool {
     let (Some(entity), Some(snapshot)) = (entity, snapshot) else {
         return false;

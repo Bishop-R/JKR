@@ -16,7 +16,7 @@ pub(crate) struct Overrides {
     pub(crate) dark_disabled: usize,
     /// A respawned item's rez-in pass (`pickup_respawns.rs`).
     pub(crate) rezout: usize,
-    force: [usize; 19],
+    force: [usize; 20],
 }
 
 /// Append or reuse the cgame entity-override materials before the shared Q3
@@ -27,7 +27,7 @@ pub(crate) fn append_overrides(materials: &mut Vec<ViewerMaterial>) -> Overrides
         light_disabled: ensure(materials, "gfx/misc/mp_light_enlight_disable"),
         dark_disabled: ensure(materials, "gfx/misc/mp_dark_enlight_disable"),
         rezout: ensure(materials, crate::pickups::respawns::SHADER),
-        force: [0; 19],
+        force: [0; 20],
     };
     for (slot, shader) in result.force.iter_mut().zip(FORCE_SHADERS) {
         *slot = ensure(materials, shader);
@@ -35,7 +35,7 @@ pub(crate) fn append_overrides(materials: &mut Vec<ViewerMaterial>) -> Overrides
     result
 }
 
-const FORCE_SHADERS: [&str; 19] = [
+const FORCE_SHADERS: [&str; 20] = [
     "halfShieldShell",
     // `cgs.media.disruptorShader`, a disintegration's glow (`cg_ents.c:699-700`).
     "gfx/effects/burn",
@@ -60,6 +60,8 @@ const FORCE_SHADERS: [&str; 19] = [
     crate::effect_aux::demp2_shell::SHADER,
     // A saber pulled back glows over its hilt (`thrown_saber.rs`).
     crate::actor_world_submission::thrown_saber::SOLID_WHITE,
+    // A cloaked player's shell (`actor_body_draw.rs`).
+    crate::actor_world_submission::CLOAK_SHADER,
 ];
 
 impl Overrides {
