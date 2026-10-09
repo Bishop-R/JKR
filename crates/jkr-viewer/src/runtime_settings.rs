@@ -41,6 +41,7 @@ impl GpuState {
             no_teleport: console.bool_cvar("cg_noTeleFX").unwrap_or(false),
             flesh_sparks: console.integer_cvar("cg_fleshSparks").unwrap_or(7),
             no_fx: console.integer_cvar("cg_noFX").unwrap_or(0),
+            drain_fx: console.integer_cvar("cg_drainFX").unwrap_or(2),
         };
         let no_fx = self.effect_aux.options.no_fx;
         self.first_person_view

@@ -1,12 +1,14 @@
 //! Discovery of shaders referenced by stock and server-configured EFX graphs.
 
-use jkr_effect::load_effect;
+use crate::effect_library::embedded::load_effect;
 use jkr_vfs::VirtualFileSystem;
 use std::collections::{BTreeSet, HashSet};
 
 pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "mp/drain",
     "mp/drainwide",
+    // EternalJK's wide drain (`cg_drainFX 1`), carried by JKR (`effect_embedded`).
+    "mp/drainwide_japro",
     "emplaced/dead_smoke",
     "emplaced/explode",
     "turret/explode",

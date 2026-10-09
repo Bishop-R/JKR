@@ -1,6 +1,10 @@
 //! Map-lifetime cache for parsed EFX graphs and their shader names.
 
-use jkr_effect::{EffectDefinition, load_effect};
+#[path = "effect_embedded.rs"]
+pub(crate) mod embedded;
+
+use embedded::load_effect;
+use jkr_effect::EffectDefinition;
 use jkr_vfs::VirtualFileSystem;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

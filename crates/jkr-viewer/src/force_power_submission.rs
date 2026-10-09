@@ -4,14 +4,20 @@ use super::*;
 #[path = "force_sprites.rs"]
 mod sprites;
 
-/// Select the activeForcePass graph (cg_players.c:9408-9510).
-pub(crate) fn beam(pass: u8) -> Option<&'static str> {
+/// Select the activeForcePass graph (cg_players.c:9408-9510). EternalJK's `cg_drainFX`
+/// picks the wide drain arc (`cg_players.c:11140-11146`): 0 none, 1 jaPRO's, 2 stock's
+/// (what EternalJK's code means by 2; its test lets 1 win for every non-zero value).
+pub(crate) fn beam(pass: u8, drain_fx: i64) -> Option<&'static str> {
     match pass {
         0 => None,
         1..=2 => Some("force/lightning"),
         3 => Some("force/lightningwide"),
         4..=5 => Some("mp/drain"),
-        _ => Some("mp/drainwide"),
+        _ => match drain_fx {
+            0 => None,
+            1 => Some("mp/drainwide_japro"),
+            _ => Some("mp/drainwide"),
+        },
     }
 }
 
@@ -63,7 +69,7 @@ pub(super) fn submit(
         actor.weapon_attachments[1].map(|bolt| saber::world_attachment(origin, rotation, bolt).0);
     let pass = state.raw_field(68).unwrap_or(0) as u8;
     // The beam is re-played on the reference 8 ms cadence (`effect_cadence.rs`).
-    if let (Some(name), Some(hand)) = (beam(pass), left)
+    if let (Some(name), Some(hand)) = (beam(pass, sinks.effect_aux.options.drain_fx), left)
         && sinks.effects.contains_definition(name)
         && sinks.effect_aux.continuous.due(now)
     {

@@ -94,6 +94,8 @@ pub(crate) struct EffectOptions {
     pub(crate) flesh_sparks: i64,
     /// `cg_noFX`: from 1 no map effects (`ET_FX`), at 5 no effects at all.
     pub(crate) no_fx: i64,
+    /// `cg_drainFX`: the wide Force Drain arc, 0 none, 1 jaPRO's, 2 stock's.
+    pub(crate) drain_fx: i64,
 }
 
 impl Default for EffectOptions {
@@ -102,6 +104,7 @@ impl Default for EffectOptions {
             no_teleport: false,
             flesh_sparks: 7,
             no_fx: 0,
+            drain_fx: 2,
         }
     }
 }

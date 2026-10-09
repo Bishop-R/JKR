@@ -530,6 +530,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Saber hits on flesh: 0 no sparks to 7 all of stock's",
         ),
         CvarDefinition::new(
+            "cg_drainFX",
+            2_i64,
+            archive,
+            "Wide Force Drain arc: 0 none, 1 jaPRO's, 2 stock's",
+        ),
+        CvarDefinition::new(
             "cg_noFX",
             0_i64,
             archive,
