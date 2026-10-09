@@ -23,6 +23,8 @@ pub(super) enum Held {
     Speaker(usize),
     Door(usize),
     Station(usize),
+    /// One of the map's own targets (a print, a relay, a delay, an activation).
+    Target(usize),
     /// Kept by the reference, and never used alone here.
     Other,
 }
@@ -127,8 +129,17 @@ impl NativeGame {
     pub(super) fn spawn_map_logic(&mut self, entities: &[jkr_entity::Entity], level_time: i32) {
         self.stock.logic.clear();
         self.stock.named.clear();
-        let (mut runners, mut speakers) = (0, 0);
+        let (mut runners, mut speakers, mut map_targets) = (0, 0, 0);
         for (lump_index, entity) in entities.iter().enumerate().skip(1) {
+            // Its place among the map's own targets, whose list is built from the whole
+            // lump (`spawn_multiples`).
+            let map_target = entity
+                .classname()
+                .filter(|class| jkr_game_jka::triggers::is_used_target(class))
+                .map(|_| {
+                    map_targets += 1;
+                    map_targets - 1
+                });
             if !jkr_game_jka::spawn_table::kept_by_reference(entity, self.gametype) {
                 continue;
             }
@@ -143,6 +154,7 @@ impl NativeGame {
                     eprintln!("{classname} not spawned (the reference stops the map): {refused:?}");
                     continue;
                 }
+                None if map_target.is_some() => Held::Target(map_target.unwrap_or_default()),
                 None => match classname.as_str() {
                     "fx_runner" => {
                         runners += 1;
@@ -358,6 +370,25 @@ impl NativeGame {
         }
     }
 
+    /// `G_PickTarget(name)` and `GlobalUse` of what it drew, for `client` (a RANDOM
+    /// `target_relay`): one of every entity the level keeps under `name`, `rand() % count`
+    /// in `G_Find`'s order, used alone; the reference's complaint when there is none.
+    pub(super) fn use_random_named(&mut self, name: &str, client: usize, level_time: i32) {
+        let count = self
+            .stock
+            .named
+            .iter()
+            .filter(|named| named.name.eq_ignore_ascii_case(name))
+            .count();
+        if count == 0 {
+            pick_target_missing(name);
+            return;
+        }
+        let pick = self.rand.next() as usize % count;
+        let activator = (client != usize::MAX).then_some(client);
+        self.use_one_named(usize::MAX, name, pick + 1, activator, level_time);
+    }
+
     /// `target_random`'s `GlobalUse` of the `pick`-th entity called `name` (not counting
     /// the firing logic entity `index`), in `G_Find`'s order.
     fn use_one_named(
@@ -384,6 +415,7 @@ impl NativeGame {
             Held::Runner(runner) => self.use_one_runner(runner, client, level_time),
             Held::Speaker(speaker) => self.use_one_speaker(speaker, client, level_time),
             Held::Station(station) => self.use_station_index(station, client, level_time),
+            Held::Target(target) => self.fire_map_target(target, client, level_time),
             Held::Door(door) => {
                 let fired = jkr_game_jka::mover_team::use_mover(
                     &mut self.doors,
@@ -399,7 +431,7 @@ impl NativeGame {
             Held::Other => {
                 if !self.stock.told_unusable.contains(&chosen.classname) {
                     println!(
-                        "target_random picked a {} ({name}), which this server does not use alone yet",
+                        "a pick of one {name} drew a {}, which this server does not use alone yet",
                         chosen.classname
                     );
                     self.stock.told_unusable.push(chosen.classname);

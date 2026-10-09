@@ -1205,6 +1205,15 @@ pub fn print_command(message: &str) -> Vec<u8> {
 
 /// Every target of a map's entity lump, by the name things fire it with. `sound` names
 /// each `noise` as `G_SoundIndex` would.
+/// Whether [`map_targets`] makes a used target of an entity of `classname` (a print, a
+/// relay, a delay, an activation; not a speaker, which is an entity of its own).
+pub fn is_used_target(classname: &str) -> bool {
+    matches!(
+        classname,
+        "target_print" | "target_relay" | "target_delay" | "target_activate" | "target_deactivate"
+    )
+}
+
 pub fn map_targets(
     entities: &[Entity],
     sound: &mut dyn FnMut(&str) -> u16,

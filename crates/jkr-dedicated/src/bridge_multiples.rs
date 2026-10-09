@@ -6,6 +6,9 @@
 
 use super::*;
 
+/// `target_relay`'s RANDOM spawnflag: one of its targets, drawn.
+const RELAY_RANDOM: u32 = 4;
+
 impl NativeGame {
     /// The `trigger_multiple` brushes and the targets the map placed, as
     /// `SP_trigger_multiple` and `g_target.c`'s spawns leave them.
@@ -222,84 +225,7 @@ impl NativeGame {
             .map(|(index, _)| index)
             .collect();
         for index in matching {
-            let (_, target, state) = self.targets[index].clone();
-            // `GlobalUse`: nothing deactivated is used (`FL_INACTIVE`), and a spent relay
-            // is gone.
-            if state.inactive || state.spent {
-                continue;
-            }
-            match target {
-                jkr_game_jka::triggers::Target::Print {
-                    message,
-                    to_activator,
-                    teams,
-                    wait,
-                } => {
-                    // `wait`: quiet for that many milliseconds after printing
-                    // (`genericValue14`).
-                    if wait != 0.0 {
-                        if state.next_think >= level_time {
-                            continue;
-                        }
-                        self.targets[index].2.next_think = (level_time as f32 + wait) as i32;
-                    }
-                    self.print_to(&message, to_activator.then_some(client), teams);
-                }
-                // Speakers are entities of their own (`use_map_effects`, below).
-                jkr_game_jka::triggers::Target::Speaker { .. } => {}
-                jkr_game_jka::triggers::Target::Relay {
-                    target,
-                    spawnflags,
-                    wait,
-                } => {
-                    let team = self.peer(client).map(|peer| peer.session.team);
-                    if !jkr_game_jka::triggers::relay_passes(spawnflags, team) {
-                        continue;
-                    }
-                    if wait == -1.0 {
-                        self.targets[index].2.spent = true;
-                    }
-                    // `G_PickTarget` chooses one entity of the name among every kind of
-                    // entity; the names here are spread over many lists, so all fire.
-                    if spawnflags & 4 != 0 && !state.warned {
-                        self.targets[index].2.warned = true;
-                        eprintln!(
-                            "map: target_relay {} is RANDOM, which this server does not port: \
-                             it fires every target named {target}",
-                            self.targets[index].0
-                        );
-                    }
-                    self.fire_targets(&target, client, level_time)
-                }
-                jkr_game_jka::triggers::Target::Delay {
-                    wait,
-                    random,
-                    spawnflags,
-                    ..
-                } => {
-                    let state = self.targets[index].2;
-                    if spawnflags & 1 != 0 && state.next_think > level_time {
-                        continue;
-                    }
-                    let spread = self.deaths.rng.flrand(-1.0, 1.0);
-                    self.targets[index].2.next_think =
-                        level_time + ((wait + random * spread) * 1_000.0) as i32;
-                }
-                jkr_game_jka::triggers::Target::SetActive { target, active } => {
-                    for (name, _, state) in self.targets.iter_mut() {
-                        if *name == target {
-                            state.inactive = !active;
-                        }
-                    }
-                    for trigger in self.multiples.iter_mut() {
-                        if trigger.targetname == target {
-                            trigger.inactive = !active;
-                        }
-                    }
-                    self.set_map_logic_active(&target, active);
-                    self.set_scripted_active(&target, active);
-                }
-            }
+            self.fire_map_target(index, client, level_time);
         }
         self.use_doors(name, client, level_time);
         self.use_items(name, level_time);
@@ -309,6 +235,84 @@ impl NativeGame {
         self.use_npc_spawners(name, level_time);
         self.use_siege_entities(name, client, level_time);
         self.use_scripted(name, client, level_time);
+    }
+
+    /// `GlobalUse` of the map's target `index` (a print, relay, delay, activation) for
+    /// `client`: nothing deactivated is used (`FL_INACTIVE`), and a spent relay is gone.
+    pub(super) fn fire_map_target(&mut self, index: usize, client: usize, level_time: i32) {
+        let (_, target, state) = self.targets[index].clone();
+        // `GlobalUse`: nothing deactivated is used (`FL_INACTIVE`), and a spent relay
+        // is gone.
+        if state.inactive || state.spent {
+            return;
+        }
+        match target {
+            jkr_game_jka::triggers::Target::Print {
+                message,
+                to_activator,
+                teams,
+                wait,
+            } => {
+                // `wait`: quiet for that many milliseconds after printing
+                // (`genericValue14`).
+                if wait != 0.0 {
+                    if state.next_think >= level_time {
+                        return;
+                    }
+                    self.targets[index].2.next_think = (level_time as f32 + wait) as i32;
+                }
+                self.print_to(&message, to_activator.then_some(client), teams);
+            }
+            // Speakers are entities of their own (`use_map_effects`, below).
+            jkr_game_jka::triggers::Target::Speaker { .. } => {}
+            jkr_game_jka::triggers::Target::Relay {
+                target,
+                spawnflags,
+                wait,
+            } => {
+                let team = self.peer(client).map(|peer| peer.session.team);
+                if !jkr_game_jka::triggers::relay_passes(spawnflags, team) {
+                    return;
+                }
+                if wait == -1.0 {
+                    self.targets[index].2.spent = true;
+                }
+                // RANDOM: `G_PickTarget` draws one entity of the name, used alone.
+                if spawnflags & RELAY_RANDOM != 0 {
+                    self.use_random_named(&target, client, level_time);
+                    return;
+                }
+                self.fire_targets(&target, client, level_time)
+            }
+            jkr_game_jka::triggers::Target::Delay {
+                wait,
+                random,
+                spawnflags,
+                ..
+            } => {
+                let state = self.targets[index].2;
+                if spawnflags & 1 != 0 && state.next_think > level_time {
+                    return;
+                }
+                let spread = self.deaths.rng.flrand(-1.0, 1.0);
+                self.targets[index].2.next_think =
+                    level_time + ((wait + random * spread) * 1_000.0) as i32;
+            }
+            jkr_game_jka::triggers::Target::SetActive { target, active } => {
+                for (name, _, state) in self.targets.iter_mut() {
+                    if *name == target {
+                        state.inactive = !active;
+                    }
+                }
+                for trigger in self.multiples.iter_mut() {
+                    if trigger.targetname == target {
+                        trigger.inactive = !active;
+                    }
+                }
+                self.set_map_logic_active(&target, active);
+                self.set_scripted_active(&target, active);
+            }
+        }
     }
 
     /// `G_RunThink` for the triggers and targets counting something down.
