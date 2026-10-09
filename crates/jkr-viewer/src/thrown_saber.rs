@@ -111,7 +111,7 @@ pub(super) fn submit(
         sinks.saber_instances,
     ) {
         if owner.returning {
-            pulled_back_glow(sinks, pose, hilt.mesh_index, now);
+            saber_glow(sinks, pose, hilt.mesh_index, now);
         }
         crate::saber_submission::lights::append(
             sinks.lights,
@@ -126,10 +126,11 @@ pub(super) fn submit(
     true
 }
 
-/// A saber being pulled back glows yellow (`CG_General` with `bolt3` 999, `cg_ents.c:1640-1677`):
-/// its hilt again under `solidWhite_cull` tinted by the level (`RF_RGB_TINT`), and fourteen
-/// glow sprites along its up axis, from four units above its origin to nine below.
-fn pulled_back_glow(sinks: &mut super::Sinks<'_>, pose: Transform, mesh: usize, now: Instant) {
+/// A saber being pulled back glows yellow (`CG_General` with `bolt3` 999, `cg_ents.c:1640-1677`),
+/// as the Jedi Master's does on the ground: its model `mesh` again at `pose` under
+/// `solidWhite_cull` tinted by the level (`RF_RGB_TINT`), and fourteen glow sprites along its
+/// up axis, from four units above its origin to nine below.
+pub(super) fn saber_glow(sinks: &mut super::Sinks<'_>, pose: Transform, mesh: usize, now: Instant) {
     let level = glow_level(sinks.presentation_time);
     if let Some(material) = sinks.material_overrides.force(SOLID_WHITE)
         && sinks.overrides.len() < sinks.overrides.capacity()

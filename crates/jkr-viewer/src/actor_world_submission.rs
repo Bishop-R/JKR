@@ -11,6 +11,8 @@ mod force_powers;
 
 #[path = "thrown_saber.rs"]
 pub(crate) mod thrown_saber;
+#[path = "jedi_master_saber.rs"]
+mod jedi_master_saber;
 
 #[path = "actor_model_scale.rs"]
 pub(crate) mod model_scale;
@@ -254,6 +256,9 @@ pub(crate) fn submit(
     };
     if let Some(snapshot) = snapshot {
         special_entities::submit(&mut sinks, snapshot, visual_now);
+    }
+    if let Some((snapshot, game)) = snapshot.zip(game_state) {
+        jedi_master_saber::submit(&mut sinks, snapshot, game, visual_now);
     }
     spheres::submit_demp2_shells(&mut sinks, visual_now);
     // A siege class's blade colour goes with its thrown saber (the presented level's looks).

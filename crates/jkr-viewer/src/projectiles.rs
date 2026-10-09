@@ -60,7 +60,7 @@ pub(crate) fn collect(snapshot: &Snapshot, at_time: i32, output: &mut Vec<Presen
     }
 }
 
-fn present(state: &EntityState, at_time: i32) -> Presented {
+pub(crate) fn present(state: &EntityState, at_time: i32) -> Presented {
     let alternate = state.e_flags() & EF_ALT_FIRING != 0;
     let origin = legacy_evaluate_trajectory(
         state.trajectory_base(),
