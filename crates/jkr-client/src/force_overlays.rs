@@ -543,19 +543,40 @@ mod duel_tests {
     fn duellists_and_bystanders_are_tinted_as_stock_tints_them() {
         let white = [255; 3];
         // Not duelling: a duellist dark grey, anyone else as drawn.
-        assert_eq!(legacy_duel_tint(white, actor(2, true), context(false)), Some([50; 3]));
-        assert_eq!(legacy_duel_tint(white, actor(2, false), context(false)), None);
-        assert_eq!(legacy_duel_tint(white, actor(0, true), context(false)), None);
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, true), context(false)),
+            Some([50; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, false), context(false)),
+            None
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(0, true), context(false)),
+            None
+        );
         // Duelling: a bystander a fifth, the duellists darker by an eighth of 400.
-        assert_eq!(legacy_duel_tint(white, actor(2, false), context(true)), Some([51; 3]));
-        assert_eq!(legacy_duel_tint(white, actor(1, true), context(true)), Some([205; 3]));
-        assert_eq!(legacy_duel_tint(white, actor(0, true), context(true)), Some([205; 3]));
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, false), context(true)),
+            Some([51; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(1, true), context(true)),
+            Some([205; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(0, true), context(true)),
+            Some([205; 3])
+        );
         // Force Sight starts others yellow.
         let seeing = LegacyForceOverlayContext {
             local_force_powers_active: FP_SEE,
             ..context(true)
         };
-        assert_eq!(legacy_duel_tint(white, actor(2, false), seeing), Some([51, 51, 0]));
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, false), seeing),
+            Some([51, 51, 0])
+        );
     }
 
     #[test]
@@ -574,18 +595,32 @@ mod duel_tests {
         );
         // With the shell on JA+ they keep their colour, tinted.
         assert_eq!(
-            legacy_duel_tint(white, actor(1, true), styled(SHELL, crate::ServerMod::JaPlus)),
+            legacy_duel_tint(
+                white,
+                actor(1, true),
+                styled(SHELL, crate::ServerMod::JaPlus)
+            ),
             Some(white)
         );
         // Fullbright draws everyone white, bystanders still a fifth of it.
         let bright = styled(FULLBRIGHT, crate::ServerMod::BaseJka);
-        assert_eq!(legacy_duel_tint([10; 3], actor(1, true), bright), Some(white));
-        assert_eq!(legacy_duel_tint([10; 3], actor(2, false), bright), Some([51; 3]));
         assert_eq!(
-            legacy_duel_tint([10; 3], actor(2, false), LegacyForceOverlayContext {
-                local_duel: false,
-                ..bright
-            }),
+            legacy_duel_tint([10; 3], actor(1, true), bright),
+            Some(white)
+        );
+        assert_eq!(
+            legacy_duel_tint([10; 3], actor(2, false), bright),
+            Some([51; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(
+                [10; 3],
+                actor(2, false),
+                LegacyForceOverlayContext {
+                    local_duel: false,
+                    ..bright
+                }
+            ),
             Some(white)
         );
     }

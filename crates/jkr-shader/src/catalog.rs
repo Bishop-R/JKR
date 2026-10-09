@@ -103,4 +103,3 @@ mod fallback_tests {
         assert!(catalog.get("gfx/b").is_some());
     }
 }
-

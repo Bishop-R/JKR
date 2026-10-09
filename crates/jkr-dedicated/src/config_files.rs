@@ -94,7 +94,8 @@ impl ConfigFiles {
             root.is_some_and(|root| root.join(directory).join(name).is_file())
         };
         if (self.modded()
-            && (loose(self.home.as_ref(), &self.game) || loose(self.game_data.as_ref(), &self.game)))
+            && (loose(self.home.as_ref(), &self.game)
+                || loose(self.game_data.as_ref(), &self.game)))
             || loose(self.home.as_ref(), "base")
         {
             return true;

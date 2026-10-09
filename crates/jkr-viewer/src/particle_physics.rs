@@ -188,7 +188,9 @@ fn trace_line_end(
     let end = Vec3::from_array(trace.end_position);
     particle.streak = Some(end - origin);
     if impact {
-        let normal = trace.plane.map_or(Vec3::ZERO, |plane| Vec3::from_array(plane.normal));
+        let normal = trace
+            .plane
+            .map_or(Vec3::ZERO, |plane| Vec3::from_array(plane.normal));
         pending.push(particle, NestedKind::Impact, end, normal);
     }
 }
@@ -405,7 +407,10 @@ mod tests {
     #[test]
     fn traced_lines_find_their_end_and_play_their_impact() {
         let mut vfs = VirtualFileSystem::new();
-        let files = [("effects/test/beam.efx", BEAM), ("effects/test/glow.efx", GLOW)];
+        let files = [
+            ("effects/test/beam.efx", BEAM),
+            ("effects/test/glow.efx", GLOW),
+        ];
         vfs.mount_memory("test", files).unwrap();
         let mut particles = Vec::new();
         let mut auxiliary = crate::effect_aux::Runtime::default();
@@ -430,7 +435,13 @@ mod tests {
         // Nothing to hit in an empty map: the line reaches `FX_MAX_TRACE_DIST`.
         let bsp = Bsp::empty([-20_000.0; 3], [20_000.0; 3]);
         let mut pending = PendingEffects::new();
-        update(&mut particles, now, &bsp, &mut TraceScratch::default(), &mut pending);
+        update(
+            &mut particles,
+            now,
+            &bsp,
+            &mut TraceScratch::default(),
+            &mut pending,
+        );
         assert!(!particles[0].physics.line_trace_pending());
         assert_eq!(particles[0].streak, Some(Vec3::new(16_384.0, 0.0, 0.0)));
         spawn_pending(

@@ -289,8 +289,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // `FS_Startup` takes its paths from the command line before any config runs.
     let mut cvars = Cvars::new();
     startup_variables(&mut cvars, &options);
-    let game_data = (options.game_data.clone())
-        .or_else(|| launch::startup_path(&cvars, b"fs_basepath"));
+    let game_data =
+        (options.game_data.clone()).or_else(|| launch::startup_path(&cvars, b"fs_basepath"));
     let home = (options.home.clone()).or_else(|| launch::startup_path(&cvars, b"fs_homepath"));
     // `fs_game`: the mod directory searched before `base`, and written to.
     let game = String::from_utf8_lossy(cvars.string(b"fs_game")).into_owned();

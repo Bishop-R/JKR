@@ -154,6 +154,9 @@ fn binocular_view_off_screen() {
     // The mask darkens the edges and the strip behind the numbers is black.
     let corner = picture.get_pixel(4, 4).0;
     let strip = picture.get_pixel(width * 300 / 640, height * 405 / 480).0;
-    assert!(corner[..3].iter().all(|channel| *channel < 40), "{corner:?}");
+    assert!(
+        corner[..3].iter().all(|channel| *channel < 40),
+        "{corner:?}"
+    );
     assert!(strip[..3].iter().all(|channel| *channel < 40), "{strip:?}");
 }

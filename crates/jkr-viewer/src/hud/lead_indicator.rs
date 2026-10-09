@@ -65,7 +65,10 @@ pub(crate) fn shot(weapon: u8, alternate: bool, projectile_sniper: bool) -> Opti
         // WP_BLASTER: its gravity follows the disruptor's case it falls through to.
         5 => (2_300.0, projectile_sniper),
         // WP_DISRUPTOR, a projectile only on such a jaPRO server.
-        6 => (if projectile_sniper { 10_000.0 } else { 0.0 }, projectile_sniper),
+        6 => (
+            if projectile_sniper { 10_000.0 } else { 0.0 },
+            projectile_sniper,
+        ),
         // WP_BOWCASTER.
         7 => (1_300.0, false),
         // WP_BRYAR_PISTOL, WP_BRYAR_OLD.

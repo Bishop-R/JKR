@@ -56,7 +56,10 @@ impl HttpDownloads {
         };
         let port = listener.local_addr()?.port();
         listener.set_nonblocking(true)?;
-        let (shared, stop) = (Arc::new(Mutex::new(Shared::default())), Arc::new(AtomicBool::new(false)));
+        let (shared, stop) = (
+            Arc::new(Mutex::new(Shared::default())),
+            Arc::new(AtomicBool::new(false)),
+        );
         let thread = {
             let (shared, stop) = (Arc::clone(&shared), Arc::clone(&stop));
             std::thread::spawn(move || accept_loop(&listener, &shared, &stop))
@@ -133,7 +136,10 @@ fn serve(mut stream: TcpStream, from: SocketAddr, shared: &Mutex<Shared>) {
     let _ = stream.set_write_timeout(Some(TIMEOUT));
     let allowed = match from.ip() {
         IpAddr::V4(ip) => {
-            ip.is_loopback() || shared.lock().is_ok_and(|shared| shared.clients.contains(&ip))
+            ip.is_loopback()
+                || shared
+                    .lock()
+                    .is_ok_and(|shared| shared.clients.contains(&ip))
         }
         // "Connection dropped: IPv6 not allowed".
         IpAddr::V6(_) => false,
@@ -221,7 +227,11 @@ mod tests {
         std::fs::write(&pak, b"PK-bytes").unwrap();
         // Port 0 would scan from 18200; a free port of the system's choice keeps the test
         // clear of a real server.
-        let free = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let free = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
         let server = HttpDownloads::start(free).unwrap();
         server.set_files([("base/MyMap.pk3".to_owned(), pak.clone())]);
         let ok = get(server.port(), "/base/mymap.pk3");

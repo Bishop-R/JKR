@@ -123,8 +123,13 @@ impl NativeGame {
         }
         for (index, entity) in self.pool.linked().enumerate() {
             if sent[index] {
-                let number = entity.legacy_number().unwrap_or(jkr_protocol::ENTITY_NUMBER_NONE);
-                send(entity.state, cull.party_of(number, entity.state, entity.not_for));
+                let number = entity
+                    .legacy_number()
+                    .unwrap_or(jkr_protocol::ENTITY_NUMBER_NONE);
+                send(
+                    entity.state,
+                    cull.party_of(number, entity.state, entity.not_for),
+                );
             }
         }
         if withheld > 0 {

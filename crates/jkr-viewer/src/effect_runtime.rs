@@ -496,9 +496,7 @@ pub(crate) fn spawn_effect(
                         .sample(random_unit(particle_seed.wrapping_add(30))),
                     component.flags,
                 )
-                .with_line_trace(
-                    traced_line.then_some(component.spawn_flags.trace_impact_effect),
-                ),
+                .with_line_trace(traced_line.then_some(component.spawn_flags.trace_impact_effect)),
                 shape,
             });
         }

@@ -171,15 +171,18 @@ impl NativeGame {
                 .filter(|peer| peer.begun);
             cull.parties
                 .push(peer.map_or(Party::Nobody, |_| Party::Player(number as u16)));
-            cull.opponents.push(peer.and_then(|peer| {
-                (peer.state.duel_in_progress()).then(|| peer.state.duel_index())
-            }));
+            cull.opponents.push(
+                peer.and_then(|peer| {
+                    (peer.state.duel_in_progress()).then(|| peer.state.duel_index())
+                }),
+            );
         }
         if !enabled || cull.opponents.iter().all(Option::is_none) {
             return;
         }
         cull.active = true;
-        cull.parties.resize(ENTITY_NUMBERS.max(cull.parties.len()), Party::Nobody);
+        cull.parties
+            .resize(ENTITY_NUMBERS.max(cull.parties.len()), Party::Nobody);
         for npc in &self.npcs.roster.actors {
             if let Some(party) = cull.parties.get_mut(usize::from(npc.number)) {
                 *party = Party::Npc;

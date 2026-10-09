@@ -528,7 +528,10 @@ mod tests {
                 &mut |text| printed.extend_from_slice(text),
             );
             let printed = String::from_utf8_lossy(&printed).into_owned();
-            assert!(known && !printed.contains("read only"), "{shown}: {printed}");
+            assert!(
+                known && !printed.contains("read only"),
+                "{shown}: {printed}"
+            );
             assert_eq!(game.settings.cheats, cheats, "{shown}");
             let pair = format!("\\sv_cheats\\{}", u8::from(cheats));
             let kept = game

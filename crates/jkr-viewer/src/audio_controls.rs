@@ -89,12 +89,8 @@ impl GameAudio {
             adapter.set_team_chats_only(flag("cg_teamChatsOnly"));
             adapter.set_no_taunt(flag("cg_noTaunt"));
             adapter.set_no_teleport(flag("cg_noTeleFX"));
-            adapter.set_no_speakers(
-                console
-                    .and_then(|c| c.integer_cvar("cg_noFX"))
-                    .unwrap_or(0)
-                    == 2,
-            );
+            adapter
+                .set_no_speakers(console.and_then(|c| c.integer_cvar("cg_noFX")).unwrap_or(0) == 2);
         }
         self.chat_beeps = ["cg_chatBeep", "cg_teamChatBeep"].map(|name| {
             crate::cgame_options::chat_sounds(console)

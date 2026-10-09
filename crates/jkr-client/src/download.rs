@@ -547,7 +547,10 @@ mod tests {
             &GameState::empty_local(0),
         )
         .unwrap();
-        assert_eq!((storage.size, storage.bytes.as_slice(), storage.finished), (Some(4), &b"PK\x03\x04"[..], true));
+        assert_eq!(
+            (storage.size, storage.bytes.as_slice(), storage.finished),
+            (Some(4), &b"PK\x03\x04"[..], true)
+        );
         assert!(connection.sends >= 1, "the channel was kept alive");
     }
 }

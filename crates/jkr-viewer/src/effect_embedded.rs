@@ -18,9 +18,7 @@ pub(crate) fn load_effect(
 ) -> Result<EffectDefinition, EffectError> {
     jkr_effect::load_effect(vfs, name).or_else(|error| {
         let path = jkr_effect::effect_path(name).to_ascii_lowercase();
-        let key = path
-            .trim_start_matches("effects/")
-            .trim_end_matches(".efx");
+        let key = path.trim_start_matches("effects/").trim_end_matches(".efx");
         match EMBEDDED.iter().find(|(name, _)| *name == key) {
             Some((_, source)) => jkr_effect::parse_effect(source),
             None => Err(error),

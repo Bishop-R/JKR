@@ -139,7 +139,12 @@ fn color(mark: &Mark, time: u32) -> [f32; 4] {
         return [byte(red), byte(green), byte(blue), fade];
     }
     let fade = left as f32 / MARK_FADE_TIME as f32;
-    [byte(red * fade), byte(green * fade), byte(blue * fade), alpha]
+    [
+        byte(red * fade),
+        byte(green * fade),
+        byte(blue * fade),
+        alpha,
+    ]
 }
 
 #[cfg(test)]

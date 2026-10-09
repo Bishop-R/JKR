@@ -37,8 +37,8 @@ pub use auto_demo::{
     LegacyAutoDemoSettings, LegacyDemoFolders, legacy_auto_demo_name, legacy_prune_auto_demos,
 };
 pub use bots::LegacyBotSlots;
-pub use demo::LegacyDemoExtras;
 pub use console::LegacyConsoleSettings;
+pub use demo::LegacyDemoExtras;
 pub use download::LegacyDownloadFile;
 pub use pure::LegacyPureManifest;
 pub use schedule::{LegacyRateSettings, legacy_is_private_address};

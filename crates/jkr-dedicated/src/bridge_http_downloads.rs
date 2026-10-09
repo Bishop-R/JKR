@@ -80,7 +80,10 @@ impl NativeGame {
         if names_web_address(setting) {
             return (0, setting);
         }
-        (self.http_downloads.as_ref().map_or(0, HttpDownloads::port), &[])
+        (
+            self.http_downloads.as_ref().map_or(0, HttpDownloads::port),
+            &[],
+        )
     }
 }
 

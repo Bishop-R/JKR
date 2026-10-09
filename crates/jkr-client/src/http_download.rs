@@ -52,7 +52,9 @@ fn leading_number(text: &str) -> i64 {
     let end = digits
         .find(|character: char| !character.is_ascii_digit())
         .unwrap_or(digits.len());
-    digits[..end].parse::<i64>().map_or(0, |number| sign * number)
+    digits[..end]
+        .parse::<i64>()
+        .map_or(0, |number| sign * number)
 }
 
 /// Ask the server (`getinfo`) where its paks can be fetched; `None` where it offers no
@@ -66,10 +68,12 @@ pub fn query_base_url(server: SocketAddr) -> Option<String> {
         Duration::from_millis(500),
     )
     .ok()?;
-    responses.into_iter().find_map(|response| match response.answer {
-        Answer::Info(info) => base_url(server, &info),
-        _ => None,
-    })
+    responses
+        .into_iter()
+        .find_map(|response| match response.answer {
+            Answer::Info(info) => base_url(server, &info),
+            _ => None,
+        })
 }
 
 /// What a fetch hands the download worker, in order.
@@ -228,9 +232,7 @@ fn read_body(
         let mut left = length;
         while left > 0 {
             let mut chunk = vec![0; CHUNK.min(left as usize)];
-            let read = reader
-                .read(&mut chunk)
-                .map_err(|error| error.to_string())?;
+            let read = reader.read(&mut chunk).map_err(|error| error.to_string())?;
             if read == 0 {
                 return Err("truncated HTTP body".into());
             }
@@ -306,7 +308,11 @@ mod tests {
             Some("http://10.0.0.2:18200")
         );
         assert_eq!(
-            base_url(server, &info("\\mvhttp\\0\\mvhttpurl\\http://dl.example.org/jka/")).as_deref(),
+            base_url(
+                server,
+                &info("\\mvhttp\\0\\mvhttpurl\\http://dl.example.org/jka/")
+            )
+            .as_deref(),
             Some("http://dl.example.org/jka")
         );
         assert_eq!(base_url(server, &info("\\mvhttpurl\\https://x.org")), None);

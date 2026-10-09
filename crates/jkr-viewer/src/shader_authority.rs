@@ -54,10 +54,16 @@ mod carried_tests {
     fn the_carried_shaders_parse() {
         let mut catalog = ShaderCatalog::default();
         for (name, script) in CARRIED {
-            assert!(catalog.add_fallback_script(script, name).unwrap() > 0, "{name}");
+            assert!(
+                catalog.add_fallback_script(script, name).unwrap() > 0,
+                "{name}"
+            );
         }
         let duel = catalog.get("gfx/effects/duelShader").expect("duel shader");
         assert_eq!(duel.stages.len(), 3);
-        assert_eq!(catalog.get("gfx/effects/raceShader").unwrap().stages.len(), 1);
+        assert_eq!(
+            catalog.get("gfx/effects/raceShader").unwrap().stages.len(),
+            1
+        );
     }
 }

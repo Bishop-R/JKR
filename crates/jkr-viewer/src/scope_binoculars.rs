@@ -168,12 +168,12 @@ impl Media {
             }
         };
         let level = ((80.0 - view.zoom_fov) / 80.0).clamp(0.0, 1.0) * 162.0;
+        picture(&self.pictures[WINDOW], [34.0, 48.0, 570.0, 362.0], [1.0; 4]);
         picture(
-            &self.pictures[WINDOW],
-            [34.0, 48.0, 570.0, 362.0],
-            [1.0; 4],
+            &self.white,
+            [212.0, 367.0, 200.0, 40.0],
+            [0.0, 0.0, 0.0, 1.0],
         );
-        picture(&self.white, [212.0, 367.0, 200.0, 40.0], [0.0, 0.0, 0.0, 1.0]);
         let green = [0.2, 0.4, 0.2, 0.3];
         for (x, value, tick) in compass(view.yaw) {
             for (place, digit) in digits(value).into_iter().enumerate() {

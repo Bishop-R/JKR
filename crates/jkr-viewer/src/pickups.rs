@@ -19,9 +19,9 @@ use jkr_runtime::Appearance;
 use jkr_vfs::VirtualFileSystem;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
-pub(crate) mod simple;
 #[path = "pickup_respawns.rs"]
 pub(crate) mod respawns;
+pub(crate) mod simple;
 
 const ET_ITEM: u8 = 2; // codemp/game/bg_public.h:1247
 const EF_DEAD: u32 = 1 << 1; // codemp/game/bg_public.h:638

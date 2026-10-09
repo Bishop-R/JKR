@@ -281,8 +281,8 @@ impl crate::GpuState {
         else {
             return;
         };
-        let line = jkr_client::string_table::lookup(strings, "MP_INGAME_PICKUPLINE")
-            .unwrap_or("Obtained");
+        let line =
+            jkr_client::string_table::lookup(strings, "MP_INGAME_PICKUPLINE").unwrap_or("Obtained");
         let text = format!("{line} {name}\n");
         self.chat.receive(
             jkr_client::ServerEventKind::CenterPrint,

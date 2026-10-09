@@ -145,7 +145,10 @@ mod tests {
         let seeing = trip_mine_beam(&mine(true, false), &player(Some(2)), 1_000).unwrap();
         assert_eq!(seeing.plays, 5);
         let proximity = trip_mine_beam(&mine(true, true), &player(Some(3)), 1_000).unwrap();
-        assert_eq!((proximity.effect_name, proximity.plays), (TRIP_MINE_GLOW_EFFECT, 1));
+        assert_eq!(
+            (proximity.effect_name, proximity.plays),
+            (TRIP_MINE_GLOW_EFFECT, 1)
+        );
     }
 
     /// Nothing shows before the mine is armed, nor for anything else.

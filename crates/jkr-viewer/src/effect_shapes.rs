@@ -63,11 +63,7 @@ pub(crate) fn from_component(
 /// Where `FX_ORG2_FROM_TRACE` traces to from a Line's or an Electricity's origin
 /// (`FxScheduler.cpp:1408-1428`): far along the effect's forward axis, moved by `offset`
 /// (its `origin2`) when `org2isOffset` asks.
-pub(crate) fn trace_reach(
-    component: &jkr_effect::Component,
-    rotation: Quat,
-    offset: Vec3,
-) -> Vec3 {
+pub(crate) fn trace_reach(component: &jkr_effect::Component, rotation: Quat, offset: Vec3) -> Vec3 {
     let reach = rotation * Vec3::X * TRACE_DISTANCE;
     if !component.spawn_flags.origin2_is_offset {
         reach

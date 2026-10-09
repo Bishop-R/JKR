@@ -147,7 +147,14 @@ impl Particle {
             )
         };
         Self {
-            motion: crate::particle_motion::Motion::new(origin, Vec3::ZERO, Vec3::ZERO, 0.0, 0.0, now),
+            motion: crate::particle_motion::Motion::new(
+                origin,
+                Vec3::ZERO,
+                Vec3::ZERO,
+                0.0,
+                0.0,
+                now,
+            ),
             spawned_at: now,
             delay: Duration::ZERO,
             lifetime: Duration::from_secs(60),

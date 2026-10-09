@@ -350,7 +350,12 @@ mod tests {
         let mut list = DrawList::new(8);
         // A 24-unit crosshair in the middle of a 640 by 480 screen.
         let technician = Some(jkr_ui::TextureId(7));
-        state.emit(&mut list, [640.0, 480.0], [0.0, 0.0, 640.0, 480.0], technician);
+        state.emit(
+            &mut list,
+            [640.0, 480.0],
+            [0.0, 0.0, 640.0, 480.0],
+            technician,
+        );
         match list.commands() {
             [
                 DrawCommand::Border { rect: outline, .. },
@@ -366,7 +371,12 @@ mod tests {
         // The hack bar carries the technician a bar's width square above it.
         state.bars[0] = state.bars[0].map(|bar| Bar { hack: true, ..bar });
         let mut list = DrawList::new(8);
-        state.emit(&mut list, [640.0, 480.0], [0.0, 0.0, 640.0, 480.0], technician);
+        state.emit(
+            &mut list,
+            [640.0, 480.0],
+            [0.0, 0.0, 640.0, 480.0],
+            technician,
+        );
         match list.commands().last() {
             Some(DrawCommand::TexturedQuad { rect, texture, .. }) => {
                 assert_eq!(*rect, Rect::new(295.0, 210.0, 50.0, 50.0));

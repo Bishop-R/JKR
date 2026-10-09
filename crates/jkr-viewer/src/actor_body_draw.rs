@@ -126,7 +126,12 @@ pub(super) fn push_part(
     instance: ActorInstance,
 ) {
     let instance = tint.map_or(instance, |tint| instance.with_rgb_tint(tint));
-    if passes(overrides, (body, cloak), OverrideMesh::Object(mesh), instance) {
+    if passes(
+        overrides,
+        (body, cloak),
+        OverrideMesh::Object(mesh),
+        instance,
+    ) {
         groups[mesh].push(instance);
     }
 }
@@ -174,13 +179,23 @@ mod cloak_tests {
         let mut overrides = Vec::with_capacity(4);
         let instance = ActorInstance::new([0.0; 3], [0.0, 0.0, 0.0, 1.0], [1.0; 3]);
         let mesh = OverrideMesh::Object(3);
-        assert!(passes(&mut overrides, (BodyDraw::Opaque, None), mesh, instance));
+        assert!(passes(
+            &mut overrides,
+            (BodyDraw::Opaque, None),
+            mesh,
+            instance
+        ));
         assert!(overrides.is_empty());
         let cloaked = Cloak {
             model: None,
             shell: Some((7, Some(1.0))),
         };
-        assert!(!passes(&mut overrides, (BodyDraw::Opaque, Some(cloaked)), mesh, instance));
+        assert!(!passes(
+            &mut overrides,
+            (BodyDraw::Opaque, Some(cloaked)),
+            mesh,
+            instance
+        ));
         assert_eq!(overrides.len(), 1);
         assert_eq!(overrides[0].material, Some(7));
     }

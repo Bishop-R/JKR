@@ -9,10 +9,10 @@ pub(crate) mod flags;
 #[path = "force_power_submission.rs"]
 mod force_powers;
 
-#[path = "thrown_saber.rs"]
-pub(crate) mod thrown_saber;
 #[path = "jedi_master_saber.rs"]
 mod jedi_master_saber;
+#[path = "thrown_saber.rs"]
+pub(crate) mod thrown_saber;
 
 #[path = "actor_model_scale.rs"]
 pub(crate) mod model_scale;
@@ -329,8 +329,7 @@ pub(crate) fn submit(
                 overlays,
                 trails,
             );
-        } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform, visual_now)
-        {
+        } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform, visual_now) {
             // The flying hilt is owned by this branch, including its blades.
         } else if limbs::submit(&mut sinks, entity, transform) {
             // A cut limb, drawn from its copy of the owner.
@@ -515,13 +514,18 @@ fn submit_actor(
         _ => BodyDraw::Opaque,
     };
     // `FP_SEE` in the snapshot's player state sees through cloaks.
-    let sight = snapshot.is_some_and(|snapshot| snapshot.player.force_powers_active() & (1 << 14) != 0);
+    let sight =
+        snapshot.is_some_and(|snapshot| snapshot.player.force_powers_active() & (1 << 14) != 0);
     sinks.cloak = mesh
         .and_then(|index| sinks.actor_meshes[index].cloak)
         .and_then(|draw| {
             body_draw::cloak(
                 draw,
-                (Some(entity.id.get()) == local_entity_id, sinks.third_person, sight),
+                (
+                    Some(entity.id.get()) == local_entity_id,
+                    sinks.third_person,
+                    sight,
+                ),
                 sinks.material_overrides.force(body_draw::CLOAK_SHADER),
             )
         });
@@ -695,7 +699,12 @@ fn submit_actor(
             .and_then(|number| game_state?.config_string(1_131 + usize::from(number)))
             .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("t"))
             .unwrap_or(0);
-        spheres::submit(sinks, lerp_origin, bits, (sinks.gametype, local, team.into()));
+        spheres::submit(
+            sinks,
+            lerp_origin,
+            bits,
+            (sinks.gametype, local, team.into()),
+        );
     }
     if (draw_actor || sinks.portal_view)
         && let Some(mesh) = mesh
@@ -824,7 +833,10 @@ fn style_player(
         return;
     }
     // One's own vehicle is never hidden.
-    if state.entity_type() == 13 && state.npc_class() == 53 && state.owner() == snapshot.player.client_num() {
+    if state.entity_type() == 13
+        && state.npc_class() == 53
+        && state.owner() == snapshot.player.client_num()
+    {
         return;
     }
     const PMF_FOLLOW: u16 = 4096;
@@ -1058,7 +1070,12 @@ fn submit_equipment(
     let mut instance = ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]);
     instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
-    body_draw::push_part(parts, (sinks.body, sinks.cloak, sinks.tint), weapon_mesh, instance);
+    body_draw::push_part(
+        parts,
+        (sinks.body, sinks.cloak, sinks.tint),
+        weapon_mesh,
+        instance,
+    );
     // The main first-person flash already owns event/audio spawning. A
     // second view must never advance effects or play a second sound.
     if !draw_actor {

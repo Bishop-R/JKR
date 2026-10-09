@@ -187,7 +187,13 @@ impl DemoState {
     }
 
     /// Keep `gamestate` as a start numbered `sequence`; the next snapshot must have no base.
-    fn keep_start(&mut self, sequence: i32, last_client_command: i32, now: i32, gamestate: Vec<u8>) {
+    fn keep_start(
+        &mut self,
+        sequence: i32,
+        last_client_command: i32,
+        now: i32,
+        gamestate: Vec<u8>,
+    ) {
         let pre_record = &mut self.pre_record;
         pre_record.kept.push_back(Kept {
             sequence,
@@ -217,14 +223,9 @@ impl DemoState {
     /// completed with when the demo really began) numbered one before it, the start, and
     /// every message kept after it up to `outgoing` and `now`, later starts left out.
     /// Whether there was such a start.
-    fn begin_from_kept(
-        &mut self,
-        now: i32,
-        outgoing: i32,
-        opening: Option<(String, i64)>,
-    ) -> bool {
-        let Some(start) = (self.pre_record.kept.iter())
-            .position(|kept| kept.keyframe && kept.time < now)
+    fn begin_from_kept(&mut self, now: i32, outgoing: i32, opening: Option<(String, i64)>) -> bool {
+        let Some(start) =
+            (self.pre_record.kept.iter()).position(|kept| kept.keyframe && kept.time < now)
         else {
             return false;
         };
@@ -241,7 +242,9 @@ impl DemoState {
             }
         }
         for (index, message) in kept.iter().skip(start).enumerate() {
-            if (!message.keyframe || index == 0) && message.sequence <= outgoing && message.time <= now
+            if (!message.keyframe || index == 0)
+                && message.sequence <= outgoing
+                && message.time <= now
             {
                 self.append(message.sequence, &message.bytes);
             }
@@ -261,7 +264,10 @@ impl DemoState {
                 continue;
             }
             json.push_str(&format!(",\"{key}\":"));
-            if value.bytes().all(|byte| byte.is_ascii_digit() || byte == b'.') {
+            if value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || byte == b'.')
+            {
                 json.push_str(value);
             } else {
                 json.push('"');
@@ -343,7 +349,9 @@ impl Slot {
         self.demo.recording = Some(name.to_vec());
         let opening = extras.write_meta.then(|| self.demo.meta_opening());
         let outgoing = self.wire.channel.outgoing_sequence();
-        let from_kept = opening.clone().map(|opening| (opening, game.unix_seconds()));
+        let from_kept = opening
+            .clone()
+            .map(|opening| (opening, game.unix_seconds()));
         if extras.pre_record && self.demo.begin_from_kept(now, outgoing, from_kept) {
             return;
         }

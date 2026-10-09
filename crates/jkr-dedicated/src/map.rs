@@ -120,7 +120,11 @@ pub fn game_directories(game: &str) -> Vec<&str> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
         && !game.contains("..");
-    if usable { vec!["base", game] } else { vec!["base"] }
+    if usable {
+        vec!["base", game]
+    } else {
+        vec!["base"]
+    }
 }
 
 /// Mount `<game_data>/base/*.pk3`, then the mod's (`fs_game`), in the reference's search
@@ -143,7 +147,10 @@ pub fn load(game_data: &Path, game: &str, name: &str) -> Result<LoadedMap, Box<d
     // even where that file is a link to one elsewhere; the mount reports where links lead.
     if let Some(pak) = &mut map.pak
         && let Some((directory, listed)) = directories.iter().rev().find_map(|directory| {
-            Some((*directory, listed_as(&game_data.join(directory), &pak.path)?))
+            Some((
+                *directory,
+                listed_as(&game_data.join(directory), &pak.path)?,
+            ))
         })
     {
         pak.name = format!("{directory}/{listed}");

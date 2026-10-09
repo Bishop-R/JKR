@@ -41,9 +41,14 @@ impl Slot {
             self.schedule_fragment(now, rates);
         } else {
             // A message that does not fit is not sent; the next one is complete again.
-            let Ok(bytes) =
-                self.queue_snapshot(client, game, now, server_bit, (rates, downloads, extras), message)
-            else {
+            let Ok(bytes) = self.queue_snapshot(
+                client,
+                game,
+                now,
+                server_bit,
+                (rates, downloads, extras),
+                message,
+            ) else {
                 return;
             };
             self.schedule_message(now, bytes, rates);
@@ -80,7 +85,14 @@ impl Slot {
         };
         drain(self);
         if self
-            .queue_snapshot(client, game, now, server_bit, (rates, downloads, extras), message)
+            .queue_snapshot(
+                client,
+                game,
+                now,
+                server_bit,
+                (rates, downloads, extras),
+                message,
+            )
             .is_ok()
         {
             drain(self);

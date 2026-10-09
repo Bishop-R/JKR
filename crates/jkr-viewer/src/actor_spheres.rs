@@ -167,4 +167,3 @@ pub(super) fn submit_demp2_shells(sinks: &mut Sinks<'_>, now: std::time::Instant
         }
     }
 }
-

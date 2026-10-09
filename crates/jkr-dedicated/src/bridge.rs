@@ -3535,8 +3535,6 @@ mod bridge_dodge;
 mod bridge_duel;
 #[path = "bridge_duel_cull.rs"]
 mod bridge_duel_cull;
-#[path = "bridge_http_downloads.rs"]
-mod bridge_http_downloads;
 #[path = "bridge_follow.rs"]
 mod bridge_follow;
 #[path = "bridge_force.rs"]
@@ -3551,6 +3549,8 @@ mod bridge_grapple;
 mod bridge_gun_game;
 #[path = "bridge_holocron.rs"]
 mod bridge_holocron;
+#[path = "bridge_http_downloads.rs"]
+mod bridge_http_downloads;
 #[path = "bridge_icarus.rs"]
 mod bridge_icarus;
 #[path = "bridge_information_commands.rs"]

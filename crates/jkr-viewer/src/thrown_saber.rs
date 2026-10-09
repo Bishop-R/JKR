@@ -135,15 +135,17 @@ pub(super) fn saber_glow(sinks: &mut super::Sinks<'_>, pose: Transform, mesh: us
     if let Some(material) = sinks.material_overrides.force(SOLID_WHITE)
         && sinks.overrides.len() < sinks.overrides.capacity()
     {
-        sinks.overrides.push(crate::entity_materials::OverrideInstance {
-            mesh: crate::entity_materials::OverrideMesh::Object(mesh),
-            material: Some(material),
-            instance: ActorInstance::new(pose.translation, pose.rotation, pose.scale)
-                .with_rgb_tint([level, level, 0.0, 1.0]),
-            no_depth: false,
-            forced_alpha: false,
-            switched_off: None,
-        });
+        sinks
+            .overrides
+            .push(crate::entity_materials::OverrideInstance {
+                mesh: crate::entity_materials::OverrideMesh::Object(mesh),
+                material: Some(material),
+                instance: ActorInstance::new(pose.translation, pose.rotation, pose.scale)
+                    .with_rgb_tint([level, level, 0.0, 1.0]),
+                no_depth: false,
+                forced_alpha: false,
+                switched_off: None,
+            });
     }
     let origin = Vec3::from_array(pose.translation);
     let up = Quat::from_array(pose.rotation) * Vec3::Z;

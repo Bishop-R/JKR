@@ -7,8 +7,8 @@
 //! (`LegacyClientNumbers::client`). The game itself never stores a wire client number
 //! (`players.rs`).
 
-use super::*;
 use super::bridge_duel_cull::Isolation;
+use super::*;
 use jkr_protocol::{LegacyClientNumbers, VehicleNetFields};
 
 /// The place of the player a legacy client number names; `None` for a number no legacy
