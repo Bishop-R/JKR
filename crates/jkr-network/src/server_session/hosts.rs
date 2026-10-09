@@ -95,7 +95,8 @@ impl<G: LegacyGameHost> LegacyRosterHost for View<'_, G> {
             .client_connect(slot, self.slots[slot].userinfo.as_bytes())
     }
     fn userinfo_changed(&mut self, slot: usize) {
-        if let Err(reason) = self.slots[slot].userinfo_changed(&self.settings.rates) {
+        let fix_models = self.settings.broken_models_fix;
+        if let Err(reason) = self.slots[slot].userinfo_changed(&self.settings.rates, fix_models) {
             self.drop(slot, reason, None);
         }
     }
@@ -210,8 +211,11 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
                 tokens.next().unwrap_or_default(),
                 self.view.clock.server_time,
             );
-            match self.view.slots[client].update_userinfo(argument, now, &self.view.settings.rates)
-            {
+            let settings = (
+                &self.view.settings.rates,
+                self.view.settings.broken_models_fix,
+            );
+            match self.view.slots[client].update_userinfo(argument, now, settings) {
                 UserinfoUpdate::Changed => {
                     let View { slots, game, .. } = &mut *self.view;
                     game.client_userinfo_changed(client, slots[client].userinfo.as_bytes());

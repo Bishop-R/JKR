@@ -253,6 +253,9 @@ impl NativeGame {
         settings.pure = cvars.integer(b"sv_pure") != 0;
         settings.auto_whitelist = cvars.integer(b"sv_autoWhitelist") != 0;
         settings.ping_fix = cvars.integer(b"sv_pingFix") != 0;
+        // TaystJK reads `sv_legacyFixes` as a mask whose bit 7 allows the broken models.
+        let legacy_fixes = cvars.integer(b"sv_legacyFixes");
+        settings.broken_models_fix = legacy_fixes != 0 && legacy_fixes & (1 << 7) == 0;
         settings.auto_demo = jkr_network::LegacyAutoDemoSettings {
             enabled: cvars.integer(b"sv_autoDemo") != 0,
             max_maps: cvars.integer(b"sv_autoDemoMaxMaps"),

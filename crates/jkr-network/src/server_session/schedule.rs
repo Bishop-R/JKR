@@ -87,10 +87,12 @@ impl Slot {
         }
     }
 
-    /// Apply the slot's userinfo: name, rate, snapshot interval and the `ip` key.
+    /// Apply the slot's userinfo: name, rate, snapshot interval and the `ip` key, and
+    /// with `fix_models` TaystJK's broken-model fix.
     pub(super) fn userinfo_changed(
         &mut self,
         rates: &LegacyRateSettings,
+        fix_models: bool,
     ) -> Result<(), &'static [u8]> {
         let value = |key: &[u8]| self.userinfo.value(key).unwrap_or_default();
         self.name.clear();
@@ -143,6 +145,9 @@ impl Slot {
             return Err(b"userinfo string length exceeded");
         }
         self.userinfo.set(b"ip", ip.as_bytes());
+        if fix_models && broken_model(self.userinfo.value(b"model").unwrap_or_default()) {
+            self.userinfo.set(b"model", b"kyle");
+        }
         Ok(())
     }
 
@@ -151,7 +156,7 @@ impl Slot {
         &mut self,
         argument: &[u8],
         now: i32,
-        rates: &LegacyRateSettings,
+        (rates, fix_models): (&LegacyRateSettings, bool),
     ) -> UserinfoUpdate {
         if argument.is_empty() {
             return UserinfoUpdate::Ignored;
@@ -166,7 +171,7 @@ impl Slot {
             self.last_userinfo_count = 0;
             self.last_userinfo_change = now.wrapping_add(INFO_CHANGE_INTERVAL);
         }
-        match self.userinfo_changed(rates) {
+        match self.userinfo_changed(rates, fix_models) {
             Ok(()) => UserinfoUpdate::Changed,
             Err(reason) => UserinfoUpdate::Drop(reason),
         }
@@ -245,5 +250,45 @@ fn clamp(min: i32, max: i32, value: i32) -> i32 {
         max
     } else {
         value
+    }
+}
+
+/// TaystJK's broken models (`sv_client.cpp:1286-1301`): `jedi_` or less of it (a Jedi of
+/// no species, or no model at all), or a name starting with `rancor` or `wampa`.
+fn broken_model(model: &[u8]) -> bool {
+    let starts = |prefix: &[u8]| {
+        model.len() >= prefix.len() && model[..prefix.len()].eq_ignore_ascii_case(prefix)
+    };
+    let jedi = b"jedi_";
+    (model.len() <= jedi.len() && model.eq_ignore_ascii_case(&jedi[..model.len()]))
+        || starts(b"rancor")
+        || starts(b"wampa")
+}
+
+#[cfg(test)]
+mod broken_model_tests {
+    use super::broken_model;
+
+    /// The creatures' bodies and a species-less Jedi are broken; real models are not.
+    #[test]
+    fn creatures_and_a_bare_jedi_are_broken_models() {
+        for model in [
+            &b"rancor"[..],
+            b"RANCOR/mutant",
+            b"wampa/default",
+            b"jedi_",
+            b"JEDI",
+            b"",
+        ] {
+            assert!(broken_model(model), "{}", String::from_utf8_lossy(model));
+        }
+        for model in [
+            &b"kyle"[..],
+            b"jedi_hm/head_a1|torso_a1|lower_a1",
+            b"wamp",
+            b"jan/default",
+        ] {
+            assert!(!broken_model(model), "{}", String::from_utf8_lossy(model));
+        }
     }
 }

@@ -267,6 +267,9 @@ pub struct LegacySessionSettings {
     /// TaystJK's `sv_pingFix`: pings measured on the wall clock from a message's first
     /// acknowledgement, and a human's never below 1.
     pub ping_fix: bool,
+    /// TaystJK's broken-model fix (`sv_legacyFixes` without its bit 7): a model that
+    /// would put a player in the rancor's or the wampa's body, or in none, becomes Kyle.
+    pub broken_models_fix: bool,
 }
 
 impl Default for LegacySessionSettings {
@@ -292,6 +295,7 @@ impl Default for LegacySessionSettings {
             auto_demo: LegacyAutoDemoSettings::default(),
             auto_whitelist: true,
             ping_fix: false,
+            broken_models_fix: false,
         }
     }
 }
