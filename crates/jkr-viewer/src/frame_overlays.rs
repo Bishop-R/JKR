@@ -2,6 +2,32 @@
 use crate::GpuState;
 
 impl GpuState {
+    /// Translate this frame's 2D layers into the shared shape batch: the HUD's part a zoom
+    /// mask covers first, then the HUD, chat, scores, menus and console. `shown` is whether
+    /// the HUD, the chat and the scores are.
+    pub(crate) fn prepare_ui_shapes(
+        &mut self,
+        viewport: [f32; 2],
+        [information, chat, scores]: [bool; 3],
+        console_covers_frame: bool,
+    ) {
+        let layers = [
+            information.then(|| &self.hud.identification.list),
+            information.then(|| self.hud.draw_list()),
+            chat.then(|| self.chat.draw_list()),
+            scores.then(|| self.scoreboard.draw_list()),
+            (self.game_menu && !console_covers_frame).then(|| self.in_game_menu.draw_list()),
+            self.client_menu
+                .as_ref()
+                .filter(|_| !console_covers_frame)
+                .and_then(|menu| menu.draw_list()),
+            self.console.as_ref().map(|console| console.draw_list()),
+        ];
+        let under = information.then(|| self.hud.under_scope_list());
+        self.ui_shapes
+            .prepare_layers(&self.queue, under, layers.into_iter().flatten(), viewport);
+    }
+
     /// Filter the completed scene after flares, then draw untouched HUD/text into final color.
     pub(crate) fn draw_frame_overlays(
         &self,
@@ -136,10 +162,13 @@ impl GpuState {
                 pass.set_scissor_rect(0, 0, self.configuration.width, self.configuration.height);
             }
         }
-        self.ui_shapes.draw(&mut pass);
+        // `CG_Draw2D` draws its screen tints and the rocket lock, then the zoom mask, then
+        // the rest of the 2D screen over it.
+        self.ui_shapes.draw_under(&mut pass);
         if let Some(mask) = &self.scope_mask {
             mask.draw(&mut pass);
         }
+        self.ui_shapes.draw_over(&mut pass);
         if text != 0 {
             pass.set_pipeline(&self.text_pipeline);
             pass.set_bind_group(0, &self.text_bind_group, &[]);

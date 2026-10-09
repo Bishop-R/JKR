@@ -58,6 +58,8 @@ use std::path::Path;
 const WIDGET_LIMIT: usize = 64;
 /// Room for every widget plus the radar: its two-stage background and ~75 marks.
 const DRAW_LIMIT: usize = 480;
+/// Commands of the part under a zoom mask: tints, two passes of the rocket lock, meters.
+const UNDER_SCOPE_LIMIT: usize = 128;
 const DEFAULT_LAYOUT: &str = include_str!("../assets/hud/default.json");
 /// The weapon name stays fully visible this long after a switch, then fades.
 const WEAPON_HOLD_MS: u64 = 2_000;
@@ -227,6 +229,9 @@ pub(crate) struct HudOverlay {
     tree: WidgetTree,
     scratch: LayoutScratch,
     draw_list: DrawList,
+    /// What stock draws before a zoom mask covers it: the screen tints, the rocket lock and the
+    /// fuel and E-Web meters.
+    under_scope: DrawList,
     theme: Theme,
     ratios: [Tween; 3],
     displayed_ratios: [f32; 3],
@@ -337,6 +342,7 @@ impl HudOverlay {
             tree: WidgetTree::new(WIDGET_LIMIT),
             scratch: LayoutScratch::new(WIDGET_LIMIT),
             draw_list: DrawList::new(DRAW_LIMIT),
+            under_scope: DrawList::new(UNDER_SCOPE_LIMIT),
             theme: Theme::default(),
             ratios: [
                 Tween::settled(1.0),
@@ -461,9 +467,10 @@ impl HudOverlay {
             &mut self.scratch,
         );
         self.draw_list.clear();
-        self.tints.emit(&mut self.draw_list, viewport);
+        self.under_scope.clear();
+        self.tints.emit(&mut self.under_scope, viewport);
         // Stock draws the rocket lock straight after its screen tints, under the rest.
-        self.rocket_lock.emit(&mut self.draw_list, &self.radar);
+        self.rocket_lock.emit(&mut self.under_scope, &self.radar);
         self.lead_indicator.emit(&mut self.draw_list);
         let mut output = HudLayout::default();
         let low_health = self.values.is_some_and(|value| value.health <= 25);
@@ -570,7 +577,8 @@ impl HudOverlay {
                 viewport,
                 user_scale,
             );
-            self.meters.emit(&mut self.draw_list, viewport);
+            // Stock draws these before the zoom mask too (`cg_draw.c:8008-8025`).
+            self.meters.emit(&mut self.under_scope, viewport);
             self.speed.emit(&mut self.draw_list, self.theme, viewport);
             selection::emit(
                 &mut self.draw_list,
@@ -615,5 +623,10 @@ impl HudOverlay {
 
     pub(crate) fn draw_list(&self) -> &DrawList {
         &self.draw_list
+    }
+
+    /// The part of the HUD a zoom mask covers, drawn before it.
+    pub(crate) fn under_scope_list(&self) -> &DrawList {
+        &self.under_scope
     }
 }

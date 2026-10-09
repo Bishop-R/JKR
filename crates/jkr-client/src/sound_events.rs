@@ -23,6 +23,8 @@ use jkr_vfs::VirtualFileSystem;
 mod feedback;
 #[path = "sound_taunts.rs"]
 mod taunts;
+#[path = "sound_use_items.rs"]
+mod use_items;
 
 const CS_SOUNDS: usize = 811; // codemp/game/bg_public.h:132
 const MAX_SOUNDS: usize = 256;
@@ -198,6 +200,8 @@ pub enum LegacySoundEvent {
     SaberUnholster,
     BecomeJediMaster,
     DisruptorZoom,
+    /// `EV_USE_ITEM0`..`EV_USE_ITEM15`: a holdable put to use (`CG_UseItem`).
+    UseItem,
     Predefined,
     TeamPower,
     ItemRespawn,
@@ -294,6 +298,7 @@ impl LegacySoundEvent {
             Self::SaberUnholster => "EV_SABER_UNHOLSTER",
             Self::BecomeJediMaster => "EV_BECOME_JEDIMASTER",
             Self::DisruptorZoom => "EV_DISRUPTOR_ZOOMSOUND",
+            Self::UseItem => "EV_USE_ITEM",
             Self::Predefined => "EV_PREDEFSOUND",
             Self::TeamPower => "EV_TEAM_POWER",
             Self::ItemRespawn => "EV_ITEM_RESPAWN",
@@ -628,6 +633,7 @@ pub struct LegacySoundAdapter {
     team_power: [Option<u16>; 2],
     drain: Option<u16>,
     zoom: [Option<u16>; 2],
+    use_items: use_items::UseItemSounds,
     select_fallback: Option<u16>,
     dramatic_failure: Option<u16>,
     /// Announcer and chat sounds derived on the client (`local_sounds.rs`).
@@ -848,6 +854,7 @@ impl LegacySoundAdapter {
             "sound/weapons/disruptor/zoomstart.wav",
         ]
         .map(|path| Some(intern(path)));
+        let use_items = use_items::UseItemSounds::register(&mut intern);
         let select_fallback = Some(intern("sound/weapons/change.wav"));
         let dramatic_failure = Some(intern("music/badsmall.mp3"));
         let mut local_media = LocalSoundMedia::register(&mut intern);
@@ -905,6 +912,7 @@ impl LegacySoundAdapter {
             team_power,
             drain,
             zoom,
+            use_items,
             select_fallback,
             dramatic_failure,
             local,
@@ -1458,6 +1466,24 @@ impl LegacySoundAdapter {
                 CHAN_AUTO,
                 true,
             )),
+            45..=60 => self
+                .use_items
+                .sound(
+                    event,
+                    parameter,
+                    source == snapshot.player.client_num(),
+                    snapshot.player.weapon_state() == 0,
+                    entity.predicted_zoom.unwrap_or(snapshot.player.zoom_mode()),
+                )
+                .map(|sound| {
+                    (
+                        LegacySoundEvent::UseItem,
+                        Some(sound),
+                        source,
+                        CHAN_AUTO,
+                        event == 50,
+                    )
+                }),
             62 => Some((
                 LegacySoundEvent::ItemRespawn,
                 self.respawn,

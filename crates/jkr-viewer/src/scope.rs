@@ -253,15 +253,14 @@ impl GpuState {
             options,
         );
         if let Some(mask) = &mut self.scope_mask {
-            let visible = mode != 0
-                && mode != 2
-                && !self.third_person
+            let shown = !self.third_person
                 && player.movement_type() != 7
                 && self
                     .console
                     .as_ref()
                     .and_then(|c| c.bool_cvar("cg_draw2D"))
                     .unwrap_or(true);
+            let visible = mode != 0 && mode != 2 && shown;
             let maximum = if player.entity_flags() & (1 << 20) != 0 {
                 600.0
             } else {
@@ -271,15 +270,29 @@ impl GpuState {
             let charge_time =
                 predicted.map_or(player.weapon_charge_time(), |s| s.weapon_charge_time);
             let charge = (state == 5).then(|| (time - charge_time) as f32 / 1500.0);
-            mask.prepare(
-                &self.queue,
-                visible,
-                crate::cgame_options::scope_style(self.console.as_ref()),
-                self.scope.fov,
-                time,
-                player.ammo_value(3).unwrap_or(0) as f32 / maximum,
-                charge,
-            );
+            if mode == 2 && shown {
+                // `cg.refdef.viewangles[YAW]`, -180 to 180 as the player state keeps it.
+                let yaw = (self.camera_yaw.to_degrees() + 180.0).rem_euclid(360.0) - 180.0;
+                let zoom_fov = predicted.map_or(player.zoom_fov(), |state| state.zoom_fov);
+                mask.prepare_binoculars(
+                    &self.queue,
+                    gpu::BinocularView {
+                        time,
+                        yaw,
+                        zoom_fov,
+                    },
+                );
+            } else {
+                mask.prepare(
+                    &self.queue,
+                    visible,
+                    crate::cgame_options::scope_style(self.console.as_ref()),
+                    self.scope.fov,
+                    time,
+                    player.ammo_value(3).unwrap_or(0) as f32 / maximum,
+                    charge,
+                );
+            }
         }
         if sound
             && player.movement_type() != 7

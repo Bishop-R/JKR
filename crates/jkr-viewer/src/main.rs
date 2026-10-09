@@ -1458,20 +1458,11 @@ impl GpuState {
             menu.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
         }
         self.append_console_overlay(viewport, text_scale);
-        let layers = [
-            information_visible.then(|| &self.hud.identification.list),
-            information_visible.then(|| self.hud.draw_list()),
-            chat_visible.then(|| self.chat.draw_list()),
-            scoreboard_visible.then(|| self.scoreboard.draw_list()),
-            (self.game_menu && !console_covers_frame).then(|| self.in_game_menu.draw_list()),
-            self.client_menu
-                .as_ref()
-                .filter(|_| !console_covers_frame)
-                .and_then(|menu| menu.draw_list()),
-            self.console.as_ref().map(|console| console.draw_list()),
-        ];
-        self.ui_shapes
-            .prepare_layers(&self.queue, layers.into_iter().flatten(), viewport);
+        self.prepare_ui_shapes(
+            viewport,
+            [information_visible, chat_visible, scoreboard_visible],
+            console_covers_frame,
+        );
         let text_vertex_count = u32::try_from(self.text_vertices.len()).unwrap_or(0);
         if !self.text_vertices.is_empty() {
             self.queue.write_buffer(
