@@ -16,6 +16,37 @@ use crate::saber_trail::tilt;
 use glam::{EulerRot, Quat, Vec3};
 use jkr_client::{LegacyThrownSaber, LegacyThrownSabers};
 use jkr_runtime::{EntityId, SceneEntity, Transform};
+use std::time::Instant;
+
+/// `cgs.media.yellowDroppedSaberShader` and `solidWhite` (`cg_main.c:646,825`).
+const GLOW: &str = "gfx/effects/yellow_glow";
+pub(crate) const SOLID_WHITE: &str = "gfx/effects/solidWhite_cull";
+
+/// The yellow glow's level at `time`: `sin(cg.time * 0.003) * 0.08 + 0.1`, from 0.02 to 0.18.
+fn glow_level(time: i64) -> f32 {
+    (time as f32 * 0.003).sin() * 0.08 + 0.1
+}
+
+/// One glow sprite `size` across at `origin` for this frame (`FX_AddSprite` with
+/// `FX_USE_ALPHA`, living a millisecond).
+fn glow(sinks: &mut super::Sinks<'_>, origin: Vec3, size: f32, level: f32, now: Instant) {
+    if sinks.particles.len() < sinks.particles.capacity() {
+        sinks.particles.push(crate::Particle::frame_sprite(
+            sinks.effects,
+            origin,
+            size,
+            GLOW,
+            ([1.0; 3], level),
+            now,
+        ));
+    }
+}
+
+/// `CG_Player`'s glow at the hand that guides a thrown saber (`cg_players.c:10302-10335`).
+pub(super) fn hand_glow(sinks: &mut super::Sinks<'_>, hand: Vec3, now: Instant) {
+    let level = glow_level(sinks.presentation_time);
+    glow(sinks, hand, 8.0, level, now);
+}
 
 /// Claim a flying saber before the ordinary rigid-object path can draw it twice.
 pub(super) fn submit(
@@ -23,6 +54,7 @@ pub(super) fn submit(
     thrown: Option<&LegacyThrownSabers<'_>>,
     entity: &SceneEntity,
     transform: Transform,
+    now: Instant,
 ) -> bool {
     let Some(number) = entity
         .id
@@ -78,6 +110,9 @@ pub(super) fn submit(
         sinks.object_groups,
         sinks.saber_instances,
     ) {
+        if owner.returning {
+            pulled_back_glow(sinks, pose, hilt.mesh_index, now);
+        }
         crate::saber_submission::lights::append(
             sinks.lights,
             &blades,
@@ -89,6 +124,31 @@ pub(super) fn submit(
         );
     }
     true
+}
+
+/// A saber being pulled back glows yellow (`CG_General` with `bolt3` 999, `cg_ents.c:1640-1677`):
+/// its hilt again under `solidWhite_cull` tinted by the level (`RF_RGB_TINT`), and fourteen
+/// glow sprites along its up axis, from four units above its origin to nine below.
+fn pulled_back_glow(sinks: &mut super::Sinks<'_>, pose: Transform, mesh: usize, now: Instant) {
+    let level = glow_level(sinks.presentation_time);
+    if let Some(material) = sinks.material_overrides.force(SOLID_WHITE)
+        && sinks.overrides.len() < sinks.overrides.capacity()
+    {
+        sinks.overrides.push(crate::entity_materials::OverrideInstance {
+            mesh: crate::entity_materials::OverrideMesh::Object(mesh),
+            material: Some(material),
+            instance: ActorInstance::new(pose.translation, pose.rotation, pose.scale)
+                .with_rgb_tint([level, level, 0.0, 1.0]),
+            no_depth: false,
+            forced_alpha: false,
+            switched_off: None,
+        });
+    }
+    let origin = Vec3::from_array(pose.translation);
+    let up = Quat::from_array(pose.rotation) * Vec3::Z;
+    for step in -4..10 {
+        glow(sinks, origin - up * step as f32, 5.5, level, now);
+    }
 }
 
 /// Emit one hilt at `transform` and each lit primary blade at `rotation`.

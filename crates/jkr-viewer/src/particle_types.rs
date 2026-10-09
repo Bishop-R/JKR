@@ -126,6 +126,53 @@ impl PrimitiveShape {
 }
 
 impl Particle {
+    /// A camera-facing sprite for this frame only (`RT_SPRITE`, or an `FX_AddSprite` living a
+    /// millisecond): `size` in stock's units, coloured `rgb`, blended by `alpha`, its image
+    /// upright (`effect_submission::billboard_uv_transform`). The pool's frame sprites go
+    /// when `pickups::simple::append_frame` starts the next frame.
+    pub(crate) fn frame_sprite(
+        effects: &mut crate::effect_runtime::EffectLibrary,
+        origin: Vec3,
+        size: f32,
+        shader: &str,
+        (rgb, alpha): ([f32; 3], f32),
+        now: Instant,
+    ) -> Self {
+        let constant = |value| {
+            crate::effect_envelope::Envelope::from_values(
+                value,
+                value,
+                0.0,
+                jkr_effect::CurveFlags::default(),
+            )
+        };
+        Self {
+            motion: crate::particle_motion::Motion::new(origin, Vec3::ZERO, Vec3::ZERO, 0.0, 0.0, now),
+            spawned_at: now,
+            delay: Duration::ZERO,
+            lifetime: Duration::from_secs(60),
+            size: constant(size),
+            start_length: 1.0,
+            end_length: 1.0,
+            streak: None,
+            normal: None,
+            alpha: constant(alpha),
+            use_alpha: true,
+            set_shader_time: false,
+            rgb: rgb.map(constant),
+            seed: 0,
+            shader: effects.shader(shader),
+            physics: crate::particle_physics::State::new(
+                effects.code_primitive_definition(),
+                0,
+                0,
+                0.0,
+                jkr_effect::PrimitiveFlags::default(),
+            ),
+            shape: PrimitiveShape::FrameBillboard,
+        }
+    }
+
     pub(crate) fn sample_envelopes(&self, elapsed_seconds: f32) -> (f32, f32, [f32; 3]) {
         let elapsed_millis = elapsed_seconds * 1_000.0;
         let lifetime_millis = self.lifetime.as_secs_f32() * 1_000.0;

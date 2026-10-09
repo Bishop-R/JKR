@@ -10,7 +10,7 @@ pub(crate) mod flags;
 mod force_powers;
 
 #[path = "thrown_saber.rs"]
-mod thrown_saber;
+pub(crate) mod thrown_saber;
 
 #[path = "actor_model_scale.rs"]
 pub(crate) mod model_scale;
@@ -304,7 +304,8 @@ pub(crate) fn submit(
                 overlays,
                 trails,
             );
-        } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform) {
+        } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform, visual_now)
+        {
             // The flying hilt is owned by this branch, including its blades.
         } else if limbs::submit(&mut sinks, entity, transform) {
             // A cut limb, drawn from its copy of the owner.
@@ -913,6 +914,12 @@ fn submit_equipment(
 ) {
     let rotation = weapon_view::actor_world_rotation(transform.rotation);
     let origin = Vec3::from_array(transform.translation);
+    if equipment.primary_in_flight
+        && let Some(attachment) = sinks.actor_meshes[actor_mesh].weapon_attachments[0]
+    {
+        let (hand, _) = saber::world_attachment(origin, rotation, attachment);
+        thrown_saber::hand_glow(sinks, hand, visual_now);
+    }
     let body = sinks.body;
     let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
     let mut hilt = |mesh: usize, instance: ActorInstance| {

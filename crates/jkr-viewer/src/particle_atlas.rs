@@ -46,6 +46,8 @@ pub(crate) fn create(
         "gfx/effects/light_cone",
         "gfx/misc/smoke",
         "gfx/misc/black_smoke",
+        // A thrown saber's glows (`thrown_saber.rs`).
+        "gfx/effects/yellow_glow",
     ];
     struct PendingAnimation {
         shader: String,
