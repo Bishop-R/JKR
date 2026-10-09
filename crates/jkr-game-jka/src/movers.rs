@@ -752,9 +752,9 @@ pub fn origin_at(door: &Door, level_time: i32) -> [f32; 3] {
 
 /// `MOD_CRUSH`, which a mover kills with.
 pub const MOD_CRUSH: u32 = 36;
-/// `MOVER_CRUSHER` (64 on a door's own spawnflags in the reference's mover set): it does
-/// not reverse for whoever is in the way.
-pub(crate) const MOVER_CRUSHER: u32 = 256;
+/// `MOVER_CRUSHER`, a door's third spawnflag (`g_mover.c:48`, `:1383`): it does not
+/// reverse for whoever is in the way (`Blocked_Door`, `:1055`).
+pub(crate) const MOVER_CRUSHER: u32 = 4;
 
 /// One entity the mover is carrying or shoving along.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -881,4 +881,33 @@ pub fn blocked(door: &mut Door, level_time: i32, previous_time: i32) -> Option<i
         previous_time,
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn door(spawnflags: &str) -> Door {
+        let text = format!(
+            "{{\n\"classname\" \"func_door\"\n\"model\" \"*4\"\n\"angle\" \"-1\"\n\
+             \"dmg\" \"5\"\n\"spawnflags\" \"{spawnflags}\"\n}}"
+        );
+        let entity = jkr_entity::parse_entity_lump(text.as_bytes())
+            .unwrap()
+            .remove(0);
+        spawn_door(&entity, ([0.0; 3], [64.0; 3])).unwrap()
+    }
+
+    /// `Blocked_Door` (`g_mover.c:1048-1065`): a door blocked on its way deals its damage;
+    /// one with its third spawnflag, `MOVER_CRUSHER` (4), keeps on, any other turns back.
+    #[test]
+    fn only_a_crusher_keeps_on_when_blocked() {
+        for (flags, after) in [("0", MoverState::TwoToOne), ("4", MoverState::OneToTwo)] {
+            let mut door = door(flags);
+            let _ = used(&mut door, 1_000);
+            assert_eq!(door.state, MoverState::OneToTwo);
+            assert_eq!(blocked(&mut door, 1_100, 1_050), Some(5));
+            assert_eq!(door.state, after, "spawnflags {flags}");
+        }
+    }
 }
