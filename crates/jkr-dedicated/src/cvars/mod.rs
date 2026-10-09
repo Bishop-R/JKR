@@ -139,6 +139,15 @@ impl Cvars {
         // `Com_Init`'s `timescale` (`common.cpp:1248`): how fast the server's time runs, which
         // every client is sent and runs at too.
         cvars.get(b"timescale", b"1", CVAR_CHEAT | CVAR_SYSTEMINFO, None);
+        // TaystJK's `SV_SpawnServer` (`sv_init.cpp:760-761`): its HTTP downloads
+        // (`bridge_http_downloads`), in the server's information.
+        cvars.get(
+            b"sv_httpDownloads",
+            b"0",
+            CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_LATCH,
+            None,
+        );
+        cvars.get(b"sv_httpServerPort", b"0", CVAR_ARCHIVE | CVAR_LATCH, None);
         for &(name, value, flags, description, range) in registry::ENGINE {
             cvars.get(name, value, flags, description);
             if let Some((min, max, integral)) = range {

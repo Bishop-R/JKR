@@ -167,6 +167,7 @@ impl NativeGame {
         self.register_flag_options();
         self.register_duel_options();
         self.register_taystjk_server();
+        self.refresh_http_downloads();
         self.register_starting_items();
         self.register_damage_options();
         self.register_game_options();

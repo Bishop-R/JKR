@@ -113,11 +113,35 @@ pub fn brush_bounds(bsp: &Bsp, model: usize) -> Option<([f32; 3], [f32; 3])> {
 /// Mount `<game_data>/base/*.pk3` in the reference's search order and load
 /// `maps/<name>.bsp`, as `SV_SpawnServer` finds a map.
 pub fn load(game_data: &Path, name: &str) -> Result<LoadedMap, Box<dyn Error>> {
+    let base = game_data.join("base");
     let mut files = VirtualFileSystem::new();
-    files.mount_pk3_directory_with_warnings(game_data.join("base"), |archive, error| {
+    files.mount_pk3_directory_with_warnings(&base, |archive, error| {
         eprintln!("skipping {}: {error}", archive.display());
     })?;
-    load_from(files, name)
+    let mut map = load_from(files, name)?;
+    // The reference names a pak by the game directory it is found in (`base/<file>`),
+    // even where that file is a link to one elsewhere; the mount reports where links lead.
+    if let Some(pak) = &mut map.pak
+        && let Some(listed) = listed_as(&base, &pak.path)
+    {
+        pak.name = format!("base/{listed}");
+    }
+    Ok(map)
+}
+
+/// The name (without `.pk3`) under which `directory` lists the pak at `archive`, a link
+/// to it included.
+fn listed_as(directory: &Path, archive: &Path) -> Option<String> {
+    std::fs::read_dir(directory)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pk3"))
+        })
+        .find(|path| path.canonicalize().ok().as_deref() == Some(archive))
+        .and_then(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
 }
 
 /// `maps/<name>.bsp` and what goes with it, out of `files` however they were mounted.

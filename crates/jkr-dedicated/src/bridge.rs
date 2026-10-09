@@ -132,6 +132,8 @@ pub struct NativeGame {
     pool_links: std::cell::RefCell<bridge_links::PoolLinks>,
     /// TaystJK's duel isolation for this frame (`sv_snapShotDuelCull`).
     duel_cull: std::cell::RefCell<bridge_duel_cull::DuelCull>,
+    /// TaystJK's HTTP download server, while one runs (`sv_httpDownloads`).
+    http_downloads: Option<crate::http_downloads::HttpDownloads>,
     /// The server's clock at the last frame, for what happens between frames without one.
     last_frame_time: i32,
     /// Every missile in flight, by its entity number, run at every frame.
@@ -463,6 +465,7 @@ impl NativeGame {
             pool: EntityPool::new(0),
             pool_links: Default::default(),
             duel_cull: Default::default(),
+            http_downloads: None,
             last_frame_time: 0,
             missiles: Vec::new(),
             fired: Vec::new(),
@@ -3532,6 +3535,8 @@ mod bridge_dodge;
 mod bridge_duel;
 #[path = "bridge_duel_cull.rs"]
 mod bridge_duel_cull;
+#[path = "bridge_http_downloads.rs"]
+mod bridge_http_downloads;
 #[path = "bridge_follow.rs"]
 mod bridge_follow;
 #[path = "bridge_force.rs"]

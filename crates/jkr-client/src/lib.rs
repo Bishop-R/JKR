@@ -23,6 +23,7 @@ mod crosshair_target;
 mod demo_playback;
 mod demo_recorder;
 pub mod download;
+pub mod http_download;
 mod download_session;
 mod force_overlay_events;
 mod force_overlays;

@@ -170,9 +170,11 @@ fn requests(game: &GameState, checksums: &[i32]) -> Result<Vec<PakRequest>, Stri
     ))
     .map_err(|e| e.to_string())?;
     // A referenced pak is not an admission requirement. Tayst's CL_InitDownloads
-    // continues with local content when downloads are disabled. We support UDP
-    // only, so an HTTP URL does not enable this transport.
-    if server_info.get_i32("sv_allowDownload") == Some(0) {
+    // continues with local content when the server allows no download at all: neither
+    // the stock one (`sv_allowDownload`, present and 0) nor HTTP (`sv_httpDownloads`).
+    if server_info.get_i32("sv_allowDownload") == Some(0)
+        && server_info.get_i32("sv_httpDownloads").unwrap_or(0) == 0
+    {
         crate::log::progress(format_args!(
             "session content: server disabled UDP downloads; using available content"
         ));

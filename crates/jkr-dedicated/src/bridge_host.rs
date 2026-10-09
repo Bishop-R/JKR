@@ -27,6 +27,7 @@ impl LegacyGameHost for NativeGame {
         let admitted = self.connect_client(client, userinfo, false);
         if admitted.is_ok() {
             self.wake_from_hibernation();
+            self.publish_http_downloads();
         }
         admitted
     }
@@ -35,6 +36,7 @@ impl LegacyGameHost for NativeGame {
         let Some(client) = place(client) else { return };
         self.disconnect_client(client);
         self.note_client_left();
+        self.publish_http_downloads();
     }
 
     fn client_reconnect_disconnect(&mut self, client: usize) {
@@ -99,6 +101,7 @@ impl LegacyGameHost for NativeGame {
             auto_demo: self.cvars.integer(b"sv_autoDemo"),
             min_ping: self.cvars.integer(b"sv_minPing"),
             max_ping: self.cvars.integer(b"sv_maxPing"),
+            http: self.http_advert(),
         }
     }
 

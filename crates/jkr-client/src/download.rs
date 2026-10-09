@@ -110,6 +110,9 @@ pub(crate) fn run(
     for command in &initial.server_commands {
         connection.record_server_command(command.sequence, &command.command);
     }
+    let http = connection
+        .server_address()
+        .and_then(crate::http_download::query_base_url);
     let mut exchange = Exchange {
         connection,
         sequence,
@@ -121,6 +124,21 @@ pub(crate) fn run(
     exchange.acknowledge(initial.reliable_acknowledge);
     let result = (|| {
         for request in &requests {
+            // TaystJK's HTTP download first where the server offers one; a failed fetch
+            // leaves the pak to the stock download below.
+            if let Some(base) = &http {
+                storage.begin(request).map_err(ClientError::Download)?;
+                match http_fetch(&mut exchange, base, request, storage, &initial.game_state) {
+                    Ok(()) => continue,
+                    Err(error) => {
+                        storage.abort();
+                        eprintln!(
+                            "download: HTTP {base}/{} failed ({error}); asking the server instead",
+                            request.remote
+                        );
+                    }
+                }
+            }
             storage.begin(request).map_err(ClientError::Download)?;
             exchange.queue(format!("download {}", request.remote).into_bytes())?;
             let mut expected = 0_u32;
@@ -235,6 +253,65 @@ pub(crate) fn run(
     result
 }
 
+/// One pak over HTTP into `storage` (begun already), the channel kept alive meanwhile:
+/// every second the pending commands go out and what the server sent is read, as the
+/// reference's client keeps sending packets while its HTTP download runs.
+fn http_fetch<T: Transport>(
+    exchange: &mut Exchange<'_, T>,
+    base: &str,
+    request: &PakRequest,
+    storage: &mut dyn DownloadStorage,
+    game: &GameState,
+) -> Result<(), String> {
+    use crate::http_download::Fetched;
+    use std::sync::mpsc::RecvTimeoutError;
+    let fetched = crate::http_download::fetch(base, request);
+    let mut kept_alive = Instant::now();
+    loop {
+        storage.check()?;
+        match fetched.recv_timeout(Duration::from_millis(100)) {
+            Ok(Fetched::Size(size)) => storage.size(size)?,
+            Ok(Fetched::Data(data)) => storage.append(&data)?,
+            Ok(Fetched::Done) => return storage.finish(),
+            Ok(Fetched::Failed(error)) => return Err(error),
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => return Err("the fetch stopped".into()),
+        }
+        if kept_alive.elapsed() >= Duration::from_secs(1) {
+            kept_alive = Instant::now();
+            keep_alive(exchange, game).map_err(|error| error.to_string())?;
+        }
+    }
+}
+
+/// Send what is pending and read one message, taking its reliable commands.
+fn keep_alive<T: Transport>(
+    exchange: &mut Exchange<'_, T>,
+    game: &GameState,
+) -> Result<(), ClientError> {
+    exchange.send()?;
+    let Some(message) = exchange.receive()? else {
+        return Ok(());
+    };
+    let mut reader = MessageReader::new(&message.payload);
+    exchange.acknowledge(reader.read_i32()?);
+    loop {
+        match reader.read_service_command()? {
+            ServiceCommand::End => return Ok(()),
+            ServiceCommand::Nop => {}
+            ServiceCommand::ServerCommand => exchange.server_command(&mut reader)?,
+            ServiceCommand::SetGame => {
+                reader.read_c_string(256)?;
+            }
+            ServiceCommand::Snapshot => skip_snapshot(&mut reader, &message, game)?,
+            ServiceCommand::Download => {
+                block(&mut reader, false)?;
+            }
+            command => return Err(ClientError::UnexpectedCommand(command)),
+        }
+    }
+}
+
 // SV_SendClientSnapshot writes a full, NOT_ACTIVE snapshot before download blocks
 // (`sv_snapshot.cpp:142-148,838-848`). Reuse the production decoder, not a second codec.
 fn skip_snapshot(
@@ -336,9 +413,17 @@ pub(crate) trait Transport {
     ) -> Result<(), NetworkError>;
     /// Receive a decoded netchan payload or a bounded timeout.
     fn receive_server_message(&mut self, timeout: Duration) -> Result<ServerMessage, NetworkError>;
+    /// The server's address, for its `getinfo` (HTTP downloads); `None` without one.
+    fn server_address(&self) -> Option<std::net::SocketAddr> {
+        None
+    }
 }
 
 impl Transport for LegacyConnection {
+    fn server_address(&self) -> Option<std::net::SocketAddr> {
+        Some(self.server())
+    }
+
     fn record_server_command(&mut self, sequence: i32, text: &[u8]) {
         LegacyConnection::record_server_command(self, sequence, text);
     }
@@ -355,5 +440,114 @@ impl Transport for LegacyConnection {
 
     fn receive_server_message(&mut self, timeout: Duration) -> Result<ServerMessage, NetworkError> {
         LegacyConnection::receive_server_message(self, timeout)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// A channel that sends into nothing and hears nothing.
+    struct Silent {
+        sends: usize,
+    }
+
+    impl Transport for Silent {
+        fn record_server_command(&mut self, _: i32, _: &[u8]) {}
+        fn send_reliable_commands(
+            &mut self,
+            _: i32,
+            _: i32,
+            _: i32,
+            _: &[(i32, &[u8])],
+        ) -> Result<(), NetworkError> {
+            self.sends += 1;
+            Ok(())
+        }
+        fn receive_server_message(&mut self, _: Duration) -> Result<ServerMessage, NetworkError> {
+            Err(NetworkError::TimedOut("test"))
+        }
+    }
+
+    /// What a download put where.
+    #[derive(Default)]
+    struct Kept {
+        size: Option<u64>,
+        bytes: Vec<u8>,
+        finished: bool,
+    }
+
+    impl DownloadStorage for Kept {
+        fn feedback(
+            &mut self,
+            _: std::sync::mpsc::SyncSender<String>,
+            _: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        ) {
+        }
+        fn missing(&self, _: &GameState) -> Result<Vec<PakRequest>, String> {
+            Ok(Vec::new())
+        }
+        fn begin(&mut self, _: &PakRequest) -> Result<(), String> {
+            Ok(())
+        }
+        fn size(&mut self, bytes: u64) -> Result<(), String> {
+            self.size = Some(bytes);
+            Ok(())
+        }
+        fn append(&mut self, bytes: &[u8]) -> Result<(), String> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+        fn finish(&mut self) -> Result<(), String> {
+            self.finished = true;
+            Ok(())
+        }
+        fn abort(&mut self) {}
+    }
+
+    /// A pak served over HTTP after a pause long enough for the channel to be kept alive.
+    #[test]
+    fn a_pak_comes_over_http_with_the_channel_kept_alive() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap() == 1 {
+                request.push(byte[0]);
+            }
+            assert!(request.starts_with(b"GET /base/x.pk3 HTTP/1.1\r\n"));
+            std::thread::sleep(Duration::from_millis(1_300));
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nPK\x03\x04")
+                .unwrap();
+        });
+        let (mut connection, mut sequence, mut pending) = (Silent { sends: 0 }, 0, VecDeque::new());
+        let mut exchange = Exchange {
+            connection: &mut connection,
+            sequence: &mut sequence,
+            pending: &mut pending,
+            server_id: 1,
+            message_ack: 0,
+            reliable_ack: 0,
+        };
+        let request = PakRequest {
+            remote: "base/x.pk3".into(),
+            filename: "x.pk3".into(),
+            checksum: 0,
+        };
+        let mut storage = Kept::default();
+        http_fetch(
+            &mut exchange,
+            &format!("http://127.0.0.1:{port}"),
+            &request,
+            &mut storage,
+            &GameState::empty_local(0),
+        )
+        .unwrap();
+        assert_eq!((storage.size, storage.bytes.as_slice(), storage.finished), (Some(4), &b"PK\x03\x04"[..], true));
+        assert!(connection.sends >= 1, "the channel was kept alive");
     }
 }

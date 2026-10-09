@@ -181,6 +181,7 @@ impl NativeGame {
         if new_session {
             self.renew_sessions();
         }
+        self.refresh_http_downloads();
         self.told.push(Told::MapChanged { server_time });
     }
 }
@@ -314,17 +315,12 @@ pub(super) fn download_file(
     name: &[u8],
 ) -> jkr_network::LegacyDownloadFile {
     use jkr_network::LegacyDownloadFile;
-    let Some(pak) = map.and_then(|map| map.pak.as_ref()) else {
+    let Some(pak) = downloadable_pak(map) else {
         return LegacyDownloadFile::NotReferenced;
     };
-    let id_pak = (0..9).any(|number| {
-        pak.name
-            .eq_ignore_ascii_case(&format!("base/assets{number}"))
-    });
-    if id_pak
-        || !format!("{}.pk3", pak.name)
-            .as_bytes()
-            .eq_ignore_ascii_case(name)
+    if !format!("{}.pk3", pak.name)
+        .as_bytes()
+        .eq_ignore_ascii_case(name)
     {
         return LegacyDownloadFile::NotReferenced;
     }
@@ -332,6 +328,17 @@ pub(super) fn download_file(
         Ok(bytes) => LegacyDownloadFile::Found(bytes.into()),
         Err(_) => LegacyDownloadFile::Missing,
     }
+}
+
+/// The pak a client may download: the map's own, unless it is one of the game's
+/// (`base/assets0` to `assets8`), which are never sent.
+pub(super) fn downloadable_pak(map: Option<&LoadedMap>) -> Option<&crate::map::ReferencedPak> {
+    let pak = map.and_then(|map| map.pak.as_ref())?;
+    let id_pak = (0..9).any(|number| {
+        pak.name
+            .eq_ignore_ascii_case(&format!("base/assets{number}"))
+    });
+    (!id_pak).then_some(pak)
 }
 
 /// Stored configstrings as the endpoint wants them.
