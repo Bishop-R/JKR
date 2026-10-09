@@ -16,6 +16,7 @@ use crate::{
     LegacyServerInfo, LegacyStatusPlayer,
 };
 use jkr_protocol::{EntityState, MessageWriter, UserCommand};
+mod anti_dst;
 mod auto_demo;
 mod bots;
 mod console;
@@ -270,6 +271,8 @@ pub struct LegacySessionSettings {
     /// TaystJK's broken-model fix (`sv_legacyFixes` without its bit 7): a model that
     /// would put a player in the rancor's or the wampa's body, or in none, becomes Kyle.
     pub broken_models_fix: bool,
+    /// TaystJK's `sv_antiDST`: a client found using the Dark Side Tools cheat is kicked.
+    pub anti_dst: bool,
 }
 
 impl Default for LegacySessionSettings {
@@ -296,6 +299,7 @@ impl Default for LegacySessionSettings {
             auto_whitelist: true,
             ping_fix: false,
             broken_models_fix: false,
+            anti_dst: false,
         }
     }
 }

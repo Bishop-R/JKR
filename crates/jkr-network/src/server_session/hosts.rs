@@ -98,6 +98,13 @@ impl<G: LegacyGameHost> LegacyRosterHost for View<'_, G> {
         let fix_models = self.settings.broken_models_fix;
         if let Err(reason) = self.slots[slot].userinfo_changed(&self.settings.rates, fix_models) {
             self.drop(slot, reason, None);
+        } else if super::anti_dst::dst_model(
+            self.slots[slot]
+                .userinfo
+                .value(b"model")
+                .unwrap_or_default(),
+        ) {
+            self.dst_sighted(slot, "injection", None);
         }
     }
     fn heartbeat(&mut self) {
@@ -217,6 +224,14 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
             );
             match self.view.slots[client].update_userinfo(argument, now, settings) {
                 UserinfoUpdate::Changed => {
+                    let model = self.view.slots[client].userinfo.value(b"model");
+                    if super::anti_dst::dst_model(model.unwrap_or_default())
+                        && self
+                            .view
+                            .dst_sighted(client, "injection", Some((client, reliable)))
+                    {
+                        return;
+                    }
                     let View { slots, game, .. } = &mut *self.view;
                     game.client_userinfo_changed(client, slots[client].userinfo.as_bytes());
                 }
@@ -271,6 +286,11 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
             // `SV_ResetPureClient_f`.
             let slot = &mut self.view.slots[client];
             (slot.got_cp, slot.pure_authentic) = (false, false);
+        } else if super::anti_dst::dst_command(command)
+            && self
+                .view
+                .dst_sighted(client, "command", Some((client, reliable)))
+        {
         } else if game_allowed {
             self.view
                 .game

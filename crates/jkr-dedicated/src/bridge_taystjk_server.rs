@@ -1,5 +1,5 @@
-//! TaystJK's server options beyond OpenJK's (`sv_init.cpp:1060-1070`): `sv_pingFix`, which
-//! the endpoint applies, and hibernation — an empty server's frame rate drops to
+//! TaystJK's server options beyond OpenJK's (`sv_init.cpp:1060-1070`): `sv_pingFix` and
+//! `sv_antiDST`, which the endpoint applies, and hibernation — an empty server's frame rate drops to
 //! `sv_hibernateFPS` once `sv_hibernateTime` milliseconds have passed since the last
 //! human left (`SV_Frame`), and is back the moment a client is let in (`SV_DirectConnect`).
 
@@ -8,7 +8,7 @@ use crate::cvars::{CVAR_ARCHIVE, CVAR_NODEFAULT};
 use std::time::{Duration, Instant};
 
 /// TaystJK's options, its defaults and its descriptions.
-const OPTIONS: [(&[u8], &[u8], &[u8]); 3] = [
+const OPTIONS: [(&[u8], &[u8], &[u8]); 4] = [
     (
         b"sv_pingFix",
         b"1",
@@ -23,6 +23,11 @@ const OPTIONS: [(&[u8], &[u8], &[u8]); 3] = [
         b"sv_hibernateFPS",
         b"2",
         b"TaystJK: FPS during hibernation mode",
+    ),
+    (
+        b"sv_antiDST",
+        b"1",
+        b"TaystJK: attempts to detect and kick players injecting or using DST",
     ),
 ];
 

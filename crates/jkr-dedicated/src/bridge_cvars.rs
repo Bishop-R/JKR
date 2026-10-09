@@ -253,6 +253,7 @@ impl NativeGame {
         settings.pure = cvars.integer(b"sv_pure") != 0;
         settings.auto_whitelist = cvars.integer(b"sv_autoWhitelist") != 0;
         settings.ping_fix = cvars.integer(b"sv_pingFix") != 0;
+        settings.anti_dst = cvars.integer(b"sv_antiDST") != 0;
         // TaystJK reads `sv_legacyFixes` as a mask whose bit 7 allows the broken models.
         let legacy_fixes = cvars.integer(b"sv_legacyFixes");
         settings.broken_models_fix = legacy_fixes != 0 && legacy_fixes & (1 << 7) == 0;
