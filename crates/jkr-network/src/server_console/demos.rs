@@ -114,3 +114,106 @@ pub(super) fn stop(
     host.stop_demo(client);
     print(format!("Stopped demo for client {client}.\n").as_bytes());
 }
+
+/// The client a TaystJK demo command names (`atoi`), or `Unknown client number N.`.
+fn named_client(
+    host: &impl LegacyConsoleHost,
+    text: &[u8],
+    print: &mut dyn FnMut(&[u8]),
+) -> Option<usize> {
+    let index = atoi(text);
+    let client = usize::try_from(index)
+        .ok()
+        .filter(|&client| client < host.client_count());
+    if client.is_none() {
+        print(format!("Unknown client number {index}.\n").as_bytes());
+    }
+    client
+}
+
+/// TaystJK's `svdemometa <clientnum> <metakey> [metadata]` (`SV_DemoMeta_f`): a key of
+/// letters only, set for the client's next demos, or taken out without a value. TaystJK's
+/// own test leaves out `a` and `z` (it compares with `>` and `<`); every letter is let in.
+pub(super) fn meta(
+    host: &mut impl LegacyConsoleHost,
+    arguments: &Arguments,
+    print: &mut dyn FnMut(&[u8]),
+) {
+    let count = arguments.count();
+    if count != 3 && count != 4 {
+        print(b"svdemometa <clientnum> <metakey> <metadata>, for example svdemometa 2 runstarttime 235254. Leave out <metadata> to remove key.\n");
+        return;
+    }
+    let Some(client) = named_client(host, arguments.get(1), print) else {
+        return;
+    };
+    let key = arguments.get(2);
+    if key.is_empty() {
+        print(b"Metadata key must not be empty\n");
+        return;
+    }
+    if !key.iter().all(u8::is_ascii_alphabetic) {
+        print(b"Metadata key must only contain a-z (lower or upper case)\n");
+        return;
+    }
+    let value = if count == 4 { arguments.get(3) } else { b"" };
+    host.set_demo_meta(
+        client,
+        &String::from_utf8_lossy(key),
+        &String::from_utf8_lossy(value),
+    );
+}
+
+/// TaystJK's `svdemoclearmeta <clientnum>` (`SV_DemoClearMeta_f`).
+pub(super) fn clear_meta(
+    host: &mut impl LegacyConsoleHost,
+    arguments: &Arguments,
+    print: &mut dyn FnMut(&[u8]),
+) {
+    if arguments.count() != 2 {
+        print(b"svdemoclearmeta <clientnum>\n");
+        return;
+    }
+    if let Some(client) = named_client(host, arguments.get(1), print) {
+        host.clear_demo_meta(client);
+    }
+}
+
+/// TaystJK's `svdemoclearprerecord <clientnum>` (`SV_DemoClearPreRecord_f`).
+pub(super) fn clear_pre_record(
+    host: &mut impl LegacyConsoleHost,
+    arguments: &Arguments,
+    print: &mut dyn FnMut(&[u8]),
+) {
+    if arguments.count() != 2 {
+        print(b"svdemoclearprerecord <clientnum>\n");
+        return;
+    }
+    if let Some(client) = named_client(host, arguments.get(1), print) {
+        host.clear_demo_pre_record(client);
+    }
+}
+
+/// TaystJK's `svrenamedemo <from> <to>` (`SV_RenameDemo_f`): both under `demos/`, neither
+/// climbing out of it (`FS_CheckDirTraversal`); silent either way.
+pub(super) fn rename(host: &mut impl LegacyConsoleHost, arguments: &Arguments) {
+    if arguments.count() != 3 {
+        return;
+    }
+    let (from, to) = (path(arguments.get(1)), path(arguments.get(2)));
+    let climbs = |path: &str| path.contains("../") || path.contains("..\\");
+    if climbs(&from) || climbs(&to) {
+        return;
+    }
+    host.rename_file(&from, &to);
+}
+
+/// TaystJK's `sv_listrecording` (`SV_ListRecording_f`).
+pub(super) fn list(host: &impl LegacyConsoleHost, print: &mut dyn FnMut(&[u8])) {
+    print(b"Demos currently being recorded:\n");
+    for client in 0..host.client_count() {
+        if let Some(name) = host.demo_name(client) {
+            print(format!("Client {client} ({})\n", String::from_utf8_lossy(name)).as_bytes());
+        }
+    }
+}

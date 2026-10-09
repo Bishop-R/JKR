@@ -178,7 +178,12 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
             }
             // One that cannot be built leaves the client waiting; it asks again with
             // its next packet, and a drop is the map loader's decision.
-            if let Ok((bytes, _)) = slot.queue_gamestate(client, &*view.game, clock.server_time) {
+            if let Ok((bytes, _)) = slot.queue_gamestate(
+                client,
+                &*view.game,
+                clock.server_time,
+                view.settings.demo_extras,
+            ) {
                 slot.schedule_message(clock.server_time, bytes, &mut view.settings.rates);
                 if let Ok(Some(length)) = slot.wire.channel.next_datagram(&mut datagram) {
                     send(from, &datagram[..length]);
@@ -259,7 +264,7 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
                 clock.server_time,
                 *view.server_bit,
                 &mut view.settings.rates,
-                downloads,
+                (downloads, view.settings.demo_extras),
                 message,
                 send,
             );

@@ -41,7 +41,7 @@ mod server_move;
 mod server_session;
 pub use server_session::{
     LEGACY_SNAPSHOT_ENTITIES, LegacyAutoDemoSettings, LegacyBotSlots, LegacyClock,
-    LegacyConsoleSettings, LegacyDemoFolders, LegacyDownloadFile, LegacyGameHost, LegacyGameOutput,
+    LegacyConsoleSettings, LegacyDemoExtras, LegacyDemoFolders, LegacyDownloadFile, LegacyGameHost, LegacyGameOutput,
     LegacyPureManifest, LegacyRateSettings, LegacyRosterTooLarge, LegacyServerSession,
     LegacySessionSettings, LegacySnapshotFrame, LegacySnapshotRefusal, LocalSnapshotBuffer,
     legacy_auto_demo_name, legacy_is_private_address, legacy_prune_auto_demos,

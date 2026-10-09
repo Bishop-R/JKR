@@ -32,6 +32,36 @@ const OPTIONS: [(&[u8], &[u8], &[u8]); 4] = [
     ),
 ];
 
+/// TaystJK's server demo options (`sv_init.cpp:1056-1060`), archived even at their
+/// defaults.
+const DEMO_OPTIONS: [(&[u8], &[u8], &[u8]); 5] = [
+    (
+        b"sv_demoPreRecord",
+        b"0",
+        b"Activate server demo pre-recording so demos can be retroactively recorded for duration sv_demoPreRecordTime (seconds)",
+    ),
+    (
+        b"sv_demoPreRecordBots",
+        b"0",
+        b"Do demo pre-recording for bots as well",
+    ),
+    (
+        b"sv_demoPreRecordTime",
+        b"15",
+        b"How many seconds of past packets should be stored for server demo pre-recording?",
+    ),
+    (
+        b"sv_demoPreRecordKeyframeDistance",
+        b"5",
+        b"A demo can only start with a gamestate and full non-delta snapshot. How often should we save such a gamestate message? The shorter the distance, the more precisely the pre-record duration will be kept, but also the higher the RAM usage and regularity of non-delta frames being sent to the clients.",
+    ),
+    (
+        b"sv_demoWriteMeta",
+        b"1",
+        b"Enables writing metadata to demos, which can be set by the server/game. This is invisible to normal clients and can be used for storing information about when the demo was recorded, start of the recording, and so on.",
+    ),
+];
+
 /// `svs.hibernation`.
 #[derive(Debug)]
 pub(super) struct Hibernation {
@@ -65,6 +95,10 @@ impl NativeGame {
             CVAR_ARCHIVE,
             Some(b"Use new method of delaying commands with flood protection"),
         );
+        // `sv_init.cpp:1056-1060`: the server demos' pre-recording and metadata.
+        for (name, value, about) in DEMO_OPTIONS {
+            self.cvars.get(name, value, CVAR_ARCHIVE, Some(about));
+        }
         // `sv_init.cpp:1063`: duellists cut off from everyone else ([`super::bridge_duel_cull`]).
         self.cvars.get(
             b"sv_snapShotDuelCull",

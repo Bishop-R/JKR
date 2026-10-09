@@ -127,6 +127,8 @@ impl<G: LegacyGameHost> View<'_, G> {
         *self.heartbeat_due = true;
         *self.server_bit ^= SNAPFLAG_SERVERCOUNT;
         for (client, slot) in self.slots.iter_mut().enumerate() {
+            // TaystJK's `SV_ClearAllDemoPreRecord`: nothing kept from the old world.
+            slot.demo.clear_pre_record();
             if !matches!(
                 slot.phase,
                 LegacyClientPhase::Primed | LegacyClientPhase::Active

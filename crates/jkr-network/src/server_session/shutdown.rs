@@ -122,7 +122,7 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
                     clock.server_time,
                     *view.server_bit,
                     &mut view.settings.rates,
-                    downloads,
+                    (downloads, view.settings.demo_extras),
                     writer,
                     send,
                 );

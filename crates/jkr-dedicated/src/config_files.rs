@@ -160,6 +160,22 @@ impl ConfigFiles {
                 .is_some_and(|home| home.join("base").join(name).exists())
     }
 
+    /// `FS_Rename` of a file of the server's own in the home directory's `base`: nothing
+    /// without a home, or where either name climbs out of it or the file is missing.
+    pub fn rename_home(&self, from: &str, to: &str) {
+        let Some(home) = &self.home else { return };
+        if !stays_inside(from) || !stays_inside(to) {
+            return;
+        }
+        let base = home.join("base");
+        let target = base.join(to);
+        if let Some(parent) = target.parent()
+            && std::fs::create_dir_all(parent).is_ok()
+        {
+            let _ = std::fs::rename(base.join(from), target);
+        }
+    }
+
     /// `sv_autoDemoMaxMaps`: only the `keep` newest maps' folders of automatic demos
     /// stay in the home directory's `base/demos/autorecord`; nothing without a home.
     pub fn prune_auto_demos(&self, keep: usize) {

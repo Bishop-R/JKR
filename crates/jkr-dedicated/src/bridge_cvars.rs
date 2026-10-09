@@ -263,6 +263,16 @@ impl NativeGame {
         // TaystJK reads `sv_legacyFixes` as a mask whose bit 7 allows the broken models.
         let legacy_fixes = cvars.integer(b"sv_legacyFixes");
         settings.broken_models_fix = legacy_fixes != 0 && legacy_fixes & (1 << 7) == 0;
+        // TaystJK's demo metadata and pre-recording, its times in seconds.
+        settings.demo_extras = jkr_network::LegacyDemoExtras {
+            pre_record: cvars.integer(b"sv_demoPreRecord") != 0,
+            pre_record_bots: cvars.integer(b"sv_demoPreRecordBots") != 0,
+            pre_record_ms: cvars.integer(b"sv_demoPreRecordTime").saturating_mul(1000),
+            keyframe_ms: cvars
+                .integer(b"sv_demoPreRecordKeyframeDistance")
+                .saturating_mul(1000),
+            write_meta: cvars.integer(b"sv_demoWriteMeta") != 0,
+        };
         settings.auto_demo = jkr_network::LegacyAutoDemoSettings {
             enabled: cvars.integer(b"sv_autoDemo") != 0,
             max_maps: cvars.integer(b"sv_autoDemoMaxMaps"),

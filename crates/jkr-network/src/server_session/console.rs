@@ -161,11 +161,31 @@ impl<G: LegacyGameHost> LegacyConsoleHost for View<'_, G> {
         if !self.game.demo_open(client, path) {
             return false;
         }
-        self.slots[client].start_demo(client, name, &*self.game);
+        self.slots[client].start_demo(
+            client,
+            name,
+            &*self.game,
+            (self.settings.demo_extras, self.clock.server_time),
+        );
         true
     }
     fn stop_demo(&mut self, client: usize) {
         self.slots[client].stop_demo();
+    }
+    fn demo_name(&self, client: usize) -> Option<&[u8]> {
+        self.slots[client].demo.recording.as_deref()
+    }
+    fn set_demo_meta(&mut self, client: usize, key: &str, value: &str) {
+        self.slots[client].demo.set_meta(key, value);
+    }
+    fn clear_demo_meta(&mut self, client: usize) {
+        self.slots[client].demo.meta.clear();
+    }
+    fn clear_demo_pre_record(&mut self, client: usize) {
+        self.slots[client].demo.clear_pre_record();
+    }
+    fn rename_file(&mut self, from: &str, to: &str) {
+        self.game.rename_file(from, to);
     }
     fn file_exists(&mut self, path: &str) -> bool {
         self.game.file_exists(path)

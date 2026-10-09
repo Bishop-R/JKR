@@ -23,6 +23,7 @@ impl Slot {
         client: usize,
         game: &impl LegacyGameHost,
         now: i32,
+        extras: super::demo::LegacyDemoExtras,
     ) -> Result<(usize, Vec<u8>), LegacyGamestateError> {
         let wire = &mut self.wire;
         if wire.channel.has_pending_message() {
@@ -61,8 +62,9 @@ impl Slot {
         self.peer.gamestate_message = wire.channel.outgoing_sequence();
         let stamp = self.ping_clock.unwrap_or(now);
         super::ping::record_sent(&mut self.timings, wire.channel.outgoing_sequence(), stamp);
-        self.demo
-            .message_sent(wire.channel.outgoing_sequence(), &payload);
+        let sequence = wire.channel.outgoing_sequence();
+        self.demo_message_sent(client, game, (sequence, &payload), (extras, now));
+        let wire = &mut self.wire;
         wire.channel
             .queue_message(&payload, wire.reliable.last_client_command())?;
         if self.phase == LegacyClientPhase::Connected {

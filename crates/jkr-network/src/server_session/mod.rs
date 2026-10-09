@@ -37,6 +37,7 @@ pub use auto_demo::{
     LegacyAutoDemoSettings, LegacyDemoFolders, legacy_auto_demo_name, legacy_prune_auto_demos,
 };
 pub use bots::LegacyBotSlots;
+pub use demo::LegacyDemoExtras;
 pub use console::LegacyConsoleSettings;
 pub use download::LegacyDownloadFile;
 pub use pure::LegacyPureManifest;
@@ -153,9 +154,18 @@ pub trait LegacyGameHost {
     fn file_exists(&mut self, _path: &str) -> bool {
         false
     }
+    /// Rename one of the server's own files (`FS_Rename`); a server that keeps no files
+    /// has none to rename.
+    fn rename_file(&mut self, _from: &str, _to: &str) {}
     /// The local date and time as `SV_DemoFilename` writes it (`%Y-%m-%d_%H-%M-%S`).
     fn timestamp(&self) -> String {
         String::new()
+    }
+    /// Seconds since 1970, which a demo's metadata gives as its start (`time(NULL)`).
+    fn unix_seconds(&self) -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs() as i64)
     }
     /// A file a client asks to download (`download <name>`): only a pak the server
     /// references may be sent (`FS_MV_VerifyDownloadPath`).
@@ -269,6 +279,8 @@ pub struct LegacySessionSettings {
     pub pure: bool,
     /// `sv_autoDemo` and `sv_autoDemoMaxMaps`.
     pub auto_demo: LegacyAutoDemoSettings,
+    /// TaystJK's demo metadata and pre-recording.
+    pub demo_extras: LegacyDemoExtras,
     /// `sv_autoWhitelist`: every player that enters the world is whitelisted.
     pub auto_whitelist: bool,
     /// TaystJK's `sv_pingFix`: pings measured on the wall clock from a message's first
@@ -304,6 +316,7 @@ impl Default for LegacySessionSettings {
             allow_download: false,
             pure: false,
             auto_demo: LegacyAutoDemoSettings::default(),
+            demo_extras: LegacyDemoExtras::default(),
             auto_whitelist: true,
             ping_fix: false,
             broken_models_fix: false,

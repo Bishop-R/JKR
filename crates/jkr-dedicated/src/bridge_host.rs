@@ -256,6 +256,9 @@ impl LegacyGameHost for NativeGame {
     fn file_exists(&mut self, path: &str) -> bool {
         self.config_files.home_has(path)
     }
+    fn rename_file(&mut self, from: &str, to: &str) {
+        self.config_files.rename_home(from, to);
+    }
     fn prune_auto_demos(&mut self, keep: usize) {
         self.config_files.prune_auto_demos(keep);
     }
