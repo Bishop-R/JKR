@@ -26,11 +26,13 @@ pub(super) enum Stand {
 /// One client's ping, and whether the game is told it (`ps->ping`): 999 for a client
 /// not in the world or without an entity, 0 for a bot, otherwise the mean round trip of
 /// the acknowledged messages (a time of zero or less counts as none), truncated, at
-/// most 999 — 999 again when none was acknowledged.
+/// most 999 — 999 again when none was acknowledged. Under TaystJK's `sv_pingFix`
+/// (`ping_fix`) a human's is at least 1, as bot filters take 0 for a bot.
 pub(super) fn calc_ping(
     phase: LegacyClientPhase,
     stand: Stand,
     timings: &[MessageTiming; MESSAGE_BACKUP],
+    ping_fix: bool,
 ) -> (i32, bool) {
     if phase != LegacyClientPhase::Active || stand == Stand::Nobody {
         return (999, false);
@@ -49,6 +51,8 @@ pub(super) fn calc_ping(
     );
     if count == 0 {
         (999, true)
+    } else if ping_fix {
+        ((total / count).clamp(1, 999), true)
     } else {
         ((total / count).min(999), true)
     }
@@ -73,11 +77,29 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
             } else {
                 Stand::Player
             };
-            let (ping, told) = calc_ping(slot.phase, stand, &slot.timings);
+            let (ping, told) = calc_ping(slot.phase, stand, &slot.timings, self.settings.ping_fix);
             slot.ping = ping;
             if told {
                 self.game.client_ping(client, ping);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A round trip under a millisecond is 0 as the reference measures it, and 1 under
+    /// TaystJK's `sv_pingFix`, as bot filters read 0 as a bot.
+    #[test]
+    fn ping_fix_keeps_a_human_above_zero() {
+        let mut timings = [MessageTiming::default(); MESSAGE_BACKUP];
+        record_sent(&mut timings, 1, 500);
+        timings[1].acked = 500;
+        let active = LegacyClientPhase::Active;
+        assert_eq!(calc_ping(active, Stand::Player, &timings, false), (0, true));
+        assert_eq!(calc_ping(active, Stand::Player, &timings, true), (1, true));
+        assert_eq!(calc_ping(active, Stand::Bot, &timings, true), (0, false));
     }
 }

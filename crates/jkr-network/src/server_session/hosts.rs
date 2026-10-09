@@ -339,10 +339,16 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
                 self.view.slots[client].gamestate_due = true;
             }
             // `SV_UserMove`: "save time for ping calculation".
+            // Under TaystJK's `sv_pingFix`, the first acknowledgement, on the wall clock.
             LegacyMessageEvent::Movement(LegacyMoveEvent::Acknowledge { message, at }) => {
-                self.view.slots[client].timings
-                    [(message & (super::ping::MESSAGE_BACKUP as i32 - 1)) as usize]
-                    .acked = at;
+                let (ping_fix, wall) = (self.view.settings.ping_fix, self.view.clock.wall_time);
+                let timing = &mut self.view.slots[client].timings
+                    [(message & (super::ping::MESSAGE_BACKUP as i32 - 1)) as usize];
+                if !ping_fix {
+                    timing.acked = at;
+                } else if timing.acked == -1 {
+                    timing.acked = wall;
+                }
             }
         }
     }

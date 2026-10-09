@@ -23,12 +23,17 @@ impl LegacyGameHost for NativeGame {
         let Some(client) = place(client) else {
             return Err(b"Server is full.".to_vec());
         };
-        self.connect_client(client, userinfo, false)
+        let admitted = self.connect_client(client, userinfo, false);
+        if admitted.is_ok() {
+            self.wake_from_hibernation();
+        }
+        admitted
     }
 
     fn client_disconnect(&mut self, client: usize) {
         let Some(client) = place(client) else { return };
         self.disconnect_client(client);
+        self.note_client_left();
     }
 
     fn client_reconnect_disconnect(&mut self, client: usize) {

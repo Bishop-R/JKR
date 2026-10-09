@@ -252,6 +252,7 @@ impl NativeGame {
         settings.allow_download = cvars.integer(b"sv_allowDownload") != 0;
         settings.pure = cvars.integer(b"sv_pure") != 0;
         settings.auto_whitelist = cvars.integer(b"sv_autoWhitelist") != 0;
+        settings.ping_fix = cvars.integer(b"sv_pingFix") != 0;
         settings.auto_demo = jkr_network::LegacyAutoDemoSettings {
             enabled: cvars.integer(b"sv_autoDemo") != 0,
             max_maps: cvars.integer(b"sv_autoDemoMaxMaps"),
@@ -277,6 +278,9 @@ impl NativeGame {
     /// `SV_Frame`'s frame length: a thousand milliseconds over `sv_fps`, never below
     /// one; an `sv_fps` below 1 is set back to 10 first, as the reference repairs it.
     pub fn frame_msec(&mut self) -> i32 {
+        if let Some(msec) = self.hibernation_frame_msec() {
+            return msec;
+        }
         if self.cvars.integer(b"sv_fps") < 1 {
             self.set_cvar("sv_fps", "10");
         }

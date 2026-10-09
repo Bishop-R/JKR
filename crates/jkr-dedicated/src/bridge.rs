@@ -342,6 +342,8 @@ pub struct NativeGame {
     /// `timescale`: how fast the server's time runs ([`Self::timescale`]), kept from the
     /// cvar hook.
     timescale: f32,
+    /// TaystJK's hibernation of an empty server (`bridge_taystjk_server`).
+    hibernation: bridge_taystjk_server::Hibernation,
     /// jaPRO's `g_gunGame` (`bridge_gun_game`), kept from the cvar hook.
     gun_game: i32,
     /// Its turrets (`bridge_map_turrets`).
@@ -559,6 +561,7 @@ impl NativeGame {
             move_cvars: Default::default(),
             synchronous_clients: false,
             timescale: 1.0,
+            hibernation: Default::default(),
             gun_game: 0,
             map_turrets: Default::default(),
             stock: Default::default(),
@@ -2668,6 +2671,7 @@ impl NativeGame {
         self.siege_respawn_wave(self.previous_frame_time);
         // A duel's end in slow motion, from the same `level.time` (`g_main.c:2956`).
         self.run_slow_motion(self.previous_frame_time);
+        self.check_hibernation();
         // `CheckTournament` before `CheckExitRules` (`g_main.c:3390-3394`).
         self.check_tournament(server_time);
         self.run_match_end(server_time);
@@ -3583,6 +3587,8 @@ mod bridge_ranks;
 mod bridge_slow_motion;
 #[path = "bridge_svcmds.rs"]
 mod bridge_svcmds;
+#[path = "bridge_taystjk_server.rs"]
+mod bridge_taystjk_server;
 #[path = "bridge_toggles.rs"]
 mod bridge_toggles;
 #[path = "bridge_userinfo.rs"]

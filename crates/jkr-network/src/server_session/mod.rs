@@ -264,6 +264,9 @@ pub struct LegacySessionSettings {
     pub auto_demo: LegacyAutoDemoSettings,
     /// `sv_autoWhitelist`: every player that enters the world is whitelisted.
     pub auto_whitelist: bool,
+    /// TaystJK's `sv_pingFix`: pings measured on the wall clock from a message's first
+    /// acknowledgement, and a human's never below 1.
+    pub ping_fix: bool,
 }
 
 impl Default for LegacySessionSettings {
@@ -288,6 +291,7 @@ impl Default for LegacySessionSettings {
             pure: false,
             auto_demo: LegacyAutoDemoSettings::default(),
             auto_whitelist: true,
+            ping_fix: false,
         }
     }
 }
@@ -363,6 +367,9 @@ struct Slot {
     ping: i32,
     /// `frames[].messageSent`/`messageAcked` of the last 32 messages, by sequence.
     timings: [ping::MessageTiming; ping::MESSAGE_BACKUP],
+    /// Under `sv_pingFix`, the wall clock this frame's messages are stamped with;
+    /// otherwise the server time is.
+    ping_clock: Option<i32>,
     /// A server demo of this client (`client->demo`).
     demo: demo::DemoState,
     /// A download to this client (`client->download*`).
@@ -392,6 +399,7 @@ impl Slot {
             marks: crate::LegacyConfigStringMarks::default(),
             ping: 0,
             timings: Default::default(),
+            ping_clock: None,
             demo: Default::default(),
             download: Default::default(),
         }

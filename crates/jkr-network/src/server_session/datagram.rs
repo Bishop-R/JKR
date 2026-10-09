@@ -171,6 +171,7 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
         // fragments still under way are flushed first, then the scheduler takes over.
         let slot = &mut view.slots[client];
         if slot.gamestate_due {
+            slot.ping_clock = view.settings.ping_fix.then_some(clock.wall_time);
             let mut datagram = [0; transmit::DATAGRAM_BYTES];
             while let Ok(Some(length)) = slot.wire.channel.next_datagram(&mut datagram) {
                 send(from, &datagram[..length]);
@@ -251,6 +252,7 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
                 super::auto_demo::begin(&mut view);
             }
             let slot = &mut view.slots[client];
+            slot.ping_clock = view.settings.ping_fix.then_some(clock.wall_time);
             slot.transmit(
                 client,
                 &*view.game,

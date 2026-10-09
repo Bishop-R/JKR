@@ -138,7 +138,8 @@ impl Slot {
         let bytes = (message.bit_position() >> 3) + 1;
         message.write_u8(ServiceCommand::End as u8)?;
         self.demo.snapshot_written(sequence, delta);
-        super::ping::record_sent(&mut self.timings, sequence, server_time);
+        let stamp = self.ping_clock.unwrap_or(server_time);
+        super::ping::record_sent(&mut self.timings, sequence, stamp);
         let finished = message.finished()?;
         // "save the message to demo. this must happen before sending over network".
         self.demo.message_sent(sequence, finished);

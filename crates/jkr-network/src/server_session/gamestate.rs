@@ -59,7 +59,8 @@ impl Slot {
             .map_err(GameStateWriteError::from)?;
         let payload = message.finish().map_err(GameStateWriteError::from)?;
         self.peer.gamestate_message = wire.channel.outgoing_sequence();
-        super::ping::record_sent(&mut self.timings, wire.channel.outgoing_sequence(), now);
+        let stamp = self.ping_clock.unwrap_or(now);
+        super::ping::record_sent(&mut self.timings, wire.channel.outgoing_sequence(), stamp);
         self.demo
             .message_sent(wire.channel.outgoing_sequence(), &payload);
         wire.channel
