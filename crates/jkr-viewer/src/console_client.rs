@@ -76,6 +76,9 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "showPlayerId",
         "List the players with their teams (EternalJK's name)",
     ),
+    ("do", "Run a vstr after a delay in milliseconds (EternalJK)"),
+    ("lowjump", "Tap jump for one frame (EternalJK)"),
+    ("+duck", "Crouch without rolling (EternalJK)"),
     ("briefing", "Show your side's Siege objectives"),
     ("cmd", "Forward arguments as a reliable server command"),
     (
@@ -352,6 +355,7 @@ impl crate::GpuState {
             "remapshader" | "listremaps" => return self.remap_command(&name, args),
             "tell_target" | "tell_attacker" | "tcmd" => return self.aimed_command(&name, args),
             "clientlist" | "showplayerid" => return self.client_list(),
+            "do" | "lowjump" | "+duck" | "-duck" => return self.deferred_command(&name, args),
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,

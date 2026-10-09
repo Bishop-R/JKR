@@ -11,6 +11,7 @@ impl ViewerConsole {
     }
     pub(crate) fn advance_command_frame(&mut self) {
         self.shell.advance_command_frame();
+        self.run_deferred(std::time::Instant::now());
     }
     pub(crate) fn take_quit(&mut self) -> bool {
         std::mem::take(&mut self.pending_quit)

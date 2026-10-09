@@ -18,6 +18,8 @@ pub(crate) mod clipboard;
 mod console_connect;
 #[path = "console_cvars.rs"]
 mod console_cvars;
+#[path = "console_deferred.rs"]
+mod deferred;
 #[path = "demo_director.rs"]
 pub(crate) mod director;
 #[path = "console_qcommon.rs"]
@@ -105,6 +107,8 @@ pub(crate) struct ViewerConsole {
     flag_alpha: console_cvars::FloatSetting,
     /// When `cg_autoKillWhenFalling` last asked to die (`cg.lastAutoKillTime`).
     last_auto_kill: Option<std::time::Instant>,
+    /// EternalJK's deferred script and when it runs (`cg.doVstr`, `cg.doVstrTime`).
+    deferred: Option<(String, std::time::Instant)>,
     draw_fog: console_cvars::IntegerSetting,
     remaps: console_cvars::IntegerSetting,
     packet_dup: console_cvars::IntegerSetting,

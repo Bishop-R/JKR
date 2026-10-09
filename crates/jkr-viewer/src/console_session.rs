@@ -269,6 +269,7 @@ impl ViewerConsole {
             gun_alpha,
             flag_alpha,
             last_auto_kill: None,
+            deferred: None,
             draw_fog,
             remaps,
             packet_dup,
