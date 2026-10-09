@@ -140,7 +140,8 @@ impl NativeGame {
     /// puts the spectator (`MASK_PLAYERSOLID`, nobody in the way), it is moved there with
     /// its angles and speed kept (`TeleportPlayer` with `doorangles`).
     fn pass_spectator(&mut self, client: usize, to: [f32; 3]) {
-        const MASK_PLAYERSOLID: u32 = 0x1 | 0x100 | 0x10000;
+        // `CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_BODY | CONTENTS_TERRAIN`.
+        const MASK_PLAYERSOLID: u32 = 0x1 | 0x10 | 0x100 | 0x1000;
         self.gather_obstacles(client);
         let fits = match self.map.as_ref() {
             Some(map) => {

@@ -15,8 +15,9 @@ use jkr_protocol::EntityState;
 
 /// `CONTENTS_CORPSE`: what a body is to a trace.
 pub const CONTENTS_CORPSE: u32 = 0x200;
-/// A body's `clipmask`: `CONTENTS_SOLID | CONTENTS_PLAYERCLIP`.
-pub const CLIP_MASK: u32 = 0x1 | 0x1_0000;
+/// A body's `clipmask`: `CONTENTS_SOLID | CONTENTS_PLAYERCLIP` (`g_client.c:1140`; Jedi
+/// Academy's player clip is `0x10`).
+pub const CLIP_MASK: u32 = 0x1 | 0x10;
 /// `GIB_HEALTH`.
 const GIB_HEALTH: i32 = -40;
 /// `BODY_SINK_TIME`: when `BodySink` first runs and takes `takedamage` away — stock's

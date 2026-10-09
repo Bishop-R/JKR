@@ -142,7 +142,8 @@ fn rocket_lock(
     collision: &dyn crate::pmove::MovementCollision,
 ) {
     const LOCK_DISTANCE: f32 = 2_048.0;
-    const MASK_PLAYERSOLID: u32 = 0x1 | 0x100 | 0x10000;
+    // `CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_BODY | CONTENTS_TERRAIN`.
+    const MASK_PLAYERSOLID: u32 = 0x1 | 0x10 | 0x100 | 0x1000;
     const MUZZLE: [f32; 3] = [12.0, 8.0, -4.0];
     const ENTITY_NONE: u16 = 1_023;
     let (forward, right) = crate::pmove::flight::flight_axes(state.view_angles);
