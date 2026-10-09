@@ -188,7 +188,11 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         if npc.mind.attack_hold_time == 0 {
             npc.mind.last_command.buttons &= !(BUTTON_ATTACK | BUTTON_ALT_ATTACK);
         }
-        // `NPC_CheckAttackScript`: no attack script. `NPC_KeepCurrentFacing`.
+        // `NPC_CheckAttackScript`: firing, its attack script runs. `NPC_KeepCurrentFacing`.
+        if command.buttons & BUTTON_ATTACK != 0 {
+            let _ = self.activate_behavior(me, crate::script_entity::BSET_ATTACK);
+        }
+        let npc = &self.actors[me];
         let view = npc.player.view_angles();
         let delta = npc.player.delta_angles();
         for axis in [1, 0] {

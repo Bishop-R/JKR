@@ -9,14 +9,16 @@
 //! The pain functions of the classes with their own — Jedi (a saber carrier), seekers,
 //! remotes, mine monsters, howlers, droids, probes, sentries, Mark I and II, the AT-ST,
 //! Galak's mech, the rancor and the wampa — are their AI's (the NPC plan's steps 6–8):
-//! [`NpcHost::stub`] names them. Nothing runs scripts (`G_ActivateBehavior`'s
-//! `BSET_PAIN`, `BSET_FLEE`, `BSET_FFIRE`), and no NPC is gripped by the Force yet.
+//! [`NpcHost::stub`] names them. Its scripts run as the reference's do
+//! (`G_ActivateBehavior`'s `BSET_PAIN`, `BSET_FLEE`, `BSET_FFIRE`), and no NPC is gripped by
+//! the Force yet.
 //!
 //! Held to `tools/game-oracle/npccombat.c` (`game-npccombat.txt`).
 
 use crate::npc_spawn::{NpcActor, NpcHost};
 use crate::npc_world::NpcWorld;
 use crate::pmove_anim::{SETANIM_BOTH, SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE, SETANIM_LEGS};
+use crate::script_entity::{BSET_FFIRE, BSET_FLEE, BSET_PAIN};
 
 /// The pain function an NPC was given (`ent->pain`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -262,7 +264,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             && other.enemy != Some(npc.number)
         {
             if npc.mind.enemy.is_some() || other.enemy.is_some() {
-                // An accident in a fight: a flinch, maybe a word of warning.
+                // An accident in a fight: its pain scripts, a flinch, maybe a word of warning.
+                self.pain_scripts(me);
                 if damage != -1 {
                     let warn = self.host.irand(0, 1) != 0;
                     self.choose_pain_animation(
@@ -292,12 +295,17 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                     }
                     return;
                 }
-                // Enough: the ally turns on the player (no friendly-fire script).
+                // Enough: a friendly-fire script runs instead, or the ally turns on the
+                // player.
+                if self.activate_behavior(me, BSET_FFIRE) {
+                    return;
+                }
                 voice = EV_FFTURN;
                 self.turn_on(me, other_number);
             }
         }
         self.flinch_unless_ignoring(me, Some(other_number), damage, means, voice);
+        self.pain_scripts(me);
         // `paintarget` (`G_UseTargets2(self, other, paintarget)`): fired by the roster's caller.
         if let Some(target) = self.actors[me]
             .pain_target
@@ -305,6 +313,16 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             .filter(|target| !target.is_empty())
         {
             self.fired.push(target);
+        }
+    }
+
+    /// "Attempt to run any pain instructions" (`NPC_reactions.c:427-434`, `:522-532`): hurt
+    /// to a third of its most health, its flee script if it has one, else its pain script.
+    fn pain_scripts(&mut self, me: usize) {
+        let npc = &self.actors[me];
+        let third = npc.player.stats[STAT_MAX_HEALTH] as i32 / 3;
+        if !(npc.health <= third && self.activate_behavior(me, BSET_FLEE)) {
+            let _ = self.activate_behavior(me, BSET_PAIN);
         }
     }
 

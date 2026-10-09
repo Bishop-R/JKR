@@ -27,6 +27,9 @@ pub(super) type Skeleton = (Option<Arc<dyn AnimationLengths>>, bool);
 pub(super) enum NpcOutcome {
     /// `AddScore` on a player.
     PlayerScore(u16, i32),
+    /// `ICARUS_RunScript` for the script NPC `.0`'s behaviour set `.1` names
+    /// (`G_ActivateBehavior`), started with the NPCs' scripts this frame.
+    RunBehavior(u16, usize),
     /// A player's kill of an NPC: the stun baton's count and the excellent award.
     CreditKill(u16, u32),
     /// A player's kill of an NPC, for the statistics log.
@@ -675,6 +678,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn clear_player_notarget(&mut self, player: u16) {
         self.outcomes.push(NpcOutcome::ClearPlayerNotarget(player));
+    }
+
+    fn run_behavior(&mut self, number: u16, bset: usize) {
+        self.outcomes.push(NpcOutcome::RunBehavior(number, bset));
     }
 
     fn humanoid_animations(&mut self) -> Option<Arc<dyn AnimationLengths>> {

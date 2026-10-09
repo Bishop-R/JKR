@@ -9,8 +9,11 @@
 //! The sets on an NPC's behaviour states apply through the roster (`Q3_SetBState`,
 //! `Q3_SetTempBState`, `Q3_SetDefaultBState`, and `G_ActivateBehavior` of a set naming a
 //! state), and `remove` frees it; its other sets, client actions and `kill` are reported
-//! once a level and complete at once. An NPC without a spawn script is no script entity,
-//! so no script reaches it by name — none of the stock maps' scripts names an NPC.
+//! once a level and complete at once. An NPC whose AI activates one of its behaviour sets
+//! (`G_ActivateBehavior`: its pain, death, anger script ...) becomes one then, and the
+//! script starts with the NPCs' scripts that frame. Before that an NPC without a spawn
+//! script is no script entity, so no script reaches it by name — none of the stock maps'
+//! scripts names an NPC.
 
 use super::bridge_icarus::ScriptOwner;
 use super::*;
@@ -26,24 +29,9 @@ impl NativeGame {
     /// with the spawner's spawn script; its sequencer (any an earlier NPC of that number
     /// left freed first, as `G_InitGentity` does); the script started and given a turn.
     pub(super) fn npc_spawn_script(&mut self, number: u16) {
-        let Some(npc) = self
-            .npcs
-            .roster
-            .actors
-            .iter()
-            .find(|npc| npc.number == number)
-        else {
+        let Some(ent) = self.npc_as_script_entity(number) else {
             return;
         };
-        let text = |bytes: &Option<Vec<u8>>| {
-            bytes
-                .as_deref()
-                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
-        };
-        let name = text(&npc.targetname);
-        let mut ent = ScriptEntity::new("NPC", EntityKind::Npc, npc.current_origin, [0.0; 3]);
-        (ent.targetname, ent.script_targetname) = (name.clone(), name);
-        ent.behavior_sets[BSET_SPAWN] = text(&npc.spawn_script);
         self.with_scripts(|world, icarus| {
             let owner = ScriptOwner::Npc(number);
             if world.entity(owner).is_some() {
@@ -66,6 +54,7 @@ impl NativeGame {
     /// scripts of an NPC that is gone go with it. A script's `remove` (`Q3_RemoveEnt`:
     /// `G_FreeEntity` for the NPC's think, a tenth of a second on) becomes the NPC's think.
     pub(super) fn run_npc_scripts(&mut self) {
+        self.run_npc_behaviors();
         if self.scripts.npcs.is_empty() {
             return;
         }
@@ -94,6 +83,55 @@ impl NativeGame {
                 }
             }
         });
+    }
+
+    /// NPC `number` as a script entity: named as the NPC (`NPC_targetname`), with every
+    /// behaviour set it has.
+    fn npc_as_script_entity(&self, number: u16) -> Option<ScriptEntity<ScriptOwner>> {
+        let npc = self
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == number)?;
+        let text = |bytes: &Option<Vec<u8>>| {
+            bytes
+                .as_deref()
+                .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+        };
+        let name = text(&npc.targetname);
+        let mut ent = ScriptEntity::new("NPC", EntityKind::Npc, npc.current_origin, [0.0; 3]);
+        (ent.targetname, ent.script_targetname) = (name.clone(), name);
+        for (set, script) in npc.behavior_sets.iter().enumerate() {
+            ent.behavior_sets[set] = text(script);
+        }
+        Some(ent)
+    }
+
+    /// The scripts of the behaviour sets the NPCs activated (`G_ActivateBehavior`'s
+    /// `ICARUS_RunScript`), started before the NPCs' scripts take their turn: an NPC not yet
+    /// a script entity becomes one (`ICARUS_InitEnt`); one already gone is passed over.
+    fn run_npc_behaviors(&mut self) {
+        for (number, bset) in std::mem::take(&mut self.npcs.behaviors) {
+            let known = self.scripts.npcs.iter().any(|(known, _)| *known == number);
+            let fresh = if known {
+                None
+            } else {
+                let Some(ent) = self.npc_as_script_entity(number) else {
+                    continue;
+                };
+
+                Some(ent)
+            };
+            self.with_scripts(|world, icarus| {
+                let owner = ScriptOwner::Npc(number);
+                if let Some(ent) = fresh {
+                    world.game.scripts.npcs.push((number, ent));
+                    script_runner::init_entity(world, icarus, owner);
+                }
+                let _ = script_runner::activate_behavior(world, icarus, owner, bset);
+            });
+        }
     }
 
     /// A script's `action` on the NPC numbered `number`: whether its task completes at

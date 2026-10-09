@@ -406,10 +406,15 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         true
     }
 
-    /// `NPC_Blocked` (`g_nav.c:87-125`): an enemy in the way taken on; anyone else
-    /// complained of (no voice in multiplayer) at most every 4–8 s.
+    /// `NPC_Blocked` (`g_nav.c:87-125`): its blocked script if it has one; else an enemy in
+    /// the way taken on, anyone else complained of (no voice in multiplayer) at most every
+    /// 4–8 s.
     pub(crate) fn npc_blocked(&mut self, me: usize, blocker: &Body) {
         if self.actors[me].mind.blocked_speech_until > self.level_time {
+            return;
+        }
+        // A blocked script runs instead.
+        if self.activate_behavior(me, crate::script_entity::BSET_BLOCKED) {
             return;
         }
         if blocker.player_team == self.actors[me].enemy_team {

@@ -270,7 +270,7 @@ impl NativeGame {
             if !jkr_game_jka::bot_routes::spawns_in(entity, self.gametype) {
                 continue;
             }
-            // An NPC spawner's spawn script is its NPCs' (`bridge_script_npcs`).
+            // An NPC spawner's behaviour sets are its NPCs' (`bridge_script_npcs`).
             let spawner = entity
                 .classname()
                 .and_then(|class| class.get(..4))
@@ -279,10 +279,10 @@ impl NativeGame {
                 spawned.push(self.scripts.slots.len() as u32);
                 self.scripts.slots.push(Some(slot));
             } else if entity.get("script_targetname").is_some()
-                || jkr_game_jka::script_entity::BSET_KEYS
-                    .iter()
-                    .filter(|(key, _)| !(spawner && *key == "spawnscript"))
-                    .any(|(key, _)| entity.get(key).is_some())
+                || (!spawner
+                    && jkr_game_jka::script_entity::BSET_KEYS
+                        .iter()
+                        .any(|(key, _)| entity.get(key).is_some()))
             {
                 let class = entity.classname().unwrap_or_default().to_owned();
                 let name = entity

@@ -31,6 +31,9 @@ const NPCTEAM_PLAYER: i32 = 2;
 pub(super) struct Npcs {
     /// The spawners and the NPCs.
     pub(super) roster: NpcRoster,
+    /// The behaviour sets the NPCs activated whose scripts start with the NPCs' scripts
+    /// this frame (`G_ActivateBehavior`'s `ICARUS_RunScript`).
+    pub(super) behaviors: Vec<(u16, usize)>,
     /// The players as the NPCs' senses read them, gathered for each run of the roster (the
     /// buffer kept from frame to frame).
     sights: Vec<jkr_game_jka::npc_senses::Body>,

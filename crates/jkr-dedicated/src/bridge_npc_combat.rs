@@ -418,6 +418,7 @@ impl NativeGame {
         for outcome in outcomes {
             match outcome {
                 NpcOutcome::Log(line) => self.log(&line),
+                NpcOutcome::RunBehavior(number, bset) => self.npcs.behaviors.push((number, bset)),
                 NpcOutcome::TallyKill(player, means) => self.tally_kill(Some(player), means),
                 // `AddScore` is held off during the warmup.
                 NpcOutcome::PlayerScore(..) | NpcOutcome::NpcScored(..) if !self.scoring() => {}

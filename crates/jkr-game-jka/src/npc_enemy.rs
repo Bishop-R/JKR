@@ -432,8 +432,11 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         if self.actors[me].player_team == NPCTEAM_PLAYER && enemy < 32 {
             self.actors[me].enemy_team = NPCTEAM_PLAYER;
         }
-        // No anger script (`G_ActivateBehavior(BSET_ANGER)`): the anger is voiced.
-        if self.actors[me].player_team != target.player_team && !self.team_has_enemy(me) {
+        // An anger script runs instead of the yell (`G_ActivateBehavior(BSET_ANGER)`).
+        if !self.activate_behavior(me, crate::script_entity::BSET_ANGER)
+            && self.actors[me].player_team != target.player_team
+            && !self.team_has_enemy(me)
+        {
             let event = self.host.irand(EV_ANGER1, EV_ANGER3);
             self.add_voice(me, event, 2_000);
         }

@@ -101,6 +101,30 @@ impl NpcRoster {
 }
 
 impl<H: NpcHost> NpcWorld<'_, H> {
+    /// `G_ActivateBehavior(NPC, bset)` (`NPC_utils.c:873-900`) from the NPC's own doing:
+    /// whether it has that set. A set naming a behaviour state takes it at once; a script
+    /// is the host's to start this frame (`ICARUS_RunScript`, [`NpcHost::run_behavior`]).
+    pub(crate) fn activate_behavior(&mut self, me: usize, bset: usize) -> bool {
+        let npc = &mut self.actors[me];
+        let Some(name) = npc.behavior_sets[bset]
+            .as_deref()
+            .filter(|name| !name.is_empty())
+        else {
+            return false;
+        };
+        match behavior_state_named(&String::from_utf8_lossy(name)) {
+            Some(state) => {
+                npc.mind.temp_behavior = bstate::DEFAULT;
+                npc.behavior_state = state;
+            }
+            None => {
+                let number = npc.number;
+                self.host.run_behavior(number, bset);
+            }
+        }
+        true
+    }
+
     /// `Q3_SetBState` (`g_ICARUScb.c:2599-2713`), a script's `SET_BEHAVIOR_STATE` of `state`
     /// (`None` for a name `BSTable` lacks, which changes only the flags): a search or a
     /// wander started from the NPC's waypoint (none found: nothing changes); the temporary
@@ -146,10 +170,12 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         state != Some(bstate::ADVANCE_FIGHT)
     }
 
-    /// `NPC_BSSleep` (`NPC_behavior.c:518-539`): an alert noticed would run its wake-up
-    /// script (`BSET_AWAKE`); none runs, and it sleeps on.
+    /// `NPC_BSSleep` (`NPC_behavior.c:518-539`): an alert noticed runs its wake-up script
+    /// (`BSET_AWAKE`); without one it sleeps on.
     pub fn bs_sleep(&mut self, me: usize) {
-        let _ = self.check_alerts(me, -1, false, AEL_MINOR);
+        if self.check_alerts(me, -1, false, AEL_MINOR).is_some() {
+            let _ = self.activate_behavior(me, crate::script_entity::BSET_AWAKE);
+        }
     }
 
     /// `NPC_BSJump` (`NPC_behavior.c:749-939`): facing the goal it crouches, then leaps

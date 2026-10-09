@@ -97,6 +97,9 @@ pub enum NpcThink {
     RemoveBody(i32),
 }
 
+/// `behaviorSet[NUM_BSETS]`: a script name (or behaviour state) per behaviour set.
+pub type BehaviorSets = [Option<Vec<u8>>; crate::script_entity::NUM_BSETS];
+
 /// An NPC: the reference's `gentity_t` with its `gNPC_t` and fake `gclient_t`, as far as
 /// the spawn writes them.
 #[derive(Clone, Debug)]
@@ -168,8 +171,9 @@ pub struct NpcActor {
     /// `ent->message`: a key it carries. `ent->fullName`.
     pub message: Option<Vec<u8>>,
     pub full_name: Option<Vec<u8>>,
-    /// `behaviorSet[BSET_SPAWN]`: the ICARUS script it would run once begun.
-    pub spawn_script: Option<Vec<u8>>,
+    /// `behaviorSet`: the ICARUS script of each behaviour set (`BSET_SPAWN` runs once
+    /// begun, `BSET_DEATH` as it dies, ...) — or the name of a behaviour state to take.
+    pub behavior_sets: BehaviorSets,
     /// `alliedTeam`, `teamnodmg`.
     pub allied_team: i32,
     pub team_no_damage: i32,
@@ -1044,6 +1048,9 @@ pub trait NpcHost: SaberParseHost {
     fn set_player_enemy(&mut self, _player: u16, _enemy: Option<u16>) {}
     /// `other->flags &= ~FL_NOTARGET` for a player an ally turns on.
     fn clear_player_notarget(&mut self, _player: u16) {}
+    /// `ICARUS_RunScript` for the script NPC `number`'s behaviour set `bset` names
+    /// (`G_ActivateBehavior`), started this frame after the NPCs' own turn.
+    fn run_behavior(&mut self, _number: u16, _bset: usize) {}
     /// The humanoid skeleton's animation lengths (`bgHumanoidAnimations`), whose frame
     /// times a pain animation's length is taken at.
     fn humanoid_animations(
@@ -1454,7 +1461,7 @@ fn actor(
         open_target: spawner.open_target.clone(),
         message: spawner.message.clone(),
         full_name: (!spawner.full_name.is_empty()).then(|| spawner.full_name.clone()),
-        spawn_script: spawner.spawn_script.clone(),
+        behavior_sets: spawner.behavior_sets.clone(),
         allied_team: spawner.allied_team,
         team_no_damage: spawner.team_no_damage,
         think: NpcThink::Begin(level_time + FRAMETIME),

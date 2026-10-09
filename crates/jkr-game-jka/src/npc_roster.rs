@@ -529,8 +529,7 @@ impl NpcRoster {
                     // Its spawn script runs before its first think (`NPC_spawn.c:1161-1165`):
                     // the begin stops for the caller to run it, and its rest is due next.
                     Begun::Begun
-                        if self.actors[at]
-                            .spawn_script
+                        if self.actors[at].behavior_sets[crate::script_entity::BSET_SPAWN]
                             .as_deref()
                             .is_some_and(|script| !script.is_empty()) =>
                     {
