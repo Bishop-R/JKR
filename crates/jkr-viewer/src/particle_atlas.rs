@@ -60,6 +60,7 @@ pub(crate) fn create(
     }
     let requested_shaders = EFFECT_SHADERS
         .iter()
+        .chain(&crate::actor_pose::sounds::footprints::SHADERS)
         .map(|shader| (*shader).to_owned())
         .chain(required_effect_shaders.iter().cloned())
         .collect::<BTreeSet<_>>();

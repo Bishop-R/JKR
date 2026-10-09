@@ -69,9 +69,13 @@ pub(super) const VIDEO: &[Setting] = &[
         },
     },
     Setting {
-        label: "Impact marks",
+        label: "Impact marks (0 off/1 on/2 decals)",
         cvar: "cg_marks",
-        kind: ValueKind::Bool,
+        kind: ValueKind::Integer {
+            min: 0,
+            max: 2,
+            step: 1,
+        },
     },
     Setting {
         label: "Player shadows",
@@ -141,9 +145,13 @@ pub(super) const AUDIO: &[Setting] = &[
         kind: ValueKind::Bool,
     },
     Setting {
-        label: "Footsteps",
+        label: "Footsteps (0 off/1 sound/2 dust/3 prints)",
         cvar: "cg_footsteps",
-        kind: ValueKind::Bool,
+        kind: ValueKind::Integer {
+            min: 0,
+            max: 3,
+            step: 1,
+        },
     },
 ];
 pub(super) const HUD_OPTIONS: &[Setting] = &[

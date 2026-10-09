@@ -29,7 +29,7 @@ impl GpuState {
         // cg_shadows 1, cg_drawGun 1.
         self.effect_aux
             .decals
-            .set_marks_enabled(console.bool_cvar("cg_marks").unwrap_or(true));
+            .set_marks(console.integer_cvar("cg_marks").unwrap_or(1));
         self.effect_aux.saber_contacts.enabled =
             console.bool_cvar("cg_saberContact").unwrap_or(true);
         self.effect_aux.saber_contacts.compensation.enabled = console
@@ -42,6 +42,7 @@ impl GpuState {
             flesh_sparks: console.integer_cvar("cg_fleshSparks").unwrap_or(7),
             no_fx: console.integer_cvar("cg_noFX").unwrap_or(0),
             drain_fx: console.integer_cvar("cg_drainFX").unwrap_or(2),
+            footsteps: console.integer_cvar("cg_footsteps").unwrap_or(3),
         };
         let no_fx = self.effect_aux.options.no_fx;
         self.first_person_view

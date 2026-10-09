@@ -127,8 +127,9 @@ impl GameAudio {
             .update(self.clock.elapsed().as_millis() as i64);
         self.set_gains(effects, music * held);
         self.footsteps = console
-            .and_then(|console| console.bool_cvar("cg_footsteps"))
-            .unwrap_or(true);
+            .and_then(|console| console.integer_cvar("cg_footsteps"))
+            .unwrap_or(3)
+            != 0;
         self.output.send(AudioCommand::Doppler(
             console
                 .and_then(|console| console.bool_cvar("s_doppler"))

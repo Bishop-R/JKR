@@ -173,10 +173,44 @@ pub fn material(flags: u32) -> usize {
     }
 }
 
+/// The dust `_PlayerFootStep` raises from a [`material`] family's ground
+/// (`cgs.effects.footstep*`): mud, sand for dirt and sand, snow, gravel.
+pub fn effect(family: usize) -> Option<&'static str> {
+    match family {
+        1 => Some("materials/mud"),
+        2 | 3 => Some("materials/sand"),
+        4 => Some("materials/snow"),
+        8 => Some("materials/gravel"),
+        _ => None,
+    }
+}
+
+/// Whether a [`material`] family's ground keeps a footprint: mud, dirt, sand and snow.
+pub fn takes_print(family: usize) -> bool {
+    (1..=4).contains(&family)
+}
+
 /// NPC classes whose cgame footstep routine deliberately remains silent.
 pub fn allowed_class(class: u8) -> bool {
     !matches!(
         class,
         1 | 4 | 7 | 8 | 10 | 16 | 30 | 32 | 34 | 35 | 39 | 41 | 42 | 45
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn soft_ground_raises_dust_and_keeps_prints() {
+        // MATERIAL_DIRT (7) raises sand, MATERIAL_GRAVEL (9) dust without a print,
+        // MATERIAL_CONCRETE (11) neither.
+        assert_eq!(effect(material(7)), Some("materials/sand"));
+        assert!(takes_print(material(7)) && takes_print(material(14)));
+        assert_eq!(effect(material(9)), Some("materials/gravel"));
+        assert!(!takes_print(material(9)));
+        assert_eq!(effect(material(11)), None);
+        assert!(!takes_print(material(11)));
+    }
 }

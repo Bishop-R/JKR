@@ -21,6 +21,9 @@
 //!
 //! Marks on models (`actor_marks`) are this frame's polys too, laid by the
 //! renderer's gore pass rather than cgame; each draws every stage of its shader.
+//!
+//! Marks cgame keeps itself (`CG_ImpactMark(..., temporary = qfalse)`, the
+//! footprints) live in `cgame_marks` under `cg_marks 1` and in the rings under 2.
 
 use super::*;
 use crate::decal_marks::{DecalRequest, DecalScratch, DecalSurfaces, DecalVertex};
@@ -124,7 +127,8 @@ pub(crate) struct DecalStore {
     scratch: DecalScratch,
     epoch: Instant,
     /// `cg_marks`; temporary marks bypass it.
-    marks_enabled: bool,
+    marks: i64,
+    cgame: cgame_marks::CgameMarks,
 }
 
 impl Default for DecalStore {
@@ -139,27 +143,45 @@ impl Default for DecalStore {
             dropped_model_marks: 0,
             scratch: DecalScratch::default(),
             epoch: Instant::now(),
-            marks_enabled: true,
+            marks: 1,
+            cgame: cgame_marks::CgameMarks::default(),
         }
     }
 }
 
 impl DecalStore {
-    /// `cg_marks 0`: `CG_ImpactMark` returns before queueing
-    /// (`codemp/cgame/cg_marks.c:146`); temporary marks (shadows) are unaffected.
-    pub(crate) fn set_marks_enabled(&mut self, enabled: bool) {
-        self.marks_enabled = enabled;
+    /// `cg_marks`: at 0 `CG_ImpactMark` returns before queueing and cgame draws none of
+    /// its marks, at 2 its marks go to the renderer's decals, otherwise to its own list
+    /// (`codemp/cgame/cg_marks.c:146-155,247`). Temporary marks (shadows) are
+    /// unaffected. Stock's 0 leaves the effects' decals to `r_markcount`; JKR's 0
+    /// removes those as well, which is what the menu's "Wall marks: Off" promises.
+    pub(crate) fn set_marks(&mut self, marks: i64) {
+        self.marks = marks;
     }
 
-    /// Queue a mark for the next projection pass.
+    /// Queue a mark for the next projection pass (`RE_AddDecalToScene`).
     pub(crate) fn request(&mut self, request: DecalRequest) {
-        if !self.marks_enabled {
+        if self.marks == 0 {
             return;
         }
         if self.pending.len() < self.pending.capacity() {
             self.pending.push(request);
         } else {
             self.dropped_requests += 1;
+        }
+    }
+
+    /// Queue a mark cgame keeps (`CG_ImpactMark` with `temporary` false); `alpha_fade`
+    /// fades it by alpha rather than by colour in cgame's own list.
+    pub(crate) fn request_cgame(&mut self, request: DecalRequest, alpha_fade: bool) {
+        match self.marks {
+            0 => {}
+            2 => self.request(request),
+            _ => {
+                if !self.cgame.request(request, alpha_fade) {
+                    self.dropped_requests += 1;
+                }
+            }
         }
     }
 
@@ -174,7 +196,10 @@ impl DecalStore {
 
     /// Whether any poly would be emitted this frame.
     pub(crate) fn has_polys(&self) -> bool {
-        self.live_count() != (0, 0) || !self.temporary.is_empty() || !self.model_marks.is_empty()
+        self.live_count() != (0, 0)
+            || !self.temporary.is_empty()
+            || !self.model_marks.is_empty()
+            || !self.cgame.is_empty()
     }
 
     /// Forget last frame's marks on models, before this frame's are added.
@@ -233,6 +258,9 @@ impl DecalStore {
             });
         }
         self.pending.clear();
+        stored += self
+            .cgame
+            .project_pending(world, bsp, &mut self.scratch, time, &slot_of);
         self.temporary.clear();
         for index in 0..self.pending_temporary.len() {
             let request = self.pending_temporary[index].clone();
@@ -273,6 +301,7 @@ impl DecalStore {
                 }
             }
         }
+        self.cgame.emit(time, self.marks != 0, &mut draw);
         for poly in self.temporary.iter().chain(&self.model_marks) {
             draw(DecalDraw {
                 shader: &poly.shader,
@@ -364,5 +393,7 @@ fn free(rings: &mut [DecalRing; 2], ring: Ring, index: usize, time: u32) {
     state.total -= 1;
 }
 
+#[path = "decal_cgame_marks.rs"]
+mod cgame_marks;
 #[path = "saber_cut_marks.rs"]
 pub(crate) mod saber_cuts;

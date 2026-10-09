@@ -486,7 +486,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Retail sample-rate preset (11/22/44); JKR always mixes at 44.1 kHz",
         ),
         CvarDefinition::new("s_doppler", true, archive, "Legacy looping-sound Doppler"),
-        CvarDefinition::new("cg_footsteps", true, archive, "Play footstep sounds"),
+        CvarDefinition::new(
+            "cg_footsteps",
+            3_i64,
+            archive,
+            "Footsteps: 0 off, 1 sounds, 2 and dust, 3 and prints, 4 prints everywhere",
+        ),
         // Stock defaults and units: `sensitivity` 5 scaling `m_yaw`/`m_pitch`
         // degrees per mouse count (`cl_main.cpp:2774,2802-2803`, applied in
         // `cl_input.cpp:1161-1180`). Matching them is what lets a player carry
@@ -520,7 +525,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Saber contact marks and sparks",
         ),
-        CvarDefinition::new("cg_marks", true, archive, "Leave impact marks on the world"),
+        CvarDefinition::new(
+            "cg_marks",
+            1_i64,
+            archive,
+            "Marks on the world: 0 none, 1 stock's, 2 footprints as decals",
+        ),
         // EternalJK's effect options, stock's behaviour at their defaults.
         CvarDefinition::new("cg_saberClash", true, archive, "Flare where sabers clash"),
         CvarDefinition::new(
@@ -739,6 +749,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             0_i64,
             archive,
             "Internal stock-bind migration version",
+        ),
+        CvarDefinition::new(
+            "jkr_footstepLevelsVersion",
+            0_i64,
+            archive,
+            "Internal migration marker for cg_footsteps becoming stock's levels",
         ),
     ];
     for definition in definitions {

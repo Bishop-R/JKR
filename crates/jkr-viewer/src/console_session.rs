@@ -251,6 +251,23 @@ impl ViewerConsole {
             keybind_editor::migrate_missing_defaults(&mut shell.binds);
             let _ = shell.cvars.set_text("jkr_bindDefaultsVersion", "1");
         }
+        // `cg_footsteps` was a switch, saved on as 1, which stock's levels read as
+        // sounds only; an old "on" becomes stock's default, 3.
+        if matches!(
+            shell
+                .cvars
+                .get("jkr_footstepLevelsVersion")
+                .map(|cvar| &cvar.value),
+            Some(CvarValue::Integer(0))
+        ) {
+            if matches!(
+                shell.cvars.get("cg_footsteps").map(|cvar| &cvar.value),
+                Some(CvarValue::Integer(1))
+            ) {
+                let _ = shell.cvars.set_text("cg_footsteps", "3");
+            }
+            let _ = shell.cvars.set_text("jkr_footstepLevelsVersion", "1");
+        }
         shell.push_log("^5JKR console ready. ^7Type cmdlist for commands.");
         Ok(Self {
             shell,

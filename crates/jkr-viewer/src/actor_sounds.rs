@@ -5,6 +5,8 @@ use jkr_client::animation_events::{Cue, Cursor, footsteps};
 
 #[path = "actor_event_effects.rs"]
 mod effects;
+#[path = "actor_footprints.rs"]
+pub(crate) mod footprints;
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -150,10 +152,8 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
                     audio.play_animation(path, *channel, false, origin, id, is_local);
                 }
                 Cue::Footstep { right, heavy } => {
-                    let Some(audio) = audio.as_mut() else {
-                        return;
-                    };
-                    if !footsteps::allowed_class(footstep_class) {
+                    let level = gpu.effect_aux.options.footsteps;
+                    if level == 0 || !footsteps::allowed_class(footstep_class) {
                         return;
                     }
                     let bolt = if *right { "*r_leg_foot" } else { "*l_leg_foot" };
@@ -172,10 +172,48 @@ pub(crate) fn update(gpu: &mut GpuState, time: i64, audio: &mut Option<GameAudio
                         jkr_bsp::Aabb::new([-7.0, -7.0, 0.0], [7.0, 7.0, 2.0]).unwrap(),
                         0x1111,
                     );
-                    if trace.fraction < 1.0 {
-                        let path = footsteps::PATHS[footsteps::material(trace.surface_flags)]
-                            [usize::from(*heavy)][variant % 4];
+                    if trace.fraction >= 1.0 {
+                        return;
+                    }
+                    let family = footsteps::material(trace.surface_flags);
+                    if let Some(audio) = audio.as_mut() {
+                        let path = footsteps::PATHS[family][usize::from(*heavy)][variant % 4];
                         audio.play_animation(path, 6, true, origin, id, is_local);
+                    }
+                    let step = footprints::Step {
+                        level,
+                        family,
+                        right: *right,
+                        heavy: *heavy,
+                        ground: Vec3::from_array(trace.end_position),
+                        normal: trace.plane.map(|plane| Vec3::from_array(plane.normal)),
+                        yaw: mesh.render_yaw_degrees.unwrap_or_else(|| {
+                            let forward = rotation * Vec3::X;
+                            forward.y.atan2(forward.x).to_degrees()
+                        }),
+                    };
+                    if let Some(path) = footprints::dust(&step)
+                        && let Some(vfs) = gpu.vfs.as_deref()
+                        && gpu.effects.contains_definition(path)
+                    {
+                        crate::effect_runtime::spawn_effect(
+                            &mut gpu.particles,
+                            &mut gpu.effect_aux,
+                            &mut gpu.effects,
+                            vfs,
+                            path,
+                            step.ground,
+                            now,
+                            id as u32 ^ time as u32,
+                            0,
+                            audio,
+                            crate::combat_effects::rotation_from_direction(
+                                step.normal.unwrap_or(Vec3::Z).to_array(),
+                            ),
+                        );
+                    }
+                    if let Some(print) = footprints::print(&step) {
+                        gpu.effect_aux.decals.request_cgame(print, false);
                     }
                 }
                 Cue::Effect { path, bolt } => {

@@ -103,7 +103,10 @@ no file reads. A world build shares the skeleton and event assets across matchin
 appearances. Active actors release their prefetched encoded bytes after registration.
 
 Ground-contact events trace beneath the animated foot and select the authored
-walk/run sound bank for the surface material. `cg_footsteps 0` mutes them. Frame
+walk/run sound bank for the surface material. `cg_footsteps` takes stock's levels
+(default 3): 0 mutes them, 2 adds the material's dust (mud, dirt, sand, snow,
+gravel), 3 a footprint on mud, dirt, sand and snow that cgame keeps for ten
+seconds, 4 prints on every ground. Frame
 latches prevent repeated playback while an animation frame is held; absent actors,
 teleports, backwards seeks and paused map changes reset the cursor. First-person
 local actors use the same evaluated timing. This restores the blue-stance taunt's

@@ -96,6 +96,9 @@ pub(crate) struct EffectOptions {
     pub(crate) no_fx: i64,
     /// `cg_drainFX`: the wide Force Drain arc, 0 none, 1 jaPRO's, 2 stock's.
     pub(crate) drain_fx: i64,
+    /// `cg_footsteps`: 0 nothing, 1 sounds, 2 dust as well, 3 footprints as well, 4
+    /// prints on every ground.
+    pub(crate) footsteps: i64,
 }
 
 impl Default for EffectOptions {
@@ -105,6 +108,7 @@ impl Default for EffectOptions {
             flesh_sparks: 7,
             no_fx: 0,
             drain_fx: 2,
+            footsteps: 3,
         }
     }
 }

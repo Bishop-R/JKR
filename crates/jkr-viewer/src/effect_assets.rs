@@ -24,6 +24,11 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "env/water_impact",
     "env/acid_splash",
     "env/lava_splash",
+    // A footstep's dust (`_PlayerFootStep`).
+    "materials/mud",
+    "materials/sand",
+    "materials/snow",
+    "materials/gravel",
     "materials/mud_large",
     "materials/sand_large",
     "materials/dirt_large",
