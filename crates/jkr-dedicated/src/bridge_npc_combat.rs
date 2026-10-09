@@ -88,6 +88,55 @@ impl NativeGame {
         counted
     }
 
+    /// NPC `number` as the concussion rifle's beam reads what it struck: whether it counts
+    /// for `shooter`'s accuracy (`LogAccuracyHit`: alive, not on the shooter's team), its
+    /// `FL_NO_KNOCKBACK`, whether it holds a saber. `None` for anything but a begun NPC.
+    pub(crate) fn npc_beam_target(
+        &self,
+        number: u16,
+        shooter: usize,
+    ) -> Option<jkr_game_jka::concussion::StruckPlayer> {
+        const FL_NO_KNOCKBACK: u32 = 0x800;
+        let npc = self.npcs.roster.begun().find(|npc| npc.number == number)?;
+        let team = self.peer(shooter).map_or(0, |peer| peer.session.team);
+        Some(jkr_game_jka::concussion::StruckPlayer {
+            counts: npc.health > 0 && !(team == npc.session_team && team != 0),
+            no_knockback: npc.flags & FL_NO_KNOCKBACK != 0,
+            wields_saber: npc.player.weapon() == WP_SABER,
+        })
+    }
+
+    /// The concussion rifle's alternate shove and knockdown on NPC `number`
+    /// (`g_weapon.c:3220-3259`, [`jkr_game_jka::knockdown::concussion_shove`]): only a
+    /// humanoid one is knocked about (`!localAnimIndex`). `shot` is the beam's direction,
+    /// the shooter and where it stood.
+    pub(crate) fn concussion_shove_npc(
+        &mut self,
+        number: u16,
+        no_knockback: bool,
+        (forward, shooter, shooter_origin): ([f32; 3], u16, [f32; 3]),
+        level_time: i32,
+    ) {
+        let actors = &mut self.npcs.roster.actors;
+        let Some(npc) = actors.iter_mut().find(|npc| npc.number == number) else {
+            return;
+        };
+        if !npc.humanoid {
+            return;
+        }
+        let _ = jkr_game_jka::knockdown::concussion_shove(
+            &mut npc.player,
+            &mut npc.mind.knockdown,
+            &mut npc.mind.fight.other_killer,
+            npc.health,
+            no_knockback,
+            forward,
+            shooter,
+            shooter_origin,
+            level_time,
+        );
+    }
+
     /// `legsAnim` and `torsoAnim` of NPC `number` now, kept for a disintegration.
     pub(crate) fn npc_poses(&self, number: u16) -> Option<(u32, u32)> {
         let npc = self

@@ -3239,6 +3239,9 @@ impl ConcussionTargets for InstantTargets<'_> {
         self.shot_trace(skip, start, ([-1.0; 3], [1.0; 3]), end, mask)
     }
     fn player(&self, number: u16) -> Option<jkr_game_jka::concussion::StruckPlayer> {
+        if self.game.npcs.roster.is_npc(number) {
+            return self.game.npc_beam_target(number, self.shooter);
+        }
         let peer = self
             .game
             .players
@@ -3289,7 +3292,10 @@ impl ConcussionTargets for InstantTargets<'_> {
     ) {
         let level_time = self.level_time;
         let Some(victim) = self.game.peer_mut(usize::from(number)) else {
-            return;
+            let shot = (forward, shooter, shooter_origin);
+            return self
+                .game
+                .concussion_shove_npc(number, no_knockback, shot, level_time);
         };
         if jkr_game_jka::knockdown::concussion_shove(
             &mut victim.state,

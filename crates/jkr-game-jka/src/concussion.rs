@@ -17,10 +17,9 @@ const CONC_ALT_DAMAGE: i32 = 25;
 const ALT_TRACES: usize = 3;
 const SHOT_RANGE: f32 = 8_192.0;
 const MOD_CONC_ALT: u32 = 30;
-/// `MASK_SHOT`, `SURF_NOIMPACT`, `MAX_CLIENTS`.
+/// `MASK_SHOT`, `SURF_NOIMPACT`.
 const MASK_SHOT: u32 = 0x1 | 0x100 | 0x200 | 0x1000;
 const SURF_NOIMPACT: u32 = 0x10;
-const MAX_CLIENTS: u16 = 32;
 /// `EV_CONC_ALT_IMPACT` and the fields its entity carries: `owner`, `angles`,
 /// `origin2`, `angles2`.
 const EV_CONC_ALT_IMPACT: u32 = 84;
@@ -36,9 +35,9 @@ const ENTITY_NONE: u16 = 1_023;
 pub trait ConcussionTargets {
     /// `trap->Trace` from `start` to `end` in a box of one, passing `skip`.
     fn trace(&mut self, skip: u16, start: [f32; 3], end: [f32; 3], mask: u32) -> MovementTrace;
-    /// A player entity that takes damage (a corpse too): whether it counts for the
-    /// accuracy (`LogAccuracyHit`), its `FL_NO_KNOCKBACK`, whether it holds a saber;
-    /// `None` for anything else.
+    /// A client — a player or an NPC — that takes damage (a corpse too): whether it counts
+    /// for the accuracy (`LogAccuracyHit`), its `FL_NO_KNOCKBACK`, whether it holds a
+    /// saber; `None` for anything else.
     fn player(&self, number: u16) -> Option<StruckPlayer>;
     /// `Jedi_DodgeEvasion(other, shooter, &tr, HL_NONE)`: without a hit location nobody
     /// dodges, though `g_forceDodge 2` still draws for it ([`crate::force_dodge`]).
@@ -127,9 +126,7 @@ pub fn fire_alt(
             break;
         }
         let struck = trace.entity_number;
-        let player = (struck < MAX_CLIENTS)
-            .then(|| targets.player(struck))
-            .flatten();
+        let player = targets.player(struck);
         if player.is_some_and(|player| player.wields_saber) && targets.dodges(struck) {
             start = trace.end_position;
             skip = struck;
