@@ -114,6 +114,7 @@ impl NativeGame {
     /// siege round and no vote. A command a passed vote already queued still runs, as
     /// the reference's console buffer outlives the level.
     pub(super) fn start_level(&mut self, server_time: i32) {
+        self.end_slow_motion_with_level();
         self.match_end = Default::default();
         self.power_duel = Default::default();
         self.team_scores = [0; 2];

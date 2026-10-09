@@ -503,7 +503,11 @@ impl NativeGame {
         );
         // "can't respawn while being eaten" (`g_active.c:3455`).
         let eaten = peer.state.raw_field(103).unwrap_or(0) & 1 != 0;
-        if dead && playing && level_time > respawn_time && !eaten {
+        // Nor while a duel's end plays in slow motion, which keeps putting it off a
+        // second (`g_active.c:3458,3482-3485`).
+        if dead && !eaten && self.match_end.slow_motion.is_some() {
+            peer.mortality.respawn_time = level_time + 1_000;
+        } else if dead && playing && level_time > respawn_time && !eaten {
             // A power duel forces it a second on (`forceRes = 1`).
             // So does siege with its respawn waves on (`g_active.c:3466-3469`).
             let waves = self.siege.is_some() && self.cvars.integer(b"g_siegeRespawn") != 0;

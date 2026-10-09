@@ -80,6 +80,10 @@ pub struct MatchEnd {
     /// `g_endPDuel`: a power duel's round was decided by a death, to be ended at the next
     /// check of the rules.
     pub end_power_duel: bool,
+    /// `gDoSlowMoDuel` with `gSlowMoDuelTime`: a duel's deciding blow playing out in slow
+    /// motion since this millisecond (`g_slowmoDuelEnd`), which no limit interrupts and
+    /// nobody respawns during ([`slow_motion_step`]).
+    pub slow_motion: Option<i32>,
 }
 
 impl MatchEnd {
@@ -255,6 +259,10 @@ pub fn check_exit_rules(
     // At the intermission, nothing else is decided: the level waits for its clients.
     if state.intermission_time != 0 {
         return check_intermission_exit(limits, contenders, level_time, state);
+    }
+    // "don't go to intermission while in slow motion".
+    if state.slow_motion.is_some() {
+        return ExitStep::Playing;
     }
     // The second between the limit and the scoreboard, so that the last frag is seen.
     if state.queued != 0 {
@@ -530,6 +538,31 @@ pub fn move_client_to_intermission(player: &mut PlayerState, origin: [f32; 3], a
     player.set_raw_field(PS_ROCKET_LOCK_TIME, 0);
 }
 
+/// What `G_RunFrame` sets `timescale` to in a duel's slow motion begun at `started`
+/// (`g_main.c:2956-3010`) — a tenth for 150 ms, then the elapsed seconds up to one, then
+/// one — and whether the slow motion is over: half a second after that, once `timescale`
+/// (as it reads before this frame's) is one. A pending restart (`level.restarted`) ends it
+/// as soon as `timescale` is back to one.
+pub fn slow_motion_step(
+    started: i32,
+    level_time: i32,
+    restarted: bool,
+    timescale: f32,
+) -> (String, bool) {
+    if restarted {
+        return ("1".to_owned(), timescale == 1.0);
+    }
+    let elapsed = level_time.wrapping_sub(started) as f32;
+    if elapsed < 150.0 {
+        ("0.1f".to_owned(), false)
+    } else if elapsed < 1150.0 {
+        let scale = (elapsed / 1000.0).clamp(0.1, 1.0);
+        (format!("{:.6}", f64::from(scale)), false)
+    } else {
+        ("1".to_owned(), elapsed > 1500.0 && timescale == 1.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,5 +642,43 @@ mod tests {
         let mut state = MatchEnd::default();
         let on = check_exit_rules(&stock, &players, [11, 0], 1_000, 0, &mut state);
         assert_eq!(on, ExitStep::Playing);
+    }
+
+    /// The slow motion's `timescale`: a tenth, then the elapsed seconds as `%f` writes them,
+    /// then one until it reads one half a second on.
+    #[test]
+    fn a_duels_end_slows_down_and_recovers() {
+        assert_eq!(
+            slow_motion_step(1_000, 1_100, false, 1.0),
+            ("0.1f".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_250, false, 0.1),
+            ("0.250000".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_999, false, 0.9),
+            ("0.999000".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 2_149, false, 0.9),
+            ("1.000000".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 2_200, false, 0.99),
+            ("1".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 2_501, false, 1.0),
+            ("1".into(), true)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_100, true, 0.1),
+            ("1".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_150, true, 1.0),
+            ("1".into(), true)
+        );
     }
 }

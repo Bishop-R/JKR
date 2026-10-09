@@ -151,7 +151,7 @@ mod tests {
         };
         let cvars = crate::cvars::Cvars::server();
         let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
-        let mut run = |game: &mut NativeGame, words: &[&[u8]]| {
+        let run = |game: &mut NativeGame, words: &[&[u8]]| {
             let mut out = Vec::new();
             game.force_toggle(words, &mut |text| out.extend_from_slice(text));
             String::from_utf8(out).unwrap()

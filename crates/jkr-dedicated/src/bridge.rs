@@ -1581,6 +1581,7 @@ impl NativeGame {
             return;
         }
         self.note_duel_death(client, request.means);
+        self.begin_slow_motion(request.attacker, server_time);
         self.eject_on_death(client, server_time);
         // "Make sure the jetpack is turned off" (`player_die`).
         if let Some(peer) = self.peer_mut(client) {
@@ -2665,6 +2666,8 @@ impl NativeGame {
         self.pool.run_frame(server_time);
         // At the frame's very start, before `level.time` moves (`g_main.c:2935`).
         self.siege_respawn_wave(self.previous_frame_time);
+        // A duel's end in slow motion, from the same `level.time` (`g_main.c:2956`).
+        self.run_slow_motion(self.previous_frame_time);
         // `CheckTournament` before `CheckExitRules` (`g_main.c:3390-3394`).
         self.check_tournament(server_time);
         self.run_match_end(server_time);
@@ -3576,6 +3579,8 @@ mod bridge_entity_list;
 mod bridge_log;
 #[path = "bridge_ranks.rs"]
 mod bridge_ranks;
+#[path = "bridge_slow_motion.rs"]
+mod bridge_slow_motion;
 #[path = "bridge_svcmds.rs"]
 mod bridge_svcmds;
 #[path = "bridge_toggles.rs"]

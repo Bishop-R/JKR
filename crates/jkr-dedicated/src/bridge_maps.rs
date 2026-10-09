@@ -46,6 +46,7 @@ impl NativeGame {
         println!(
             "level exit at {server_time}; no nextmap on this server, so the match starts again"
         );
+        self.end_slow_motion_with_level();
         self.match_end = Default::default();
         self.team_scores = [0; 2];
         self.ready_mask = 0;
