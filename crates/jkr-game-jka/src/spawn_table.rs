@@ -115,7 +115,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("target_delay", Ported),
     ("target_escapetrig", Removed),
     ("target_give", Ported),
-    ("target_interest", Unported),
+    ("target_interest", Removed),
     ("target_kill", Ported),
     ("target_laser", Ported),
     ("target_level_change", Ported),
