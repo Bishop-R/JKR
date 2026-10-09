@@ -275,105 +275,31 @@ impl NativeGame {
         }
     }
 
-    /// `G_MoverPush` with `G_TryPushingEntity`: the players a mover takes with it, and
-    /// `Blocked_Door` on its team's master for one it cannot move — crushed for the
-    /// master's own damage, and the team turned back.
+    /// `G_MoverPush` with `G_TryPushingEntity` ([`Self::push_brush`]): the players and
+    /// NPCs a mover takes with it, and `Blocked_Door` on its team's master for one that
+    /// blocks it — crushed for the master's own damage, and the team turned back.
     fn push_door(&mut self, index: usize, from: [f32; 3], to: [f32; 3], level_time: i32) {
-        let (number, door) = (
-            self.doors[index].0.legacy_number(),
-            self.doors[index].1.clone(),
+        let (id, door) = &self.doors[index];
+        let (mover, bounds, hurts) = (
+            (id.legacy_number(), door.model),
+            door.bounds,
+            (door.damage, door.spawnflags),
         );
-        let candidates: Vec<(u16, [f32; 3], ([f32; 3], [f32; 3]), u16)> =
-            (0..self.players.places())
-                .filter_map(|client| {
-                    let peer = self.peer_mut(client)?;
-                    (peer.body_active() && peer.health > 0).then(|| {
-                        (
-                            client as u16,
-                            peer.state.origin(),
-                            peer.movement.box_bounds(),
-                            peer.state.ground_entity_num(),
-                        )
-                    })
-                })
-                .collect();
-        if candidates.is_empty() {
+        let master = door.team_master.unwrap_or(index);
+        let Some(blocker) = self.push_brush(mover, bounds, (from, to), hurts, level_time) else {
             return;
-        }
-        let pushed = match self.map.as_ref() {
-            Some(map) => {
-                let world = WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                };
-                // `G_TestEntityPosition`: may the box stand there at all?
-                let mut free = |_client: u16, origin: [f32; 3], bounds: ([f32; 3], [f32; 3])| {
-                    !world
-                        .trace(origin, bounds.0, bounds.1, origin, 0x1)
-                        .start_solid
-                };
-                // `G_TestEntityPosition` against the mover itself: is the box, where it
-                // stands, inside the mover's brush at its new place?
-                let mut inside = |_client: u16, origin: [f32; 3], bounds: ([f32; 3], [f32; 3])| {
-                    jkr_bsp::Aabb::new(bounds.0, bounds.1).is_ok_and(|bounds| {
-                        map.bsp
-                            .trace_transformed_model(
-                                door.model,
-                                to,
-                                None,
-                                origin,
-                                origin,
-                                bounds,
-                                u32::MAX,
-                            )
-                            .start_solid
-                    })
-                };
-                movers::push_through(&door, from, to, &candidates, &mut free, &mut inside, number)
-            }
-            // A world with no map in it has nothing to be blocked by.
-            None => movers::push(&door, from, to, &candidates, &mut |_, _, _| true, number),
         };
-        match pushed {
-            movers::Push::Moved(shoved) => {
-                for movers::Shoved { client, to, .. } in shoved {
-                    let Some(peer) = self.peer_mut(usize::from(client)) else {
-                        continue;
-                    };
-                    peer.state.set_origin(to);
-                    peer.movement = peer.movement.reseeded(&peer.state);
-                }
-            }
-            movers::Push::Blocked(client) => {
-                let master = door.team_master.unwrap_or(index);
-                let damage = mover_team::blocked(
-                    &mut self.doors,
-                    master,
-                    level_time,
-                    self.previous_frame_time,
-                    Some(usize::from(client)),
-                );
-                self.publish_team(master);
-                if let Some(damage) = damage {
-                    let attacker = Attacker {
-                        npc: false,
-                        client: self.doors[master].0.legacy_number(),
-                        max_health: 100,
-                        team: 0,
-                        saber_knockback: [0.0; 4],
-                    };
-                    let request = DamageRequest {
-                        level_time,
-                        attacker: Some(attacker),
-                        direction: None,
-                        point: None,
-                        damage,
-                        flags: 0,
-                        means: movers::MOD_CRUSH,
-                    };
-                    let _ = self.hurt(usize::from(client), request);
-                }
-            }
+        let damage = mover_team::blocked(
+            &mut self.doors,
+            master,
+            level_time,
+            self.previous_frame_time,
+            Some(usize::from(blocker)),
+        );
+        self.publish_team(master);
+        if let Some(damage) = damage {
+            let by = self.doors[master].0.legacy_number();
+            self.crush(by, blocker, damage, 0, level_time);
         }
     }
 

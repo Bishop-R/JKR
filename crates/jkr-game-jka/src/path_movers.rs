@@ -758,6 +758,9 @@ pub struct Pushee {
     pub ground: u16,
     /// `health < 1`: a dead player is crushed rather than blocking.
     pub dead: bool,
+    /// A dead NPC not in no-target mode (`ET_NPC`, `health <= 0`, no `FL_NOTARGET`): its
+    /// body is removed rather than blocking.
+    pub npc_body: bool,
 }
 
 /// What `G_MoverPush` did to one entity it moved.
@@ -779,8 +782,41 @@ pub struct Push {
     /// Hurt on the way (`G_Damage(check, pusher, pusher, NULL, NULL, damage, flags, MOD_CRUSH)`):
     /// crushed through, run over dead, struck by a spinning IMPACT brush or a bobbing one.
     pub crushed: Vec<(u16, i32, u32)>,
+    /// Dead NPCs it could not move, whose bodies go (`NPC_RemoveBody`).
+    pub removed: Vec<u16>,
     /// Who blocked it (`*obstacle`): the move is undone and nobody is moved.
     pub blocked: Option<u16>,
+}
+
+/// What `G_MoverPush` makes of one it can neither move on nor leave where it was
+/// (`g_mover.c:377-415`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Unpushable {
+    /// `G_Damage(check, pusher, pusher, NULL, NULL, damage, flags, MOD_CRUSH)`; the
+    /// mover goes on.
+    Crushed(i32, u32),
+    /// `NPC_RemoveBody`; the mover goes on.
+    BodyRemoved,
+    /// `*obstacle`: the move is undone.
+    Blocks,
+}
+
+/// [`Unpushable`] for `check`, in the way of a mover dealing `damage` with `spawnflags`
+/// ([`CRUSH_THROUGH`]) that bobs or not: crushed through, crushed dead, its body removed,
+/// killed by a bobbing mover — or in the way. Every door, path mover and scripted brush
+/// answers by this.
+pub fn unpushable(damage: i32, spawnflags: u32, bobbing: bool, check: &Pushee) -> Unpushable {
+    if damage != 0 && spawnflags & CRUSH_THROUGH != 0 {
+        Unpushable::Crushed(damage, 0)
+    } else if check.dead {
+        Unpushable::Crushed(999, 0)
+    } else if check.npc_body {
+        Unpushable::BodyRemoved
+    } else if bobbing {
+        Unpushable::Crushed(99_999, 0)
+    } else {
+        Unpushable::Blocks
+    }
 }
 
 /// `DAMAGE_NO_KNOCKBACK`, which a spinning IMPACT brush deals with.
@@ -803,6 +839,7 @@ pub fn push(
     let mut outcome = Push {
         pushed: Vec::new(),
         crushed: Vec::new(),
+        removed: Vec::new(),
         blocked: None,
     };
     let new_origin: [f32; 3] = std::array::from_fn(|axis| mover.origin[axis] + shift[axis]);
@@ -871,21 +908,17 @@ pub fn push(
         if free(check.number, check.origin, bounds) {
             continue;
         }
-        if mover.damage != 0 && mover.spawnflags & CRUSH_THROUGH != 0 {
-            outcome.crushed.push((check.number, mover.damage, 0));
-            continue;
+        match unpushable(mover.damage, mover.spawnflags, bobbing, check) {
+            Unpushable::Crushed(damage, flags) => {
+                outcome.crushed.push((check.number, damage, flags))
+            }
+            Unpushable::BodyRemoved => outcome.removed.push(check.number),
+            Unpushable::Blocks => {
+                outcome.pushed.clear();
+                outcome.blocked = Some(check.number);
+                return outcome;
+            }
         }
-        if check.dead {
-            outcome.crushed.push((check.number, 999, 0));
-            continue;
-        }
-        if bobbing {
-            outcome.crushed.push((check.number, 99_999, 0));
-            continue;
-        }
-        outcome.pushed.clear();
-        outcome.blocked = Some(check.number);
-        return outcome;
     }
     outcome
 }
@@ -906,4 +939,46 @@ fn transposed_rotation(turn: [f32; 3]) -> [[f32; 3]; 3] {
 /// `ANGLE2SHORT`: `((int)((x)*65536/360) & 65535)`.
 fn angle_to_short(degrees: f32) -> i32 {
     ((degrees * 65_536.0 / 360.0) as i32) & 65_535
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `G_MoverPush`'s answers in its order (`g_mover.c:377-415`): crushed through by a
+    /// mover with damage and `CRUSH_THROUGH`, crushed for 999 dead, a dead NPC's body
+    /// removed, killed by a bobbing mover, else blocked.
+    #[test]
+    fn one_that_will_not_move_is_answered_in_the_reference_order() {
+        let living = Pushee {
+            number: 70,
+            origin: [0.0; 3],
+            bounds: ([-15.0, -15.0, -24.0], [15.0, 15.0, 40.0]),
+            ground: 1023,
+            dead: false,
+            npc_body: false,
+        };
+        let corpse = Pushee {
+            dead: true,
+            ..living
+        };
+        let body = Pushee {
+            npc_body: true,
+            ..living
+        };
+        assert_eq!(
+            unpushable(5, CRUSH_THROUGH, true, &body),
+            Unpushable::Crushed(5, 0)
+        );
+        assert_eq!(unpushable(5, 0, true, &corpse), Unpushable::Crushed(999, 0));
+        assert_eq!(
+            unpushable(0, CRUSH_THROUGH, true, &body),
+            Unpushable::BodyRemoved
+        );
+        assert_eq!(
+            unpushable(0, 0, true, &living),
+            Unpushable::Crushed(99_999, 0)
+        );
+        assert_eq!(unpushable(5, 0, false, &living), Unpushable::Blocks);
+    }
 }

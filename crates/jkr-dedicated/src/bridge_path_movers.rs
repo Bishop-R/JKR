@@ -9,8 +9,6 @@ use jkr_game_jka::path_movers::{Corner, Kind, PathMover, Pushee, link_corners, p
 
 /// `EV_PLAYDOORSOUND`, which a train's soundset sounds are sent as.
 const EV_PLAYDOORSOUND: u32 = 71;
-/// `ps.delta_angles[YAW]`: a player turned by a rotating mover is turned in its view too.
-const PS_DELTA_YAW: usize = 11;
 
 /// One mover of the level: its entity, its rules, the indices of its model2 and soundset,
 /// and the first corner of a train's path.
@@ -203,25 +201,7 @@ impl NativeGame {
     ) -> bool {
         let number = self.stock.paths.movers[index].id.legacy_number();
         let mover = self.stock.paths.movers[index].mover.clone();
-        let candidates: Vec<Pushee> = (0..self.players.places())
-            .filter_map(|client| {
-                let peer = self.peer(client)?;
-                if !peer.playing() {
-                    return None;
-                }
-                let (bottom, mut top) = peer.movement.box_bounds();
-                if let Some((_, corpse_top)) = peer.corpse {
-                    top[2] = corpse_top;
-                }
-                Some(Pushee {
-                    number: client as u16,
-                    origin: peer.state.origin(),
-                    bounds: (bottom, top),
-                    ground: peer.state.ground_entity_num(),
-                    dead: peer.health < 1,
-                })
-            })
-            .collect();
+        let candidates = self.pushees();
         if candidates.is_empty() {
             return true;
         }
@@ -276,35 +256,15 @@ impl NativeGame {
             ),
         };
         for pushed in &outcome.pushed {
-            let Some(peer) = self.peer_mut(usize::from(pushed.number)) else {
-                continue;
-            };
-            peer.state.set_origin(pushed.to);
-            let yaw = peer.state.raw_field(PS_DELTA_YAW).unwrap_or(0) as i32;
             // (`s.groundEntityNum` of one pushed off is cleared; the player state's is its
             // next move's to change.)
-            peer.state
-                .set_raw_field(PS_DELTA_YAW, yaw.wrapping_add(pushed.yaw) as u32);
-            peer.movement = peer.movement.reseeded(&peer.state);
+            self.shove(pushed.number, pushed.to, pushed.yaw);
         }
         for (victim, damage, flags) in outcome.crushed {
-            let attacker = Attacker {
-                npc: false,
-                client: number,
-                max_health: 100,
-                team: 0,
-                saber_knockback: [0.0; 4],
-            };
-            let request = DamageRequest {
-                level_time,
-                attacker: Some(attacker),
-                direction: None,
-                point: None,
-                damage,
-                flags,
-                means: jkr_game_jka::movers::MOD_CRUSH,
-            };
-            let _ = self.hurt(usize::from(victim), request);
+            self.crush(number, victim, damage, flags, level_time);
+        }
+        for body in outcome.removed {
+            self.remove_body_in_the_way(body, level_time);
         }
         outcome.blocked.is_none()
     }

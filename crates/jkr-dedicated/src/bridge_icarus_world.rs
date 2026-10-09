@@ -4,7 +4,6 @@
 
 use super::{PendingUse, ScriptOwner, ScriptSlot, SlotKind};
 use crate::bridge::{NativeGame, Told};
-use jkr_game_jka::damage::{Attacker, DamageRequest};
 use jkr_game_jka::event_entity::EventEntity;
 use jkr_game_jka::player_death::DeathRequest;
 use jkr_game_jka::ref_tags::RefTags;
@@ -25,6 +24,8 @@ const STAT_ARMOR: usize = 5;
 const STAT_MAX_HEALTH: usize = 8;
 /// A player's `r.contents` and box (`CONTENTS_BODY`; the standing box).
 const CONTENTS_BODY: u32 = 0x100;
+/// `CONTENTS_CORPSE`: what a dead body is made of.
+const CONTENTS_CORPSE: u32 = 0x200;
 
 /// The server lent to the game's script code for one call.
 pub(in crate::bridge) struct ServerWorld<'a> {
@@ -518,19 +519,22 @@ impl ScriptWorld for ServerWorld<'_> {
         else {
             return Ok(());
         };
-        let (from, bounds, model, number) = (
+        let (from, bounds, model, number, hurts) = (
             slot.entity.motion.origin,
             (slot.entity.mins, slot.entity.maxs),
             slot.model,
             slot.pool
                 .map(|pool| pool.legacy_number())
                 .unwrap_or(u16::MAX),
+            (slot.entity.motion.damage, slot.entity.spawnflags),
         );
         let to: [f32; 3] = std::array::from_fn(|axis| from[axis] + move_by[axis]);
+        let level_time = self.game.last_frame_time;
         match self
             .game
-            .push_scripted_brush(bounds, model, number, from, to)
+            .push_brush((number, model), bounds, (from, to), hurts, level_time)
         {
+            Some(npc) if self.game.npcs.roster.is_npc(npc) => Err(Some(ScriptOwner::Npc(npc))),
             Some(client) => Err(Some(ScriptOwner::Client(client))),
             None => Ok(()),
         }
@@ -542,33 +546,28 @@ impl ScriptWorld for ServerWorld<'_> {
         id: ScriptOwner,
         obstacle: Option<ScriptOwner>,
     ) {
-        // `Blocked_Mover`: a living player in the way takes the mover's damage.
-        let Some(ScriptOwner::Client(client)) = obstacle else {
-            return;
+        // `Blocked_Mover`: a corpse in the way that carries no key is freed — only an NPC's
+        // gets here, one in no-target mode — and a living one takes the mover's damage.
+        let victim = match obstacle {
+            Some(ScriptOwner::Client(client)) => client,
+            Some(ScriptOwner::Npc(number)) => number,
+            _ => return,
         };
+        if self.npc(victim).is_some_and(|npc| {
+            npc.health <= 0 && npc.contents == CONTENTS_CORPSE && npc.message.is_none()
+        }) {
+            self.game
+                .with_roster(|roster, _, host| roster.free_now(victim, host));
+            return;
+        }
         let Some(slot) = self.slot(id) else { return };
         let (damage, number) = (
             slot.entity.motion.damage,
             slot.pool.map(|pool| pool.legacy_number()).unwrap_or(0),
         );
         if damage != 0 {
-            let attacker = Attacker {
-                npc: false,
-                client: number,
-                max_health: 100,
-                team: 0,
-                saber_knockback: [0.0; 4],
-            };
-            let request = DamageRequest {
-                level_time: self.game.last_frame_time,
-                attacker: Some(attacker),
-                direction: None,
-                point: None,
-                damage,
-                flags: 0,
-                means: jkr_game_jka::movers::MOD_CRUSH,
-            };
-            let _ = self.game.hurt(usize::from(client), request);
+            let level_time = self.game.last_frame_time;
+            self.game.crush(number, victim, damage, 0, level_time);
         }
     }
 

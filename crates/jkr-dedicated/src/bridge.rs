@@ -3653,6 +3653,8 @@ mod bridge_map_logic;
 mod bridge_map_turrets;
 #[path = "bridge_motd.rs"]
 mod bridge_motd;
+#[path = "bridge_mover_push.rs"]
+mod bridge_mover_push;
 #[path = "bridge_npcs.rs"]
 mod bridge_npcs;
 #[path = "bridge_path_movers.rs"]

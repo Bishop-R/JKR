@@ -545,21 +545,56 @@ impl NpcRoster {
             NpcThink::Think(_) if self.skip_thinks => {}
             NpcThink::Think(_) | NpcThink::RemoveBody(_) => {
                 let removing = matches!(self.actors[at].think, NpcThink::RemoveBody(_));
-                let thought = {
-                    let mut world = self.world(level_time, host, fired);
-                    if removing {
-                        world.remove_body(at)
-                    } else {
-                        world.think(at)
-                    }
-                };
-                if thought == crate::npc_dead::DeadThought::Gone {
-                    self.remove(at, host);
-                } else {
-                    let npc = &self.actors[at];
-                    host.publish(npc.number, &npc.state, npc.bounds(), npc.contents);
-                }
+                self.think_or_remove_body(at, removing, level_time, host, fired);
             }
+        }
+    }
+
+    /// The think of the NPC at `at`, or its `NPC_RemoveBody`: it goes if that was the end
+    /// of it, else its entity is published.
+    fn think_or_remove_body(
+        &mut self,
+        at: usize,
+        removing: bool,
+        level_time: i32,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) {
+        let thought = {
+            let mut world = self.world(level_time, host, fired);
+            if removing {
+                world.remove_body(at)
+            } else {
+                world.think(at)
+            }
+        };
+        if thought == crate::npc_dead::DeadThought::Gone {
+            self.remove(at, host);
+        } else {
+            let npc = &self.actors[at];
+            host.publish(npc.number, &npc.state, npc.bounds(), npc.contents);
+        }
+    }
+
+    /// `NPC_RemoveBody` for the dead NPC `number` out of its turn: what `G_MoverPush` does
+    /// with a body a mover cannot move (`g_mover.c:404-409`).
+    pub fn remove_body_now(
+        &mut self,
+        number: u16,
+        level_time: i32,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) {
+        if let Some(at) = self.actors.iter().position(|npc| npc.number == number) {
+            self.think_or_remove_body(at, true, level_time, host, fired);
+        }
+    }
+
+    /// `G_FreeEntity` on NPC `number` out of its turn: a scripted mover's `Blocked_Mover`
+    /// on a corpse in its way (`g_ICARUScb.c:663-671`).
+    pub fn free_now(&mut self, number: u16, host: &mut impl NpcHost) {
+        if let Some(at) = self.actors.iter().position(|npc| npc.number == number) {
+            self.remove(at, host);
         }
     }
 
