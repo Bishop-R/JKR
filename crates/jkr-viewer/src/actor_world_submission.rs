@@ -694,12 +694,25 @@ fn submit_actor(
                     presentation_time,
                 ));
         }
+        // Stock's duel colouring of the model itself (`RF_RGB_TINT`); the overlays below
+        // start from the untinted instance, as stock clears the tint for each shell.
+        let body = match (snapshot, game_state) {
+            (Some(snapshot), Some(game_state)) => force_overlay_submission::duel_tint(
+                entity.id,
+                snapshot,
+                game_state,
+                entity.color(),
+                presentation_time as i32,
+                sinks.predicted_force_powers_active,
+            )
+            .map_or(instance, |tint| instance.with_rgb_tint(tint)),
+            _ => instance,
+        };
         if let BodyDraw::Faded(alpha) = sinks.body {
-            let faded =
-                body_draw::faded(entity_materials::OverrideMesh::Actor(mesh), instance, alpha);
+            let faded = body_draw::faded(entity_materials::OverrideMesh::Actor(mesh), body, alpha);
             sinks.overrides.push(faded);
         } else {
-            sinks.actor_groups[mesh].push(instance);
+            sinks.actor_groups[mesh].push(body);
         }
         let tricking = !local && matches!(sinks.body, BodyDraw::Faded(_));
         speed_trail::submit(

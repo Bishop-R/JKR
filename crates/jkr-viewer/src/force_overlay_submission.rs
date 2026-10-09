@@ -36,15 +36,7 @@ pub(crate) fn submit(
     shield_mesh: Option<usize>,
 ) -> usize {
     let number = u16::try_from(entity_id.get().saturating_sub(1)).unwrap_or(u16::MAX);
-    let actor = if number == snapshot.player.client_num() {
-        LegacyActorOverlayState::from_player(&snapshot.player, game_state, now)
-    } else if let Some(entity) = snapshot
-        .entities
-        .iter()
-        .find(|entity| entity.number() == number)
-    {
-        LegacyActorOverlayState::from_entity(entity, game_state)
-    } else {
+    let Some(actor) = actor_state(number, snapshot, game_state, now) else {
         return 0;
     };
     let mut context = LegacyForceOverlayContext::from_player(
@@ -54,6 +46,7 @@ pub(crate) fn submit(
         third_person,
         options.aura_shell,
     );
+    context.duel_distance = duel_distance(snapshot);
     context.always_show_absorb = options.always_show_absorb;
     // `CG_Player` uses `cg.predictedPlayerState` for the local absorb gate
     // (`codemp/cgame/cg_players.c:10953-10958`). Other overlay inputs remain
@@ -122,6 +115,65 @@ pub(crate) fn submit(
         });
     }
     output.len() - start
+}
+
+/// The overlay state of entity `number`: the local player's own, else its snapshot entity's.
+fn actor_state(
+    number: u16,
+    snapshot: &Snapshot,
+    game_state: &GameState,
+    now: i32,
+) -> Option<LegacyActorOverlayState> {
+    if number == snapshot.player.client_num() {
+        return Some(LegacyActorOverlayState::from_player(
+            &snapshot.player,
+            game_state,
+            now,
+        ));
+    }
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.number() == number)
+        .map(|entity| LegacyActorOverlayState::from_entity(entity, game_state))
+}
+
+/// `duelEnt->lerpOrigin - cg.snap->ps.origin`, in whole units, from where the snapshot has
+/// the local player's duel opponent; the furthest the glow reads without one.
+fn duel_distance(snapshot: &Snapshot) -> u16 {
+    let player = &snapshot.player;
+    let opponent = player.duel_index();
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| player.duel_in_progress() && entity.number() == opponent)
+        .map_or(1_020, |entity| {
+            let apart = glam::Vec3::from_array(entity.trajectory_base())
+                - glam::Vec3::from_array(player.origin());
+            apart.length().min(f32::from(u16::MAX)) as u16
+        })
+}
+
+/// The duel colouring a player model is drawn with from its `base` colour
+/// ([`jkr_client::legacy_duel_tint`]), as an `RF_RGB_TINT` colour.
+pub(crate) fn duel_tint(
+    entity_id: EntityId,
+    snapshot: &Snapshot,
+    game_state: &GameState,
+    base: [u8; 4],
+    now: i32,
+    predicted_force_powers_active: Option<u32>,
+) -> Option<[f32; 4]> {
+    let number = u16::try_from(entity_id.get().saturating_sub(1)).ok()?;
+    let actor = actor_state(number, snapshot, game_state, now)?;
+    let mut context =
+        LegacyForceOverlayContext::from_player(game_state, &snapshot.player, now, false, false);
+    context.duel_distance = duel_distance(snapshot);
+    if let Some(active) = predicted_force_powers_active {
+        context.local_force_powers_active = active;
+    }
+    let rgb = jkr_client::legacy_duel_tint([base[0], base[1], base[2]], actor, context)?;
+    Some([rgb[0], rgb[1], rgb[2], base[3]].map(|channel| f32::from(channel) / 255.0))
 }
 
 /// Deterministic presentation RNG scoped to entity and rendered millisecond.

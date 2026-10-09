@@ -146,7 +146,8 @@ pub use demo_recorder::{
 pub use force_overlay_events::{LegacyForceOverlayTracker, LegacyShieldHit};
 pub use force_overlays::{
     LegacyActorOverlayState, LegacyForceOverlayContext, LegacyOverlayList, LegacyOverlayRandom,
-    LegacyOverlayRequest, LegacyOverlayTint, LegacyTeamPowerEffect, legacy_force_overlays,
+    LegacyOverlayRequest, LegacyOverlayTint, LegacyTeamPowerEffect, legacy_duel_tint,
+    legacy_force_overlays,
 };
 pub use force_profile::{
     FORCE_POWER_COUNT, ForceAllocation, ForceLegalizeRules, ForcePower, ForceProfileError,

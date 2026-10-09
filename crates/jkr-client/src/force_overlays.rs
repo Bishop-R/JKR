@@ -174,6 +174,9 @@ pub struct LegacyForceOverlayContext {
     /// EternalJK's `cg_alwaysShowAbsorb`: every absorb shows while it runs, not only
     /// one's own and those that just absorbed something.
     pub always_show_absorb: bool,
+    /// How far the local duel opponent is drawn from the local player, in whole units
+    /// (`duelEnt->lerpOrigin - cg.snap->ps.origin`); the duel glow and tint read it.
+    pub duel_distance: u16,
 }
 
 impl LegacyForceOverlayContext {
@@ -200,8 +203,44 @@ impl LegacyForceOverlayContext {
             third_person,
             aura_shell,
             always_show_absorb: false,
+            duel_distance: 1_020,
         }
     }
+}
+
+/// `CG_Player`'s duel colouring of a player model (`cg_players.c:10552-10633`): the
+/// `RF_RGB_TINT` colour it is drawn with from `base`, if any. With the local player's
+/// Force Sight on another player starts yellow; while the local player duels everyone
+/// but the two duellists is drawn at a fifth of that, and the duellists darker by an
+/// eighth of the distance between them; otherwise a living duellist is dark grey.
+pub fn legacy_duel_tint(
+    base: [u8; 3],
+    actor: LegacyActorOverlayState,
+    context: LegacyForceOverlayContext,
+) -> Option<[u8; 3]> {
+    let local = actor.number == context.local_client;
+    let rgb = if context.local_force_powers_active & FP_SEE != 0 && !local {
+        [255, 255, 0]
+    } else {
+        base
+    };
+    if context.local_duel {
+        if actor.number != context.local_duel_index && !local {
+            Some(rgb.map(|channel| (f32::from(channel) / 5.0) as u8))
+        } else {
+            let distance = duel_span(context.duel_distance);
+            Some(rgb.map(|channel| (f32::from(channel) - distance / 8.0).max(1.0) as u8))
+        }
+    } else if actor.sight_bubble && !actor.dead && !local {
+        Some([50, 50, 50])
+    } else {
+        None
+    }
+}
+
+/// The distance the duel glow reads, held within 1 and 1020 units.
+fn duel_span(distance: u16) -> f32 {
+    f32::from(distance).clamp(1.0, 1_020.0)
 }
 
 /// Injected random draws preserving cgame's ordered presentation decisions.
@@ -248,6 +287,17 @@ pub fn legacy_force_overlays(
             electric_shader(random.bit()),
             [255, 0, 0, 255],
             LegacyOverlayTint::Rgb,
+            false,
+        ));
+    }
+    // `cg_players.c:10561-10611`: in a duel the two duellists glow through `forceShell`,
+    // brighter the nearer they are.
+    if context.local_duel && (local || actor.number == context.local_duel_index) {
+        let grey = (255.0 - duel_span(context.duel_distance) / 4.0).max(1.0) as u8;
+        output.push(request(
+            "powerups/forceshell",
+            [grey, grey, grey, legs_alpha],
+            LegacyOverlayTint::Shader,
             false,
         ));
     }
@@ -383,4 +433,81 @@ fn info_int(info: &[u8], key: &str) -> i32 {
         }
     }
     0
+}
+
+#[cfg(test)]
+mod duel_tests {
+    use super::*;
+
+    struct NoRandom;
+
+    impl LegacyOverlayRandom for NoRandom {
+        fn unit(&mut self) -> f32 {
+            0.0
+        }
+        fn bit(&mut self) -> bool {
+            false
+        }
+        fn byte_1_255(&mut self) -> u8 {
+            1
+        }
+    }
+
+    /// The local player 0, duelling player 1 at 400 units when `duelling`.
+    fn context(duelling: bool) -> LegacyForceOverlayContext {
+        LegacyForceOverlayContext {
+            local_client: 0,
+            local_duel: duelling,
+            local_duel_index: 1,
+            duel_distance: 400,
+            ..LegacyForceOverlayContext::default()
+        }
+    }
+
+    fn actor(number: u16, duelling: bool) -> LegacyActorOverlayState {
+        LegacyActorOverlayState {
+            number,
+            sight_bubble: duelling,
+            base_alpha: 255,
+            ..LegacyActorOverlayState::default()
+        }
+    }
+
+    #[test]
+    fn duellists_and_bystanders_are_tinted_as_stock_tints_them() {
+        let white = [255; 3];
+        // Not duelling: a duellist dark grey, anyone else as drawn.
+        assert_eq!(legacy_duel_tint(white, actor(2, true), context(false)), Some([50; 3]));
+        assert_eq!(legacy_duel_tint(white, actor(2, false), context(false)), None);
+        assert_eq!(legacy_duel_tint(white, actor(0, true), context(false)), None);
+        // Duelling: a bystander a fifth, the duellists darker by an eighth of 400.
+        assert_eq!(legacy_duel_tint(white, actor(2, false), context(true)), Some([51; 3]));
+        assert_eq!(legacy_duel_tint(white, actor(1, true), context(true)), Some([205; 3]));
+        assert_eq!(legacy_duel_tint(white, actor(0, true), context(true)), Some([205; 3]));
+        // Force Sight starts others yellow.
+        let seeing = LegacyForceOverlayContext {
+            local_force_powers_active: FP_SEE,
+            ..context(true)
+        };
+        assert_eq!(legacy_duel_tint(white, actor(2, false), seeing), Some([51, 51, 0]));
+    }
+
+    #[test]
+    fn duellists_glow_brighter_the_nearer_they_are() {
+        let glow = |number, duelling| {
+            legacy_force_overlays(
+                actor(number, true),
+                LegacyTeamPowerEffect::default(),
+                context(duelling),
+                &mut NoRandom,
+            )
+            .iter()
+            .find(|request| request.shader == "powerups/forceshell")
+            .map(|request| request.rgba)
+        };
+        assert_eq!(glow(1, true), Some([155, 155, 155, 255]));
+        assert_eq!(glow(0, true), Some([155, 155, 155, 255]));
+        assert_eq!(glow(2, true), None);
+        assert_eq!(glow(1, false), None);
+    }
 }
