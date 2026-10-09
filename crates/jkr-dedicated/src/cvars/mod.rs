@@ -11,8 +11,9 @@
 
 mod commands;
 mod numbers;
+pub(crate) use numbers::is_a_number;
 mod registry;
-use numbers::{atof, atoi, c_int, format_value, is_a_number};
+use numbers::{atof, atoi, c_int, format_value};
 
 /// `CVAR_ARCHIVE`: saved to the configuration file.
 pub const CVAR_ARCHIVE: u32 = 0x1;

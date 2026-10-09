@@ -3578,6 +3578,8 @@ mod bridge_log;
 mod bridge_ranks;
 #[path = "bridge_svcmds.rs"]
 mod bridge_svcmds;
+#[path = "bridge_toggles.rs"]
+mod bridge_toggles;
 #[path = "bridge_userinfo.rs"]
 mod bridge_userinfo;
 use bridge_userinfo::judge;

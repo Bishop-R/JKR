@@ -32,14 +32,22 @@ impl NativeGame {
         let is = |command: &[u8]| name.eq_ignore_ascii_case(command);
         let argument = words.get(1).copied().unwrap_or_default();
 
-        if is(b"map") || is(b"devmap") {
-            self.console_map(argument, is(b"devmap"), server_time, print);
-        } else if self.stopped && (is(b"map_restart") || is(b"say")) {
-            // `SV_MapRestart_f` and the game's commands need a running server.
-            if is(b"map_restart") {
+        // `SV_Map_f` behind every name that starts with `devmap` turns the cheats on; this
+        // server keeps no model or map cache for `devmapmdl` and `devmapall` to reload.
+        let devmap = is(b"devmap") || is(b"devmapbsp") || is(b"devmapmdl") || is(b"devmapall");
+        let toggle = is(b"forcetoggle") || is(b"weapontoggle");
+        if is(b"map") || devmap {
+            self.console_map(argument, devmap, server_time, print);
+        } else if self.stopped && (is(b"map_restart") || is(b"say") || toggle) {
+            // `SV_MapRestart_f`, the toggles and the game's commands need a running server.
+            if is(b"map_restart") || toggle {
                 print(b"Server is not running.\n");
             }
-            return is(b"map_restart");
+            return is(b"map_restart") || toggle;
+        } else if is(b"forcetoggle") {
+            self.force_toggle(&words, print);
+        } else if is(b"weapontoggle") {
+            self.weapon_toggle(&words, print);
         } else if is(b"map_restart") {
             // `SV_MapRestart_f`: `atoi` of the delay, five seconds without one.
             let delay = if words.len() > 1 {
