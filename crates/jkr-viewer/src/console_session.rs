@@ -124,6 +124,7 @@ impl ViewerConsole {
         let smooth_clients =
             console_cvars::IntegerSetting::bind(&mut cvars, "cg_smoothClients", 0)?;
         let no_predict = console_cvars::IntegerSetting::bind(&mut cvars, "cg_noPredict", 0)?;
+        let cycle_ammo = console_cvars::IntegerSetting::bind(&mut cvars, "cg_weaponCycleAmmo", 0)?;
         let gun_alpha = console_cvars::FloatSetting::bind(&mut cvars, "cg_gunAlpha", 1.0)?;
         let flag_alpha =
             console_cvars::FloatSetting::bind(&mut cvars, "cg_thirdPersonFlagAlpha", 1.0)?;
@@ -267,6 +268,7 @@ impl ViewerConsole {
             time_nudge,
             smooth_clients,
             no_predict,
+            cycle_ammo,
             gun_alpha,
             flag_alpha,
             vehicle_range,

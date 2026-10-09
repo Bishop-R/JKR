@@ -261,7 +261,7 @@ pub use weapon_data::{
 };
 pub use weapon_selection::{
     LegacyWeaponInventory, legacy_clean_weapon, legacy_cycle_weapon, legacy_direct_weapon,
-    legacy_weapon_selectable,
+    legacy_weapon_ammo, legacy_weapon_selectable,
 };
 pub use weapon_shake::{FireFeedback, WeaponShake, charge_shake, fire_feedback, kick_fraction};
 

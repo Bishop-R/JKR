@@ -492,6 +492,18 @@ impl super::GpuState {
             self.weapon_select
                 .label
                 .push_str(crate::ingame_menu::weapon_name(weapon));
+            // TaystJK's `cg_weaponCycleAmmo` (`cg_weapons.c:1353`): every weapon but the
+            // stun baton, melee, the saber and the pistol (1 to 4) shows its ammunition.
+            if self
+                .console
+                .as_ref()
+                .is_some_and(|console| console.weapon_cycle_ammo())
+                && weapon > 4
+                && let Some(ammo) = jkr_client::legacy_weapon_ammo(&inventory, weapon)
+            {
+                use std::fmt::Write as _;
+                let _ = write!(self.weapon_select.label, " ^7{ammo}");
+            }
         }
     }
 }

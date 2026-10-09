@@ -65,6 +65,12 @@ pub fn legacy_weapon_selectable(inventory: &LegacyWeaponInventory, weapon: u8) -
     weapon != WP_DET_PACK || ammo >= 1 || inventory.detpack_planted
 }
 
+/// The ammunition `weapon` draws on, as the inventory holds it
+/// (`ps.ammo[weaponData[weapon].ammoIndex]`); `None` for no weapon.
+pub fn legacy_weapon_ammo(inventory: &LegacyWeaponInventory, weapon: u8) -> Option<u32> {
+    legacy_weapon_data(weapon).map(|data| inventory.ammo[data.ammo_index])
+}
+
 /// Select next/previous weapon using codemp's deliberately non-numeric order.
 pub fn legacy_cycle_weapon(inventory: &LegacyWeaponInventory, current: u8, direction: i8) -> u8 {
     if inventory.following || inventory.spectator || inventory.emplaced || direction == 0 {
@@ -163,4 +169,22 @@ fn direct(inventory: &LegacyWeaponInventory, current_weapon: u8, mut selected: u
         }
     }
     legacy_weapon_selectable(inventory, selected).then_some(selected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A weapon reads its own pool (`weaponData[].ammoIndex`): the pistol and the blaster
+    /// share the blaster pack (`AMMO_BLASTER`, 2), the disruptor draws on power cells.
+    #[test]
+    fn a_weapon_reads_its_own_ammunition_pool() {
+        let mut inventory =
+            LegacyWeaponInventory::from_player_state(&jkr_protocol::PlayerState::zero());
+        inventory.ammo[2] = 77;
+        inventory.ammo[3] = 5;
+        assert_eq!(legacy_weapon_ammo(&inventory, 4), Some(77));
+        assert_eq!(legacy_weapon_ammo(&inventory, 5), Some(77));
+        assert_eq!(legacy_weapon_ammo(&inventory, 6), Some(5));
+    }
 }

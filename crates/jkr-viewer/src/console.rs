@@ -105,6 +105,7 @@ pub(crate) struct ViewerConsole {
     time_nudge: crate::presentation_clock::CvarSetting,
     smooth_clients: console_cvars::IntegerSetting,
     no_predict: console_cvars::IntegerSetting,
+    cycle_ammo: console_cvars::IntegerSetting,
     gun_alpha: console_cvars::FloatSetting,
     flag_alpha: console_cvars::FloatSetting,
     vehicle_range: console_cvars::FloatSetting,
@@ -167,6 +168,12 @@ impl ViewerConsole {
     /// Cached `cg_noPredict`: the local view follows the snapshots, unpredicted.
     pub(crate) fn no_predict(&self) -> bool {
         self.no_predict.enabled()
+    }
+
+    /// Cached TaystJK `cg_weaponCycleAmmo`: the weapon chosen while cycling is shown with
+    /// its ammunition.
+    pub(crate) fn weapon_cycle_ammo(&self) -> bool {
+        self.cycle_ammo.enabled()
     }
 
     /// EternalJK's `cg_gunAlpha` as the first-person weapon's forced alpha

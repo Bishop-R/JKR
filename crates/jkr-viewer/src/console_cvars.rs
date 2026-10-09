@@ -270,6 +270,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "EternalJK: falling to your death, ask to die at once and respawn",
         ),
+        // TaystJK `cg_xcvar.h:60`.
+        CvarDefinition::new(
+            "cg_weaponCycleAmmo",
+            0_i64,
+            archive,
+            "TaystJK: show the ammunition of the weapon chosen while cycling weapons",
+        ),
         // `cg_xcvar.h:105`.
         CvarDefinition::new(
             "cg_noPredict",
