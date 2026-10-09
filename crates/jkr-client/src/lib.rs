@@ -56,6 +56,7 @@ mod player_angle_rules;
 mod player_angles;
 mod player_identity;
 mod siege_looks;
+mod trip_mine_beams;
 pub use siege_looks::{SiegeClassLook, SiegeClassLooks};
 pub mod speed_trail;
 mod vehicle_missile_effects;
@@ -241,6 +242,9 @@ pub use taystjk_cosmetics::{
 pub use team_commands::{LegacyTeamChoice, legacy_team_command};
 pub use team_info::{
     MAX_TEAM_CLIENTS, TeamInfo, TeamInfoError, TeamInfoTable, legacy_team_location,
+};
+pub use trip_mine_beams::{
+    TRIP_MINE_GLOW_EFFECT, TRIP_MINE_LASER_EFFECT, TripMineBeam, trip_mine_beam,
 };
 pub use userinfo_update::UserinfoUpdateStatus;
 pub use view_bob::{

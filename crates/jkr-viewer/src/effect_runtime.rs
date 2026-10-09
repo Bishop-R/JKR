@@ -366,15 +366,23 @@ pub(crate) fn spawn_effect(
             } else {
                 particle_rotation * sampled_acceleration
             };
+            // A traced Line reaches out this far until its first update traces it
+            // (`particle_physics`), as `CreateEffect` does at once.
+            let traced_line =
+                component.kind == ComponentKind::Line && component.spawn_flags.origin2_from_trace;
             let streak = match component.kind {
-                ComponentKind::Line => Some(
-                    particle_rotation
-                        * Vec3::from_array(component.origin2.sample([
-                            random_unit(particle_seed.wrapping_add(20)),
-                            random_unit(particle_seed.wrapping_add(21)),
-                            random_unit(particle_seed.wrapping_add(22)),
-                        ])),
-                ),
+                ComponentKind::Line => {
+                    let origin2 = Vec3::from_array(component.origin2.sample([
+                        random_unit(particle_seed.wrapping_add(20)),
+                        random_unit(particle_seed.wrapping_add(21)),
+                        random_unit(particle_seed.wrapping_add(22)),
+                    ]));
+                    Some(if traced_line {
+                        crate::effect_shapes::trace_reach(component, particle_rotation, origin2)
+                    } else {
+                        particle_rotation * origin2
+                    })
+                }
                 ComponentKind::Tail => Some(-velocity),
                 _ => None,
             };
@@ -473,6 +481,9 @@ pub(crate) fn spawn_effect(
                         .elasticity
                         .sample(random_unit(particle_seed.wrapping_add(30))),
                     component.flags,
+                )
+                .with_line_trace(
+                    traced_line.then_some(component.spawn_flags.trace_impact_effect),
                 ),
                 shape,
             });

@@ -1,4 +1,5 @@
-//! Spawn-time state for Raven cylinder and electricity effect primitives.
+//! Spawn-time state for Raven cylinder and electricity effect primitives, and the
+//! traced end of line and electricity primitives.
 //!
 //! The argument mapping mirrors `CFxScheduler::CreateEffect` in
 //! `codemp/client/FxScheduler.cpp:1498-1522`. Electricity reuses Raven's
@@ -37,16 +38,7 @@ pub(crate) fn from_component(
                 seeded_unit(seed.wrapping_add(22)),
             ]));
             let end = if component.spawn_flags.origin2_from_trace {
-                let mut trace_end = primitive_origin + rotation * Vec3::X * TRACE_DISTANCE;
-                if component.spawn_flags.origin2_is_offset {
-                    trace_end += if component.spawn_flags.cheap_origin2 || component.flags.relative
-                    {
-                        offset
-                    } else {
-                        rotation * offset
-                    };
-                }
-                trace_end
+                primitive_origin + trace_reach(component, rotation, offset)
             } else if component.flags.relative {
                 primitive_origin + offset
             } else if component.spawn_flags.cheap_origin2 {
@@ -65,6 +57,24 @@ pub(crate) fn from_component(
             }
         }
         _ => crate::particle_types::PrimitiveShape::Billboard,
+    }
+}
+
+/// Where `FX_ORG2_FROM_TRACE` traces to from a Line's or an Electricity's origin
+/// (`FxScheduler.cpp:1408-1428`): far along the effect's forward axis, moved by `offset`
+/// (its `origin2`) when `org2isOffset` asks.
+pub(crate) fn trace_reach(
+    component: &jkr_effect::Component,
+    rotation: Quat,
+    offset: Vec3,
+) -> Vec3 {
+    let reach = rotation * Vec3::X * TRACE_DISTANCE;
+    if !component.spawn_flags.origin2_is_offset {
+        reach
+    } else if component.spawn_flags.cheap_origin2 || component.flags.relative {
+        reach + offset
+    } else {
+        reach + rotation * offset
     }
 }
 

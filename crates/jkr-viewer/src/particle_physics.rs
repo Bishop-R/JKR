@@ -32,6 +32,9 @@ pub(crate) struct State {
     kill_on_impact: bool,
     impact_effect: bool,
     death_effect: bool,
+    /// A Line's `org2fromTrace` end, not traced yet; `true` also plays its impact effect
+    /// where the trace ends (`traceImpactFx`).
+    line_trace: Option<bool>,
 }
 
 impl State {
@@ -52,7 +55,20 @@ impl State {
             kill_on_impact: flags.kill_on_impact,
             impact_effect: flags.impact_runs_effect,
             death_effect: flags.death_runs_effect,
+            line_trace: None,
         }
+    }
+
+    /// The state of a Line whose end a trace finds (`Some`), playing its impact effect
+    /// there when `Some(true)`.
+    pub(crate) fn with_line_trace(mut self, line_trace: Option<bool>) -> Self {
+        self.line_trace = line_trace;
+        self
+    }
+
+    /// Whether this is a Line whose end is not traced yet, and so not drawn.
+    pub(crate) fn line_trace_pending(&self) -> bool {
+        self.line_trace.is_some()
     }
 }
 
@@ -139,11 +155,42 @@ pub(crate) fn update(
             }
             return false;
         }
+        if let Some(impact) = particle.physics.line_trace.take() {
+            trace_line_end(particle, impact, bsp, scratch, pending);
+        }
         if age < particle.delay {
             return true;
         }
         advance_particle(particle, now, bsp, scratch, pending)
     });
+}
+
+/// `CFxScheduler::CreateEffect`'s `FX_ORG2_FROM_TRACE` (`FxScheduler.cpp:1408-1436`): a
+/// Line ends where a `MASK_SOLID` trace from its origin stops, and with
+/// `FX_TRACE_IMPACT_FX` its impact effect plays there along the surface's normal.
+fn trace_line_end(
+    particle: &mut Particle,
+    impact: bool,
+    bsp: &Bsp,
+    scratch: &mut TraceScratch,
+    pending: &mut PendingEffects,
+) {
+    let Some(reach) = particle.streak else { return };
+    let origin = particle.motion.sample().origin;
+    pending.traces = pending.traces.wrapping_add(1);
+    let trace = bsp.trace_box_with(
+        scratch,
+        origin.to_array(),
+        (origin + reach).to_array(),
+        Aabb::POINT,
+        MASK_SOLID,
+    );
+    let end = Vec3::from_array(trace.end_position);
+    particle.streak = Some(end - origin);
+    if impact {
+        let normal = trace.plane.map_or(Vec3::ZERO, |plane| Vec3::from_array(plane.normal));
+        pending.push(particle, NestedKind::Impact, end, normal);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -342,4 +389,61 @@ fn signed_unit(mut seed: u32) -> f32 {
     seed = seed.wrapping_mul(0x846c_a68b);
     seed ^= seed >> 16;
     seed as f32 / u32::MAX as f32 * 2.0 - 1.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::Quat;
+
+    const BEAM: &str = "Line\n{\n\tspawnflags\torg2fromTrace traceImpactFx\n\tshaders\n\t[\n\t\t\
+        gfx/misc/whiteLine2\n\t]\n\timpactFx\n\t[\n\t\ttest/glow\n\t]\n}\n";
+    const GLOW: &str = "Particle\n{\n\tshaders\n\t[\n\t\tgfx/effects/whiteFlare\n\t]\n}\n";
+
+    /// A Line with `org2fromTrace` is not drawn until its first update has traced its end,
+    /// and then plays its `impactFx` where the trace stopped (`FxScheduler.cpp:1408-1436`).
+    #[test]
+    fn traced_lines_find_their_end_and_play_their_impact() {
+        let mut vfs = VirtualFileSystem::new();
+        let files = [("effects/test/beam.efx", BEAM), ("effects/test/glow.efx", GLOW)];
+        vfs.mount_memory("test", files).unwrap();
+        let mut particles = Vec::new();
+        let mut auxiliary = crate::effect_aux::Runtime::default();
+        let mut effects = EffectLibrary::default();
+        let now = Instant::now();
+        let origin = Vec3::new(10.0, 20.0, 30.0);
+        crate::effect_runtime::spawn_effect(
+            &mut particles,
+            &mut auxiliary,
+            &mut effects,
+            &vfs,
+            "test/beam",
+            origin,
+            now,
+            7,
+            0,
+            &mut None,
+            Quat::IDENTITY,
+        );
+        assert_eq!(particles.len(), 1);
+        assert!(particles[0].physics.line_trace_pending());
+        // Nothing to hit in an empty map: the line reaches `FX_MAX_TRACE_DIST`.
+        let bsp = Bsp::empty([-20_000.0; 3], [20_000.0; 3]);
+        let mut pending = PendingEffects::new();
+        update(&mut particles, now, &bsp, &mut TraceScratch::default(), &mut pending);
+        assert!(!particles[0].physics.line_trace_pending());
+        assert_eq!(particles[0].streak, Some(Vec3::new(16_384.0, 0.0, 0.0)));
+        spawn_pending(
+            &mut pending,
+            &mut particles,
+            &mut auxiliary,
+            &mut effects,
+            &vfs,
+            &mut None,
+            now,
+        );
+        assert_eq!(particles.len(), 2);
+        let end = origin + Vec3::new(16_384.0, 0.0, 0.0);
+        assert_eq!(particles[1].motion.sample().origin, end);
+    }
 }

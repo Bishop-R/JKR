@@ -13,6 +13,8 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "boba/jet",
     "sparks/spark_explosion",
     "tripmine/explosion",
+    "tripmine/lasermp",
+    "tripmine/glowbit",
     "detpack/explosion",
     "flechette/alt_blow",
     "stunbaton/flesh_impact",

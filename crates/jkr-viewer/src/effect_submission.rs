@@ -55,7 +55,8 @@ pub(crate) fn prepare(timing: &mut frame_pacing::budget::Timer, inputs: Inputs<'
         if !matches!(
             particle.shape,
             PrimitiveShape::Billboard | PrimitiveShape::FrameBillboard
-        ) {
+        ) || particle.physics.line_trace_pending()
+        {
             continue;
         }
         let age = inputs.now.saturating_duration_since(particle.spawned_at);
