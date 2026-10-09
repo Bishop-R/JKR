@@ -7,9 +7,13 @@ pub(crate) struct Tracker {
     time: i32,
     external: u16,
     items: [u16; 1024],
+    /// The Force power of each holocron in sight (`trickedentindex4`), 255 for none.
+    holocrons: [u8; 1024],
     predicted: [Option<u16>; 2],
     /// The item last picked up (`CG_ItemPickup`), for the HUD.
     pickup: Option<u16>,
+    /// The holocron's power last picked up, for its line and the Force selection.
+    holocron: Option<u8>,
     /// A saber move failed for want of Force points (`EV_NOAMMO` with a saber), for the HUD.
     force_flash: bool,
 }
@@ -21,8 +25,10 @@ impl Default for Tracker {
             time: 0,
             external: 0,
             items: [0; 1024],
+            holocrons: [u8::MAX; 1024],
             predicted: [None; 2],
             pickup: None,
+            holocron: None,
             force_flash: false,
         }
     }
@@ -61,6 +67,11 @@ impl Tracker {
         self.pickup.take()
     }
 
+    /// The power of the holocron picked up since the last call.
+    pub(crate) fn take_holocron(&mut self) -> Option<u8> {
+        self.holocron.take()
+    }
+
     /// Whether a saber move failed for want of Force points since the last call.
     pub(crate) fn take_force_flash(&mut self) -> bool {
         std::mem::take(&mut self.force_flash)
@@ -74,6 +85,15 @@ impl Tracker {
         player: &jkr_protocol::PlayerState,
     ) -> Option<u8> {
         self.force_flash |= flashes_force(event, player);
+        if event & 255 == 22
+            && let Some(power) = self
+                .holocrons
+                .get(usize::from(parameter))
+                .copied()
+                .filter(|power| *power != u8::MAX)
+        {
+            self.holocron = Some(power);
+        }
         if event & 255 == 22 {
             self.pickup = self
                 .items
@@ -109,6 +129,28 @@ impl Tracker {
         }
     }
 }
+
+/// `showPowersName` (`cg_draw.c:92-112`): each Force power's name in `SP_INGAME`.
+const POWER_NAMES: [&str; 18] = [
+    "SP_INGAME_HEAL2",
+    "SP_INGAME_JUMP2",
+    "SP_INGAME_SPEED2",
+    "SP_INGAME_PUSH2",
+    "SP_INGAME_PULL2",
+    "SP_INGAME_MINDTRICK2",
+    "SP_INGAME_GRIP2",
+    "SP_INGAME_LIGHTNING2",
+    "SP_INGAME_DARK_RAGE2",
+    "SP_INGAME_PROTECT2",
+    "SP_INGAME_ABSORB2",
+    "SP_INGAME_TEAM_HEAL2",
+    "SP_INGAME_TEAM_REPLENISH2",
+    "SP_INGAME_DRAIN2",
+    "SP_INGAME_SEEING2",
+    "SP_INGAME_SABER_OFFENSE2",
+    "SP_INGAME_SABER_DEFENSE2",
+    "SP_INGAME_SABER_THROW2",
+];
 
 /// `EV_NOAMMO` with a saber in hand, out of a vehicle (`cg_event.c:1991-1994`): a saber
 /// move without the Force points it costs.
@@ -151,6 +193,7 @@ impl crate::GpuState {
         self.auto_switch.time = snapshot.server_time;
         if reset || next < old {
             self.auto_switch.items.fill(0);
+            self.auto_switch.holocrons.fill(u8::MAX);
             self.auto_switch.external = 0;
             self.auto_switch.predicted.fill(None);
             return;
@@ -160,6 +203,14 @@ impl crate::GpuState {
                 && let Some(slot) = self.auto_switch.items.get_mut(entity.number() as usize)
             {
                 *slot = entity.model_index().max(0) as u16;
+            }
+            // `ET_HOLOCRON`s are marked as Jedi Masters and carry their power
+            // (`g_misc.c:1066,1123`).
+            if entity.entity_type() == 5
+                && entity.is_jedi_master()
+                && let Some(slot) = self.auto_switch.holocrons.get_mut(entity.number() as usize)
+            {
+                *slot = entity.raw_field(94).unwrap_or(0).min(17) as u8;
             }
         }
         let mode = self
@@ -209,6 +260,36 @@ impl crate::GpuState {
         if self.auto_switch.take_force_flash() {
             self.hud.force_flash.start();
         }
+        if let Some(power) = self.auto_switch.take_holocron() {
+            self.picked_up_holocron(power);
+        }
+    }
+
+    /// `EV_ITEM_PICKUP` of a holocron by the local player (`cg_event.c:1866-1894`): "Obtained"
+    /// and the power's name in the centre, and the Force selection perhaps moved to it.
+    fn picked_up_holocron(&mut self, power: u8) {
+        let Some(session) = &self.live_session else {
+            return;
+        };
+        let player = session.latest_snapshot().player.clone();
+        let time = self.server_clock.server_time(std::time::Instant::now());
+        self.gameplay_input.selection.holocron(power, &player, time);
+        let strings = &self.localization.strings;
+        let Some(name) = POWER_NAMES
+            .get(usize::from(power))
+            .and_then(|name| jkr_client::string_table::lookup(strings, name))
+        else {
+            return;
+        };
+        let line = jkr_client::string_table::lookup(strings, "MP_INGAME_PICKUPLINE")
+            .unwrap_or("Obtained");
+        let text = format!("{line} {name}\n");
+        self.chat.receive(
+            jkr_client::ServerEventKind::CenterPrint,
+            text,
+            None,
+            std::time::Instant::now(),
+        );
     }
 
     /// Apply automatic selection through the same retained input/HUD fields as binds.

@@ -634,6 +634,8 @@ pub struct LegacySoundAdapter {
     drain: Option<u16>,
     zoom: [Option<u16>; 2],
     use_items: use_items::UseItemSounds,
+    /// `cgs.media.holocronPickup`.
+    holocron_pickup: Option<u16>,
     select_fallback: Option<u16>,
     dramatic_failure: Option<u16>,
     /// Announcer and chat sounds derived on the client (`local_sounds.rs`).
@@ -855,6 +857,7 @@ impl LegacySoundAdapter {
         ]
         .map(|path| Some(intern(path)));
         let use_items = use_items::UseItemSounds::register(&mut intern);
+        let holocron_pickup = Some(intern("sound/player/holocron.wav"));
         let select_fallback = Some(intern("sound/weapons/change.wav"));
         let dramatic_failure = Some(intern("music/badsmall.mp3"));
         let mut local_media = LocalSoundMedia::register(&mut intern);
@@ -913,6 +916,7 @@ impl LegacySoundAdapter {
             drain,
             zoom,
             use_items,
+            holocron_pickup,
             select_fallback,
             dramatic_failure,
             local,
@@ -1364,14 +1368,17 @@ impl LegacySoundAdapter {
             )),
             22 => {
                 // EV_ITEM_PICKUP carries an entity number, not an eight-bit item index.
-                let item = snapshot
-                    .entities
-                    .iter()
-                    .find(|state| state.number() == raw)
-                    .map_or(0, EntityState::model_index);
+                let picked = snapshot.entities.iter().find(|state| state.number() == raw);
+                let item = picked.map_or(0, EntityState::model_index);
+                // A holocron: no item, marked as a Jedi Master (`cg_event.c:1861-1865`).
+                let holocron = item < 1 && picked.is_some_and(EntityState::is_jedi_master);
                 Some((
                     LegacySoundEvent::ItemPickup,
-                    self.item_sounds[item_sound_kind(item)],
+                    if holocron {
+                        self.holocron_pickup
+                    } else {
+                        self.item_sounds[item_sound_kind(item)]
+                    },
                     source,
                     CHAN_AUTO,
                     false,
