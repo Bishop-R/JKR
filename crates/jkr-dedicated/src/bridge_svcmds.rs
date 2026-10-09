@@ -1,6 +1,7 @@
 //! The game's own console commands (`g_svcmds.c:ConsoleCommand`): the IP filter
 //! (`addip`, `removeip`, `listip`, kept in `g_banIPs`), `forceteam`, jaPRO's
-//! `resetScores`, and the vote and userinfo-validation toggles.
+//! `resetScores`, the vote and userinfo-validation toggles, and the developer's
+//! `entitylist` and `game_memory`.
 
 use super::NativeGame;
 use jkr_game_jka::client_view::strip_colours;
@@ -38,6 +39,12 @@ impl NativeGame {
             self.ip_filter.list(print);
         } else if is(b"forceteam") {
             self.force_team(words, server_time, print);
+        } else if is(b"entitylist") {
+            self.entity_list(print);
+        } else if is(b"game_memory") {
+            // `Svcmd_GameMem_f`: this game allocates from no fixed pool, so none of stock's
+            // four megabytes is ever used.
+            print(b"Game Memory Pool is 0.0% full, 0 bytes out of 4194304 used.\n");
         } else if is(b"resetscores") {
             // jaPRO's `resetScores`.
             self.reset_scores();

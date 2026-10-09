@@ -3559,6 +3559,8 @@ use bridge_maps::{authoritative, fixed, pure_files, world_config_strings};
 mod bridge_console;
 #[path = "bridge_cvars.rs"]
 mod bridge_cvars;
+#[path = "bridge_entity_list.rs"]
+mod bridge_entity_list;
 #[path = "bridge_log.rs"]
 mod bridge_log;
 #[path = "bridge_ranks.rs"]

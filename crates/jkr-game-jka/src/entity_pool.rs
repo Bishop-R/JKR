@@ -597,6 +597,11 @@ impl EntityPool {
         Some(EntityId::new(slot as u32, entry.generation))
     }
 
+    /// Whether `id` is one of `InitBodyQue`'s eight entities, a body lying there or not.
+    pub fn in_body_queue(&self, id: EntityId) -> bool {
+        id.ordinal() < BODIES && self.slot(id).is_some()
+    }
+
     /// The body-queue slot body `id` lies in.
     pub fn body_slot(&self, id: EntityId) -> Option<usize> {
         self.slot(id)
