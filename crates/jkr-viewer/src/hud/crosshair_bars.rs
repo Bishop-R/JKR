@@ -3,7 +3,7 @@
 //! a teammate's health and ammunition (`CG_DrawSiegeInfo`, from `sxd`); the health of the
 //! vehicle a pilot under it sits on; and a hack's progress (`CG_DrawHaqrBar`). Each is 50 by
 //! 5 units of 480 lines, stacked down from 8 units below the crosshair, and shows only
-//! while the crosshair does. Left out: the hack bar's technician icon above it.
+//! while the crosshair does. The hack bar carries the technician's icon above it.
 
 use super::*;
 use crate::crosshair_scan::Target;
@@ -41,6 +41,8 @@ struct Bar {
     fill: f32,
     color: [f32; 4],
     rest: [f32; 4],
+    /// The hack bar, under `hackerIconShader`.
+    hack: bool,
 }
 
 /// This frame's bars.
@@ -122,12 +124,14 @@ impl HudOverlay {
                             fill: health,
                             color: GREEN,
                             rest: GREY,
+                            hack: false,
                         });
                         push(Bar {
                             offset: moved + HEIGHT + 10.0,
                             fill: ammo,
                             color: YELLOW,
                             rest: GREY,
+                            hack: false,
                         });
                     }
                     moved += HEIGHT * 4.0;
@@ -155,6 +159,7 @@ impl HudOverlay {
                     fill,
                     color: YELLOW,
                     rest: FAINT_GREY,
+                    hack: true,
                 });
             }
         }
@@ -165,7 +170,13 @@ impl HudOverlay {
 impl State {
     /// The bars under the crosshair as `crosshair` places it: its offset from the middle of
     /// the screen in screen fractions (y up) and the lines its size counts on.
-    pub(super) fn emit(&self, list: &mut DrawList, viewport: [f32; 2], crosshair: [f32; 4]) {
+    pub(super) fn emit(
+        &self,
+        list: &mut DrawList,
+        viewport: [f32; 2],
+        crosshair: [f32; 4],
+        hacker: Option<jkr_ui::TextureId>,
+    ) {
         let [x, y, _, dimensions] = crosshair;
         let (offset, size) = ([x, y], self.size);
         if size <= 0.0 || dimensions <= 0.0 {
@@ -207,6 +218,15 @@ impl State {
                 ),
                 color: color(bar.rest),
             });
+            if bar.hack
+                && let Some(texture) = hacker
+            {
+                let _ = list.push(DrawCommand::TexturedQuad {
+                    rect: Rect::new(left, top - WIDTH * unit, WIDTH * unit, WIDTH * unit),
+                    texture,
+                    color: Color::new(1.0, 1.0, 1.0, 1.0),
+                });
+            }
         }
     }
 
@@ -264,6 +284,7 @@ fn health_bar(entity: &EntityState, team: i32, gametype: i32, moved: f32) -> Opt
         fill: fill.min(1.0),
         color,
         rest: GREY,
+        hack: false,
     })
 }
 
@@ -324,6 +345,7 @@ mod tests {
             fill: 0.5,
             color: GREEN,
             rest: GREY,
+            hack: false,
         });
         let mut list = DrawList::new(8);
         // A 24-unit crosshair in the middle of a 640 by 480 screen.

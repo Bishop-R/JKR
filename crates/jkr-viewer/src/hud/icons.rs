@@ -58,6 +58,9 @@ pub(crate) fn install(
     hud.icons.handles = assets::load(vfs, shaders, |id, rgba| {
         renderer.upload_icon(queue, id, rgba)
     });
+    hud.icons.hacker = assets::load_hacker(vfs, shaders, |id, rgba| {
+        renderer.upload_icon(queue, id, rgba)
+    });
     (renderer, hud)
 }
 
@@ -67,6 +70,8 @@ const FORCE_SORTED: [usize; 18] = [5, 0, 10, 9, 11, 1, 2, 3, 4, 14, 7, 13, 8, 6,
 /// Sampled options and scalar snapshot data; all texture handles are map-lifetime values.
 pub(crate) struct Icons {
     handles: [Option<TextureId>; assets::COUNT],
+    /// The hack bar's technician (`assets::load_hacker`).
+    pub(super) hacker: Option<TextureId>,
     enabled: bool,
     models: bool,
     powers: bool,
@@ -94,6 +99,7 @@ impl Default for Icons {
     fn default() -> Self {
         Self {
             handles: [None; assets::COUNT],
+            hacker: None,
             enabled: true,
             models: false,
             powers: true,

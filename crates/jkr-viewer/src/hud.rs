@@ -567,8 +567,12 @@ impl HudOverlay {
         }
         if visibility.crosshair {
             let crosshair = self.targeting.parameters(viewport);
-            self.crosshair_bars
-                .emit(&mut self.draw_list, viewport, crosshair);
+            self.crosshair_bars.emit(
+                &mut self.draw_list,
+                viewport,
+                crosshair,
+                self.icons.hacker,
+            );
         }
         if visibility.hud {
             action_timer::emit(

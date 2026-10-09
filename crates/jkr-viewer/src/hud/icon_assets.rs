@@ -19,6 +19,10 @@ pub(super) const CTY_FLAGS: [usize; 2] = [94, 95];
 pub(super) const TAKEN_FLAGS: [usize; 2] = [115, 116];
 /// The first of the vehicle HUD's pictures (`super::vehicle::TEXTURES` order).
 pub(super) const VEHICLE: usize = 117;
+/// `cgs.media.hackerIconShader`'s cell, over the hack bar (`CG_DrawHaqrBar`): past the duel
+/// portraits' (124-126) and the vehicle panels' (127-140).
+const HACKER_CELL: u32 = 141;
+const _: () = assert!(HACKER_CELL < ui_renderer::HUD_CELL_COUNT);
 /// `HolocronIcons` (`ui_shared.c:41-60`), by Force power, and `rageRecShader`.
 const FORCE_ICONS: [&str; 19] = [
     "gfx/mp/f_icon_lt_heal",
@@ -122,6 +126,18 @@ pub(in crate::hud) fn decode_path(vfs: &VirtualFileSystem, path: &str) -> Option
 }
 
 /// Load once per installed world; unresolved slots stay absent, never coloured quads.
+/// The hack bar's technician (`hackerIconShader`, `gfx/mp/c_icon_tech`), in its own cell.
+pub(super) fn load_hacker(
+    vfs: &VirtualFileSystem,
+    shaders: &ShaderCatalog,
+    mut upload: impl FnMut(TextureId, &[u8]),
+) -> Option<TextureId> {
+    let pixels = decode(vfs, shaders, "gfx/mp/c_icon_tech")?;
+    let id = TextureId(ui_renderer::ICON_CELLS + HACKER_CELL);
+    upload(id, pixels.as_raw());
+    Some(id)
+}
+
 pub(super) fn load(
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,
