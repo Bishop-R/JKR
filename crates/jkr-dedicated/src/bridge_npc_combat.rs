@@ -88,6 +88,39 @@ impl NativeGame {
         counted
     }
 
+    /// `legsAnim` and `torsoAnim` of NPC `number` now, kept for a disintegration.
+    pub(crate) fn npc_poses(&self, number: u16) -> Option<(u32, u32)> {
+        let npc = self
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == number)?;
+        let field = |index: usize| npc.player.raw_field(index).unwrap_or(0);
+        Some((field(13), field(15)))
+    }
+
+    /// The disintegration of an NPC a full disruptor charge killed (`g_weapon.c:936-949`):
+    /// a player's marks on its player state ([`jkr_game_jka::disruptor::disintegrated`])
+    /// and its body made passable (`r.contents = 0`) — unless it is a vehicle other than
+    /// an animal, which `G_CanDisruptify` spares.
+    pub(crate) fn disintegrate_npc(&mut self, number: u16, point: [f32; 3], poses: (u32, u32)) {
+        use jkr_game_jka::vehicle_fields::kind::ANIMAL;
+        let actors = &mut self.npcs.roster.actors;
+        let Some(npc) = actors.iter_mut().find(|npc| npc.number == number) else {
+            return;
+        };
+        if npc
+            .vehicle
+            .as_ref()
+            .is_some_and(|vehicle| vehicle.info.kind != ANIMAL)
+        {
+            return;
+        }
+        jkr_game_jka::disruptor::disintegrated(&mut npc.player, point, poses);
+        npc.contents = 0;
+    }
+
     /// A blow by `owner` on `target`: `LogAccuracyHit` (a living foe — teammates only
     /// exist in team games), `G_Damage`, and the shooter's hit counters. Returns what the
     /// damage came to.

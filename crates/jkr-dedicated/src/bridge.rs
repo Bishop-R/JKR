@@ -3381,7 +3381,7 @@ impl DisruptorTargets for InstantTargets<'_> {
     }
     fn disintegrate(&mut self, number: u16, point: [f32; 3], poses: (u32, u32)) {
         let Some(victim) = self.game.peer_mut(usize::from(number)) else {
-            return;
+            return self.game.disintegrate_npc(number, point, poses);
         };
         disintegrated(&mut victim.state, point, poses);
         // `r.contents = 0`: nothing runs into the body.
@@ -3389,6 +3389,9 @@ impl DisruptorTargets for InstantTargets<'_> {
         victim.movement = victim.movement.reseeded(&victim.state);
     }
     fn poses(&self, number: u16) -> (u32, u32) {
+        if let Some(poses) = self.game.npc_poses(number) {
+            return poses;
+        }
         let state = self
             .game
             .players
