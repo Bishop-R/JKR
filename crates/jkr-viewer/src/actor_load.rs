@@ -15,18 +15,31 @@ pub(crate) fn fallback_appearance() -> Appearance {
     }
 }
 
-/// `CG_LoadClientInfo`'s stand-in for a player whose model cannot be loaded: Kyle, in a
-/// team game in the team skin the player's own was given (`red`, `blue`), else in his
-/// default skin. (Stock asks Kyle for the player's very skin name, and stops the game
-/// when Kyle has no such skin; the team colour is what that skin names.)
-pub(crate) fn fallback_for(appearance: &Appearance, team_game: bool) -> Appearance {
+/// `CG_LoadClientInfo`'s stand-in for a player whose model cannot be loaded: Kyle, or
+/// Jan for a player the server calls `female` (`DEFAULT_MODEL_FEMALE`), in a team game in
+/// the team skin the player's own was given (`red`, `blue`), else in the default skin.
+/// (Stock asks the stand-in for the player's very skin name, and stops the game when it
+/// has no such skin; the team colour is what that skin names.)
+pub(crate) fn fallback_for(appearance: &Appearance, team_game: bool, female: bool) -> Appearance {
     let team_skin = ["red", "blue"]
         .into_iter()
         .find(|color| team_game && appearance.variant.to_ascii_lowercase().ends_with(color));
+    let model = if female { "jan" } else { "kyle" };
     Appearance {
-        model: "models/players/kyle".to_owned(),
+        model: format!("models/players/{model}"),
         variant: team_skin.unwrap_or("default").to_owned(),
     }
+}
+
+/// The gender hint of player `client_num` (`ds` in its `CS_PLAYERS` string,
+/// `CG_NewClientInfo`): `f` is female, anything else male.
+pub(crate) fn female(game_state: Option<&GameState>, client_num: u16) -> bool {
+    /// `CS_PLAYERS`.
+    const CS_PLAYERS: usize = 1_131;
+    game_state
+        .and_then(|game_state| game_state.config_string(CS_PLAYERS + usize::from(client_num)))
+        .and_then(|info| jkr_client::LegacyClientInfo::new(info).bytes("ds"))
+        .is_some_and(|hint| hint.first() == Some(&b'f'))
 }
 
 /// Whether the game is a team game (`GT_TEAM` and past), for [`fallback_for`].
@@ -248,7 +261,8 @@ pub(crate) fn load_actor_meshes(
             }
             Ok::<_, Box<dyn Error>>(pair)
         };
-        let stand_in = fallback_for(&appearance, team_game);
+        let female = client_num.is_some_and(|client_num| female(game_state, client_num));
+        let stand_in = fallback_for(&appearance, team_game, female);
         match load_or_fallback(vfs, &appearance, &stand_in, &mut cache) {
             // One player's model must not fail the map: a mesh that loads but
             // cannot be built is replaced by Kyle like one that cannot load.
@@ -353,16 +367,28 @@ mod stand_in_tests {
             variant: variant.to_owned(),
         };
         let skin = |appearance: Appearance| appearance.variant;
-        assert_eq!(skin(fallback_for(&look("red"), true)), "red");
-        assert_eq!(skin(fallback_for(&look("mine_blue"), true)), "blue");
-        assert_eq!(skin(fallback_for(&look("red"), false)), "default");
+        assert_eq!(skin(fallback_for(&look("red"), true, false)), "red");
+        assert_eq!(skin(fallback_for(&look("mine_blue"), true, false)), "blue");
+        assert_eq!(skin(fallback_for(&look("red"), false, false)), "default");
         assert_eq!(
-            skin(fallback_for(&look("head_a1|torso_a1|lower_a1"), true)),
+            skin(fallback_for(
+                &look("head_a1|torso_a1|lower_a1"),
+                true,
+                false
+            )),
             "default"
         );
         assert_eq!(
-            fallback_for(&look("red"), true).model,
+            fallback_for(&look("red"), true, false).model,
             "models/players/kyle"
+        );
+        // A female player's stand-in is Jan (`DEFAULT_MODEL_FEMALE`).
+        assert_eq!(
+            fallback_for(&look("blue"), true, true),
+            Appearance {
+                model: "models/players/jan".to_owned(),
+                variant: "blue".to_owned(),
+            }
         );
     }
 }

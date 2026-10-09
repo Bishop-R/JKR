@@ -205,12 +205,13 @@ impl GpuState {
                 let stand_in = crate::actor_load::fallback_for(
                     &appearance,
                     crate::actor_load::team_game(game_state),
+                    crate::actor_load::female(game_state, client as u16),
                 );
                 match self.build_live_actor(&stand_in, entity_id, saber_names) {
                     Ok(mut mesh) => {
                         log::progress(format_args!(
-                            "client {client}: {}/{} cannot be loaded ({error}); Kyle stands in",
-                            appearance.model, appearance.variant
+                            "client {client}: {}/{} cannot be loaded ({error}); {} stands in",
+                            appearance.model, appearance.variant, stand_in.model
                         ));
                         mesh.appearance = appearance.clone();
                         mesh
