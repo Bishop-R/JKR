@@ -152,6 +152,12 @@ impl Cvars {
             let index = cvars.get(name, value, flags | CVAR_VM_CREATED, None);
             cvars.vars[index].announced = announced;
         }
+        // JKR lifts the reference's read-only `sv_cheats`, which only `map` and `devmap`
+        // set there: the operator may turn the cheats on and off from the console or
+        // rcon, and every client is told through the systeminfo.
+        if let Some(index) = cvars.find(b"sv_cheats") {
+            cvars.vars[index].flags &= !CVAR_ROM;
+        }
     }
 
     /// [`Self::get`] for a game variable whose changes everyone is told about

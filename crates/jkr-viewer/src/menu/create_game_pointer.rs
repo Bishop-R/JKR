@@ -46,7 +46,7 @@ impl CreateGameMenu {
                 self.selected = row;
                 let rect = self.ui.rect_for(token);
                 match (ROWS[row], rect, event.position) {
-                    (Row::Start | Row::Hostname | Row::Lan | Row::Map, ..) => {
+                    (Row::Start | Row::Hostname | Row::Lan | Row::Cheats | Row::Map, ..) => {
                         self.activate(console)
                     }
                     (_, Some(rect), Some(position)) => {

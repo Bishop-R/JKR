@@ -29,7 +29,7 @@ struct Options {
     maps: Vec<String>,
     /// Console variables from the options and `--set`, in order, set as `+set` sets them.
     sets: Vec<(String, String)>,
-    /// `--cheats`: `sv_cheats`, which only the server itself may set.
+    /// `--cheats`: `sv_cheats` on from the start; the console and rcon may change it.
     cheats: bool,
     /// The command line's `+` commands, one console line each.
     commands: Vec<String>,

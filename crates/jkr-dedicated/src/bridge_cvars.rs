@@ -482,4 +482,57 @@ mod tests {
         assert!(sent[0].contains("\\pmove_fixed\\1"), "{sent:?}");
         assert_eq!(system_info(&game), sent[0]);
     }
+
+    /// `sv_cheats` is the operator's (the reference keeps it read-only, for `map` and
+    /// `devmap` alone): a console or rcon line turns the cheat commands on and off at
+    /// once and every client is told through the systeminfo, and the world commands
+    /// still set it as the reference's do.
+    #[test]
+    fn operators_turn_the_cheats_on_and_off() {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/ffa3".to_vec(),
+        };
+        let cvars = crate::cvars::Cvars::server();
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        assert!(!game.settings.cheats);
+        for (line, cheats) in [
+            (&b"sv_cheats 1"[..], true),
+            (b"sv_cheats 0", false),
+            (b"devmap mp/ffa3", true),
+            (b"map mp/ffa3", false),
+        ] {
+            let shown = String::from_utf8_lossy(line).into_owned();
+            game.take_output(&mut |_| {});
+            let mut printed = Vec::new();
+            let known = game.console_line(
+                line,
+                0,
+                &mut super::super::bridge_bots::NoBotSlots,
+                &mut |text| printed.extend_from_slice(text),
+            );
+            let printed = String::from_utf8_lossy(&printed).into_owned();
+            assert!(known && !printed.contains("read only"), "{shown}: {printed}");
+            assert_eq!(game.settings.cheats, cheats, "{shown}");
+            let pair = format!("\\sv_cheats\\{}", u8::from(cheats));
+            let kept = game
+                .config_strings()
+                .find(|(index, _)| *index == 1)
+                .map(|(_, info)| String::from_utf8_lossy(info).into_owned())
+                .unwrap();
+            assert!(kept.contains(&pair), "{shown}: {kept}");
+            if line.starts_with(b"sv_cheats") {
+                let mut told = false;
+                game.take_output(&mut |output| {
+                    if let LegacyGameOutput::ConfigString {
+                        index: 1, value, ..
+                    } = output
+                    {
+                        told |= String::from_utf8_lossy(value).contains(&pair);
+                    }
+                });
+                assert!(told, "{shown}");
+            }
+        }
+    }
 }

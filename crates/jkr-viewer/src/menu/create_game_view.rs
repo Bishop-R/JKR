@@ -1,5 +1,5 @@
 //! Create game presentation: the shared hero form over the live map — a
-//! left column of box-free rows (cyclers, a name field, a LAN toggle), the
+//! left column of box-free rows (cyclers, a name field, LAN and cheat toggles), the
 //! Start action and one status line; nothing behind the text.
 
 use super::create_game::{CreateGameMenu, ROWS, Row};
@@ -135,7 +135,18 @@ impl CreateGameMenu {
                 );
             }
             Row::Hostname => self.name_field(zone, rect, color, s),
-            Row::Lan => lan_toggle(&mut self.ui, zone, rect, draft.allow_lan, color, s),
+            Row::Lan => {
+                let shown = if draft.allow_lan {
+                    "On"
+                } else {
+                    "This PC only"
+                };
+                toggle(&mut self.ui, zone, rect, draft.allow_lan, shown, color, s);
+            }
+            Row::Cheats => {
+                let shown = if draft.cheats { "On" } else { "Off" };
+                toggle(&mut self.ui, zone, rect, draft.cheats, shown, color, s);
+            }
             Row::Start => {}
         }
     }
@@ -172,8 +183,16 @@ impl CreateGameMenu {
     }
 }
 
-/// The LAN row: a toggle pill and what it means.
-fn lan_toggle(ui: &mut MenuCanvas, zone: Rect, rect: Rect, on: bool, color: jkr_ui::Color, s: f32) {
+/// A switch row: a toggle pill and what its state means.
+fn toggle(
+    ui: &mut MenuCanvas,
+    zone: Rect,
+    rect: Rect,
+    on: bool,
+    shown: &str,
+    color: jkr_ui::Color,
+    s: f32,
+) {
     let accent = ui.theme().accent;
     let pill = Rect::new(
         zone.right() - 44.0 * s,
@@ -183,7 +202,7 @@ fn lan_toggle(ui: &mut MenuCanvas, zone: Rect, rect: Rect, on: bool, color: jkr_
     );
     ui.toggle_pill(pill, on, accent);
     let label = Rect::new(zone.x, rect.y, zone.width - 58.0 * s, rect.height);
-    ui.form_value(if on { "On" } else { "This PC only" }, label, color, s);
+    ui.form_value(shown, label, color, s);
 }
 
 /// A row's label when it does not depend on the mode.
@@ -197,6 +216,7 @@ fn label(kind: Row) -> &'static str {
         Row::TimeLimit => "Time limit",
         Row::Hostname => "Server name",
         Row::Lan => "Allow LAN players",
+        Row::Cheats => "Cheats",
         Row::Start => "Start",
     }
 }
