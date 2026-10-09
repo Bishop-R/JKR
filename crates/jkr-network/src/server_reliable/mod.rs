@@ -44,6 +44,9 @@ pub struct LegacyReliableState {
     commands: Vec<CommandText>,
     last_client: CommandText,
     counters: LegacyReliableCounters,
+    /// TaystJK's `lastReliableTime[4]` under `sv_newfloodProtect` above 1: when the shared
+    /// window, `score`, `say` and `kill` last let a command through.
+    flood_windows: [i32; 4],
     lifetime: Lifetime,
 }
 impl Default for LegacyReliableState {
@@ -58,6 +61,7 @@ impl LegacyReliableState {
             commands: vec![CommandText::default(); HISTORY],
             last_client: CommandText::default(),
             counters: LegacyReliableCounters::default(),
+            flood_windows: [0; 4],
             lifetime: Lifetime::Open,
         }
     }

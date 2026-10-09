@@ -1,5 +1,5 @@
-//! TaystJK's server options beyond OpenJK's (`sv_init.cpp:1060-1070`): `sv_pingFix` and
-//! `sv_antiDST`, which the endpoint applies, and hibernation — an empty server's frame rate drops to
+//! TaystJK's server options beyond OpenJK's (`sv_init.cpp:997`, `1060-1070`): `sv_pingFix`,
+//! `sv_antiDST` and `sv_newfloodProtect`, which the endpoint applies, and hibernation — an empty server's frame rate drops to
 //! `sv_hibernateFPS` once `sv_hibernateTime` milliseconds have passed since the last
 //! human left (`SV_Frame`), and is back the moment a client is let in (`SV_DirectConnect`).
 
@@ -57,6 +57,13 @@ impl NativeGame {
         }
         self.cvars
             .check_range(b"sv_hibernateFPS", 1.0, 1000.0, true, &mut |_| {});
+        // `sv_init.cpp:997`, archived even at its default.
+        self.cvars.get(
+            b"sv_newfloodProtect",
+            b"1",
+            CVAR_ARCHIVE,
+            Some(b"Use new method of delaying commands with flood protection"),
+        );
     }
 
     /// `SV_Frame`'s look: with nobody but bots connected for `sv_hibernateTime`

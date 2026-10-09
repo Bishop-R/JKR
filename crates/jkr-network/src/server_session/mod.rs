@@ -248,6 +248,12 @@ pub struct LegacySessionSettings {
     pub oob_rates: LegacyOobRates,
     /// `sv_floodProtect`: zero disables, one means a second, otherwise milliseconds.
     pub flood_protect: i32,
+    /// OpenJK's `sv_floodProtectSlow` (TaystJK's `sv_newfloodProtect 1`): a command held
+    /// back still restarts the window.
+    pub flood_protect_slow: bool,
+    /// TaystJK's `sv_newfloodProtect` above 1: separate windows for `score`, `say` and
+    /// `kill`, none for `amTele`.
+    pub flood_per_command: bool,
     /// `sv_legacyFixes`.
     pub legacy_fixes: bool,
     /// Rate and snapshot-rate cvars.
@@ -289,6 +295,8 @@ impl Default for LegacySessionSettings {
                 global: 1000,
             },
             flood_protect: 1,
+            flood_protect_slow: true,
+            flood_per_command: false,
             legacy_fixes: true,
             rates: LegacyRateSettings::default(),
             snapshot_entity_ring: 32 * 64,

@@ -248,6 +248,12 @@ impl NativeGame {
         settings.zombie_seconds = cvars.integer(b"sv_zombietime");
         settings.reconnect_limit_seconds = cvars.integer(b"sv_reconnectlimit");
         settings.flood_protect = cvars.integer(b"sv_floodProtect");
+        // OpenJK's `sv_floodProtectSlow` and TaystJK's `sv_newfloodProtect` 1 are the same
+        // rule; either at 0 turns it off, and TaystJK's above 1 splits the windows.
+        let new_flood = cvars.integer(b"sv_newfloodProtect");
+        settings.flood_per_command = new_flood > 1;
+        settings.flood_protect_slow =
+            new_flood != 0 && new_flood <= 1 && cvars.integer(b"sv_floodProtectSlow") != 0;
         settings.legacy_fixes = cvars.integer(b"sv_legacyFixes") != 0;
         settings.allow_download = cvars.integer(b"sv_allowDownload") != 0;
         settings.pure = cvars.integer(b"sv_pure") != 0;
