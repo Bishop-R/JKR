@@ -90,12 +90,23 @@ pub(super) fn submit(
         .map_or(state.angular_trajectory_base(), |pose| {
             pose.view_angles_degrees
         });
+    // EternalJK draws the viewer's own flag see-through (`cg_players.c:4903-4907`).
+    let own_alpha = sinks
+        .own_flag_alpha
+        .filter(|_| number == snapshot.player.client_num());
     for (active, model) in carried(state.powerups()).into_iter().zip(sinks.flag_meshes) {
         if let (true, Some(model)) = (active, model) {
             let mut instance = placement(raw, transform, angles);
             instance.view_flags = sinks.entity_view_flags;
-            // Map-load reservation covers every network actor plus every pickup.
-            sinks.object_groups[model].push(instance);
+            match own_alpha {
+                Some(alpha) => sinks.overrides.push(super::body_draw::faded(
+                    entity_materials::OverrideMesh::Object(model),
+                    instance,
+                    alpha,
+                )),
+                // Map-load reservation covers every network actor plus every pickup.
+                None => sinks.object_groups[model].push(instance),
+            }
         }
     }
 }

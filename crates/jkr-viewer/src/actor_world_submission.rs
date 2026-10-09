@@ -99,6 +99,8 @@ struct Sinks<'a> {
     detached_camera: bool,
     /// How the viewer's own player is drawn (`cg_thirdPersonAlpha`).
     own_body: BodyDraw,
+    /// EternalJK's `cg_thirdPersonFlagAlpha`: a flag the viewer carries, see-through.
+    own_flag_alpha: Option<u8>,
     /// How the actor being submitted is drawn, its bolted parts with it.
     body: BodyDraw,
     /// `cg_speedTrail`: Force Speed's afterimages.
@@ -241,6 +243,10 @@ pub(crate) fn submit(
         entity_view_flags: 0,
         detached_camera: gpu.detached_camera,
         own_body,
+        own_flag_alpha: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.own_flag_alpha()),
         body: BodyDraw::Opaque,
         speed_trails,
         view_origin: gpu.ground_hud.view_origin(),

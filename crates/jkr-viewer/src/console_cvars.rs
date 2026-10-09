@@ -2,7 +2,7 @@
 
 use jkr_shell::{CvarDefinition, CvarFlags, CvarRegistry};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
 /// Change-callback cache for integer values; frame reads never look up a name.
 pub(super) struct IntegerSetting(Arc<AtomicI64>);
@@ -32,6 +32,35 @@ impl IntegerSetting {
     /// Read the integer value without allocation or locking.
     pub(super) fn value(&self) -> i64 {
         self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// Change-callback cache for a number read as a float; frame reads never look up a name.
+pub(super) struct FloatSetting(Arc<AtomicU32>);
+
+impl FloatSetting {
+    /// Bind before config loading so archived values apply.
+    pub(super) fn bind(
+        cvars: &mut CvarRegistry,
+        name: &str,
+        default: f32,
+    ) -> Result<Self, jkr_shell::CvarError> {
+        let value = Arc::new(AtomicU32::new(default.to_bits()));
+        let changed = Arc::clone(&value);
+        cvars.on_change(name, move |change| {
+            let number = match change.current {
+                jkr_shell::CvarValue::Float(value) => value as f32,
+                jkr_shell::CvarValue::Integer(value) => value as f32,
+                _ => return,
+            };
+            changed.store(number.to_bits(), Ordering::Relaxed);
+        })?;
+        Ok(Self(value))
+    }
+
+    /// Read the value without allocation or locking.
+    pub(super) fn value(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
     }
 }
 
@@ -213,6 +242,19 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             0_i64,
             archive,
             "Extrapolate remote players and NPCs from snapshot velocity",
+        ),
+        // EternalJK's (`cg_xcvar.h`): solid by default.
+        CvarDefinition::new(
+            "cg_gunAlpha",
+            1.0_f64,
+            archive,
+            "EternalJK: see-through amount of the first-person weapon (1 is solid)",
+        ),
+        CvarDefinition::new(
+            "cg_thirdPersonFlagAlpha",
+            1.0_f64,
+            archive,
+            "EternalJK: see-through amount of a flag you carry, seen in third person (1 is solid)",
         ),
         // EternalJK's (`cg_xcvar.h`), off by default.
         CvarDefinition::new(

@@ -101,6 +101,8 @@ pub(crate) struct ViewerConsole {
     time_nudge: crate::presentation_clock::CvarSetting,
     smooth_clients: console_cvars::IntegerSetting,
     no_predict: console_cvars::IntegerSetting,
+    gun_alpha: console_cvars::FloatSetting,
+    flag_alpha: console_cvars::FloatSetting,
     /// When `cg_autoKillWhenFalling` last asked to die (`cg.lastAutoKillTime`).
     last_auto_kill: Option<std::time::Instant>,
     draw_fog: console_cvars::IntegerSetting,
@@ -158,6 +160,21 @@ impl ViewerConsole {
     /// Cached `cg_noPredict`: the local view follows the snapshots, unpredicted.
     pub(crate) fn no_predict(&self) -> bool {
         self.no_predict.enabled()
+    }
+
+    /// EternalJK's `cg_gunAlpha` as the first-person weapon's forced alpha
+    /// (`cg_weapons.c:395-397,921-924`): only a value between 0 and 1 fades it.
+    pub(crate) fn gun_alpha(&self) -> Option<u8> {
+        let alpha = self.gun_alpha.value();
+        (alpha > 0.0 && alpha < 1.0).then(|| (alpha * 255.0) as u8)
+    }
+
+    /// EternalJK's `cg_thirdPersonFlagAlpha` as the forced alpha of a flag the viewer
+    /// carries (`cg_players.c:4903-4907`): any value whose integer is not 1, held within
+    /// what a byte holds.
+    pub(crate) fn own_flag_alpha(&self) -> Option<u8> {
+        let alpha = self.flag_alpha.value();
+        (alpha as i32 != 1).then(|| (alpha * 255.0).clamp(0.0, 255.0) as u8)
     }
 
     /// Cached `cl_showtimedelta` state for the allocation-free runtime read.

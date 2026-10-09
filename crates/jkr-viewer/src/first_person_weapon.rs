@@ -119,6 +119,8 @@ pub(crate) struct Inputs {
     pub(crate) pose: LegacyViewWeaponPose,
     /// `cg_fovViewmodel`'s stretch of the hand's forward axis; 1 while it is off.
     pub(crate) stretch: f32,
+    /// EternalJK's `cg_gunAlpha`: the gun drawn see-through at this alpha.
+    pub(crate) alpha: Option<u8>,
 }
 
 /// First-person view of the local player: eye origin and look angles.
@@ -177,6 +179,10 @@ pub(crate) fn frame_inputs(
         let aspect = state.configuration.width as f32 / state.configuration.height as f32;
         let fov_x = 2.0 * ((state.field_of_view.to_radians() * 0.5).tan() * aspect).atan();
         inputs.stretch = offsets::stretch(state.console.as_ref(), fov_x.to_degrees());
+        inputs.alpha = state
+            .console
+            .as_ref()
+            .and_then(|console| console.gun_alpha());
         inputs
     })
 }
@@ -220,6 +226,7 @@ fn inputs_with_weapon(
             bobs,
         ),
         stretch: 1.0,
+        alpha: None,
     })
 }
 
@@ -237,10 +244,15 @@ pub(crate) fn local_torso_frame(
 }
 
 /// Push the gun and barrel instances for `inputs`; returns how many.
+/// The gun and its barrels into the object groups (`groups.0`), or with `cg_gunAlpha`
+/// see-through into the forced-alpha overrides (`groups.1`).
 pub(crate) fn submit(
     catalog: &Catalog,
     inputs: Inputs,
-    object_groups: &mut [Vec<ActorInstance>],
+    (object_groups, overrides): (
+        &mut Vec<Vec<ActorInstance>>,
+        &mut Vec<entity_materials::OverrideInstance>,
+    ),
 ) -> usize {
     let Some(Some(entry)) = catalog.entries.get(usize::from(inputs.weapon)) else {
         return 0;
@@ -271,7 +283,17 @@ pub(crate) fn submit(
             .map(|axis| 1.0 + (inputs.stretch - 1.0) * axis[0] * axis[0]);
         let mut instance = ActorInstance::new(origin.to_array(), rotation.to_array(), scale);
         instance.depth_hack = 1.0;
-        object_groups[mesh].push(instance);
+        match inputs.alpha {
+            Some(alpha) => overrides.push(entity_materials::OverrideInstance {
+                mesh: entity_materials::OverrideMesh::Object(mesh),
+                material: None,
+                instance: instance.with_forced_alpha(alpha),
+                no_depth: false,
+                forced_alpha: true,
+                switched_off: None,
+            }),
+            None => object_groups[mesh].push(instance),
+        }
         submitted += 1;
     }
     submitted

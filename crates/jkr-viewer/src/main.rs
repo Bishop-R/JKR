@@ -1614,10 +1614,10 @@ impl GpuState {
             presentation_time,
         );
         if let Some(inputs) = view_weapon {
-            first_person_weapon::submit(&self.first_person_weapon, inputs, &mut self.object_groups);
-            // `CG_AddPlayerWeapon` records the view gun's `tag_flash` for
-            // trace-weapon beams (`cg_weapons.c:579`) and plays the
-            // first-person muzzle effect there (`cg_weapons.c:704-762`).
+            let groups = (&mut self.object_groups, &mut self.pickup_override_instances);
+            first_person_weapon::submit(&self.first_person_weapon, inputs, groups);
+            // `CG_AddPlayerWeapon` records the view gun's `tag_flash` for trace-weapon beams
+            // (`cg_weapons.c:579`) and plays the first-person muzzle effect there (`:704-762`).
             let socket = first_person_weapon::flash_socket(&self.first_person_weapon, inputs);
             self.last_first_person_flash = socket.map(|socket| socket.origin);
             if let Some(request) = active_snapshot
