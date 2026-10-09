@@ -377,7 +377,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     loop {
         let received = socket.recv_from(&mut datagram);
         let elapsed = started.elapsed().as_millis() as i32;
-        frame_clock.observe(elapsed);
+        frame_clock.observe(elapsed, session.game().timescale());
         let clock = LegacyClock {
             server_time: frame_clock.server_time(),
             wall_time: elapsed,

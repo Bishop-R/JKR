@@ -891,6 +891,11 @@ impl Predictor {
         self.config.legacy_fixes = legacy_fixes;
     }
 
+    /// The server's movement variables for its next move ([`crate::pmove_rules::MoveCvars`]).
+    pub fn set_move_cvars(&mut self, cvars: crate::pmove_rules::MoveCvars) {
+        self.config.apply_move_cvars(cvars);
+    }
+
     /// Refresh movement policy without discarding the replay state.
     pub fn set_config(&mut self, config: MovementConfig) {
         self.config = config;

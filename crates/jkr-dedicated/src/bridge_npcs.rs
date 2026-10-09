@@ -524,6 +524,7 @@ impl NativeGame {
             skeletons: models_cache,
             rand,
             items: pickups,
+            move_cvars,
             ..
         } = self;
         let Npcs {
@@ -566,6 +567,7 @@ impl NativeGame {
             level_time: *last_frame_time,
             gravity,
             skill,
+            move_cvars: *move_cvars,
             gametype: *gametype,
             client_zero,
             items,

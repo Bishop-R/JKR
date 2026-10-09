@@ -181,12 +181,18 @@ impl NativeGame {
         // `G_InitGame` reads `g_banIPs` again into the filter it kept: every filter is
         // added a second time, as in the reference.
         self.process_ip_bans();
-        let (fresh, _) = super::world_config_strings(
-            &self.status_info,
+        // `SV_MapRestart_f`'s new `sv_serverid`, which the systeminfo carries.
+        let system_info = super::system_info(
+            &mut self.cvars,
             self.map.as_ref(),
             self.pure.as_ref(),
-            self.gametype,
             self.map_generation,
+        );
+        let (fresh, _) = super::world_config_strings(
+            &self.status_info,
+            system_info,
+            self.map.as_ref(),
+            self.gametype,
         );
         // `SP_worldspawn` always writes the level's start time, a map or none.
         let start = (CS_LEVEL_START_TIME, server_time.to_string().into_bytes());

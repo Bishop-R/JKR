@@ -302,6 +302,11 @@ pub trait NpcHost: SaberParseHost {
     fn print(&mut self, text: &str);
     /// `g_gravity`, `g_npcspskill`, `g_gametype`.
     fn gravity(&self) -> f32;
+    /// The server's movement variables (`pmove_fixed`, `pmove_msec`, `pmove_float`,
+    /// `g_stepSlideFix`, `g_noSpecMove`), which an NPC's think reads as a player's does.
+    fn move_cvars(&self) -> crate::pmove_rules::MoveCvars {
+        crate::pmove_rules::MoveCvars::default()
+    }
     fn skill(&self) -> i32;
     fn gametype(&self) -> i32;
     /// The game's generator (`Q_irand`'s), for what takes it whole.

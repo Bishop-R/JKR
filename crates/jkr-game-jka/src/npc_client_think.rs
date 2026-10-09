@@ -145,6 +145,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     pub fn client_think(&mut self, me: usize, command: UserCommand) {
         let level_time = self.level_time;
         let gravity = self.host.gravity();
+        let move_cvars = self.host.move_cvars();
         let npc = &mut self.actors[me];
         npc.mind.last_command_time = level_time;
         npc.mind.command = command;
@@ -177,6 +178,10 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             command.server_time = command_time + 100;
         }
         let msec = (command.server_time - command_time).min(200);
+        // `pmove_fixed` (`g_active.c:2038-2041`): the time rounded up to a whole
+        // `pmove_msec`, and the move made with the server's movement variables.
+        command.server_time = move_cvars.command_time(command.server_time);
+        npc.movement.set_move_cvars(move_cvars);
         self.movement_type(me);
         self.speed(me);
         let npc = &mut self.actors[me];

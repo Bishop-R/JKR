@@ -119,6 +119,9 @@ impl<G: LegacyGameHost> LegacyConsoleHost for View<'_, G> {
     fn server_info(&self) -> &[u8] {
         self.game.status_info()
     }
+    fn system_info(&self) -> Vec<u8> {
+        self.game.system_info()
+    }
     fn kick(&mut self, client: usize, reason: &[u8]) {
         self.drop(client, reason, None);
         // "in case there is a funny zombie": its zombie time runs from the kick.

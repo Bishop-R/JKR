@@ -333,6 +333,15 @@ pub struct NativeGame {
     legacy_fixes: u32,
     /// `g_smoothClients`: players' entities are extrapolated, kept from the cvar hook.
     smooth_clients: bool,
+    /// The movement variables every move reads (`pmove_fixed`, `pmove_msec`, `pmove_float`,
+    /// `g_stepSlideFix`, `g_noSpecMove`), kept from the cvar hook.
+    move_cvars: jkr_game_jka::pmove_rules::MoveCvars,
+    /// `g_synchronousClients`: a human's commands run once a frame (`synchronous_think`),
+    /// kept from the cvar hook.
+    synchronous_clients: bool,
+    /// `timescale`: how fast the server's time runs ([`Self::timescale`]), kept from the
+    /// cvar hook.
+    timescale: f32,
     /// jaPRO's `g_gunGame` (`bridge_gun_game`), kept from the cvar hook.
     gun_game: i32,
     /// Its turrets (`bridge_map_turrets`).
@@ -421,13 +430,10 @@ impl NativeGame {
             status_info.extend_from_slice(format!("\\{key}\\{value}").as_bytes());
         }
         let pure = pure_files(&cvars, map.as_ref());
-        let (config_strings, sounds) = world_config_strings(
-            &status_info,
-            map.as_ref(),
-            pure.as_ref(),
-            GAMETYPE_FFA,
-            SERVER_ID,
-        );
+        let mut cvars = cvars;
+        let system_info = system_info(&mut cvars, map.as_ref(), pure.as_ref(), SERVER_ID);
+        let (config_strings, sounds) =
+            world_config_strings(&status_info, system_info, map.as_ref(), GAMETYPE_FFA);
         let mut game = Self {
             server,
             world,
@@ -550,6 +556,9 @@ impl NativeGame {
             damage_rules: Default::default(),
             legacy_fixes: authoritative().legacy_fixes,
             smooth_clients: true,
+            move_cvars: Default::default(),
+            synchronous_clients: false,
+            timescale: 1.0,
             gun_game: 0,
             map_turrets: Default::default(),
             stock: Default::default(),
@@ -2663,7 +2672,9 @@ impl NativeGame {
         // `G_RunFrame`'s pass over the entities in number order: the players first (the
         // saber's fields, the look target), the missiles after them.
         for client in 0..self.players.places() {
-            self.forced_client_update(client, server_time);
+            if !self.forced_client_update(client, server_time) {
+                self.synchronous_think(client, server_time);
+            }
             self.client_frame(client, server_time);
             self.look_around(client, server_time);
             self.run_bot_client(client, server_time);
@@ -3554,7 +3565,7 @@ mod bridge_tournament;
 mod bridge_vote_tweaks;
 #[path = "bridge_votes.rs"]
 mod bridge_votes;
-use bridge_maps::{authoritative, fixed, pure_files, world_config_strings};
+use bridge_maps::{authoritative, fixed, pure_files, system_info, world_config_strings};
 #[path = "bridge_console.rs"]
 mod bridge_console;
 #[path = "bridge_cvars.rs"]

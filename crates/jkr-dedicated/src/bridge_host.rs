@@ -59,7 +59,7 @@ impl LegacyGameHost for NativeGame {
 
     fn client_think(&mut self, client: usize, command: &UserCommand, server_time: i32) {
         let Some(client) = place(client) else { return };
-        self.player_think(client, command, server_time);
+        self.client_command_arrived(client, command, server_time);
     }
 
     fn server_info(&self) -> LegacyServerInfo<'_> {
@@ -98,6 +98,9 @@ impl LegacyGameHost for NativeGame {
 
     fn status_info(&self) -> &[u8] {
         &self.status_info
+    }
+    fn system_info(&self) -> Vec<u8> {
+        self.cvars.info_string_big(crate::cvars::CVAR_SYSTEMINFO)
     }
 
     fn status_players(&self) -> impl Iterator<Item = LegacyStatusPlayer<'_>> {

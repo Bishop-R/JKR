@@ -76,6 +76,9 @@ pub trait LegacyGameHost {
     fn server_info(&self) -> LegacyServerInfo<'_>;
     /// The server-info string `getstatus` reports.
     fn status_info(&self) -> &[u8];
+    /// What every client keeps a copy of, as the `systeminfo` command prints it
+    /// (`Cvar_InfoString_Big(CVAR_SYSTEMINFO)`).
+    fn system_info(&self) -> Vec<u8>;
     /// The players `getstatus` should list, in order; need not be roster clients.
     fn status_players(&self) -> impl Iterator<Item = LegacyStatusPlayer<'_>>;
     /// Current legacy map generation and the oldest one of this restart interval.

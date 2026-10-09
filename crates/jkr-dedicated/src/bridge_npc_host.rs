@@ -126,6 +126,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) level_time: i32,
     pub(super) gravity: f32,
     pub(super) skill: i32,
+    /// The server's movement variables, which an NPC's moves read as a player's do.
+    pub(super) move_cvars: jkr_game_jka::pmove_rules::MoveCvars,
     pub(super) gametype: i32,
     pub(super) client_zero: ([f32; 3], i32),
     /// The items registered while the level spawns; afterwards they are not recorded.
@@ -541,6 +543,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn gravity(&self) -> f32 {
         self.gravity
+    }
+
+    fn move_cvars(&self) -> jkr_game_jka::pmove_rules::MoveCvars {
+        self.move_cvars
     }
 
     fn skill(&self) -> i32 {

@@ -192,18 +192,17 @@ impl NativeGame {
         }
     }
 
-    /// `ClientThink`: one movement command from the player at `client`'s place.
     /// `G_RunClient`'s forced update (`g_active.c:3625-3638`): a player who has sent no
     /// command for `g_forceClientUpdateRate` milliseconds is thought for anyway with its
     /// last command emptied of moves and buttons, so that its body still falls, drowns
-    /// and respawns while it lags. Bots think on their own.
-    pub(super) fn forced_client_update(&mut self, client: usize, level_time: i32) {
+    /// and respawns while it lags. Bots think on their own. Whether it thought.
+    pub(super) fn forced_client_update(&mut self, client: usize, level_time: i32) -> bool {
         let rate = self.cvars.integer(b"g_forceClientUpdateRate");
         let Some(peer) = self.peer(client) else {
-            return;
+            return false;
         };
         if rate == 0 || peer.bot || !peer.begun || peer.last_command_time >= level_time - rate {
-            return;
+            return false;
         }
         let command = UserCommand {
             server_time: level_time,
@@ -214,6 +213,43 @@ impl NativeGame {
             ..peer.last_command
         };
         self.player_think(client, &command, level_time);
+        true
+    }
+
+    /// The rest of `G_RunClient` (`g_active.c:3639-3646`): under `g_synchronousClients` a
+    /// human's last command runs once a frame, timed at the frame, its arrivals having
+    /// only kept it ([`Self::client_command_arrived`]).
+    pub(super) fn synchronous_think(&mut self, client: usize, level_time: i32) {
+        if !self.synchronous_clients {
+            return;
+        }
+        let Some(peer) = self.peer(client).filter(|peer| !peer.bot && peer.begun) else {
+            return;
+        };
+        let command = UserCommand {
+            server_time: level_time,
+            ..peer.last_command
+        };
+        self.player_think(client, &command, level_time);
+    }
+
+    /// `ClientThink` for a command the network delivered: under `g_synchronousClients` a
+    /// human's waits for the frame ([`Self::synchronous_think`]), its arrival marked;
+    /// otherwise it runs now.
+    pub(super) fn client_command_arrived(
+        &mut self,
+        client: usize,
+        command: &UserCommand,
+        server_time: i32,
+    ) {
+        if self.synchronous_clients
+            && let Some(peer) = self.peer_mut(client).filter(|peer| !peer.bot)
+        {
+            peer.last_command_time = server_time;
+            peer.last_command = *command;
+            return;
+        }
+        self.player_think(client, command, server_time);
     }
 
     pub(super) fn player_think(&mut self, client: usize, command: &UserCommand, server_time: i32) {
@@ -229,6 +265,9 @@ impl NativeGame {
             server_time.wrapping_sub(1000),
             server_time.wrapping_add(200),
         );
+        // `pmove_fixed` (`g_active.c:2038-2041`): the time rounded up to a whole
+        // `pmove_msec`, for everything that follows.
+        command.server_time = self.move_cvars.command_time(command.server_time);
 
         // A pilot's command goes to its vehicle first (`g_active.c:1889-1910`).
         self.riding_opening(client, &mut command, self.last_frame_time);

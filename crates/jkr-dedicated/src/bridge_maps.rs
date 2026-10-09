@@ -128,13 +128,14 @@ impl NativeGame {
         self.cvars.set(b"mapname", mapname.as_bytes());
         self.status_info = server_info_with(&self.status_info, "mapname", mapname);
         self.pure = pure_files(&self.cvars, map.as_ref());
-        let (config_strings, sounds) = world_config_strings(
-            &self.status_info,
+        let system_info = system_info(
+            &mut self.cvars,
             map.as_ref(),
             self.pure.as_ref(),
-            self.gametype,
             self.map_generation,
         );
+        let (config_strings, sounds) =
+            world_config_strings(&self.status_info, system_info, map.as_ref(), self.gametype);
         self.config_strings = config_strings;
         self.sounds = sounds;
         self.map = map;
@@ -221,31 +222,24 @@ pub(super) fn pure_files(
     ))
 }
 
-/// Every configstring a world starts with, in index order: the two engine strings, what
-/// `G_InitGame` publishes, what the map's worldspawn does, and the registered items.
-///
-/// A map change rebuilds exactly this, which is why it is written down once. The sound
-/// table comes back with it because `init_game` fills one as it names its sounds, and the
-/// new world needs that table rather than the old one's.
-pub(super) fn world_config_strings(
-    status_info: &[u8],
+/// `SV_SpawnServer`'s engine strings, set in their variables — the server's id, the paks
+/// a pure server loaded (`FS_LoadedPakChecksums`, `FS_LoadedPakNames`) and those a client
+/// needs (`FS_ReferencedPakChecksums`, `FS_ReferencedPakNames`) — and then the systeminfo
+/// every client is sent: `Cvar_InfoString_Big(CVAR_SYSTEMINFO)`, which also carries the
+/// cheats, the time scale and the movement settings clients predict with.
+pub(super) fn system_info(
+    cvars: &mut crate::cvars::Cvars,
     map: Option<&LoadedMap>,
     pure: Option<&crate::pure_files::PureFiles>,
-    gametype: i32,
     server_id: i32,
-) -> (Vec<(usize, Vec<u8>)>, SoundTable) {
-    // The two engine strings every legacy client reads first. The game's own strings
-    // (version, models, sounds) arrive with the JKA game profile. A pure server lists
-    // every pk3 it loaded, so that its clients load from nothing else.
+) -> Vec<u8> {
+    cvars.set(b"sv_serverid", server_id.to_string().as_bytes());
+    // A pure server lists every pk3 it loaded, so that its clients load from nothing else.
     let (paks, names) = pure.map_or_else(Default::default, |pure| (pure.checksums(), pure.names()));
-    let system_info = format!(
-        "\\sv_serverid\\{server_id}\\sv_pure\\{}\\sv_paks\\{paks}\\sv_pakNames\\{names}",
-        u8::from(pure.is_some())
-    );
-    let mut system_info = system_info.into_bytes();
-    // `SV_SpawnServer`: the paks a client needs, which it downloads if it lacks them
-    // (`FS_ReferencedPakChecksums`, `FS_ReferencedPakNames`), in search order: the pak
-    // its map came from and, on a pure server, the cgame's (`SV_TouchCGame`).
+    cvars.set(b"sv_paks", paks.as_bytes());
+    cvars.set(b"sv_pakNames", names.as_bytes());
+    // The paks a client needs, which it downloads if it lacks them, in search order: the
+    // pak its map came from and, on a pure server, the cgame's (`SV_TouchCGame`).
     let map_pak = map.and_then(|map| map.pak.as_ref());
     let referenced: Vec<(i32, &str)> = match pure {
         Some(pure) => pure
@@ -262,20 +256,29 @@ pub(super) fn world_config_strings(
             .into_iter()
             .collect(),
     };
-    if !referenced.is_empty() {
-        let checksums: String = referenced
-            .iter()
-            .map(|(checksum, _)| format!("{checksum} "))
-            .collect();
-        let names: Vec<&str> = referenced.iter().map(|(_, name)| *name).collect();
-        system_info.extend_from_slice(
-            format!(
-                "\\sv_referencedPaks\\{checksums}\\sv_referencedPakNames\\{}",
-                names.join(" ")
-            )
-            .as_bytes(),
-        );
-    }
+    let checksums: String = referenced
+        .iter()
+        .map(|(checksum, _)| format!("{checksum} "))
+        .collect();
+    let names: Vec<&str> = referenced.iter().map(|(_, name)| *name).collect();
+    cvars.set(b"sv_referencedPaks", checksums.as_bytes());
+    cvars.set(b"sv_referencedPakNames", names.join(" ").as_bytes());
+    cvars.info_string_big(crate::cvars::CVAR_SYSTEMINFO)
+}
+
+/// Every configstring a world starts with, in index order: the two engine strings
+/// ([`system_info`] the second), what `G_InitGame` publishes, what the map's worldspawn
+/// does, and the registered items.
+///
+/// A map change rebuilds exactly this, which is why it is written down once. The sound
+/// table comes back with it because `init_game` fills one as it names its sounds, and the
+/// new world needs that table rather than the old one's.
+pub(super) fn world_config_strings(
+    status_info: &[u8],
+    system_info: Vec<u8>,
+    map: Option<&LoadedMap>,
+    gametype: i32,
+) -> (Vec<(usize, Vec<u8>)>, SoundTable) {
     let mut config_strings = vec![(0, status_info.to_vec()), (1, system_info)];
     // `G_InitGame`: its sounds, then what the map's worldspawn published, then the
     // location, duel and item strings; every index there is above these two.

@@ -1,10 +1,13 @@
 //! The server's console variables at work: what a changed value does, checked after
 //! every console line and every frame, as `G_UpdateCvars` and `SV_Frame`'s serverinfo
-//! check do it.
+//! and systeminfo checks do it.
 
 use super::{NativeGame, Told};
-use crate::cvars::{CVAR_INTERNAL, CVAR_SERVERINFO, Cvars};
+use crate::cvars::{CVAR_INTERNAL, CVAR_SERVERINFO, CVAR_SYSTEMINFO, Cvars};
 use jkr_network::{LegacyOobRates, LegacySessionSettings};
+
+/// `CS_SYSTEMINFO`: the configstring of what every client keeps a copy of.
+const CS_SYSTEMINFO: usize = 1;
 
 impl NativeGame {
     /// The console variables, for the process to read what belongs to the endpoint
@@ -60,12 +63,14 @@ impl NativeGame {
         if !changed.is_empty() {
             self.cvars_generation += 1;
         }
+        let mut system_info_changed = false;
         for name in changed {
             let Some(var) = self.cvars.var(&name) else {
                 continue;
             };
             let (value, flags, announced, integer) =
                 (var.string.clone(), var.flags, var.announced, var.integer());
+            system_info_changed |= flags & CVAR_SYSTEMINFO != 0;
             let text = String::from_utf8_lossy(&value).into_owned();
             let key = String::from_utf8_lossy(&name).into_owned();
             match key.to_ascii_lowercase().as_str() {
@@ -102,6 +107,10 @@ impl NativeGame {
                 "g_friendlysaber" => self.saber_settings.friendly = integer != 0,
                 "g_fixsaberdisarmbonus" => self.saber_settings.disarm_bonus_fix = integer != 0,
                 "g_smoothclients" => self.smooth_clients = integer != 0,
+                "pmove_fixed" | "pmove_msec" | "pmove_float" | "g_stepslidefix"
+                | "g_nospecmove" => self.refresh_move_cvars(),
+                "g_synchronousclients" => self.synchronous_clients = integer != 0,
+                "timescale" => self.timescale = var.value(),
                 "g_fixsabermovedata" | "g_fixweaponattackanim" | "g_fixrunwalkanims" => {
                     self.publish_legacy_fixes()
                 }
@@ -150,7 +159,33 @@ impl NativeGame {
                 ));
             }
         }
+        // `SV_Frame`: `SV_SetConfigstring(CS_SYSTEMINFO, Cvar_InfoString_Big(CVAR_SYSTEMINFO))`
+        // once anything every client keeps a copy of has changed.
+        if system_info_changed {
+            let info = self.cvars.info_string_big(CVAR_SYSTEMINFO);
+            self.set_config_string(CS_SYSTEMINFO, &info);
+        }
         self.cvars_primed = true;
+    }
+
+    /// The movement variables every move reads ([`jkr_game_jka::pmove_rules::MoveCvars`]),
+    /// `pmove_msec` put back within 8 to 33 as `ClientThink_real` puts it
+    /// (`g_active.c:2031-2036`).
+    fn refresh_move_cvars(&mut self) {
+        let msec = self.cvars.integer(b"pmove_msec");
+        if msec < 8 {
+            self.cvars.set(b"pmove_msec", b"8");
+        } else if msec > 33 {
+            self.cvars.set(b"pmove_msec", b"33");
+        }
+        let cvars = &self.cvars;
+        self.move_cvars = jkr_game_jka::pmove_rules::MoveCvars::new(
+            cvars.integer(b"pmove_fixed"),
+            cvars.integer(b"pmove_msec"),
+            cvars.integer(b"pmove_float"),
+            cvars.integer(b"g_stepSlideFix"),
+            cvars.integer(b"g_noSpecMove"),
+        );
     }
 
     /// The Force and weapon rules the game reads from its cvars (`g_xcvar.h`, all latched):
@@ -185,6 +220,12 @@ impl NativeGame {
             None,
         );
         self.apply_cvars();
+    }
+
+    /// `timescale`: how many times as fast as the wall clock the server's time runs, which
+    /// the process's frame clock applies.
+    pub fn timescale(&self) -> f32 {
+        self.timescale
     }
 
     /// How many times the variables have changed; the process compares it to know when
@@ -389,5 +430,48 @@ mod tests {
             assert!(info.contains("\\g_showDuelHealths\\1"), "{info}");
             assert!(info.contains("\\g_gametype\\3"), "{info}");
         }
+    }
+
+    /// The systeminfo is the table's `CVAR_SYSTEMINFO` variables, empty ones included, and
+    /// a change to one of them reaches every client as `SV_Frame` sends it.
+    #[test]
+    fn system_info_follows_its_variables() {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/ffa3".to_vec(),
+        };
+        let cvars = crate::cvars::Cvars::server();
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        let system_info = |game: &NativeGame| {
+            let info = game
+                .config_strings()
+                .find(|(index, _)| *index == 1)
+                .unwrap()
+                .1;
+            String::from_utf8_lossy(info).into_owned()
+        };
+        let info = system_info(&game);
+        for pair in [
+            "\\sv_cheats\\",
+            "\\fs_game\\\\",
+            "\\pmove_fixed\\0",
+            "\\timescale\\1",
+        ] {
+            assert!(info.contains(pair), "{pair} in {info}");
+        }
+        game.take_output(&mut |_| {});
+        game.set_cvar("pmove_fixed", "1");
+        let mut sent = Vec::new();
+        game.take_output(&mut |output| {
+            if let LegacyGameOutput::ConfigString {
+                index: 1, value, ..
+            } = output
+            {
+                sent.push(String::from_utf8_lossy(value).into_owned());
+            }
+        });
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(sent[0].contains("\\pmove_fixed\\1"), "{sent:?}");
+        assert_eq!(system_info(&game), sent[0]);
     }
 }

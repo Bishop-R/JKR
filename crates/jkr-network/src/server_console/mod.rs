@@ -40,6 +40,8 @@ pub trait LegacyConsoleHost {
     fn status(&self) -> LegacyConsoleStatus<'_>;
     /// `Cvar_InfoString(CVAR_SERVERINFO)`.
     fn server_info(&self) -> &[u8];
+    /// `Cvar_InfoString_Big(CVAR_SYSTEMINFO)`.
+    fn system_info(&self) -> Vec<u8>;
     /// A kick: `SV_DropClient` (which leaves a zombie alone), then the client's
     /// `lastPacketTime` set to now so that its zombie time runs from the kick.
     fn kick(&mut self, client: usize, reason: &[u8]);
@@ -220,7 +222,7 @@ pub fn execute_legacy_console(
     // The commands that need a running server (`com_sv_running`): most say so, the ban
     // file's reading and `svrecord` in their own way.
     if !host.running() {
-        const NEEDS_SERVER: [&[u8]; 16] = [
+        const NEEDS_SERVER: [&[u8]; 17] = [
             b"status",
             b"kick",
             b"kickbots",
@@ -230,6 +232,7 @@ pub fn execute_legacy_console(
             b"svsay",
             b"svtell",
             b"serverinfo",
+            b"systeminfo",
             b"dumpuser",
             b"sv_banaddr",
             b"sv_exceptaddr",
@@ -276,6 +279,9 @@ pub fn execute_legacy_console(
     } else if is(b"serverinfo") {
         print(b"Server info settings:\n");
         info_print(host.server_info(), print);
+    } else if is(b"systeminfo") {
+        print(b"System info settings:\n");
+        info_print(&host.system_info(), print);
     } else if is(b"dumpuser") {
         commands::dump_user(host, &arguments, print);
     } else if is(b"sv_rehashbans") {

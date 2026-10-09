@@ -71,7 +71,15 @@ impl NativeGame {
         let smooth_clients = self.smooth_clients;
         let debug_melee = self.debug_melee;
         let god_chat = self.god_chat && self.gametype == GAMETYPE_FFA;
+        let move_cvars = self.move_cvars;
         if let Some(peer) = self.peer_mut(client) {
+            // `SpectatorThink` moves with a cleared `pmove_t` but for `g_noSpecMove`.
+            let playing = peer.playing();
+            peer.movement.set_move_cvars(if playing {
+                move_cvars
+            } else {
+                move_cvars.spectator()
+            });
             peer.movement.set_flag_drag(flag_drag);
             peer.movement.set_legacy_fixes(legacy_fixes);
             peer.entity.set_smooth(smooth_clients);
