@@ -2,6 +2,8 @@
 
 use super::{TextVertex, UiFont};
 use crate::keybind_editor;
+#[path = "console_auto_kill.rs"]
+mod auto_kill;
 #[path = "console_auto_login.rs"]
 mod auto_login;
 #[path = "console_browser.rs"]
@@ -99,6 +101,8 @@ pub(crate) struct ViewerConsole {
     time_nudge: crate::presentation_clock::CvarSetting,
     smooth_clients: console_cvars::IntegerSetting,
     no_predict: console_cvars::IntegerSetting,
+    /// When `cg_autoKillWhenFalling` last asked to die (`cg.lastAutoKillTime`).
+    last_auto_kill: Option<std::time::Instant>,
     draw_fog: console_cvars::IntegerSetting,
     remaps: console_cvars::IntegerSetting,
     packet_dup: console_cvars::IntegerSetting,

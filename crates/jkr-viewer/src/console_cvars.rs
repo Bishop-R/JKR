@@ -214,6 +214,13 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Extrapolate remote players and NPCs from snapshot velocity",
         ),
+        // EternalJK's (`cg_xcvar.h`), off by default.
+        CvarDefinition::new(
+            "cg_autoKillWhenFalling",
+            0_i64,
+            archive,
+            "EternalJK: falling to your death, ask to die at once and respawn",
+        ),
         // `cg_xcvar.h:105`.
         CvarDefinition::new(
             "cg_noPredict",

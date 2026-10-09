@@ -263,6 +263,7 @@ impl ViewerConsole {
             time_nudge,
             smooth_clients,
             no_predict,
+            last_auto_kill: None,
             draw_fog,
             remaps,
             packet_dup,

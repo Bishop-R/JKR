@@ -297,6 +297,10 @@ impl GpuState {
             .console
             .as_ref()
             .is_some_and(|console| console.no_predict());
+        if let Some(console) = &mut self.console {
+            let falling = snapshot.player.falling_to_death() != 0;
+            console.auto_kill_when_falling(falling && !snapshot.player.is_spectator(), visual_now);
+        }
         if self.live_presentation_ready() {
             self.world_materials.areas.update(&snapshot.area_mask);
         }
