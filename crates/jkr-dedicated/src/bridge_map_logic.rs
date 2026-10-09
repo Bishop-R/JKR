@@ -107,6 +107,7 @@ impl NativeGame {
         self.run_stations(level_time);
         self.run_usables(level_time);
         self.run_map_shooters(level_time);
+        self.run_lightning(level_time);
     }
 
     /// `G_UseTargets` reaching the logic entities and path movers called `name`.

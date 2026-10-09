@@ -2,8 +2,10 @@
 //! `Use_Shooter`, OpenJK `codemp/game/g_misc.c:1166-1220`) fires a blaster bolt each time it
 //! is used, at its target or along its angles, a little scattered; `target_laser`
 //! (`target_laser_start`, `target_laser_think`, `target_laser_use`, `g_target.c:331-430`)
-//! is a beam that, while on, hurts whatever it meets for its damage every frame. No stock
-//! map places either; custom maps do.
+//! is a beam that, while on, hurts whatever it meets for its damage every frame;
+//! `trigger_lightningstrike` (`Do_Strike`, `Think_Strike`, `Use_Strike`,
+//! `g_trigger.c:756-875`) strikes a random spot in its box every second or so. No stock
+//! map places any of them; custom maps do.
 
 use crate::player_death::Rng;
 use crate::weapon_fire::Missile;
@@ -230,6 +232,159 @@ impl Laser {
     }
 }
 
+/// `MASK_PLAYERSOLID`: what a lightning strike's line stops at.
+const MASK_PLAYERSOLID: u32 = 0x1 | 0x10 | 0x100 | 0x1000;
+/// `trigger_lightningstrike`'s first think, half a second in.
+const STRIKE_START: i32 = 500;
+/// The angles its effect plays along: straight down.
+const STRIKE_ANGLES: [f32; 3] = [90.0, 0.0, 0.0];
+
+/// One `trigger_lightningstrike`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lightning {
+    /// `r.absmin`, `r.absmax`: its brush's box, a unit wider.
+    pub absmin: [f32; 3],
+    pub absmax: [f32; 3],
+    /// `lightningfx`: the effect each strike plays.
+    pub effect: String,
+    /// `wait` and `random` in milliseconds (1000 and 2000 unset): the pause between
+    /// strikes, and how much longer it may be.
+    pub wait: f32,
+    pub random: f32,
+    /// `dmg` (50 unset), and `radius`: a blast at the strike rather than a hit along its
+    /// line when set.
+    pub damage: i32,
+    pub radius: f32,
+    /// `genericValue1`: switched off (START_OFF, or used).
+    pub off: bool,
+    /// `nextthink`; 0 while it waits for a use.
+    pub next_think: i32,
+    pub targetname: String,
+    /// `FL_INACTIVE`.
+    pub inactive: bool,
+}
+
+/// Why the reference stops the map over a lightning trigger; this server refuses the
+/// trigger alone.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Refused {
+    /// "trigger_lightningstrike with no lightningfx".
+    NoEffect,
+}
+
+/// `SP_trigger_lightningstrike` for `entity`, its brush model's box from `bounds_of`, or
+/// `None` for anything else.
+pub fn spawn_lightning(
+    entity: &Entity,
+    bounds_of: impl FnOnce(usize) -> Option<([f32; 3], [f32; 3])>,
+    level_time: i32,
+) -> Option<Result<Lightning, Refused>> {
+    if !entity
+        .classname()?
+        .eq_ignore_ascii_case("trigger_lightningstrike")
+    {
+        return None;
+    }
+    let Some(effect) = entity.get("lightningfx").filter(|fx| !fx.is_empty()) else {
+        return Some(Err(Refused::NoEffect));
+    };
+    let model = entity
+        .get("model")
+        .and_then(|name| name.strip_prefix('*'))
+        .and_then(|index| index.parse().ok())?;
+    let (mins, maxs) = bounds_of(model)?;
+    let float = |key: &str| {
+        entity
+            .get(key)
+            .map_or(0.0, |value| crate::text_parse::atof(value.as_bytes()))
+    };
+    let or = |value: f32, unset: f32| if value == 0.0 { unset } else { value };
+    let damage = entity
+        .get("dmg")
+        .map_or(0, |value| crate::userinfo::atoi(value.as_bytes()));
+    let spawnflags = entity
+        .get("spawnflags")
+        .map_or(0, |value| crate::userinfo::atoi(value.as_bytes()));
+    let origin = crate::fx_runner::vector(entity, "origin");
+    Some(Ok(Lightning {
+        absmin: std::array::from_fn(|axis| origin[axis] + mins[axis] - 1.0),
+        absmax: std::array::from_fn(|axis| origin[axis] + maxs[axis] + 1.0),
+        effect: effect.to_owned(),
+        wait: or(float("wait"), 1_000.0),
+        random: or(float("random"), 2_000.0),
+        damage: if damage == 0 { 50 } else { damage },
+        radius: float("radius"),
+        off: spawnflags & 1 != 0,
+        next_think: level_time + STRIKE_START,
+        targetname: entity.get("targetname").unwrap_or_default().to_owned(),
+        inactive: false,
+    }))
+}
+
+/// A lightning trigger's think.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Strike {
+    /// Nothing due, or switched off (it stops thinking until used).
+    Idle,
+    /// It struck from `from` down to `at`, its line meeting entity `struck` there.
+    Struck {
+        from: [f32; 3],
+        at: [f32; 3],
+        struck: u16,
+    },
+}
+
+impl Lightning {
+    /// `Think_Strike` and `Do_Strike`: next strike `wait` plus up to `random` on (the
+    /// generator's integer draw), then a spot drawn in its box, struck from four units
+    /// under its top down to its bottom along `MASK_PLAYERSOLID` (`line` gives whether it
+    /// began in something solid, what it met and where it stopped) — a line that began in
+    /// something solid tries again next frame.
+    pub fn think(
+        &mut self,
+        level_time: i32,
+        rng: &mut Rng,
+        line: impl FnOnce([f32; 3], [f32; 3], u32) -> (bool, u16, [f32; 3]),
+    ) -> Strike {
+        if self.next_think == 0 || self.next_think > level_time {
+            return Strike::Idle;
+        }
+        self.next_think = 0;
+        if self.off {
+            return Strike::Idle;
+        }
+        let pause = rng.irand(0, self.random as i32);
+        self.next_think = (level_time as f32 + self.wait + pause as f32) as i32;
+        let x = rng.flrand(self.absmin[0], self.absmax[0]);
+        let y = rng.flrand(self.absmin[1], self.absmax[1]);
+        let from = [x, y, self.absmax[2] - 4.0];
+        let (start_solid, struck, at) = line(from, [x, y, self.absmin[2]], MASK_PLAYERSOLID);
+        if start_solid {
+            self.next_think = level_time;
+            return Strike::Idle;
+        }
+        Strike::Struck { from, at, struck }
+    }
+
+    /// `Use_Strike`: off when on; on again, striking at once.
+    pub fn used(&mut self, level_time: i32) {
+        self.off = !self.off;
+        if !self.off {
+            self.next_think = level_time;
+        }
+    }
+
+    /// The effect a strike plays at `from`: `G_PlayEffectID`, straight down.
+    pub fn effect_event(effect: u32, from: [f32; 3]) -> crate::event_entity::EventEntity {
+        crate::map_turret_world::effect_event(
+            crate::map_turret_world::EV_PLAY_EFFECT_ID,
+            effect,
+            from,
+            STRIKE_ANGLES,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -270,6 +425,57 @@ mod tests {
         )
         .unwrap();
         assert_eq!(aimed.finish_at, 2_500);
+    }
+
+    /// A lightning trigger needs its effect; it strikes half a second in, then every
+    /// `wait` plus up to `random`, at a spot in its box, from four under its top; off,
+    /// it stops until used.
+    #[test]
+    fn lightning_strikes_in_its_box() {
+        let spawn = |pairs: &[(&str, &str)]| {
+            spawn_lightning(
+                &entity(pairs),
+                |_| Some(([0.0, 0.0, 0.0], [100.0, 100.0, 200.0])),
+                1_000,
+            )
+        };
+        assert_eq!(
+            spawn(&[("classname", "trigger_lightningstrike"), ("model", "*2")]),
+            Some(Err(Refused::NoEffect))
+        );
+        let mut storm = spawn(&[
+            ("classname", "trigger_lightningstrike"),
+            ("model", "*2"),
+            ("lightningfx", "env/lightning"),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            (storm.wait, storm.random, storm.damage),
+            (1_000.0, 2_000.0, 50)
+        );
+        let mut rng = Rng(3);
+        assert_eq!(
+            storm.think(1_400, &mut rng, |_, _, _| unreachable!()),
+            Strike::Idle
+        );
+        let struck = storm.think(1_500, &mut rng, |from, to, mask| {
+            assert_eq!((from[2], to[2], mask), (197.0, -1.0, MASK_PLAYERSOLID));
+            assert!((-1.0..=101.0).contains(&from[0]) && from[0] == to[0]);
+            (false, 1_022, to)
+        });
+        assert!(matches!(struck, Strike::Struck { struck: 1_022, .. }));
+        assert!((2_500..=4_500).contains(&storm.next_think));
+        storm.used(2_000);
+        assert!(storm.off);
+        let due = storm.next_think;
+        assert_eq!(
+            storm.think(due, &mut rng, |_, _, _| unreachable!()),
+            Strike::Idle
+        );
+        assert_eq!(storm.next_think, 0);
+        storm.used(9_000);
+        assert_eq!(storm.next_think, 9_000);
     }
 
     /// A laser starts a frame in, off unless its spawnflag says on; a use turns it on and

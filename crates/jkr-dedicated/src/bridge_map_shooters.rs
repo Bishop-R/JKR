@@ -1,12 +1,16 @@
-//! The map's shooters and lasers on this server ([`jkr_game_jka::map_shooters`]): a
-//! `shooter_blaster` is an entity every client is sent (its fire is heard there), a
-//! `target_laser` an `ET_BEAM` sent while it is on, from its origin to where its line
-//! stops (`s.origin2`). Both are used by name; a laser's burn is `G_Damage` by whoever
-//! turned it on, a shooter's bolt a missile of its own.
+//! The map's shooters, lasers and lightning on this server
+//! ([`jkr_game_jka::map_shooters`]): a `shooter_blaster` is an entity every client is sent
+//! (its fire is heard there), a `target_laser` an `ET_BEAM` sent while it is on, from its
+//! origin to where its line stops (`s.origin2`), a `trigger_lightningstrike` an entity
+//! nobody is sent whose strikes are effects. All are used by name; a laser's burn is
+//! `G_Damage` by whoever turned it on, a shooter's bolt a missile of its own, a strike
+//! the trigger's own blow (`MOD_SUICIDE`).
 
 use super::*;
 use jkr_entity::Entity;
-use jkr_game_jka::map_shooters::{self, LASER_MASK, Laser, LaserThink, Shooter, WP_BLASTER};
+use jkr_game_jka::map_shooters::{
+    self, LASER_MASK, Laser, LaserThink, Lightning, Shooter, Strike, WP_BLASTER,
+};
 
 /// The wire fields `eType`, `weapon`, `origin` and `origin2`; `ET_BEAM`.
 const ES_TYPE: usize = 8;
@@ -16,8 +20,9 @@ const ES_ORIGIN2: [usize; 3] = [56, 60, 53];
 const ET_BEAM: u32 = 7;
 /// `EV_FIRE_WEAPON`, which `Use_Shooter` adds to the shooter.
 const EV_FIRE_WEAPON: u32 = 27;
-/// `MOD_TARGET_LASER`; `ENTITYNUM_WORLD`.
+/// `MOD_TARGET_LASER`, `MOD_SUICIDE`; `ENTITYNUM_WORLD`.
 const MOD_TARGET_LASER: u32 = 40;
+const MOD_SUICIDE: u32 = 39;
 const ENTITYNUM_WORLD: u16 = 1_022;
 
 /// The level's shooters and lasers, each with its entity.
@@ -25,6 +30,8 @@ const ENTITYNUM_WORLD: u16 = 1_022;
 pub(super) struct MapShooters {
     shooters: Vec<(EntityId, Shooter)>,
     lasers: Vec<(EntityId, Laser)>,
+    /// Each lightning trigger with its effect's index.
+    lightning: Vec<(EntityId, Lightning, u16)>,
 }
 
 impl MapShooters {
@@ -36,6 +43,7 @@ impl MapShooters {
             .iter()
             .map(|(id, _)| id)
             .chain(self.lasers.iter().map(|(id, _)| id))
+            .chain(self.lightning.iter().map(|(id, ..)| id))
             .any(|id| id.legacy_number() == number);
         ours.then_some(Attacker {
             npc: false,
@@ -64,6 +72,25 @@ impl NativeGame {
                 }
                 if let Some(blaster) = jkr_game_jka::items::find("weapon_blaster") {
                     self.register_items([blaster]);
+                }
+            } else if let Some(spawned) = map_shooters::spawn_lightning(
+                entity,
+                |model| {
+                    let map = self.map.as_ref()?;
+                    crate::map::brush_bounds(&map.bsp, model)
+                },
+                level_time,
+            ) {
+                let Ok(lightning) = spawned else {
+                    eprintln!(
+                        "trigger_lightningstrike not spawned (the reference stops the map): \
+                         no lightningfx"
+                    );
+                    continue;
+                };
+                let effect = self.effect_index_for(lightning.effect.as_bytes());
+                if let Some(id) = self.pool.spawn_hidden(level_time) {
+                    self.stock.shooters.lightning.push((id, lightning, effect));
                 }
             } else if let Some(laser) = map_shooters::spawn_laser(entity, level_time) {
                 let mut state = placed_state(laser.origin);
@@ -110,8 +137,50 @@ impl NativeGame {
         }
     }
 
-    /// `G_UseTargets` reaching the shooters and lasers called `name`, used for
-    /// `activator`: a shooter fires, a laser goes on or off.
+    /// `Think_Strike` for the lightning triggers whose think is due: a strike, hurting
+    /// what its line met (or, with a radius, what its blast reaches), and its effect.
+    pub(super) fn run_lightning(&mut self, level_time: i32) {
+        for index in 0..self.stock.shooters.lightning.len() {
+            let due = self.stock.shooters.lightning[index].1.next_think;
+            if due == 0 || due > level_time {
+                continue;
+            }
+            self.gather_obstacles(usize::MAX);
+            let strike = {
+                let (map, obstacles, rng) =
+                    (self.map.as_ref(), &self.obstacles, &mut self.deaths.rng);
+                let lightning = &mut self.stock.shooters.lightning[index].1;
+                lightning.think(level_time, rng, |from, to, mask| {
+                    strike_line(map, obstacles, from, to, mask)
+                })
+            };
+            let Strike::Struck { from, at, struck } = strike else {
+                continue;
+            };
+            let (id, lightning, effect) = &self.stock.shooters.lightning[index];
+            let (number, effect) = (id.legacy_number(), *effect);
+            let (damage, radius) = (lightning.damage, lightning.radius);
+            if radius != 0.0 {
+                self.blast_from(number, (damage as f32, radius), at, MOD_SUICIDE, level_time);
+            } else if struck < ENTITYNUM_WORLD {
+                let request = DamageRequest {
+                    level_time,
+                    attacker: self.attacker_for(number),
+                    direction: None,
+                    point: None,
+                    damage,
+                    flags: 0,
+                    means: MOD_SUICIDE,
+                };
+                let _ = self.strike(usize::from(number), usize::from(struck), request, false);
+            }
+            let event = Lightning::effect_event(u32::from(effect), from);
+            let _ = self.pool.spawn_temporary(event.state(), level_time, None);
+        }
+    }
+
+    /// `G_UseTargets` reaching the shooters, lasers and lightning called `name`, used for
+    /// `activator`: a shooter fires, a laser or a storm goes on or off.
     pub(super) fn use_map_shooters(&mut self, name: &str, activator: usize, level_time: i32) {
         if name.is_empty() {
             return;
@@ -128,6 +197,11 @@ impl NativeGame {
                 self.missiles.push((bolt, missile));
             }
             self.raise_on(id, EV_FIRE_WEAPON, 0, level_time);
+        }
+        for (_, lightning, _) in self.stock.shooters.lightning.iter_mut() {
+            if !lightning.inactive && lightning.targetname.eq_ignore_ascii_case(name) {
+                lightning.used(level_time);
+            }
         }
         let activator = u16::try_from(activator).ok();
         for index in 0..self.stock.shooters.lasers.len() {
@@ -162,7 +236,13 @@ impl NativeGame {
             .lasers
             .iter_mut()
             .map(|(_, l)| (&l.targetname, &mut l.inactive));
-        for (targetname, inactive) in shooters.chain(lasers) {
+        let lightning = self
+            .stock
+            .shooters
+            .lightning
+            .iter_mut()
+            .map(|(_, l, _)| (&l.targetname, &mut l.inactive));
+        for (targetname, inactive) in shooters.chain(lasers).chain(lightning) {
             if targetname.eq_ignore_ascii_case(name) {
                 *inactive = !active;
             }
@@ -291,4 +371,45 @@ fn laser_line(
     }
     .trace(from, [0.0; 3], [0.0; 3], to, LASER_MASK);
     (trace.entity_number, trace.end_position)
+}
+
+/// A lightning strike's line through the world and everything in it: whether it began
+/// in something solid, the entity it met and where it stopped.
+fn strike_line(
+    map: Option<&LoadedMap>,
+    obstacles: &[BoxObstacle],
+    from: [f32; 3],
+    to: [f32; 3],
+    mask: u32,
+) -> (bool, u16, [f32; 3]) {
+    let Some(map) = map else {
+        return (false, jkr_protocol::ENTITY_NUMBER_NONE, to);
+    };
+    let trace = WithPlayers {
+        world: WorldCollision {
+            bsp: &map.bsp,
+            scratch: &map.scratch,
+        },
+        players: obstacles,
+    }
+    .trace(from, [0.0; 3], [0.0; 3], to, mask);
+    (
+        trace.start_solid || trace.all_solid,
+        trace.entity_number,
+        trace.end_position,
+    )
+}
+
+impl NativeGame {
+    /// `G_EffectIndex`: effect `name`'s index, its config string told when it is new.
+    fn effect_index_for(&mut self, name: &[u8]) -> u16 {
+        let (effects, told) = (&mut self.map_effects.effects, &mut self.told);
+        effects.index(name, &mut |index, value| {
+            told.push(Told::ConfigString {
+                index,
+                previous: Vec::new(),
+                value: value.to_vec(),
+            })
+        })
+    }
 }

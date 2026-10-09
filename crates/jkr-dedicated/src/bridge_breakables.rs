@@ -343,6 +343,21 @@ impl NativeGame {
         at: [f32; 3],
         level_time: i32,
     ) {
+        let (damage, radius) = (damage as f32, radius as f32);
+        self.blast_from(number, (damage, radius), at, MOD_UNKNOWN, level_time);
+    }
+
+    /// `G_RadiusDamage(at, self, damage, radius, self, NULL, means)` for entity `number`
+    /// that is no client: whatever takes damage within `radius` of `at` but itself, by the
+    /// distance from its box and where a line reaches it, the entity the attacker.
+    pub(super) fn blast_from(
+        &mut self,
+        number: u16,
+        (damage, radius): (f32, f32),
+        at: [f32; 3],
+        means: u32,
+        level_time: i32,
+    ) {
         let attacker = Attacker {
             npc: false,
             client: number,
@@ -358,7 +373,6 @@ impl NativeGame {
             self.strike(usize::from(number), usize::from(target), request, false)
                 .1
         };
-        let (damage, radius) = (damage as f32, radius as f32);
         match &map {
             Some(map) => {
                 let world = WorldCollision {
@@ -371,7 +385,7 @@ impl NativeGame {
                     damage,
                     radius,
                     Some(number),
-                    MOD_UNKNOWN,
+                    means,
                     level_time,
                     &targets,
                     &world,
@@ -385,7 +399,7 @@ impl NativeGame {
                     damage,
                     radius,
                     Some(number),
-                    MOD_UNKNOWN,
+                    means,
                     level_time,
                     &targets,
                     &Void,

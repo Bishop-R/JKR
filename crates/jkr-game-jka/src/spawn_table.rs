@@ -142,7 +142,7 @@ const SPAWNS: &[(&str, Support)] = &[
     ("trigger_asteroid_field", Unported),
     ("trigger_hurt", Ported),
     ("trigger_hyperspace", Ported),
-    ("trigger_lightningstrike", Unported),
+    ("trigger_lightningstrike", Ported),
     ("trigger_multiple", Ported),
     ("trigger_once", Ported),
     ("trigger_push", Ported),
