@@ -62,6 +62,8 @@ pub(super) struct StockEntities {
     pub(super) props: super::bridge_props::Props,
     /// The map's `func_usable` brushes.
     pub(super) usables: super::bridge_usables::Usables,
+    /// The map's `shooter_blaster`s and `target_laser`s.
+    pub(super) shooters: super::bridge_map_shooters::MapShooters,
 }
 
 impl StockEntities {
@@ -90,6 +92,7 @@ impl NativeGame {
         let level_time = self.last_frame_time;
         self.spawn_stations(&entities, level_time);
         self.spawn_props(&entities, level_time);
+        self.spawn_map_shooters(&entities, level_time);
         self.spawn_map_logic(&entities, level_time);
         self.spawn_path_movers(&entities, level_time);
         self.spawn_scenery(&entities, level_time);
@@ -103,6 +106,7 @@ impl NativeGame {
         self.run_shields(level_time);
         self.run_stations(level_time);
         self.run_usables(level_time);
+        self.run_map_shooters(level_time);
     }
 
     /// `G_UseTargets` reaching the logic entities and path movers called `name`.
@@ -113,6 +117,7 @@ impl NativeGame {
         self.use_breakables(name, client, level_time);
         self.use_named_stations(name, client, level_time);
         self.use_usables(name, client, level_time);
+        self.use_map_shooters(name, client, level_time);
     }
 
     /// Every logic entity the map places in this game type, and the list of named
@@ -220,6 +225,7 @@ impl NativeGame {
             logic.inactive = !active;
         }
         self.set_usables_active(name, active);
+        self.set_map_shooters_active(name, active);
     }
 
     /// `GlobalUse` of logic entity `index` for `activator`.

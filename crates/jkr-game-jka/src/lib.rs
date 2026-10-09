@@ -296,6 +296,7 @@ pub mod holdables;
 pub mod map_logic;
 pub mod map_props;
 pub mod map_scenery;
+pub mod map_shooters;
 pub mod map_target_action;
 pub mod npc_names;
 pub mod npc_rigid;

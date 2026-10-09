@@ -322,6 +322,12 @@ impl NativeGame {
     /// gun's), added to `CS_ITEMS` so that the clients load what draws their bolts.
     fn register_turret_items(&mut self) {
         let items = std::mem::take(&mut self.map_turrets.work.items);
+        self.register_items(items);
+    }
+
+    /// `RegisterItem` for each of `items` (item-list rows): marked in `CS_ITEMS`, told
+    /// when that changed it.
+    pub(super) fn register_items(&mut self, items: impl IntoIterator<Item = usize>) {
         let Some(mut present) = self
             .config_strings
             .iter()

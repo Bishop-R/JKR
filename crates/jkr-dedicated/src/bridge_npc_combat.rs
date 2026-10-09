@@ -40,7 +40,9 @@ impl NativeGame {
             .iter()
             .find(|npc| npc.number == number)
         else {
-            return self.turret_attacker(number);
+            return self
+                .turret_attacker(number)
+                .or_else(|| self.stock.shooters.attacker(number));
         };
         Some(Attacker {
             npc: true,
