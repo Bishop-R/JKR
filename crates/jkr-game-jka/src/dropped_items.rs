@@ -524,39 +524,26 @@ pub fn moving(pickup: &Pickup) -> bool {
 }
 
 /// Dropped item `pickup`, entity `number`, as a mover's push takes it (`physicsObject`,
-/// `G_MoverPush`): where it lies (`s.pos.trBase`), its box and what it lies on; a dropped
-/// weapon is freed where it would block. `None` for an item the map placed, or one taken.
+/// `G_MoverPush`): a dropped weapon is freed where it would block, any other item blocks.
+/// `None` for an item the map placed, or one taken.
 pub fn pushee(number: u16, pickup: &Pickup) -> Option<crate::path_movers::Pushee> {
-    use crate::path_movers::{Fate, Pushee};
+    use crate::path_movers::Fate;
     pickup.dropped.filter(|dropped| !dropped.taken)?;
-    let read = |index: usize| pickup.state.raw_field(index).unwrap_or(0);
-    Some(Pushee {
+    let weapon = pickup.state.raw_field(ES_EFLAGS).unwrap_or(0) & EF_DROPPEDWEAPON != 0;
+    let fate = if weapon { Fate::Freed } else { Fate::Blocks };
+    Some(crate::item_physics::pushee(
         number,
-        origin: ES_POS_BASE.map(|index| f32::from_bits(read(index))),
-        bounds: pickup.bounds,
-        ground: read(ES_GROUND_ENTITY) as u16,
-        client: false,
-        fate: if read(ES_EFLAGS) & EF_DROPPEDWEAPON != 0 {
-            Fate::Freed
-        } else {
-            Fate::Blocks
-        },
-    })
+        &pickup.state,
+        pickup.bounds,
+        fate,
+        false,
+    ))
 }
 
-/// `G_TryPushingEntity` moving dropped item `pickup` to `to` (`g_mover.c:224-250`):
-/// `s.pos.trBase` and `r.currentOrigin` there, and its ground gone unless it rode the
-/// mover — which sets it falling.
+/// `G_TryPushingEntity` moving dropped item `pickup` to `to`
+/// ([`crate::item_physics::shove`]).
 pub fn shove(pickup: &mut Pickup, to: [f32; 3], carried: bool) {
-    for (index, value) in ES_POS_BASE.into_iter().zip(to) {
-        pickup.state.set_raw_field(index, value.to_bits());
-    }
-    pickup.origin = to;
-    if !carried {
-        pickup
-            .state
-            .set_raw_field(ES_GROUND_ENTITY, ENTITY_NUMBER_NONE);
-    }
+    crate::item_physics::shove(&mut pickup.state, &mut pickup.origin, to, carried);
 }
 
 #[cfg(test)]

@@ -260,6 +260,9 @@ impl NativeGame {
             // next move's to change.)
             self.shove(pushed.number, pushed.to, pushed.yaw, pushed.on_mover);
         }
+        for fragile in outcome.broken {
+            self.break_in_the_way(fragile, level_time);
+        }
         for (victim, damage, flags) in outcome.crushed {
             self.crush(number, victim, damage, flags, level_time);
         }

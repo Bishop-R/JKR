@@ -1036,6 +1036,33 @@ pub fn blast_request(charge: &Charge, level_time: i32, attacker: Attacker) -> (D
     )
 }
 
+/// Charge `charge`, entity `number`, as a mover's push takes it: a det pack is a physics
+/// object (`drop_charge`, `g_weapon.c:2904`) that blocks a mover — hurt for 999 first while
+/// it can be (`takedamage`, its owner a player, under 500 health), which sets it off. A
+/// mine is fixed to its wall and no physics object. `None` for a mine or one unlinked.
+pub fn pushee(number: u16, charge: &Charge) -> Option<crate::path_movers::Pushee> {
+    if charge.kind != Kind::DetPack || !charge.linked {
+        return None;
+    }
+    let fragile = charge.takes_damage
+        && charge.missile.owner < MAX_CLIENTS
+        && (1..500).contains(&charge.health);
+    Some(crate::item_physics::pushee(
+        number,
+        &charge.missile.state,
+        charge.missile.bounds,
+        crate::path_movers::Fate::Blocks,
+        fragile,
+    ))
+}
+
+/// `G_TryPushingEntity` moving det pack `charge` to `to` ([`crate::item_physics::shove`]):
+/// one stuck to a mover's top rides it.
+pub fn shove(charge: &mut Charge, to: [f32; 3], carried: bool) {
+    let missile = &mut charge.missile;
+    crate::item_physics::shove(&mut missile.state, &mut missile.current, to, carried);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1056,6 +1083,32 @@ mod tests {
         };
         let charges = vec![drop(&state, 10.0), drop(&other, 20.0)];
         (state, charges)
+    }
+
+    /// A det pack is a physics object a mover pushes, hurt first where it cannot be moved
+    /// on while it can be hurt; shoved, it lies where the mover put it.
+    #[test]
+    fn a_det_pack_is_pushed_and_broken_by_movers() {
+        let state = PlayerState::zero();
+        let mut rand = CrtRand::new(1);
+        let mut charge = drop_det_pack(&state, [0.0; 3], [1.0, 0.0, 0.0], 9, 0, &mut rand);
+        charge.linked = true;
+        let pushee = pushee(300, &charge).unwrap();
+        assert_eq!(pushee.fate, crate::path_movers::Fate::Blocks);
+        assert!(
+            pushee.fragile,
+            "a det pack can be hurt: {} health",
+            charge.health
+        );
+        shove(&mut charge, [4.0, 5.0, 6.0], false);
+        assert_eq!(charge.missile.current, [4.0, 5.0, 6.0]);
+        assert_eq!(pushee_origin(&charge), [4.0, 5.0, 6.0]);
+        charge.linked = false;
+        assert!(super::pushee(300, &charge).is_none());
+    }
+
+    fn pushee_origin(charge: &Charge) -> [f32; 3] {
+        ES_POS_BASE.map(|index| f32::from_bits(charge.missile.state.raw_field(index).unwrap()))
     }
 
     /// `charge_stick`: on a still breakable it sticks and keeps it for its blow; on a

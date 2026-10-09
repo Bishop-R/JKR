@@ -3,7 +3,7 @@
 //! carry are the Force update's.
 
 use super::NativeGame;
-use crate::collision::{Void, WorldCollision};
+use crate::collision::{Void, WithPlayers, WorldCollision};
 use jkr_game_jka::holocron::{CarrierView, GT_HOLOCRON, Holocron, MAX_CARRY, Toucher};
 
 impl NativeGame {
@@ -46,6 +46,15 @@ impl NativeGame {
     /// Every holocron's frame; a carrier gone from the server is no carrier to it.
     pub(super) fn run_holocrons(&mut self, server_time: i32) {
         let previous_time = self.previous_frame_time;
+        // One lying in the world is traced through the entities too: it comes to rest on a
+        // mover, which then carries it.
+        if self
+            .holocrons
+            .iter()
+            .any(|holocron| holocron.carrier.is_none())
+        {
+            self.gather_obstacles(usize::MAX);
+        }
         for index in 0..self.holocrons.len() {
             let carrier = self.holocrons[index].carrier.map(usize::from);
             let Self {
@@ -56,6 +65,7 @@ impl NativeGame {
                 deaths,
                 holocrons,
                 pool,
+                obstacles,
                 ..
             } = self;
             let holocron = &mut holocrons[index];
@@ -73,9 +83,12 @@ impl NativeGame {
                     server_time,
                     previous_time,
                     view,
-                    &WorldCollision {
-                        bsp: &map.bsp,
-                        scratch: &map.scratch,
+                    &WithPlayers {
+                        world: WorldCollision {
+                            bsp: &map.bsp,
+                            scratch: &map.scratch,
+                        },
+                        players: obstacles,
                     },
                     &mut deaths.rng,
                 ),

@@ -204,42 +204,27 @@ impl Corpses {
     }
 
     /// The body in `slot`, entity `number` with wire state `state`, as a mover's push takes
-    /// it (`physicsObject`, `ET_BODY`): where it lies (`s.pos.trBase`), its box and what it
-    /// lies on; crushed where it would block.
+    /// it (`physicsObject`, `ET_BODY`): crushed where it would block.
     pub fn pushee(
         &self,
         slot: usize,
         number: u16,
         state: &EntityState,
     ) -> Option<crate::path_movers::Pushee> {
-        let body = self.body(slot)?;
-        let read = |index: usize| state.raw_field(index).unwrap_or(0);
-        Some(crate::path_movers::Pushee {
-            number,
-            origin: ES_POS_BASE.map(|index| f32::from_bits(read(index))),
-            bounds: body.bounds,
-            ground: read(ES_GROUND) as u16,
-            client: false,
-            fate: crate::path_movers::Fate::Crushed,
-        })
+        let bounds = self.body(slot)?.bounds;
+        let fate = crate::path_movers::Fate::Crushed;
+        Some(item_physics::pushee(number, state, bounds, fate, false))
     }
 
     /// `G_TryPushingEntity` moving the body in `slot`, wire state `state`, to `to`
-    /// (`g_mover.c:224-250`): `s.pos.trBase` and `r.currentOrigin` there, and its ground
-    /// gone unless it rode the mover — which sets it falling.
+    /// ([`item_physics::shove`]).
     pub fn shove(&mut self, slot: usize, state: &mut EntityState, to: [f32; 3], carried: bool) {
-        for (index, value) in ES_POS_BASE.into_iter().zip(to) {
-            state.set_raw_field(index, value.to_bits());
-        }
         if let Some(body) = self
             .slots
             .get_mut(slot)
             .and_then(|entry| entry.body.as_mut())
         {
-            body.current = to;
-        }
-        if !carried {
-            state.set_raw_field(ES_GROUND, u32::from(jkr_protocol::ENTITY_NUMBER_NONE));
+            item_physics::shove(state, &mut body.current, to, carried);
         }
     }
 }

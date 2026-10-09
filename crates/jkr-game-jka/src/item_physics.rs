@@ -173,6 +173,41 @@ pub(crate) fn item_bounce(
     )
 }
 
+/// A physics object as a mover's push takes it (`physicsObject`, `G_MoverPush`): entity
+/// `number`, wire state `state`, lying at `s.pos.trBase` in its box `bounds` on what its
+/// `s.groundEntityNum` names; what becomes of it is `fate`, and `fragile` says whether it
+/// is hurt where it cannot be moved on ([`crate::path_movers::Pushee::fragile`]).
+pub(crate) fn pushee(
+    number: u16,
+    state: &EntityState,
+    bounds: ([f32; 3], [f32; 3]),
+    fate: crate::path_movers::Fate,
+    fragile: bool,
+) -> crate::path_movers::Pushee {
+    crate::path_movers::Pushee {
+        number,
+        origin: read(state, ES_POS_BASE),
+        bounds,
+        ground: state.raw_field(ES_GROUND).unwrap_or(0) as u16,
+        client: false,
+        fate,
+        fragile,
+    }
+}
+
+/// `G_TryPushingEntity` moving a physics object to `to` (`g_mover.c:224-250`): its
+/// `s.pos.trBase` and `r.currentOrigin` (`current`) there, and its ground gone unless it
+/// rode the mover — which sets it falling (`G_RunItem`).
+pub(crate) fn shove(state: &mut EntityState, current: &mut [f32; 3], to: [f32; 3], carried: bool) {
+    for (index, value) in ES_POS_BASE.into_iter().zip(to) {
+        state.set_raw_field(index, value.to_bits());
+    }
+    *current = to;
+    if !carried {
+        state.set_raw_field(ES_GROUND, u32::from(jkr_protocol::ENTITY_NUMBER_NONE));
+    }
+}
+
 fn read(state: &EntityState, fields: [usize; 3]) -> [f32; 3] {
     fields.map(|field| f32::from_bits(state.raw_field(field).unwrap_or(0)))
 }

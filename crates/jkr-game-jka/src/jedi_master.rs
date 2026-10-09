@@ -615,3 +615,26 @@ impl crate::force_powers::Forcer<'_, '_> {
         crate::force_powers::mirror_levels(self.state, self.force);
     }
 }
+
+impl JediMasterSaber {
+    /// The saber as a mover's push takes it (a physics object,
+    /// `SP_info_jedimaster_start`, `g_client.c:529`): lying in the world it blocks a mover
+    /// it is in the way of. `None` while a player holds it.
+    pub fn pushee(&self) -> Option<crate::path_movers::Pushee> {
+        (self.holder.is_none() && self.missile.linked).then(|| {
+            crate::item_physics::pushee(
+                self.id.legacy_number(),
+                &self.missile.state,
+                self.missile.bounds,
+                crate::path_movers::Fate::Blocks,
+                false,
+            )
+        })
+    }
+
+    /// `G_TryPushingEntity` moving the saber to `to` ([`crate::item_physics::shove`]).
+    pub fn shove(&mut self, to: [f32; 3], carried: bool) {
+        let missile = &mut self.missile;
+        crate::item_physics::shove(&mut missile.state, &mut missile.current, to, carried);
+    }
+}

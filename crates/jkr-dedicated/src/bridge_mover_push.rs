@@ -17,8 +17,9 @@ const FL_NOTARGET: u32 = 0x20;
 
 impl NativeGame {
     /// Everyone a mover may push: the players in the game — a dead one by its corpse's
-    /// box — the NPCs that have begun, a dead one's body among them, the dropped items and
-    /// the bodies in the body queue.
+    /// box — the NPCs that have begun, a dead one's body among them, and the physics
+    /// objects: the dropped items, the bodies in the body queue, the det packs, the
+    /// holocrons and the Jedi Master's saber lying in the world.
     pub(super) fn pushees(&self) -> Vec<Pushee> {
         let players = (0..self.players.places()).filter_map(|client| {
             let peer = self.peer(client)?;
@@ -40,6 +41,7 @@ impl NativeGame {
                 } else {
                     Fate::Blocks
                 },
+                fragile: false,
             })
         });
         let npcs = self
@@ -59,6 +61,7 @@ impl NativeGame {
                 } else {
                     Fate::Blocks
                 },
+                fragile: false,
             });
         let items = self.items.iter().filter_map(|(id, pickup)| {
             jkr_game_jka::dropped_items::pushee(id.legacy_number(), pickup)
@@ -68,7 +71,27 @@ impl NativeGame {
             self.corpses
                 .pushee(slot, id.legacy_number(), self.pool.state(id)?)
         });
-        players.chain(npcs).chain(items).chain(bodies).collect()
+        let charges = self
+            .charges
+            .iter()
+            .filter_map(|(id, charge)| jkr_game_jka::mines::pushee(id.legacy_number(), charge));
+        let holocrons = self
+            .holocrons
+            .iter()
+            .filter_map(|holocron| holocron.pushee());
+        let saber = self
+            .jedi_master
+            .saber
+            .as_ref()
+            .and_then(|saber| saber.pushee());
+        players
+            .chain(npcs)
+            .chain(items)
+            .chain(bodies)
+            .chain(charges)
+            .chain(holocrons)
+            .chain(saber)
+            .collect()
     }
 
     /// `G_TryPushingEntity` having moved `number` to `to` (`g_mover.c:212-250`): a
@@ -88,6 +111,9 @@ impl NativeGame {
             items,
             pool,
             corpses,
+            charges,
+            holocrons,
+            jedi_master,
             ..
         } = self;
         if let Some(npc) = npcs
@@ -119,6 +145,40 @@ impl NativeGame {
             && let Some(state) = pool.state_mut(id)
         {
             corpses.shove(slot, state, to, carried);
+        } else if let Some((id, charge)) = charges
+            .iter_mut()
+            .find(|(id, _)| id.legacy_number() == number)
+        {
+            jkr_game_jka::mines::shove(charge, to, carried);
+            pool.set_state(*id, &charge.missile.state);
+        } else if let Some(holocron) = holocrons
+            .iter_mut()
+            .find(|holocron| holocron.id.legacy_number() == number)
+        {
+            holocron.shove(to, carried);
+            pool.set_state(holocron.id, &holocron.missile.state);
+        } else if let Some(saber) = jedi_master
+            .saber
+            .as_mut()
+            .filter(|saber| saber.id.legacy_number() == number)
+        {
+            saber.shove(to, carried);
+            pool.set_state(saber.id, &saber.missile.state);
+        }
+    }
+
+    /// `G_Damage(check, pusher, pusher, vec3_origin, check->r.currentOrigin, 999, 0,
+    /// MOD_UNKNOWN)` on the fragile object `number` a mover cannot move on: a det pack is
+    /// set off.
+    pub(super) fn break_in_the_way(&mut self, number: u16, level_time: i32) {
+        let Self {
+            charges, deaths, ..
+        } = self;
+        if let Some((_, charge)) = charges
+            .iter_mut()
+            .find(|(id, _)| id.legacy_number() == number)
+        {
+            jkr_game_jka::mines::hurt_charge(charge, 999, false, level_time, &mut deaths.rng);
         }
     }
 
@@ -265,6 +325,9 @@ impl NativeGame {
                 movers::Push::Blocked(blocker) => blocker,
             };
             let check = *candidates.iter().find(|check| check.number == blocker)?;
+            if check.fragile {
+                self.break_in_the_way(blocker, level_time);
+            }
             match jkr_game_jka::path_movers::unpushable(damage, spawnflags, false, &check) {
                 Unpushable::Blocks => return Some(blocker),
                 Unpushable::Crushed(damage, flags) => {

@@ -761,6 +761,10 @@ pub struct Pushee {
     pub client: bool,
     /// What becomes of it when the mover can move it nowhere.
     pub fate: Fate,
+    /// A physics object that takes damage, is armed and a player's, with under 500 health
+    /// (a det pack): hurt for 999 (`MOD_UNKNOWN`) whenever it cannot be moved on, before
+    /// anything else is made of it (`g_mover.c:252-258`).
+    pub fragile: bool,
 }
 
 /// What `G_MoverPush` does with one it can neither move on nor leave where it was, by
@@ -800,6 +804,8 @@ pub struct Push {
     pub removed: Vec<u16>,
     /// Dropped weapons and limbs it could not move, which go (`G_FreeEntity`).
     pub freed: Vec<u16>,
+    /// Fragile objects it could not move on, each hurt for 999 (`MOD_UNKNOWN`).
+    pub broken: Vec<u16>,
     /// Who blocked it (`*obstacle`): the move is undone and nobody is moved.
     pub blocked: Option<u16>,
 }
@@ -858,6 +864,7 @@ pub fn push(
         crushed: Vec::new(),
         removed: Vec::new(),
         freed: Vec::new(),
+        broken: Vec::new(),
         blocked: None,
     };
     let new_origin: [f32; 3] = std::array::from_fn(|axis| mover.origin[axis] + shift[axis]);
@@ -924,6 +931,9 @@ pub fn push(
             });
             continue;
         }
+        if check.fragile {
+            outcome.broken.push(check.number);
+        }
         // "if it is ok to leave in the old position, do it".
         if free(check.number, check.origin, bounds) {
             continue;
@@ -978,6 +988,7 @@ mod tests {
             ground: 1023,
             client: true,
             fate: Fate::Blocks,
+            fragile: false,
         };
         let with = |client, fate| Pushee {
             client,
