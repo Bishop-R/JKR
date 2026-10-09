@@ -54,6 +54,12 @@ pub trait LegacyGameHost {
     fn client_connect(&mut self, client: usize, userinfo: &[u8]) -> Result<(), Vec<u8>>;
     /// Release everything `client_connect` admitted, including its actor.
     fn client_disconnect(&mut self, client: usize);
+    /// [`Self::client_disconnect`] for a client connecting again into the slot it still
+    /// holds — the reference's game finds the slot in use as it connects and forces the
+    /// disconnect itself. Plain disconnect unless the game tells the two apart.
+    fn client_reconnect_disconnect(&mut self, client: usize) {
+        self.client_disconnect(client);
+    }
     /// A reliable client command the endpoint does not handle itself, at the server's
     /// clock `server_time`.
     fn client_command(&mut self, client: usize, text: &[u8], server_time: i32);

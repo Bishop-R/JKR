@@ -31,6 +31,16 @@ impl LegacyGameHost for NativeGame {
         self.disconnect_client(client);
     }
 
+    fn client_reconnect_disconnect(&mut self, client: usize) {
+        let Some(client) = place(client) else { return };
+        // `ClientConnect` (`g_client.c:2485-2490`): "if a player reconnects quickly after
+        // a disconnect, the client disconnect may never be called".
+        if self.peer(client).is_some() {
+            self.log(&format!("Forcing disconnect on active client: {client}"));
+        }
+        self.disconnect_client(client);
+    }
+
     fn client_userinfo_changed(&mut self, client: usize, userinfo: &[u8]) {
         let Some(client) = place(client) else { return };
         self.userinfo_changed(client, userinfo);

@@ -69,7 +69,7 @@ impl<G: LegacyGameHost> LegacyRosterHost for View<'_, G> {
             .verify(challenge, from, self.clock.server_time)
     }
     fn game_disconnect(&mut self, slot: usize) {
-        self.game.client_disconnect(slot);
+        self.game.client_reconnect_disconnect(slot);
     }
     fn reset_session(&mut self, slot: usize, challenge: i32) {
         let slot = &mut self.slots[slot];
