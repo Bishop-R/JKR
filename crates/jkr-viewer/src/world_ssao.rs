@@ -23,7 +23,7 @@ pub(super) fn authored_diffuse(definition: Option<&jkr_shader::ShaderDefinition>
 
 /// Runtime blend/geometry eligibility, after authored emission has been excluded.
 pub(super) fn eligible(key: PipelineKey, gpu: &GpuStage) -> bool {
-    key.geometry == 0
+    super::material_maps::without_maps(key.geometry) == 0
         && key.depth_write
         && key.source == wgpu::BlendFactor::One
         && key.destination == wgpu::BlendFactor::Zero
