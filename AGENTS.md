@@ -30,7 +30,9 @@ multiplayer. Read [docs/status.md](docs/status.md),
   `cargo test --locked --workspace`. Explain any check that could not run.
 - Passing Cargo tests currently does not establish gameplay parity: the repository
   has no bundled regression suite. Use focused external evidence for affected behavior.
-  Do not add fixtures, test infrastructure or large reports without task authorization.
+  Small unit tests and fixtures that pin the changed behavior, such as the byte
+  fixtures above, belong with the change; they never contain retail game data. New
+  test infrastructure, harnesses or large reports need task authorization.
 - Only exercise servers you control without human players. Do not automate chat
   messages. Use an unobtrusive name and stop only processes started for your check.
 - Never commit retail game data, downloaded PK3s, credentials or personal paths.
