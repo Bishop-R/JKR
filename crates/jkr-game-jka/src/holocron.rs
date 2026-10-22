@@ -477,7 +477,7 @@ impl crate::force_powers::Forcer<'_, '_> {
         const PS_KNOWN: usize = 51;
         const PS_SABER_ANIM_LEVEL: usize = 23;
         const PS_SABER_DRAW_ANIM_LEVEL: usize = 25;
-        const SS_STAFF: u32 = 5;
+        const SS_STAFF: u32 = 7;
         for power in 0..NUM_FORCE_POWERS {
             let (bits, known) = (
                 self.state.raw_field(ps::HOLOCRON_BITS).unwrap_or(0),
@@ -520,5 +520,28 @@ impl crate::force_powers::Forcer<'_, '_> {
             }
         }
         crate::force_powers::mirror_levels(self.state, self.force);
+    }
+}
+
+impl Holocron {
+    /// The holocron as a mover's push takes it (a physics object, `SP_misc_holocron`,
+    /// `g_misc.c:1138`): one lying in the world blocks a mover it is in the way of. `None`
+    /// while a player carries it.
+    pub fn pushee(&self) -> Option<crate::path_movers::Pushee> {
+        (self.carrier.is_none() && self.missile.linked).then(|| {
+            crate::item_physics::pushee(
+                self.id.legacy_number(),
+                &self.missile.state,
+                self.missile.bounds,
+                crate::path_movers::Fate::Blocks,
+                false,
+            )
+        })
+    }
+
+    /// `G_TryPushingEntity` moving the holocron to `to` ([`crate::item_physics::shove`]).
+    pub fn shove(&mut self, to: [f32; 3], carried: bool) {
+        let missile = &mut self.missile;
+        crate::item_physics::shove(&mut missile.state, &mut missile.current, to, carried);
     }
 }

@@ -22,6 +22,37 @@ pub struct BoxObstacle {
     /// move is traced against (`CM_TransformedBoxTrace`) instead of the box, the box then
     /// being the model's own bounds; `None` for a box (a player, a missile).
     pub model: Option<usize>,
+    /// `r.absmin`, `r.absmax` as `SV_LinkEntity` last set them, where the entity has moved
+    /// or changed its box since: what `SV_AreaEntities` finds it by, while a move is still
+    /// clipped against `bounds` at `origin`. An E-Web is linked before its box is set, and
+    /// found only near where it was set down until it next moves. `None`: its box at its
+    /// origin.
+    pub linked_box: Option<([f32; 3], [f32; 3])>,
+}
+
+impl BoxObstacle {
+    /// `r.absmin`, `r.absmax`: the box it was linked with, grown by a unit "because movement
+    /// is clipped an epsilon away from an actual edge".
+    pub fn absolute_box(&self) -> ([f32; 3], [f32; 3]) {
+        self.linked_box
+            .unwrap_or_else(|| linked_box(self.origin, self.bounds))
+    }
+}
+
+/// `SV_LinkEntity`'s `r.absmin`, `r.absmax` for a box `bounds` at `origin`.
+pub fn linked_box(origin: [f32; 3], (mins, maxs): ([f32; 3], [f32; 3])) -> ([f32; 3], [f32; 3]) {
+    (
+        std::array::from_fn(|axis| origin[axis] + mins[axis] - 1.0),
+        std::array::from_fn(|axis| origin[axis] + maxs[axis] + 1.0),
+    )
+}
+
+/// `SV_LinkEntity`'s `s.solid` for a solid box that is no brush model: its size, which is
+/// all a client's prediction knows of it — half its width, its depth below the origin, its
+/// height above it plus 32, a byte each (`sv_world.cpp:263-286`).
+pub fn packed_solid((mins, maxs): ([f32; 3], [f32; 3])) -> u32 {
+    let byte = |value: f32| (value as i32).clamp(1, 255) as u32;
+    byte(maxs[2] + 32.0) << 16 | byte(-mins[2]) << 8 | byte(maxs[0])
 }
 
 /// The move as `SV_Trace` is handed it.
@@ -67,12 +98,9 @@ pub fn clip_move_to_entities(
         if result.all_solid {
             break;
         }
-        // `SV_LinkEntity` grows an entity's box by a unit "because movement is clipped an
-        // epsilon away from an actual edge"; `SV_AreaEntities` wants the two to overlap.
-        let apart = (0..3).any(|axis| {
-            obstacle.origin[axis] + obstacle.bounds.0[axis] - 1.0 > high[axis]
-                || obstacle.origin[axis] + obstacle.bounds.1[axis] + 1.0 < low[axis]
-        });
+        // `SV_AreaEntities` wants the move's box and the linked one to overlap.
+        let (absmin, absmax) = obstacle.absolute_box();
+        let apart = (0..3).any(|axis| absmin[axis] > high[axis] || absmax[axis] < low[axis]);
         if apart || movement.content_mask & obstacle.contents == 0 {
             continue;
         }
@@ -145,10 +173,8 @@ pub fn clip_move_to_entities_ghoul2(
         if result.all_solid {
             break;
         }
-        let apart = (0..3).any(|axis| {
-            obstacle.origin[axis] + obstacle.bounds.0[axis] - 1.0 > high[axis]
-                || obstacle.origin[axis] + obstacle.bounds.1[axis] + 1.0 < low[axis]
-        });
+        let (absmin, absmax) = obstacle.absolute_box();
+        let apart = (0..3).any(|axis| absmin[axis] > high[axis] || absmax[axis] < low[axis]);
         if apart || movement.content_mask & obstacle.contents == 0 {
             continue;
         }

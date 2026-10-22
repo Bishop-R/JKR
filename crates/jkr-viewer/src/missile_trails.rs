@@ -1,7 +1,10 @@
-//! Viewer dispatch for allocation-free legacy missile effect requests.
+//! Viewer dispatch for allocation-free legacy missile effect requests, and for the
+//! lasers of armed trip mines ([`jkr_client::trip_mine_beam`]), which stock plays from
+//! the same client frame.
 
 use crate::dynamic_lights::{PointLight, PointLightList};
 use crate::effect_runtime::EffectLibrary;
+use crate::impact_spawn::Sinks;
 use crate::{GameAudio, Particle, combat_effects, effect_runtime};
 use glam::Vec3;
 use jkr_client::{LegacyMissileEffectMetrics, LegacyMissileEffects};
@@ -81,7 +84,43 @@ pub(crate) fn update_and_spawn(
             seed(request.entity_number, presentation_time, u8::MAX),
         );
     }
+    if play {
+        let sinks = Sinks {
+            particles,
+            auxiliary,
+            effects,
+            vfs,
+            audio,
+        };
+        spawn_trip_mine_beams(snapshot, presentation_time, sinks, now);
+    }
     metrics
+}
+
+/// `CG_General`'s trip mine beam (`cg_ents.c:1903-1935`) for every armed mine in
+/// `snapshot`. Stock plays it on every client frame; here it follows the trails' 8 ms
+/// cadence (`effect_cadence.rs`), so its additive copies overlap as at `com_maxfps 125`.
+fn spawn_trip_mine_beams(snapshot: &Snapshot, time: i32, sinks: Sinks<'_>, now: Instant) {
+    let beams = snapshot.entities.iter().filter_map(|entity| {
+        jkr_client::trip_mine_beam(entity, &snapshot.player, time)
+            .map(|beam| (entity.number(), beam))
+    });
+    for (number, beam) in beams {
+        for play in 0..beam.plays {
+            spawn(
+                sinks.particles,
+                sinks.auxiliary,
+                sinks.effects,
+                sinks.vfs,
+                sinks.audio,
+                beam.effect_name,
+                beam.origin,
+                beam.direction,
+                now,
+                seed(number, time, play),
+            );
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

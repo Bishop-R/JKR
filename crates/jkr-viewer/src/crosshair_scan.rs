@@ -13,6 +13,19 @@ const CONTENTS_SOLID: u32 = 1;
 const CONTENTS_FOG: u32 = 8;
 const EF_DEAD: u32 = 1 << 1;
 const PW_CLOAKED: u32 = 1 << 11;
+/// `ET_NPC`, `CLASS_VEHICLE`.
+const ET_NPC: u8 = 13;
+const CLASS_VEHICLE: u8 = 53;
+
+/// What `CG_DrawCrosshair` draws its bars under the crosshair for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Target {
+    /// `crossEnt`: the entity the crosshair's colour was chosen by, a vehicle's pilot
+    /// standing in for the vehicle (`cg.crosshairClientNum`).
+    pub(crate) entity: u16,
+    /// `cg.crosshairVehNum` when it was set this frame: the vehicle `entity` pilots.
+    pub(crate) vehicle: Option<u16>,
+}
 
 /// Retained target/time corresponding to `cg.crosshairClientNum/Time`.
 #[derive(Default)]
@@ -21,6 +34,8 @@ pub(crate) struct State {
     acquired_at: i32,
     /// Current trace classification, independent of the retained player name.
     pub(crate) color: Option<[f32; 4]>,
+    /// This frame's `crossEnt`, for a player in the game.
+    pub(crate) target: Option<Target>,
     /// Endpoint of the same trace used to identify the target.
     pub(crate) endpoint: Vec3,
     /// Renderer map distance, resolved at world installation rather than during drawing.
@@ -83,11 +98,12 @@ impl State {
             CONTENTS_SOLID,
         );
         self.color = None;
+        self.target = None;
         let mut nearest = ray.distance * world.fraction;
         let local = snapshot.player.client_num();
         let mut hit = None;
         for entity in &snapshot.entities {
-            if entity.number() == local {
+            if entity.number() == local || Some(entity.number()) == ray.ignore {
                 continue;
             }
             if let Some(collider) = crate::local_prediction::movers::Collider::from_entity(
@@ -116,6 +132,9 @@ impl State {
         if let Some(entity) = hit {
             if !entity.client_bitflag(local) {
                 self.color = classification::classify(entity, snapshot, game);
+                if self.color.is_some() && !snapshot.player.is_spectator() {
+                    self.target = Some(target(entity));
+                }
             }
             let point = start + direction * nearest;
             if bsp.point_contents(point.to_array(), CONTENTS_FOG) == 0
@@ -146,6 +165,22 @@ impl State {
             mind_tricked: target.client_bitflag(local),
             dead: target.e_flags() & EF_DEAD != 0,
         })
+    }
+}
+
+/// `CG_ScanForCrosshairEntity`: a piloted vehicle names its pilot, and itself as the vehicle.
+fn target(entity: &jkr_protocol::EntityState) -> Target {
+    if entity.entity_type() == ET_NPC && entity.npc_class() == CLASS_VEHICLE && entity.owner() < 32
+    {
+        Target {
+            entity: entity.owner(),
+            vehicle: Some(entity.number()),
+        }
+    } else {
+        Target {
+            entity: entity.number(),
+            vehicle: None,
+        }
     }
 }
 

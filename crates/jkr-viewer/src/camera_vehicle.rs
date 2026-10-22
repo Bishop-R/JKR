@@ -27,17 +27,18 @@ impl Profile {
     }
 
     /// Override [angle, pitch offset, range, height] and horizontal offset. Pitch
-    /// arguments retain stock's down-positive convention; strafing is hackingTime.
+    /// arguments retain stock's down-positive convention; strafing is hackingTime;
+    /// `extra_range` is TaystJK's `cg_vehicleRange`.
     pub(crate) fn apply(
         self,
         framing: &mut [f32; 4],
         horizontal: &mut f32,
-        snapshot_pitch: f32,
-        predicted_pitch: f32,
+        (snapshot_pitch, predicted_pitch): (f32, f32),
         strafe_time: i32,
+        extra_range: f32,
     ) {
         if self.override_camera {
-            framing[2] = self.range + (strafe_time as f32 / 2000.0).abs() * 100.0;
+            framing[2] = self.range + extra_range + (strafe_time as f32 / 2000.0).abs() * 100.0;
             *horizontal = self.horizontal + strafe_time as f32 / 2000.0 * -80.0;
             if self.pitch_dependent {
                 framing[1] = if snapshot_pitch == 0.0 {

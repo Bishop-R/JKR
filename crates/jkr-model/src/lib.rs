@@ -4,6 +4,9 @@ mod bone_angles;
 mod bone_override;
 mod bone_override_timing;
 pub mod g2_collision;
+pub mod g2_gore;
+mod g2_math;
+pub mod g2_surfaces;
 mod md3_lerp;
 pub mod posed_trace;
 mod reskin;
@@ -177,7 +180,7 @@ impl Skin {
             let (surface, shader) = line.split_once(',').ok_or_else(|| {
                 ModelError::invalid(line_index, "skin line lacks surface,shader separator")
             })?;
-            let surface = surface.trim().to_ascii_lowercase();
+            let mut surface = surface.trim().to_ascii_lowercase();
             let shader = shader.trim().replace('\\', "/").to_ascii_lowercase();
             if surface.is_empty() || shader.is_empty() {
                 return Err(ModelError::invalid(
@@ -185,7 +188,20 @@ impl Skin {
                     "skin surface and shader must be nonempty",
                 ));
             }
-            mappings.insert(surface, shader);
+            // `RE_RegisterSkin` (`tr_skin.cpp:141-155`): no tags; `name_off` gives the
+            // shader of a surface that starts switched off (a dismemberment cap) for when
+            // it is switched on, and a doubled "off" is dropped. The first line naming a
+            // surface is the one the renderer finds.
+            if surface.starts_with("tag_") {
+                continue;
+            }
+            if let Some(switched_on) = surface.strip_suffix("_off") {
+                if shader == SKIN_SHADER_OFF {
+                    continue;
+                }
+                surface = switched_on.to_owned();
+            }
+            mappings.entry(surface).or_insert(shader);
         }
         Ok(Self { mappings })
     }
@@ -814,7 +830,9 @@ fn inverse_rigid_3x4(matrix: [[f32; 4]; 3]) -> [[f32; 4]; 3] {
 }
 
 fn quake_angles_matrix(angles: [f32; 3]) -> [[f32; 4]; 3] {
-    let [pitch, yaw, roll] = angles.map(f32::to_radians);
+    // `AngleVectors`' `angles[i] * (M_PI*2 / 360)`: a double product, kept as a float.
+    let [pitch, yaw, roll] =
+        angles.map(|degrees| (f64::from(degrees) * (std::f64::consts::PI * 2.0 / 360.0)) as f32);
     let (sp, cp) = pitch.sin_cos();
     let (sy, cy) = yaw.sin_cos();
     let (sr, cr) = roll.sin_cos();
@@ -993,8 +1011,17 @@ impl Glm {
                         .map(|value| usize::try_from(value).expect("u32 fits usize"))
                 })
                 .collect::<Result<_, _>>()?;
+            // `R_LoadMDXM` (`tr_ghoul2.cpp:4290-4294`): names are lowercased, and a surface
+            // that starts switched off (a cap) loses the "_off" its name carries, so the
+            // game switches it on by its plain name.
+            let mut name = reader
+                .name(current_hierarchy, 64, "surface hierarchy name")?
+                .to_ascii_lowercase();
+            if name.len() >= 4 && name.ends_with("_off") {
+                name.truncate(name.len() - 4);
+            }
             hierarchy.push(GlmSurfaceHierarchy {
-                name: reader.name(current_hierarchy, 64, "surface hierarchy name")?,
+                name,
                 flags: reader.u32(current_hierarchy + 64, "surface flags")?,
                 shader: reader.name(current_hierarchy + 68, 64, "surface shader")?,
                 parent,
@@ -1143,6 +1170,58 @@ impl Glm {
             ));
         }
         self.skin_with_matrices(skin, lod, matrices)
+    }
+
+    /// The surfaces of LOD `lod` that start switched off (`G2SURFACEFLAG_OFF`: the caps
+    /// a cut limb leaves) and have a shader under `skin` (else their own), posed as
+    /// `matrices`, each with its hierarchy index; the order is the model's.
+    pub fn skin_switched_off(
+        &self,
+        skin: &Skin,
+        lod: usize,
+        matrices: &[[[f32; 4]; 3]],
+    ) -> Result<Vec<(usize, SkinnedSurface)>, ModelError> {
+        if matrices.len() != self.bone_count {
+            return Err(ModelError::invalid(
+                matrices.len(),
+                "pose matrix count differs from GLM bone count",
+            ));
+        }
+        let source_lod = self
+            .lods
+            .get(lod)
+            .ok_or_else(|| ModelError::invalid(lod, "GLM LOD is out of range"))?;
+        let mut output = Vec::new();
+        for (index, (surface, hierarchy)) in
+            source_lod.surfaces.iter().zip(&self.hierarchy).enumerate()
+        {
+            if hierarchy.flags & g2_surfaces::SURFACE_OFF == 0 {
+                continue;
+            }
+            let shader = match skin.shader(&hierarchy.name) {
+                Some(SKIN_SHADER_OFF) => None,
+                Some(shader) => Some(shader.to_owned()),
+                None => (!hierarchy.shader.is_empty()).then(|| hierarchy.shader.clone()),
+            };
+            let Some(shader) = shader else {
+                continue;
+            };
+            let vertices = surface
+                .vertices
+                .iter()
+                .map(|vertex| reskin::vertex(surface, vertex, matrices))
+                .collect();
+            output.push((
+                index,
+                SkinnedSurface {
+                    name: hierarchy.name.clone(),
+                    shader: Some(shader),
+                    vertices,
+                    triangles: surface.triangles.clone(),
+                },
+            ));
+        }
+        Ok(output)
     }
 
     /// Evaluates a normal three-vertex Ghoul2 bolt surface in model space.

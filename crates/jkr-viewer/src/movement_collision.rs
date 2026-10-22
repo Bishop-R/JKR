@@ -117,7 +117,22 @@ pub(crate) fn camera_trace(
     // MASK_SOLID | CONTENTS_PLAYERCLIP (codemp/game/bg_public.h, surfaceflags.h).
     const MASK: u32 = 0x1001 | 0x10;
     let bounds = Aabb::new([-4.0; 3], [4.0; 3]).expect("valid camera hull");
-    let mut best = bsp.trace_box_with(scratch, start.to_array(), end.to_array(), bounds, MASK);
+    brush_trace(bsp, scratch, snapshot, time, (start, end), bounds, MASK)
+}
+
+/// Where `CG_Trace` of `bounds` from `start` to `end` stops against the world and the
+/// presented inline brush models, under a `mask` without `CONTENTS_BODY` (which every
+/// other solid is to a client trace), the viewer's own entity passed over.
+pub(crate) fn brush_trace(
+    bsp: &Bsp,
+    scratch: &mut jkr_bsp::TraceScratch,
+    snapshot: Option<&jkr_protocol::Snapshot>,
+    time: i32,
+    (start, end): (Vec3, Vec3),
+    bounds: Aabb,
+    mask: u32,
+) -> Vec3 {
+    let mut best = bsp.trace_box_with(scratch, start.to_array(), end.to_array(), bounds, mask);
     if let Some(snapshot) = snapshot {
         for entity in &snapshot.entities {
             if entity.solid() != 0x00ff_ffff || entity.number() == snapshot.player.client_num() {
@@ -132,7 +147,7 @@ pub(crate) fn camera_trace(
                 start.to_array(),
                 end.to_array(),
                 bounds,
-                MASK,
+                mask,
             );
             if hit.all_solid || hit.fraction < best.fraction {
                 best.fraction = hit.fraction;

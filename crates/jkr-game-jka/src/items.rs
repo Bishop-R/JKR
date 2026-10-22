@@ -108,14 +108,60 @@ pub const ITEMS: [Item; 51] = [
 /// `ammoData[].max` (`bg_weapons.c:378-430`): how much of each kind a player may hold.
 const AMMO_MAX: [i32; 10] = [0, 100, 300, 300, 300, 25, 800, 10, 10, 10];
 /// `RESPAWN_ARMOR`, `RESPAWN_HEALTH`, `RESPAWN_AMMO`, `RESPAWN_HOLDABLE`,
-/// `RESPAWN_MEGAHEALTH`, `RESPAWN_POWERUP`; `g_weaponRespawn`'s default.
+/// `RESPAWN_MEGAHEALTH`, `RESPAWN_POWERUP`, `RESPAWN_TEAM_WEAPON`; `g_weaponRespawn`'s
+/// default.
 const RESPAWN_ARMOR: i32 = 20;
 const RESPAWN_HEALTH: i32 = 30;
 const RESPAWN_AMMO: i32 = 40;
 const RESPAWN_HOLDABLE: i32 = 60;
 const RESPAWN_MEGAHEALTH: i32 = 120;
 const RESPAWN_POWERUP: i32 = 120;
+const RESPAWN_TEAM_WEAPON: i32 = 30;
 pub const WEAPON_RESPAWN: i32 = 5;
+
+/// How long the items a pickup leaves stay away, as the server is set: `g_weaponRespawn`,
+/// Team FFA's slow weapons, and `g_adaptRespawn`'s count of playing clients (`None` with
+/// it off).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Respawns {
+    pub weapon: i32,
+    pub team_weapons: bool,
+    pub adapt_players: Option<usize>,
+}
+
+impl Default for Respawns {
+    fn default() -> Self {
+        Self {
+            weapon: WEAPON_RESPAWN,
+            team_weapons: false,
+            adapt_players: None,
+        }
+    }
+}
+
+/// `adjustRespawnTime` (`g_items.c:70-109`) after its thrown-weapon case: with
+/// `g_adaptRespawn` on and more than four playing clients, the time shrinks — to a half by
+/// twelve, then (stock's formula restarting) from 20/21 at thirteen to a half again at
+/// thirty-two, a quarter past that — but never under a second.
+pub fn adjust_respawn_time(base: i32, adapt_players: Option<usize>) -> i32 {
+    let Some(players) = adapt_players else {
+        return base;
+    };
+    let mut time = base as f32;
+    if players > 4 {
+        // The scale factors are doubles, the time a float.
+        let players = players as f64;
+        let scale = if players > 32.0 {
+            0.25
+        } else if players > 12.0 {
+            20.0 / (players + 8.0)
+        } else {
+            8.0 / (players + 4.0)
+        };
+        time = (f64::from(time) * scale) as f32;
+    }
+    time.max(1.0) as i32
+}
 /// `ITMSF_SUSPEND`: the item hangs where the map put it.
 const ITMSF_SUSPEND: i32 = 1;
 /// `ITMSF_ALLOWNPC`: NPCs may take the item.
@@ -136,6 +182,19 @@ const EF_NODRAW: u32 = 1 << 8;
 const EF_ITEMPLACEHOLDER: u32 = 1 << 23;
 pub const EV_ITEM_PICKUP: u32 = 22;
 pub const EV_ITEM_RESPAWN: u32 = 62;
+/// `EV_GENERAL_SOUND`, `EV_GLOBAL_SOUND`: a powerup's return, heard near it or everywhere.
+const EV_GENERAL_SOUND: u32 = 76;
+const EV_GLOBAL_SOUND: u32 = 77;
+/// `PW_FORCE_ENLIGHTENED_LIGHT`, `_DARK`, `PW_FORCE_BOON`, `PW_YSALAMIRI`; the Force sides.
+const PW_FORCE_ENLIGHTENED_LIGHT: i32 = 12;
+const PW_FORCE_ENLIGHTENED_DARK: i32 = 13;
+const PW_FORCE_BOON: i32 = 14;
+const PW_YSALAMIRI: i32 = 15;
+const FORCE_LIGHTSIDE: u32 = 1;
+const FORCE_DARKSIDE: u32 = 2;
+/// The sound a powerup's return makes (`RespawnItem`), registered as one is placed
+/// (`G_SpawnItem`).
+pub const POWERUP_RESPAWN_SOUND: &[u8] = b"sound/items/respawn1";
 /// The stats and the fields a pickup writes.
 const STAT_HOLDABLE_ITEM: usize = 1;
 const STAT_HOLDABLE_ITEMS: usize = 2;
@@ -156,8 +215,18 @@ pub fn find(classname: &str) -> Option<usize> {
         .map(|index| index + 1)
 }
 
+/// `BG_FindItem` (`bg_misc.c:1875-1884`): an item by classname, ignoring case, as
+/// `give` names it.
+pub fn find_named(classname: &[u8]) -> Option<usize> {
+    ITEMS
+        .iter()
+        .skip(1)
+        .position(|item| item.classname.as_bytes().eq_ignore_ascii_case(classname))
+        .map(|index| index + 1)
+}
+
 /// An item as the map placed it, before it is dropped to the floor.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     /// Its row of `bg_itemlist`, which is its wire `modelindex`.
     pub item: usize,
@@ -170,6 +239,46 @@ pub struct Placed {
     pub suspended: bool,
     /// `spawnflags & ITMSF_ALLOWNPC`: NPCs may take it (`Touch_Item`).
     pub allow_npc: bool,
+    /// A powerup's `noglobalsound` (`ent->speed`): its return is heard only near it.
+    pub no_global_sound: bool,
+    /// `targetname`: an item something uses, out of the world until it is used
+    /// (`Use_Item`).
+    pub targetname: Option<String>,
+    /// `team`: the items one of which stands at a time ([`find_teams`]).
+    pub team: Option<String>,
+    /// `FL_TEAMSLAVE`: a team's follower, out of the world until its team respawns it.
+    pub team_slave: bool,
+}
+
+/// `G_FindTeams` (`g_main.c:83-127`) for the items: each `team` makes a chain led by the
+/// first item of the name in the map's order (the names compared exactly), the others
+/// following — each one found put right behind the leader, so the chain runs leader
+/// first, then the rest last found first. The followers are marked team slaves, and the
+/// leader takes the `targetname` of the last of them that had one ("make sure that
+/// targets only point at the master"). Returns the chains, as indices into `placed`.
+pub fn find_teams(placed: &mut [Placed]) -> Vec<Vec<usize>> {
+    let mut chains = Vec::new();
+    for leader in 0..placed.len() {
+        let Some(team) = placed[leader].team.clone() else {
+            continue;
+        };
+        if placed[leader].team_slave {
+            continue;
+        }
+        let mut chain = vec![leader];
+        for other in leader + 1..placed.len() {
+            if placed[other].team_slave || placed[other].team.as_deref() != Some(team.as_str()) {
+                continue;
+            }
+            chain.insert(1, other);
+            placed[other].team_slave = true;
+            if let Some(name) = placed[other].targetname.take() {
+                placed[leader].targetname = Some(name);
+            }
+        }
+        chains.push(chain);
+    }
+    chains
 }
 
 /// Every item dictionary of a map, in the entity lump's order (`G_SpawnItem` through
@@ -179,7 +288,13 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
     entities
         .iter()
         .filter_map(|entity| {
-            let item = find(entity.classname()?)?;
+            let classname = entity.classname()?;
+            let gametype_item = classname.eq_ignore_ascii_case("gametype_item");
+            let item = if gametype_item {
+                gametype_flag(entity.get("targetname").unwrap_or_default())?
+            } else {
+                find(classname)?
+            };
             let origin = entity.vector("origin").ok().flatten().unwrap_or([0.0; 3]);
             let number = |key: &str| {
                 entity
@@ -194,9 +309,34 @@ pub fn placed(entities: &[Entity]) -> Vec<Placed> {
                 random: number("random"),
                 suspended: number("spawnflags") as i32 & ITMSF_SUSPEND != 0,
                 allow_npc: number("spawnflags") as i32 & ITMSF_ALLOWNPC != 0,
+                no_global_sound: ITEMS[item].kind == Kind::Powerup
+                    && number("noglobalsound") != 0.0,
+                // A `gametype_item` drops the name that made it a flag.
+                targetname: entity
+                    .get("targetname")
+                    .filter(|name| !name.is_empty() && !gametype_item)
+                    .map(str::to_owned),
+                team: entity
+                    .get("team")
+                    .filter(|team| !team.is_empty())
+                    .map(str::to_owned),
+                team_slave: false,
             })
         })
         .collect()
+}
+
+/// `SP_gametype_item` (`g_spawn.c:433-490`) without the random map generator's team
+/// filter: a `targetname` holding `red_flag` or `blue_flag` makes that side's CTF flag;
+/// anything else nothing.
+fn gametype_flag(targetname: &str) -> Option<usize> {
+    if targetname.contains("red_flag") {
+        find("team_CTF_redflag")
+    } else if targetname.contains("blue_flag") {
+        find("team_CTF_blueflag")
+    } else {
+        None
+    }
 }
 
 /// An item entity on the server.
@@ -220,14 +360,24 @@ pub struct Pickup {
     pub dropped: Option<crate::dropped_items::Dropped>,
     /// `spawnflags & ITMSF_ALLOWNPC`: a placed item NPCs may take.
     pub allow_npc: bool,
+    /// A powerup whose return is heard only near it ([`Placed::no_global_sound`]).
+    pub no_global_sound: bool,
+    /// `targetname`: what uses it (`Use_Item`), when something does.
+    pub targetname: Option<String>,
+    /// Its team's chain (`teammaster`, `teamchain`), leader first; empty for an item of no
+    /// team. A respawn brings back one of them, drawn with `rand`.
+    pub team: Vec<crate::entity_id::EntityId>,
 }
 
-/// `FinishSpawningItem` (`g_items.c:2814-3006`): the box of eight by sixteen, `ET_ITEM`
-/// with the item's row as its model, a trigger; suspended it stays where it was put,
-/// else it is dropped to the floor — a tenth up first, the box a tenth shorter, traced
-/// 4096 down through the world (the ground remembered). `trace` answers as
-/// `trap->Trace` with `MASK_SOLID` would; `None` where the item starts in a solid, which
-/// the reference frees with a print.
+/// `gametype_t` values the spawn filters below test (`bg_public.h`).
+const GT_HOLOCRON: i32 = 1;
+const GT_JEDIMASTER: i32 = 2;
+const GT_DUEL: i32 = 3;
+const GT_POWERDUEL: i32 = 4;
+const GT_SIEGE: i32 = 7;
+const GT_CTF: i32 = 8;
+const GT_CTY: i32 = 9;
+
 /// `FinishSpawningItem`'s game-type filter (`g_items.c:2820-2922`): whether `item` is
 /// freed rather than placed — powerups in siege and Jedi Master, ammunition and the
 /// seeker, shield and sentry on a saber-only server (but in Jedi Master), enlightenment in
@@ -239,13 +389,6 @@ pub fn removed_by_gametype(
     saber_only: bool,
     force_disabled: bool,
 ) -> bool {
-    const GT_HOLOCRON: i32 = 1;
-    const GT_JEDIMASTER: i32 = 2;
-    const GT_DUEL: i32 = 3;
-    const GT_POWERDUEL: i32 = 4;
-    const GT_SIEGE: i32 = 7;
-    const GT_CTF: i32 = 8;
-    const GT_CTY: i32 = 9;
     let row = ITEMS[item];
     let (kind, tag) = (row.kind, row.tag);
     // `HI_SEEKER`, `HI_SHIELD`, `HI_MEDPAC`, `HI_MEDPAC_BIG`, `HI_SENTRY_GUN`;
@@ -264,6 +407,24 @@ pub fn removed_by_gametype(
         || (!matches!(gametype, GT_CTF | GT_CTY) && kind == Kind::Team && matches!(tag, 4..=6))
 }
 
+/// `G_SpawnItem`'s weapon rule (`g_items.c:3120-3138`): a weapon the server disables is
+/// freed as it spawns, except in Jedi Master. `disabled` is the game type's mask
+/// (`g_weaponDisable`, or `g_duelWeaponDisable` in the duels).
+pub fn weapon_disabled(item: usize, gametype: i32, disabled: u32) -> bool {
+    let row = ITEMS[item];
+    row.kind == Kind::Weapon
+        && gametype != GT_JEDIMASTER
+        && 1_u32
+            .checked_shl(row.tag as u32)
+            .is_some_and(|bit| disabled & bit != 0)
+}
+
+/// `FinishSpawningItem` (`g_items.c:2814-3006`): the box of eight by sixteen, `ET_ITEM`
+/// with the item's row as its model, a trigger; suspended it stays where it was put,
+/// else it is dropped to the floor — a tenth up first, the box a tenth shorter, traced
+/// 4096 down through the world (the ground remembered). `trace` answers as
+/// `trap->Trace` with `MASK_SOLID` would; `None` where the item starts in a solid, which
+/// the reference frees with a print.
 pub fn finish_spawning(
     placed: &Placed,
     trace: &mut dyn FnMut([f32; 3], [f32; 3], [f32; 3], [f32; 3], u32) -> MovementTrace,
@@ -298,17 +459,26 @@ pub fn finish_spawning(
         state.set_raw_field(ES_POS_BASE[axis], origin[axis].to_bits());
         state.set_raw_field(ES_ORIGIN[axis], spawn[axis].to_bits());
     }
+    // "team slaves and targeted items aren't present at start": undrawn and untouchable
+    // until used or respawned.
+    let targeted = placed.targetname.is_some() || placed.team_slave;
+    if targeted {
+        state.set_raw_field(ES_EFLAGS, EF_NODRAW);
+    }
     Some(Pickup {
         state,
         item: placed.item,
         origin,
         bounds,
-        contents: CONTENTS_TRIGGER,
+        contents: if targeted { 0 } else { CONTENTS_TRIGGER },
         respawn_at: 0,
         wait: placed.wait,
         random: placed.random,
         dropped: None,
         allow_npc: placed.allow_npc,
+        no_global_sound: placed.no_global_sound,
+        targetname: placed.targetname.clone(),
+        team: Vec::new(),
     })
 }
 
@@ -332,6 +502,18 @@ pub fn touches(player: [f32; 3], item: [f32; 3]) -> bool {
         || player[1] - item[1] > 36.0
         || player[1] - item[1] < -36.0
         || player[2] - item[2] > 36.0
+        || player[2] - item[2] < -36.0)
+}
+
+/// jaPRO's `g_fixFlagHitbox` box for a flag (`BG_PlayerTouchesItem`): 52 each way across,
+/// 68 above the flag and 36 below. jaPRO matches the flags' tags whatever the item, which
+/// also widens the pistol's, blaster's and disruptor's boxes; here it is the flags alone.
+pub fn touches_flag(player: [f32; 3], item: [f32; 3]) -> bool {
+    !(player[0] - item[0] > 52.0
+        || player[0] - item[0] < -52.0
+        || player[1] - item[1] > 52.0
+        || player[1] - item[1] < -52.0
+        || player[2] - item[2] > 68.0
         || player[2] - item[2] < -36.0)
 }
 
@@ -376,7 +558,8 @@ pub fn can_be_grabbed(item: usize, state: &PlayerState, dropped: bool) -> bool {
             };
             (state.stats[0] as i32) < maximum
         }
-        Kind::Powerup => true,
+        // While the ysalamiri lasts, no other powerup can be taken.
+        Kind::Powerup => state.powerups[PW_YSALAMIRI as usize] == 0 || row.tag == PW_YSALAMIRI,
         Kind::Holdable => state.stats[STAT_HOLDABLE_ITEMS] & (1 << row.tag) == 0,
         Kind::Team | Kind::Bad => false,
     }
@@ -384,11 +567,13 @@ pub fn can_be_grabbed(item: usize, state: &PlayerState, dropped: bool) -> bool {
 
 /// `ps.duelInProgress`; `FP_RAGE`'s bit in `fd.forcePowersActive`.
 const PS_DUEL_IN_PROGRESS: usize = 119;
-const FP_RAGE: u32 = 1 << 6;
+const FP_RAGE: u32 = 1 << 8;
 
-/// `Add_Ammo`: up to the kind's maximum, never taking any away.
+/// `Add_Ammo` (`g_items.c:2214-2231`): up to the kind's maximum, twice it for a class with
+/// `EF_DOUBLE_AMMO`, never taking any away.
 fn add_ammo(state: &mut PlayerState, kind: usize, count: i32) {
-    let maximum = AMMO_MAX[kind];
+    let doubled = state.entity_flags() & crate::siege_class::EF_DOUBLE_AMMO != 0;
+    let maximum = AMMO_MAX[kind] * if doubled { 2 } else { 1 };
     let held = state.ammo[kind] as i32;
     if held < maximum {
         state.ammo[kind] = (held + count).min(maximum) as u32;
@@ -409,15 +594,17 @@ pub struct Taken {
 
 /// `Touch_Item`'s pickup (`g_items.c:2560-2578` and the `Pickup_*` of `:2052-2320`) on a
 /// player that may take it: what it gives, and the seconds until it comes again
-/// (`adjustRespawnTime` with `g_adaptRespawn` off — the default: the thrown weapons take
-/// the ammo time). `health` is the entity's, which the stat follows.
+/// (`adjustRespawnTime` by `respawns`: the thrown weapons take the ammo time; powerups and
+/// the megahealth are never adapted). `health` is the entity's, which the stat follows.
 pub fn pick_up(
     item: usize,
     state: &mut PlayerState,
     health: &mut i32,
-    count: i32,
-    dropped: bool,
+    (count, dropped): (i32, bool),
+    level_time: i32,
+    respawns: Respawns,
 ) -> Taken {
+    let adapt = |base| adjust_respawn_time(base, respawns.adapt_players);
     let row = ITEMS[item];
     let quantity = if count != 0 { count } else { row.quantity };
     match row.kind {
@@ -426,7 +613,7 @@ pub fn pick_up(
             state.stats[STAT_ARMOR] =
                 ((state.stats[STAT_ARMOR] as i32 + row.quantity).min(maximum)) as u32;
             Taken {
-                respawn: RESPAWN_ARMOR,
+                respawn: adapt(RESPAWN_ARMOR),
                 predicted: true,
             }
         }
@@ -442,7 +629,7 @@ pub fn pick_up(
                 respawn: if row.quantity == 100 {
                     RESPAWN_MEGAHEALTH
                 } else {
-                    RESPAWN_HEALTH
+                    adapt(RESPAWN_HEALTH)
                 },
                 predicted: true,
             }
@@ -457,7 +644,7 @@ pub fn pick_up(
                 add_ammo(state, row.tag as usize, quantity);
             }
             Taken {
-                respawn: RESPAWN_AMMO,
+                respawn: adapt(RESPAWN_AMMO),
                 predicted: true,
             }
         }
@@ -480,11 +667,13 @@ pub fn pick_up(
             add_ammo(state, ammo, quantity);
             let respawn = if matches!(row.tag, 12 | 13 | 14) {
                 RESPAWN_AMMO
+            } else if respawns.team_weapons {
+                RESPAWN_TEAM_WEAPON
             } else {
-                WEAPON_RESPAWN
+                respawns.weapon
             };
             Taken {
-                respawn,
+                respawn: adapt(respawn),
                 predicted: true,
             }
         }
@@ -492,14 +681,33 @@ pub fn pick_up(
             state.stats[STAT_HOLDABLE_ITEM] = item as u32;
             state.stats[STAT_HOLDABLE_ITEMS] |= 1 << row.tag;
             Taken {
-                respawn: RESPAWN_HOLDABLE,
+                respawn: adapt(RESPAWN_HOLDABLE),
                 predicted: true,
             }
         }
-        Kind::Powerup => Taken {
-            respawn: RESPAWN_POWERUP,
-            predicted: false,
-        },
+        Kind::Powerup => {
+            // `Pickup_Powerup` (`g_items.c:2052-2080`): a new powerup starts on the whole
+            // second, so several count down together; one held runs on by the quantity.
+            let tag = row.tag as usize;
+            if state.powerups[tag] == 0 {
+                state.powerups[tag] = (level_time - level_time % 1_000) as u32;
+            }
+            state.powerups[tag] = state.powerups[tag].wrapping_add((quantity * 1_000) as u32);
+            // The ysalamiri takes the Force powerups away.
+            if row.tag == PW_YSALAMIRI {
+                for force in [
+                    PW_FORCE_ENLIGHTENED_LIGHT,
+                    PW_FORCE_ENLIGHTENED_DARK,
+                    PW_FORCE_BOON,
+                ] {
+                    state.powerups[force as usize] = 0;
+                }
+            }
+            Taken {
+                respawn: RESPAWN_POWERUP,
+                predicted: false,
+            }
+        }
         Kind::Team | Kind::Bad => Taken {
             respawn: 0,
             predicted: true,
@@ -567,8 +775,25 @@ pub fn taken(pickup: &mut Pickup, respawn: i32, level_time: i32, spread: f32) ->
     Gone::Taken
 }
 
+/// Whether `Touch_Item` would look at the item at all: one undrawn (out of the world, or
+/// not yet used) or standing in as a placeholder gives nothing (`g_items.c:2408-2416`).
+pub fn present(pickup: &Pickup) -> bool {
+    pickup.state.raw_field(ES_EFLAGS).unwrap_or(0) & (EF_NODRAW | EF_ITEMPLACEHOLDER) == 0
+}
+
+/// `Use_Target_Give`'s end for an item (`nextthink = 0`, `trap->UnlinkEntity`): out of
+/// the world, untouchable and undrawn, with no return pending — until something uses it.
+pub fn withdraw(pickup: &mut Pickup) {
+    pickup.respawn_at = 0;
+    pickup.contents = 0;
+    let flags = pickup.state.raw_field(ES_EFLAGS).unwrap_or(0);
+    pickup
+        .state
+        .set_raw_field(ES_EFLAGS, (flags | EF_NODRAW) & !EF_ITEMPLACEHOLDER);
+}
+
 /// `RespawnItem` (`:2323-2369`): a trigger again, drawn again, with `EV_ITEM_RESPAWN` on
-/// itself; a powerup's return is heard by everyone (not ported: no powerups yet).
+/// itself; a powerup's return is also heard ([`respawn_sound`]).
 pub fn respawn(pickup: &mut Pickup, level_time: i32) -> EventEntity {
     pickup.contents = CONTENTS_TRIGGER;
     let flags = pickup.state.raw_field(ES_EFLAGS).unwrap_or(0);
@@ -584,5 +809,252 @@ pub fn respawn(pickup: &mut Pickup, level_time: i32) -> EventEntity {
         client: None,
         broadcast: false,
         extra: [(0, 0); 12],
+    }
+}
+
+/// `RespawnItem`'s sound for a powerup that is back (`:2350-2363`): sound `sound` (the
+/// index of [`POWERUP_RESPAWN_SOUND`]) where it stands, heard everywhere unless the map
+/// asked for it near the item only; sent to every client either way (`SVF_BROADCAST`).
+/// `None` for any other item.
+pub fn respawn_sound(pickup: &Pickup, sound: u16) -> Option<EventEntity> {
+    (ITEMS[pickup.item].kind == Kind::Powerup).then(|| EventEntity {
+        event: if pickup.no_global_sound {
+            EV_GENERAL_SOUND
+        } else {
+            EV_GLOBAL_SOUND
+        },
+        parameter: u32::from(sound),
+        origin: trajectory_base(pickup),
+        client: None,
+        broadcast: true,
+        extra: [(0, 0); 12],
+    })
+}
+
+/// `s.pos.trBase`: where the item rests, or where a dropped one was thrown from.
+pub fn trajectory_base(pickup: &Pickup) -> [f32; 3] {
+    ES_POS_BASE.map(|field| f32::from_bits(pickup.state.raw_field(field).unwrap_or(0)))
+}
+
+/// `Touch_Item`'s Force-side rule (`:2431-2449`): light enlightenment is the light side's
+/// alone, dark enlightenment the dark side's; `side` is `fd.forceSide`.
+pub fn wrong_side(item: usize, side: u32) -> bool {
+    let row = ITEMS[item];
+    row.kind == Kind::Powerup
+        && ((row.tag == PW_FORCE_ENLIGHTENED_LIGHT && side != FORCE_LIGHTSIDE)
+            || (row.tag == PW_FORCE_ENLIGHTENED_DARK && side != FORCE_DARKSIDE))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `adjustRespawnTime`'s scale by the playing clients, its jump back at thirteen and
+    /// its one-second floor; nothing with `g_adaptRespawn` off.
+    #[test]
+    fn respawn_times_adapt_to_the_playing_clients() {
+        for (players, time) in [(4, 20), (8, 13), (12, 10), (13, 19), (32, 10), (33, 5)] {
+            assert_eq!(
+                adjust_respawn_time(20, Some(players)),
+                time,
+                "{players} players"
+            );
+        }
+        assert_eq!(adjust_respawn_time(20, None), 20);
+        assert_eq!(adjust_respawn_time(2, Some(40)), 1);
+    }
+
+    /// `eFlags` in the player state, which `Add_Ammo` reads `EF_DOUBLE_AMMO` from.
+    const PS_EFLAGS: usize = 17;
+
+    /// `Pickup_Powerup`: Force Boon for 25 s from the whole second, a second one adding 25
+    /// more; the ysalamiri ends the boon, and while it lasts nothing else is taken.
+    #[test]
+    fn a_powerup_runs_from_the_whole_second_and_the_ysalamiri_ends_the_force_ones() {
+        let boon = find_named(b"item_force_boon").unwrap();
+        let ysalamiri = find_named(b"item_ysalimari").unwrap();
+        let mut state = PlayerState::zero();
+        let mut health = 100;
+        assert!(can_be_grabbed(boon, &state, false));
+        let taken = pick_up(
+            boon,
+            &mut state,
+            &mut health,
+            (0, false),
+            12_345,
+            Respawns::default(),
+        );
+        assert_eq!(state.powerups[14], 12_000 + 25_000);
+        assert_eq!((taken.respawn, taken.predicted), (RESPAWN_POWERUP, false));
+        pick_up(
+            boon,
+            &mut state,
+            &mut health,
+            (0, false),
+            20_500,
+            Respawns::default(),
+        );
+        assert_eq!(state.powerups[14], 12_000 + 50_000);
+        pick_up(
+            ysalamiri,
+            &mut state,
+            &mut health,
+            (0, false),
+            21_000,
+            Respawns::default(),
+        );
+        assert_eq!(
+            (state.powerups[14], state.powerups[15]),
+            (0, 21_000 + 25_000)
+        );
+        assert!(!can_be_grabbed(boon, &state, false));
+        assert!(can_be_grabbed(ysalamiri, &state, false));
+    }
+
+    /// Enlightenment goes to its own side only; a powerup's return is heard everywhere
+    /// unless the map says otherwise, and other items' returns make no such sound.
+    #[test]
+    fn enlightenment_keeps_to_its_side_and_powerups_announce_their_return() {
+        let light = find_named(b"item_force_enlighten_light").unwrap();
+        let dark = find_named(b"item_force_enlighten_dark").unwrap();
+        assert!(!wrong_side(light, FORCE_LIGHTSIDE) && wrong_side(light, FORCE_DARKSIDE));
+        assert!(wrong_side(dark, FORCE_LIGHTSIDE) && !wrong_side(dark, FORCE_DARKSIDE));
+        assert!(!wrong_side(find_named(b"item_force_boon").unwrap(), 0));
+        let placed = |item, no_global_sound| Placed {
+            item,
+            origin: [8.0, 16.0, 32.0],
+            wait: 0.0,
+            random: 0.0,
+            suspended: true,
+            allow_npc: false,
+            no_global_sound,
+            targetname: None,
+            team: None,
+            team_slave: false,
+        };
+        let mut trace =
+            |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
+                unreachable!("a suspended item is not dropped to {end:?}")
+            };
+        let global = finish_spawning(&placed(light, false), &mut trace).unwrap();
+        let near = finish_spawning(&placed(light, true), &mut trace).unwrap();
+        let armor = finish_spawning(
+            &placed(find_named(b"item_shield_sm_instant").unwrap(), false),
+            &mut trace,
+        )
+        .unwrap();
+        let sound = respawn_sound(&global, 7).unwrap();
+        assert_eq!(
+            (sound.event, sound.parameter, sound.origin),
+            (EV_GLOBAL_SOUND, 7, [8.0, 16.0, 32.0])
+        );
+        assert!(sound.broadcast);
+        assert_eq!(respawn_sound(&near, 7).unwrap().event, EV_GENERAL_SOUND);
+        assert!(respawn_sound(&armor, 7).is_none());
+    }
+
+    #[test]
+    fn a_double_ammo_class_fills_to_twice_the_maximum() {
+        let mut state = PlayerState::zero();
+        state.ammo[2] = 290;
+        add_ammo(&mut state, 2, 100);
+        assert_eq!(state.ammo[2], 300);
+        state.set_raw_field(PS_EFLAGS, crate::siege_class::EF_DOUBLE_AMMO);
+        add_ammo(&mut state, 2, 100);
+        assert_eq!(state.ammo[2], 400);
+        add_ammo(&mut state, 2, 500);
+        assert_eq!(state.ammo[2], 600);
+    }
+
+    /// `G_FindTeams`: a team's first item leads, the rest follow — the last found right
+    /// behind the leader — out of the world from the start; the leader takes the name of
+    /// the last follower that had one. Names match exactly; an item of no team is in none.
+    #[test]
+    fn items_of_a_team_chain_behind_their_leader() {
+        let item = |team: Option<&str>, targetname: Option<&str>| Placed {
+            item: find_named(b"weapon_blaster").unwrap(),
+            origin: [0.0; 3],
+            wait: 0.0,
+            random: 0.0,
+            suspended: true,
+            allow_npc: false,
+            no_global_sound: false,
+            targetname: targetname.map(str::to_owned),
+            team: team.map(str::to_owned),
+            team_slave: false,
+        };
+        let mut placed = vec![
+            item(Some("guns"), None),
+            item(None, None),
+            item(Some("guns"), Some("first")),
+            item(Some("Guns"), None),
+            item(Some("guns"), Some("second")),
+        ];
+        let chains = find_teams(&mut placed);
+        assert_eq!(chains, vec![vec![0, 4, 2], vec![3]]);
+        assert_eq!(
+            placed.iter().map(|p| p.team_slave).collect::<Vec<_>>(),
+            [false, false, true, false, true]
+        );
+        assert_eq!(placed[0].targetname.as_deref(), Some("second"));
+        assert!(placed[2].targetname.is_none() && placed[4].targetname.is_none());
+        let mut trace =
+            |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
+                unreachable!("a suspended item is not dropped to {end:?}")
+            };
+        let follower = finish_spawning(&placed[2], &mut trace).unwrap();
+        assert_eq!(follower.contents, 0);
+        let alone = finish_spawning(&placed[3], &mut trace).unwrap();
+        assert_eq!(alone.contents, CONTENTS_TRIGGER);
+    }
+
+    /// `FinishSpawningItem`: an item something uses starts out of the world — undrawn,
+    /// untouchable — and `Use_Target_Give` takes one out for good.
+    #[test]
+    fn a_targeted_item_waits_to_be_used() {
+        let rocket = find_named(b"weapon_rocket_launcher").unwrap();
+        let placed = Placed {
+            item: rocket,
+            origin: [0.0; 3],
+            wait: 0.0,
+            random: 0.0,
+            suspended: true,
+            allow_npc: false,
+            no_global_sound: false,
+            targetname: Some("loot".to_owned()),
+            team: None,
+            team_slave: false,
+        };
+        let mut trace =
+            |_: [f32; 3], _: [f32; 3], _: [f32; 3], end: [f32; 3], _: u32| -> MovementTrace {
+                MovementTrace::miss(end)
+            };
+        let mut pickup = finish_spawning(&placed, &mut trace).unwrap();
+        assert_eq!(pickup.contents, 0);
+        assert!(!present(&pickup));
+        let _ = respawn(&mut pickup, 0);
+        assert_eq!(pickup.contents, CONTENTS_TRIGGER);
+        assert!(present(&pickup));
+        withdraw(&mut pickup);
+        assert_eq!((pickup.contents, pickup.respawn_at), (0, 0));
+        assert!(!present(&pickup));
+    }
+
+    /// `SP_gametype_item`: a name holding `red_flag` or `blue_flag` places that flag,
+    /// the name dropped; any other name places nothing.
+    #[test]
+    fn a_gametype_item_named_for_a_flag_is_the_flag() {
+        let entities = jkr_entity::parse_entity_lump(
+            b"{\n\"classname\" \"gametype_item\"\n\"targetname\" \"the_red_flag\"\n\"origin\" \"1 2 3\"\n}\n\
+              {\n\"classname\" \"gametype_item\"\n\"targetname\" \"blue_flag\"\n}\n\
+              {\n\"classname\" \"gametype_item\"\n\"targetname\" \"briefcase\"\n}",
+        )
+        .unwrap();
+        let placed = placed(&entities);
+        assert_eq!(placed.len(), 2);
+        assert_eq!(placed[0].item, find("team_CTF_redflag").unwrap());
+        assert_eq!(placed[0].targetname, None);
+        assert_eq!(placed[0].origin, [1.0, 2.0, 3.0]);
+        assert_eq!(placed[1].item, find("team_CTF_blueflag").unwrap());
     }
 }

@@ -24,6 +24,7 @@ impl NativeGame {
                 bot: peer.bot,
                 ready: peer.ready_to_exit,
                 loser: peer.loser,
+                wins: peer.session.wins,
             });
         }
         into.sort_by(|left, right| {
@@ -81,11 +82,42 @@ impl NativeGame {
         self.run_match_end(self.last_frame_time);
     }
 
+    /// `level.numPlayingClients` without the ranks' allocations: the begun clients in the
+    /// game, or out of it as a duel's loser waiting its turn (as
+    /// [`jkr_game_jka::ranks::calculate_ranks_in`] counts them).
+    pub(super) fn playing_clients(&self) -> usize {
+        let Some(world) = self.server.world(self.world) else {
+            return 0;
+        };
+        self.players
+            .holders()
+            .filter_map(|handle| world.entity(handle?))
+            .filter(|peer| {
+                peer.begun && (peer.session.team != i32::from(TEAM_SPECTATOR) || peer.loser)
+            })
+            .count()
+    }
+
+    /// How long the items a pickup leaves stay away (`Pickup_*`, `adjustRespawnTime`):
+    /// `g_weaponRespawn`, Team FFA's slow weapons, and `g_adaptRespawn`'s playing clients.
+    pub(super) fn item_respawns(&self) -> jkr_game_jka::items::Respawns {
+        let adapt = self.cvars.integer(b"g_adaptRespawn") != 0;
+        jkr_game_jka::items::Respawns {
+            weapon: self.cvars.integer(b"g_weaponRespawn"),
+            team_weapons: self.gametype == GAMETYPE_TEAM,
+            adapt_players: adapt.then(|| self.playing_clients()),
+        }
+    }
+
     /// Everyone connected, as the ranking and the scoreboard see them.
     pub(super) fn contenders(&self) -> Vec<Contender> {
         let Some(world) = self.server.world(self.world) else {
             return Vec::new();
         };
+        // jaPRO's `g_fakeClients`: a bot shows a ping of 25 to 40 (`Q_irand(25, 40)` per
+        // scoreboard there; here it moves once a second, without the game's generator).
+        let fake_pings = self.cvars.integer(b"g_fakeClients") != 0;
+        let second = self.last_frame_time / 1_000;
         self.players
             .holders()
             .enumerate()
@@ -103,7 +135,11 @@ impl NativeGame {
                         && peer.session.team != i32::from(TEAM_SPECTATOR),
                     loser: peer.loser,
                     persistant: peer.state.persistent.map(|value| value as i32),
-                    ping: peer.ping,
+                    ping: if fake_pings && peer.bot && peer.begun {
+                        25 + (client as i32 * 7 + second).rem_euclid(16)
+                    } else {
+                        peer.ping
+                    },
                     enter_time: peer.enter_time,
                     powerups: 0,
                     accuracy: peer.accuracy,

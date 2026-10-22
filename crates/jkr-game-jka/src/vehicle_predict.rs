@@ -187,6 +187,11 @@ impl RidePrediction {
     }
 
     /// The predicted vehicle state (`cg.predictedVehicleState`).
+    /// `m_iTurboTime`: until when the vehicle's turbo runs, as the prediction holds it.
+    pub fn turbo_time(&self) -> i32 {
+        self.own.as_ref().map_or(0, |vehicle| vehicle.turbo_time)
+    }
+
     pub fn state(&self) -> &MovementState {
         self.vehicle.state()
     }

@@ -16,6 +16,7 @@ use crate::{
     LegacyServerInfo, LegacyStatusPlayer,
 };
 use jkr_protocol::{EntityState, MessageWriter, UserCommand};
+mod anti_dst;
 mod auto_demo;
 mod bots;
 mod console;
@@ -26,6 +27,7 @@ mod gamestate;
 mod hosts;
 mod output;
 mod ping;
+mod pure;
 mod schedule;
 mod shutdown;
 mod snapshot;
@@ -36,7 +38,9 @@ pub use auto_demo::{
 };
 pub use bots::LegacyBotSlots;
 pub use console::LegacyConsoleSettings;
+pub use demo::LegacyDemoExtras;
 pub use download::LegacyDownloadFile;
+pub use pure::LegacyPureManifest;
 pub use schedule::{LegacyRateSettings, legacy_is_private_address};
 pub use snapshot::{
     LEGACY_SNAPSHOT_ENTITIES, LegacySnapshotFrame, LegacySnapshotRefusal, LocalSnapshotBuffer,
@@ -52,6 +56,12 @@ pub trait LegacyGameHost {
     fn client_connect(&mut self, client: usize, userinfo: &[u8]) -> Result<(), Vec<u8>>;
     /// Release everything `client_connect` admitted, including its actor.
     fn client_disconnect(&mut self, client: usize);
+    /// [`Self::client_disconnect`] for a client connecting again into the slot it still
+    /// holds — the reference's game finds the slot in use as it connects and forces the
+    /// disconnect itself. Plain disconnect unless the game tells the two apart.
+    fn client_reconnect_disconnect(&mut self, client: usize) {
+        self.client_disconnect(client);
+    }
     /// A reliable client command the endpoint does not handle itself, at the server's
     /// clock `server_time`.
     fn client_command(&mut self, client: usize, text: &[u8], server_time: i32);
@@ -68,6 +78,9 @@ pub trait LegacyGameHost {
     fn server_info(&self) -> LegacyServerInfo<'_>;
     /// The server-info string `getstatus` reports.
     fn status_info(&self) -> &[u8];
+    /// What every client keeps a copy of, as the `systeminfo` command prints it
+    /// (`Cvar_InfoString_Big(CVAR_SYSTEMINFO)`).
+    fn system_info(&self) -> Vec<u8>;
     /// The players `getstatus` should list, in order; need not be roster clients.
     fn status_players(&self) -> impl Iterator<Item = LegacyStatusPlayer<'_>>;
     /// Current legacy map generation and the oldest one of this restart interval.
@@ -78,6 +91,11 @@ pub trait LegacyGameHost {
     fn baselines(&self) -> impl Iterator<Item = &EntityState>;
     /// The map's checksum feed, which keys every movement packet.
     fn checksum_feed(&self) -> i32;
+    /// What the running map's pure server checks its clients' pk3 files against; `None`
+    /// for a server that does not run pure, whose clients need no `cp`.
+    fn pure_manifest(&self) -> Option<&LegacyPureManifest> {
+        None
+    }
     /// The baseline of one wire entity number, as sent in the gamestate.
     fn baseline(&self, number: u16) -> Option<&EntityState>;
     /// Project the world onto what this client is shown in one snapshot. Called for
@@ -136,9 +154,18 @@ pub trait LegacyGameHost {
     fn file_exists(&mut self, _path: &str) -> bool {
         false
     }
+    /// Rename one of the server's own files (`FS_Rename`); a server that keeps no files
+    /// has none to rename.
+    fn rename_file(&mut self, _from: &str, _to: &str) {}
     /// The local date and time as `SV_DemoFilename` writes it (`%Y-%m-%d_%H-%M-%S`).
     fn timestamp(&self) -> String {
         String::new()
+    }
+    /// Seconds since 1970, which a demo's metadata gives as its start (`time(NULL)`).
+    fn unix_seconds(&self) -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs() as i64)
     }
     /// A file a client asks to download (`download <name>`): only a pak the server
     /// references may be sent (`FS_MV_VerifyDownloadPath`).
@@ -231,6 +258,12 @@ pub struct LegacySessionSettings {
     pub oob_rates: LegacyOobRates,
     /// `sv_floodProtect`: zero disables, one means a second, otherwise milliseconds.
     pub flood_protect: i32,
+    /// OpenJK's `sv_floodProtectSlow` (TaystJK's `sv_newfloodProtect 1`): a command held
+    /// back still restarts the window.
+    pub flood_protect_slow: bool,
+    /// TaystJK's `sv_newfloodProtect` above 1: separate windows for `score`, `say` and
+    /// `kill`, none for `amTele`.
+    pub flood_per_command: bool,
     /// `sv_legacyFixes`.
     pub legacy_fixes: bool,
     /// Rate and snapshot-rate cvars.
@@ -246,8 +279,18 @@ pub struct LegacySessionSettings {
     pub pure: bool,
     /// `sv_autoDemo` and `sv_autoDemoMaxMaps`.
     pub auto_demo: LegacyAutoDemoSettings,
+    /// TaystJK's demo metadata and pre-recording.
+    pub demo_extras: LegacyDemoExtras,
     /// `sv_autoWhitelist`: every player that enters the world is whitelisted.
     pub auto_whitelist: bool,
+    /// TaystJK's `sv_pingFix`: pings measured on the wall clock from a message's first
+    /// acknowledgement, and a human's never below 1.
+    pub ping_fix: bool,
+    /// TaystJK's broken-model fix (`sv_legacyFixes` without its bit 7): a model that
+    /// would put a player in the rancor's or the wampa's body, or in none, becomes Kyle.
+    pub broken_models_fix: bool,
+    /// TaystJK's `sv_antiDST`: a client found using the Dark Side Tools cheat is kicked.
+    pub anti_dst: bool,
 }
 
 impl Default for LegacySessionSettings {
@@ -264,6 +307,8 @@ impl Default for LegacySessionSettings {
                 global: 1000,
             },
             flood_protect: 1,
+            flood_protect_slow: true,
+            flood_per_command: false,
             legacy_fixes: true,
             rates: LegacyRateSettings::default(),
             snapshot_entity_ring: 32 * 64,
@@ -271,7 +316,11 @@ impl Default for LegacySessionSettings {
             allow_download: false,
             pure: false,
             auto_demo: LegacyAutoDemoSettings::default(),
+            demo_extras: LegacyDemoExtras::default(),
             auto_whitelist: true,
+            ping_fix: false,
+            broken_models_fix: false,
+            anti_dst: false,
         }
     }
 }
@@ -347,6 +396,9 @@ struct Slot {
     ping: i32,
     /// `frames[].messageSent`/`messageAcked` of the last 32 messages, by sequence.
     timings: [ping::MessageTiming; ping::MESSAGE_BACKUP],
+    /// Under `sv_pingFix`, the wall clock this frame's messages are stamped with;
+    /// otherwise the server time is.
+    ping_clock: Option<i32>,
     /// A server demo of this client (`client->demo`).
     demo: demo::DemoState,
     /// A download to this client (`client->download*`).
@@ -376,6 +428,7 @@ impl Slot {
             marks: crate::LegacyConfigStringMarks::default(),
             ping: 0,
             timings: Default::default(),
+            ping_clock: None,
             demo: Default::default(),
             download: Default::default(),
         }

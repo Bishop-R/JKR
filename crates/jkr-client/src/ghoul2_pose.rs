@@ -36,6 +36,29 @@ impl LegacyGhoul2PosePolicy {
         };
         (50.0 / frame_lerp_millis) * f32::from(speed_milli) / 1_000.0
     }
+
+    /// `CG_G2ServerBoneAngles` (`cg_players.c:3960-4011`): the turn a server sends for one
+    /// bone, `G2API_SetBoneAngles` with `BONE_ANGLES_POSTMULT` about the axes `orient`
+    /// packs (forward in bits 0-2, right in 3-5, up in 6-8, as `Eorientations`). `None`
+    /// where an axis is `ORIGIN` or beyond the enum: no turn a skeleton can make.
+    pub fn server_bone_angles(angles: [f32; 3], orient: u32) -> Option<BoneAngleCommand> {
+        let axis = |bits: u32| match bits & 7 {
+            1 => Some(BoneAxis::PositiveX),
+            2 => Some(BoneAxis::PositiveZ),
+            3 => Some(BoneAxis::PositiveY),
+            4 => Some(BoneAxis::NegativeX),
+            5 => Some(BoneAxis::NegativeZ),
+            6 => Some(BoneAxis::NegativeY),
+            _ => None,
+        };
+        Some(BoneAngleCommand {
+            angles_degrees: angles,
+            mode: BoneAngleMode::PostMultiply,
+            up: axis(orient >> 6)?,
+            left: axis(orient >> 3)?,
+            forward: axis(orient)?,
+        })
+    }
 }
 
 /// The bones only humanoid skeletons carry (`cg_players.c:7246-7271`).
@@ -148,39 +171,15 @@ impl LegacyGhoul2Animator {
         Ok(())
     }
 
-    /// `CG_G2ServerBoneAngles` (`cg_players.c:3960-4011`): one bone a server turns for
-    /// the clients, `G2API_SetBoneAngles` with `BONE_ANGLES_POSTMULT` about the axes
-    /// `orient` packs (forward in bits 0-2, right in 3-5, up in 6-8, as `Eorientations`).
-    /// The engine blends such a turn in over 100 ms; it is installed at once here.
-    pub fn set_server_bone_angles(
+    /// Install one bone turn, such as a server's
+    /// ([`LegacyGhoul2PosePolicy::server_bone_angles`]). A postmultiplied turn takes no
+    /// blend time in the renderer (`tr_ghoul2.cpp:1942-1953`), so it is installed at once.
+    pub fn set_bone_angles(
         &mut self,
         animation: &Gla,
         bone: usize,
-        angles: [f32; 3],
-        orient: u32,
+        command: BoneAngleCommand,
     ) -> Result<(), ModelError> {
-        let axis = |bits: u32| match bits & 7 {
-            1 => Some(BoneAxis::PositiveX),
-            2 => Some(BoneAxis::PositiveZ),
-            3 => Some(BoneAxis::PositiveY),
-            4 => Some(BoneAxis::NegativeX),
-            5 => Some(BoneAxis::NegativeZ),
-            6 => Some(BoneAxis::NegativeY),
-            _ => None,
-        };
-        // An axis of `ORIGIN` (or beyond the enum) names no turn a skeleton can make.
-        let (Some(up), Some(left), Some(forward)) =
-            (axis(orient >> 6), axis(orient >> 3), axis(orient))
-        else {
-            return Ok(());
-        };
-        let command = BoneAngleCommand {
-            angles_degrees: angles,
-            mode: BoneAngleMode::PostMultiply,
-            up,
-            left,
-            forward,
-        };
         self.pose.set_bone_angles(animation, bone, command)
     }
 

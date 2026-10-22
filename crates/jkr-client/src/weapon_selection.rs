@@ -65,6 +65,12 @@ pub fn legacy_weapon_selectable(inventory: &LegacyWeaponInventory, weapon: u8) -
     weapon != WP_DET_PACK || ammo >= 1 || inventory.detpack_planted
 }
 
+/// The ammunition `weapon` draws on, as the inventory holds it
+/// (`ps.ammo[weaponData[weapon].ammoIndex]`); `None` for no weapon.
+pub fn legacy_weapon_ammo(inventory: &LegacyWeaponInventory, weapon: u8) -> Option<u32> {
+    legacy_weapon_data(weapon).map(|data| inventory.ammo[data.ammo_index])
+}
+
 /// Select next/previous weapon using codemp's deliberately non-numeric order.
 pub fn legacy_cycle_weapon(inventory: &LegacyWeaponInventory, current: u8, direction: i8) -> u8 {
     if inventory.following || inventory.spectator || inventory.emplaced || direction == 0 {
@@ -105,15 +111,43 @@ pub fn legacy_direct_weapon(
     if inventory.following || inventory.emplaced || !(1..=WP_BRYAR_OLD).contains(&slot) {
         return None;
     }
-    let mut selected = if slot == 1 {
-        if inventory.owned & (1 << WP_SABER) != 0 {
-            WP_SABER
-        } else {
-            2
-        }
+    let selected = if slot == 1 {
+        saber_or_melee(inventory)
     } else {
         slot.saturating_add(2)
     };
+    direct(inventory, current_weapon, selected)
+}
+
+/// `CG_WeaponClean_f` (`cg_weapons.c`): `weaponclean` names a weapon by its own number
+/// rather than its key, 1 standing for the saber (melee without one), and otherwise
+/// chooses as `weapon` does.
+pub fn legacy_clean_weapon(
+    inventory: &LegacyWeaponInventory,
+    current_weapon: u8,
+    number: u8,
+) -> Option<u8> {
+    if inventory.following || inventory.emplaced || !(1..=WP_BRYAR_OLD).contains(&number) {
+        return None;
+    }
+    let selected = if number == 1 {
+        saber_or_melee(inventory)
+    } else {
+        number
+    };
+    direct(inventory, current_weapon, selected)
+}
+
+fn saber_or_melee(inventory: &LegacyWeaponInventory) -> u8 {
+    if inventory.owned & (1 << WP_SABER) != 0 {
+        WP_SABER
+    } else {
+        2
+    }
+}
+
+/// The weapon `selected` names, the explosives cycling as `CG_Weapon_f` cycles them.
+fn direct(inventory: &LegacyWeaponInventory, current_weapon: u8, mut selected: u8) -> Option<u8> {
     if selected > WP_BRYAR_OLD + 1 {
         return None;
     }
@@ -135,4 +169,22 @@ pub fn legacy_direct_weapon(
         }
     }
     legacy_weapon_selectable(inventory, selected).then_some(selected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A weapon reads its own pool (`weaponData[].ammoIndex`): the pistol and the blaster
+    /// share the blaster pack (`AMMO_BLASTER`, 2), the disruptor draws on power cells.
+    #[test]
+    fn a_weapon_reads_its_own_ammunition_pool() {
+        let mut inventory =
+            LegacyWeaponInventory::from_player_state(&jkr_protocol::PlayerState::zero());
+        inventory.ammo[2] = 77;
+        inventory.ammo[3] = 5;
+        assert_eq!(legacy_weapon_ammo(&inventory, 4), Some(77));
+        assert_eq!(legacy_weapon_ammo(&inventory, 5), Some(77));
+        assert_eq!(legacy_weapon_ammo(&inventory, 6), Some(5));
+    }
 }

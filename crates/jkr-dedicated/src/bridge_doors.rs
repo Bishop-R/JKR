@@ -8,9 +8,10 @@ use super::*;
 use jkr_game_jka::mover_team;
 use jkr_game_jka::movers::{self, MoverKind, MoverState};
 
-/// `s.loopSound`, `s.loopIsSoundset`.
+/// `s.loopSound`, `s.loopIsSoundset`, `s.constantLight`.
 const ES_LOOP_SOUND: usize = 55;
 const ES_LOOP_IS_SOUNDSET: usize = 70;
+const ES_CONSTANT_LIGHT: usize = 64;
 
 impl NativeGame {
     /// `SP_func_door` for every door the map placed: an `ET_MOVER` every client is sent,
@@ -31,6 +32,7 @@ impl NativeGame {
             }
             state.set_raw_field(ES_POS_DURATION, door.duration as u32);
             state.set_raw_field(ES_TIME, door.time as u32);
+            state.set_raw_field(ES_CONSTANT_LIGHT, door.constant_light);
             if let Some(number) = self.pool.spawn_entity(state, 0) {
                 self.pool.set_bounds(number, door.bounds);
                 self.doors.push((number, door.clone()));
@@ -138,7 +140,8 @@ impl NativeGame {
     /// puts the spectator (`MASK_PLAYERSOLID`, nobody in the way), it is moved there with
     /// its angles and speed kept (`TeleportPlayer` with `doorangles`).
     fn pass_spectator(&mut self, client: usize, to: [f32; 3]) {
-        const MASK_PLAYERSOLID: u32 = 0x1 | 0x100 | 0x10000;
+        // `CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_BODY | CONTENTS_TERRAIN`.
+        const MASK_PLAYERSOLID: u32 = 0x1 | 0x10 | 0x100 | 0x1000;
         self.gather_obstacles(client);
         let fits = match self.map.as_ref() {
             Some(map) => {
@@ -190,6 +193,33 @@ impl NativeGame {
             if let Some(target) = fired {
                 self.fire_targets(&target, client, level_time);
             }
+        }
+    }
+
+    /// A door or button a Force throw by `client` worked: `GEntity_UseFunc` on a door
+    /// (`Use_BinaryMover`), `Touch_Button` on a button — which only a button at rest
+    /// where the map put it answers.
+    pub(super) fn work_thrown_mover(
+        &mut self,
+        number: u16,
+        client: usize,
+        button: bool,
+        level_time: i32,
+    ) {
+        let Some(index) = self
+            .doors
+            .iter()
+            .position(|(id, _)| id.legacy_number() == number)
+        else {
+            return;
+        };
+        if button && self.doors[index].1.state != MoverState::Pos1 {
+            return;
+        }
+        let fired = mover_team::use_mover(&mut self.doors, index, level_time, Some(client));
+        self.publish_team(index);
+        if let Some(target) = fired {
+            self.fire_targets(&target, client, level_time);
         }
     }
 
@@ -246,105 +276,31 @@ impl NativeGame {
         }
     }
 
-    /// `G_MoverPush` with `G_TryPushingEntity`: the players a mover takes with it, and
-    /// `Blocked_Door` on its team's master for one it cannot move — crushed for the
-    /// master's own damage, and the team turned back.
+    /// `G_MoverPush` with `G_TryPushingEntity` ([`Self::push_brush`]): the players and
+    /// NPCs a mover takes with it, and `Blocked_Door` on its team's master for one that
+    /// blocks it — crushed for the master's own damage, and the team turned back.
     fn push_door(&mut self, index: usize, from: [f32; 3], to: [f32; 3], level_time: i32) {
-        let (number, door) = (
-            self.doors[index].0.legacy_number(),
-            self.doors[index].1.clone(),
+        let (id, door) = &self.doors[index];
+        let (mover, bounds, hurts) = (
+            (id.legacy_number(), door.model),
+            door.bounds,
+            (door.damage, door.spawnflags),
         );
-        let candidates: Vec<(u16, [f32; 3], ([f32; 3], [f32; 3]), u16)> =
-            (0..self.players.places())
-                .filter_map(|client| {
-                    let peer = self.peer_mut(client)?;
-                    (peer.body_active() && peer.health > 0).then(|| {
-                        (
-                            client as u16,
-                            peer.state.origin(),
-                            peer.movement.box_bounds(),
-                            peer.state.ground_entity_num(),
-                        )
-                    })
-                })
-                .collect();
-        if candidates.is_empty() {
+        let master = door.team_master.unwrap_or(index);
+        let Some(blocker) = self.push_brush(mover, bounds, (from, to), hurts, level_time) else {
             return;
-        }
-        let pushed = match self.map.as_ref() {
-            Some(map) => {
-                let world = WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                };
-                // `G_TestEntityPosition`: may the box stand there at all?
-                let mut free = |_client: u16, origin: [f32; 3], bounds: ([f32; 3], [f32; 3])| {
-                    !world
-                        .trace(origin, bounds.0, bounds.1, origin, 0x1)
-                        .start_solid
-                };
-                // `G_TestEntityPosition` against the mover itself: is the box, where it
-                // stands, inside the mover's brush at its new place?
-                let mut inside = |_client: u16, origin: [f32; 3], bounds: ([f32; 3], [f32; 3])| {
-                    jkr_bsp::Aabb::new(bounds.0, bounds.1).is_ok_and(|bounds| {
-                        map.bsp
-                            .trace_transformed_model(
-                                door.model,
-                                to,
-                                None,
-                                origin,
-                                origin,
-                                bounds,
-                                u32::MAX,
-                            )
-                            .start_solid
-                    })
-                };
-                movers::push_through(&door, from, to, &candidates, &mut free, &mut inside, number)
-            }
-            // A world with no map in it has nothing to be blocked by.
-            None => movers::push(&door, from, to, &candidates, &mut |_, _, _| true, number),
         };
-        match pushed {
-            movers::Push::Moved(shoved) => {
-                for movers::Shoved { client, to, .. } in shoved {
-                    let Some(peer) = self.peer_mut(usize::from(client)) else {
-                        continue;
-                    };
-                    peer.state.set_origin(to);
-                    peer.movement = peer.movement.reseeded(&peer.state);
-                }
-            }
-            movers::Push::Blocked(client) => {
-                let master = door.team_master.unwrap_or(index);
-                let damage = mover_team::blocked(
-                    &mut self.doors,
-                    master,
-                    level_time,
-                    self.previous_frame_time,
-                    Some(usize::from(client)),
-                );
-                self.publish_team(master);
-                if let Some(damage) = damage {
-                    let attacker = Attacker {
-                        npc: false,
-                        client: self.doors[master].0.legacy_number(),
-                        max_health: 100,
-                        team: 0,
-                        saber_knockback: [0.0; 4],
-                    };
-                    let request = DamageRequest {
-                        level_time,
-                        attacker: Some(attacker),
-                        direction: None,
-                        point: None,
-                        damage,
-                        flags: 0,
-                        means: movers::MOD_CRUSH,
-                    };
-                    let _ = self.hurt(usize::from(client), request);
-                }
-            }
+        let damage = mover_team::blocked(
+            &mut self.doors,
+            master,
+            level_time,
+            self.previous_frame_time,
+            Some(usize::from(blocker)),
+        );
+        self.publish_team(master);
+        if let Some(damage) = damage {
+            let by = self.doors[master].0.legacy_number();
+            self.crush(by, blocker, damage, 0, level_time);
         }
     }
 
@@ -396,4 +352,64 @@ impl NativeGame {
         slot.set_raw_field(ES_POS_DURATION, door.duration as u32);
         slot.set_raw_field(ES_TIME, door.time as u32);
     }
+}
+
+impl NativeGame {
+    /// The door or button entity `number` is, when the map gave it health: the one mover
+    /// `G_Damage` reaches (`SP_func_door`, `SP_func_button`: `takedamage`).
+    pub(super) fn shootable_mover(&self, number: u16) -> Option<usize> {
+        self.doors.iter().position(|(id, door)| {
+            id.legacy_number() == number
+                && door.health != 0
+                && matches!(door.kind, MoverKind::Door | MoverKind::Button)
+        })
+    }
+
+    /// `G_Damage`'s mover branch (`g_combat.c:4583-4591`): a blow on a shootable door or
+    /// button resting at its start uses it for whoever struck (`GlobalUse`) — its team set
+    /// going, what it fires fired; its health is never touched. Whether `number` is one.
+    pub(super) fn shoot_mover(&mut self, number: u16, attacker: usize, level_time: i32) -> bool {
+        let Some(index) = self.shootable_mover(number) else {
+            return false;
+        };
+        let door = &self.doors[index].1;
+        if door.state != MoverState::Pos1 || door.inactive {
+            return true;
+        }
+        let activator = (attacker < self.players.places()).then_some(attacker);
+        let fired = mover_team::use_mover(&mut self.doors, index, level_time, activator);
+        self.publish_team(index);
+        if let Some(target) = fired
+            && !target.is_empty()
+        {
+            self.fire_targets(&target, attacker, level_time);
+        }
+        true
+    }
+}
+
+/// The shootable doors and buttons a blast may reach at `time`, each by `SV_LinkEntity`'s
+/// box where it then stands, a unit wider.
+pub(super) fn mover_splash_targets(
+    doors: &[(EntityId, movers::Door)],
+    time: i32,
+) -> impl Iterator<Item = SplashTarget> + '_ {
+    doors
+        .iter()
+        .filter(|(_, door)| {
+            door.health != 0 && matches!(door.kind, MoverKind::Door | MoverKind::Button)
+        })
+        .map(move |(id, door)| {
+            let origin = movers::origin_at(door, time);
+            let (mins, maxs) = door.bounds;
+            SplashTarget {
+                number: id.legacy_number(),
+                bounds: (
+                    std::array::from_fn(|axis| origin[axis] + mins[axis] - 1.0),
+                    std::array::from_fn(|axis| origin[axis] + maxs[axis] + 1.0),
+                ),
+                origin,
+                takes_damage: true,
+            }
+        })
 }

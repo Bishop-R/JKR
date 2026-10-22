@@ -104,6 +104,27 @@ impl Rides {
         }
     }
 
+    /// The first weapon of the vehicle the local player pilots (`weapon[0].ID` past
+    /// `VEH_WEAPON_BASE`), where the client has it.
+    pub(super) fn piloted_weapon(
+        &self,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleWeaponInfo> {
+        let id = self.piloted_info()?.weapons[0].id;
+        (id > 0)
+            .then(|| self.table.weapons().get(id as usize))
+            .flatten()
+    }
+
+    /// The definition of the vehicle the local player pilots, where the client has it.
+    pub(super) fn piloted_info(&self) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
+        let (index, _) = self.piloting?;
+        self.templates
+            .get(index)?
+            .1
+            .as_ref()
+            .map(|vehicle| vehicle.info.as_ref())
+    }
+
     /// Which vehicle, if any, the local player pilots in `snapshot` (`CG_Piloting`), and
     /// its definition from its model's configstring in `game_state`.
     pub(crate) fn resolve(&mut self, snapshot: &Snapshot, game_state: &GameState) {
@@ -133,13 +154,25 @@ impl Rides {
         if vehicle.owner() != snapshot.player.client_num() {
             return;
         }
-        let model = vehicle.raw_field(46).unwrap_or(0) as usize;
-        let Some(name) = game_state
-            .config_string(CS_MODELS + model)
-            .and_then(|name| name.strip_prefix(b"$"))
-        else {
+        let Some(index) = self.template_of(vehicle, game_state) else {
             return;
         };
+        if self.templates[index].1.is_some() {
+            self.piloting = Some((index, vehicle.solid()));
+        }
+    }
+
+    /// The template of vehicle `entity`, named by its model's configstring (`$name`),
+    /// loaded once per name; `None` where it names no vehicle.
+    pub(super) fn template_of(
+        &mut self,
+        entity: &jkr_protocol::EntityState,
+        game_state: &GameState,
+    ) -> Option<usize> {
+        let model = entity.raw_field(46).unwrap_or(0) as usize;
+        let name = game_state
+            .config_string(CS_MODELS + model)?
+            .strip_prefix(b"$")?;
         let index = match self
             .templates
             .iter()
@@ -160,9 +193,24 @@ impl Rides {
                 self.templates.len() - 1
             }
         };
-        if self.templates[index].1.is_some() {
-            self.piloting = Some((index, vehicle.solid()));
-        }
+        Some(index)
+    }
+
+    /// The definition template `index` holds, if it named a vehicle.
+    pub(super) fn template_info(
+        &self,
+        index: usize,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
+        self.templates
+            .get(index)?
+            .1
+            .as_ref()
+            .map(|vehicle| vehicle.info.as_ref())
+    }
+
+    /// The template of the vehicle the local player pilots.
+    pub(super) fn piloted_template(&self) -> Option<usize> {
+        self.piloting.map(|(index, _)| index)
     }
 
     /// The committed ride seeded from `snapshot` (in the storage it has), or none where
@@ -318,16 +366,25 @@ pub(super) fn error_state<'a>(
 }
 
 /// One predicted command: the ride's two moves where the player pilots one, its own move
-/// otherwise.
+/// otherwise, in a duel of `duel_kind` (jaPRO's Force and gun duels hold other weapons and
+/// powers than stock's saber duel).
 pub(super) fn predict(
     predictor: &mut Predictor,
     ride: Option<&mut RidePrediction>,
     command: UserCommand,
     collision: &impl MovementCollision,
+    duel_kind: jkr_game_jka::duel_kind::DuelKind,
 ) {
     match ride {
         Some(ride) => ride.predict(predictor, command, collision),
-        None => predictor.predict_command(command, collision),
+        None => predictor.predict_command_in(
+            command,
+            collision,
+            &jkr_game_jka::pmove::MoveContext {
+                duel_kind,
+                ..jkr_game_jka::pmove::MoveContext::CLIENT
+            },
+        ),
     }
 }
 

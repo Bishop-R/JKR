@@ -28,6 +28,16 @@ endings. Code that patches a program by text with a pattern spanning a line brea
 normalises it first with [wgsl_source.rs](../crates/jkr-viewer/src/wgsl_source.rs);
 `.gitattributes` keeps `*.wgsl` LF in new checkouts.
 
+## Glass experiment status
+
+The experimental live-camera and static-world glass paths are parked outside
+this checkout. The regular renderer uses authored glass shader stages; existing
+floor reflections and authored mirrors remain as implemented on `af65396`.
+`jkr_glassReflections` is not a supported control in the regular build.
+Reintroduction needs further visual and frame-time work, particularly for curved
+surfaces and maps with many panes. The separate local snapshot retains the source,
+preview binary, previous measurements and limitations.
+
 ## Server shader remaps
 
 The client consumes multiplayer `CS_SHADERSTATE` on joining and live updates,
@@ -554,7 +564,9 @@ submits and presents in order while the render thread prepares the next frame.
 Only one handed-off frame can remain outstanding. With an offscreen scene target,
 swapchain acquisition happens after world recording; direct-to-surface rendering
 still acquires its image first. Resize, out-of-band submissions and teardown wait
-for the outstanding batch. `JKR_SUBMIT_THREAD=0` selects inline submission as a
+for the outstanding batch; teardown then joins the submission thread, so its queue
+handle (possibly the device's last) is released before the process exits.
+`JKR_SUBMIT_THREAD=0` selects inline submission as a
 fallback. See [frame_queue.rs](../crates/jkr-viewer/src/frame_queue.rs),
 [frame_split.rs](../crates/jkr-viewer/src/frame_split.rs) and
 [frame_target.rs](../crates/jkr-viewer/src/frame_target.rs).

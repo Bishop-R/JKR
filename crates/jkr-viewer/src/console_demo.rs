@@ -100,7 +100,7 @@ impl GpuState {
         }
     }
 
-    fn start_console_recording(&mut self, name: Option<&str>) {
+    pub(crate) fn start_console_recording(&mut self, name: Option<&str>) {
         let Some(console) = self.console.as_ref() else {
             return;
         };
@@ -123,7 +123,7 @@ impl GpuState {
         }
     }
 
-    fn stop_console_recording(&mut self) {
+    pub(crate) fn stop_console_recording(&mut self) {
         let result = self
             .live_session
             .as_mut()
@@ -159,7 +159,7 @@ impl GpuState {
         };
         let session =
             match demo_playback::Session::open(&path, demo_playback::Camera::FirstPerson, 60) {
-                Ok(session) => session,
+                Ok(session) => session.returning_to_menu(),
                 Err(error) => {
                     if let Some(console) = &mut self.console {
                         console.push_log(format!("^1Could not play demo: {error}"));

@@ -19,9 +19,6 @@ pub const GT_POWERDUEL: i32 = 4;
 pub const DUELTEAM_FREE: i32 = 0;
 pub const DUELTEAM_LONE: i32 = 1;
 pub const DUELTEAM_DOUBLE: i32 = 2;
-/// `g_powerDuelStartHealth`, `g_powerDuelEndHealth`.
-const START_HEALTH: i32 = 150;
-const END_HEALTH: i32 = 90;
 
 /// A client as the power duel counts it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -199,26 +196,27 @@ pub fn death(clients: &[Duellist], dead: usize) -> Option<RoundEnd> {
     Some(RoundEnd { winners, losers })
 }
 
-/// The lone's health and maximum at a spawn (`ClientSpawn`): from 150 down towards 90 as
-/// its wins near `duel_fraglimit`; 150 without a limit.
-pub fn lone_health(wins: i32, duel_fraglimit: i32) -> i32 {
+/// The lone's health and maximum at a spawn (`ClientSpawn`, `g_client.c:3684-3696`): from
+/// `start` (`g_powerDuelStartHealth`, 150) down towards `end` (`g_powerDuelEndHealth`, 90)
+/// as its wins near `duel_fraglimit`; a fixed 150 without a limit.
+pub fn lone_health(wins: i32, duel_fraglimit: i32, (start, end): (i32, i32)) -> i32 {
     if duel_fraglimit == 0 {
         return 150;
     }
-    (START_HEALTH as f32
-        - ((START_HEALTH - END_HEALTH) as f32 * wins as f32 / duel_fraglimit as f32)) as i32
+    (start as f32 - ((start - end) as f32 * wins as f32 / duel_fraglimit as f32)) as i32
 }
 
 /// `ClientSpawn`'s power-duel health: a lone — spectating or not — spawns with
 /// [`lone_health`] as its health and maximum (the spawn gave everyone else a duel's 100).
+/// `health` is the start and end of [`lone_health`]'s range.
 pub fn spawned(
     state: &mut jkr_protocol::PlayerState,
     session: &crate::client_begin::PlayerSession,
     gametype: i32,
-    duel_fraglimit: i32,
+    (duel_fraglimit, health): (i32, (i32, i32)),
 ) {
     if gametype == GT_POWERDUEL && session.duel_team == DUELTEAM_LONE {
-        let health = lone_health(session.wins, duel_fraglimit) as u32;
+        let health = lone_health(session.wins, duel_fraglimit, health) as u32;
         (state.stats[0], state.stats[8]) = (health, health);
     }
 }
@@ -238,4 +236,19 @@ pub fn lone_regen_time(regen_time: i32, wins: i32, duel_fraglimit: i32) -> f64 {
 /// `CS_CLIENT_DUELISTS` for three: the lone and the pair as sorted.
 pub fn duelists_string(sorted: [usize; 3]) -> Vec<u8> {
     format!("{}|{}|{}", sorted[0], sorted[1], sorted[2]).into_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The lone's health falls from `g_powerDuelStartHealth` towards
+    /// `g_powerDuelEndHealth` with its wins; without a win limit it is 150 whatever they say.
+    #[test]
+    fn the_lone_s_health_follows_its_range() {
+        assert_eq!(lone_health(0, 10, (150, 90)), 150);
+        assert_eq!(lone_health(1, 10, (150, 90)), 144);
+        assert_eq!(lone_health(5, 10, (200, 100)), 150);
+        assert_eq!(lone_health(3, 0, (200, 100)), 150);
+    }
 }

@@ -127,8 +127,19 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             protected: slot.last_clear_shot_time < level_time - 5_000,
             officer,
         };
-        let last = self.level.groups[group].len();
-        for index in 0..last {
+        // `d_asynchronousGroupAI`: one member a turn, in rotation; else all of them.
+        let (first, last) = if self.host.npc_switches().asynchronous_group_ai {
+            let slot = &mut self.level.groups[group];
+            slot.active_member_num += 1;
+            if slot.active_member_num >= slot.len() as i32 {
+                slot.active_member_num = 0;
+            }
+            let first = slot.active_member_num as usize;
+            (first, first + 1)
+        } else {
+            (0, self.level.groups[group].len())
+        };
+        for index in first..last {
             let Some(number) = self.level.groups[group]
                 .members()
                 .get(index)

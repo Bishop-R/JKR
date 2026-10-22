@@ -4,8 +4,10 @@ use jkr_protocol::GameState;
 use jkr_runtime::{HeldEquipment, HeldItemKind};
 
 /// Snapshot-derived equipment, including primary detachment from the hand.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn legacy_equipment(
     game_state: &GameState,
+    (policy, looks): (crate::TeamColorPolicy, &crate::SiegeClassLooks),
     client_num: u16,
     weapon: u8,
     saber_holstered: u8,
@@ -19,9 +21,9 @@ pub(super) fn legacy_equipment(
         weapon,
         primary_in_flight: kind == HeldItemKind::EnergyBlade && saber_in_flight,
         active: equipment_active(kind, saber_holstered, alive),
-        color: client_saber_color(game_state, client_num),
+        color: client_saber_color_at(game_state, (policy, looks), client_num, 0),
         secondary_active: secondary_equipment_active(kind, saber_holstered, alive),
-        secondary_color: client_saber_color_at(game_state, client_num, 1),
+        secondary_color: client_saber_color_at(game_state, (policy, looks), client_num, 1),
         trail_duration_millis: trail_duration(kind, saber_move),
     })
 }
@@ -62,19 +64,47 @@ pub(super) fn equipment_active(kind: HeldItemKind, saber_holstered: u8, alive: b
     kind != HeldItemKind::EnergyBlade || (alive && saber_holstered < 2)
 }
 
-/// Primary blade colour from legacy clientinfo.
-fn client_saber_color(game_state: &GameState, client_num: u16) -> [u8; 3] {
-    client_saber_color_at(game_state, client_num, 0)
-}
-
-/// Blade colour of the selected primary or secondary clientinfo slot.
-fn client_saber_color_at(game_state: &GameState, client_num: u16, saber: usize) -> [u8; 3] {
+/// Blade colour of the selected primary or secondary clientinfo slot: a siege class's own
+/// colour first (`CG_NewClientInfo`), else the team's or the player's.
+fn client_saber_color_at(
+    game_state: &GameState,
+    (policy, looks): (crate::TeamColorPolicy, &crate::SiegeClassLooks),
+    client_num: u16,
+    saber: usize,
+) -> [u8; 3] {
     const CS_PLAYERS: usize = 1_131;
+    if let Some(color) = looks.saber_color(game_state, client_num, saber) {
+        return saber_index_rgb(color);
+    }
     game_state
         .config_string(CS_PLAYERS + usize::from(client_num))
         .map_or(legacy_blade_rgb(4), |config| {
-            saber_color_from_config(config, saber)
+            team_saber_color(policy, config, saber)
+                .unwrap_or_else(|| saber_color_from_config(config, saber, policy.rgb_sabers))
         })
+}
+
+/// `CG_AddSaberBlade` (`cg_players.c:6142-6155`): in a team game but Siege and Jedi versus
+/// Mercenaries, a player's blades (held or thrown, never an NPC's) take its team's colour,
+/// red or blue, whatever the player chose. With EternalJK's `cg_saberTeamColors 0` only a
+/// blade of the other team's colour, or a custom tint, gives way.
+pub(super) fn team_saber_color(
+    policy: crate::TeamColorPolicy,
+    config: &[u8],
+    saber: usize,
+) -> Option<[u8; 3]> {
+    const SABER_PURPLE: i32 = 5;
+    if !policy.team_override_active {
+        return None;
+    }
+    let chosen = legacy_info_i32(config, [&b"c1"[..], b"c2"][saber]).unwrap_or(4);
+    let forced =
+        |other_team: i32| policy.saber_team_colors || chosen == other_team || chosen > SABER_PURPLE;
+    match legacy_info_i32(config, b"t") {
+        Some(1) if forced(4) => Some(legacy_blade_rgb(0)),
+        Some(2) if forced(0) => Some(legacy_blade_rgb(4)),
+        _ => None,
+    }
 }
 
 /// Blade colour of saber 0/1 from a player configstring: `c1`/`c2` carry the
@@ -82,7 +112,7 @@ fn client_saber_color_at(game_state: &GameState, client_num: u16, saber: usize) 
 /// `c3`/`c4` (TaystJK `codemp/game/g_client.c:2717-2718`) which applies to
 /// any index past purple.  Without those keys such an index rolls over to a
 /// stock colour like `ClampSaberColor` (`codemp/cgame/cg_players.c:6066`).
-pub(super) fn saber_color_from_config(config: &[u8], saber: usize) -> [u8; 3] {
+pub(super) fn saber_color_from_config(config: &[u8], saber: usize, rgb: bool) -> [u8; 3] {
     const KEYS: [(&[u8], &[u8]); 2] = [(b"c1", b"c3"), (b"c2", b"c4")];
     const NUM_SABER_COLORS: i32 = 12;
     const SABER_RGB: i32 = 6;
@@ -95,10 +125,23 @@ pub(super) fn saber_color_from_config(config: &[u8], saber: usize) -> [u8; 3] {
     }
     // The key is present but empty for a client that never set a tint;
     // `atoi` reads that as 0, which unpacks to red.
-    match legacy_info_value(config, rgb_key) {
+    match legacy_info_value(config, rgb_key).filter(|_| rgb) {
         Some(packed) => crate::unpack_saber_rgb(legacy_atoi(packed) as u32),
         None => legacy_blade_rgb(color - SABER_RGB),
     }
+}
+
+/// The stock tint of a `saber_colors_t` number, one past purple rolled over as
+/// `ClampSaberColor` does without a custom tint.
+pub(super) fn saber_index_rgb(color: i32) -> [u8; 3] {
+    const NUM_SABER_COLORS: i32 = 12;
+    const SABER_RGB: i32 = 6;
+    let color = color.rem_euclid(NUM_SABER_COLORS);
+    legacy_blade_rgb(if color < SABER_RGB {
+        color
+    } else {
+        color - SABER_RGB
+    })
 }
 
 /// Stock blade tints of `saber_colors_t` 0..=5 (`cg_players.c:6371-6394`).
@@ -150,5 +193,59 @@ pub(super) fn legacy_atoi(value: &[u8]) -> i32 {
         magnitude.wrapping_neg()
     } else {
         magnitude
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_rgb_sabers_rolls_custom_tints_over() {
+        let config = b"\\c1\\6\\c3\\65280";
+        assert_ne!(
+            saber_color_from_config(config, 0, true),
+            legacy_blade_rgb(0)
+        );
+        assert_eq!(
+            saber_color_from_config(config, 0, false),
+            legacy_blade_rgb(0)
+        );
+        assert_eq!(
+            saber_color_from_config(b"\\c1\\3", 0, false),
+            legacy_blade_rgb(3)
+        );
+    }
+
+    #[test]
+    fn team_games_give_blades_the_team_colour() {
+        let policy = |info: &[u8]| crate::TeamColorPolicy::from_server_info(info);
+        let red = b"\\n\\a\\t\\1\\c1\\3";
+        let blue = b"\\n\\b\\t\\2\\c1\\0";
+        let ctf = policy(b"\\g_gametype\\8");
+        assert_eq!(team_saber_color(ctf, red, 0), Some(legacy_blade_rgb(0)));
+        assert_eq!(team_saber_color(ctf, blue, 0), Some(legacy_blade_rgb(4)));
+        // `cg_saberTeamColors 0`: green stays green, the other team's blue gives way.
+        let relaxed = crate::TeamColorPolicy {
+            saber_team_colors: false,
+            ..ctf
+        };
+        assert_eq!(team_saber_color(relaxed, red, 0), None);
+        assert_eq!(
+            team_saber_color(relaxed, b"\\t\\1\\c1\\4", 0),
+            Some(legacy_blade_rgb(0))
+        );
+        assert_eq!(
+            team_saber_color(relaxed, b"\\t\\1\\c1\\9", 0),
+            Some(legacy_blade_rgb(0))
+        );
+        assert_eq!(team_saber_color(ctf, b"\\n\\c\\t\\3", 0), None);
+        for other in [
+            &b"\\g_gametype\\0"[..],
+            b"\\g_gametype\\7",
+            b"\\g_gametype\\8\\g_jediVmerc\\1",
+        ] {
+            assert_eq!(team_saber_color(policy(other), red, 0), None);
+        }
     }
 }

@@ -52,6 +52,9 @@ pub struct LegacyServerInfo<'a> {
     pub min_ping: i32,
     /// `sv_maxPing`; omitted when zero.
     pub max_ping: i32,
+    /// TaystJK's HTTP downloads: the web server's port (`mvhttp`), or the web address
+    /// clients are sent to (`mvhttpurl`), which wins; nothing for `(0, [])`.
+    pub http: (u16, &'a [u8]),
 }
 
 /// One line of a status reply.
@@ -119,6 +122,14 @@ pub fn write_legacy_info_response(
         number(&mut info, b"maxPing", server.max_ping);
     }
     info.set(b"game", server.game_directory);
+    // "webserver port" (`sv_main.cpp:578-585`).
+    match server.http {
+        (_, url) if !url.is_empty() => {
+            info.set(b"mvhttpurl", url);
+        }
+        (0, _) => {}
+        (port, _) => number(&mut info, b"mvhttp", i32::from(port)),
+    }
     out.extend_from_slice(b"\xff\xff\xff\xffinfoResponse\n");
     out.extend_from_slice(info.as_bytes());
     true

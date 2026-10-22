@@ -2,7 +2,7 @@
 //! the pool, and the flag's parts of an item's touch, a blow, a death, a dropped item's
 //! run — the rules themselves are [`jkr_game_jka::ctf`]'s.
 
-use super::{ES_EVENT, ES_EVENT_PARM, NativeGame, Peer};
+use super::{ES_EVENT, ES_EVENT_PARM, NativeGame, Peer, Told};
 use crate::visibility::Eye;
 use jkr_game_jka::ctf::{self, FlagPlayer, FlagTouch, FlagWorld, Flags};
 use jkr_game_jka::entity_id::EntityId;
@@ -76,6 +76,12 @@ struct ServerFlags<'a> {
     level_time: i32,
     /// `AddScore` runs: no warmup is on.
     scoring: bool,
+    /// jaPRO's `g_allowFlagThrow`.
+    flag_throw: bool,
+    /// jaPRO's `g_fixCTFScores`, and `sv_fps` for its flag timer.
+    fixed_scores: bool,
+    fps: f32,
+    told: &'a mut Vec<Told>,
 }
 
 impl FlagWorld for ServerFlags<'_> {
@@ -156,9 +162,57 @@ impl FlagWorld for ServerFlags<'_> {
     fn flag_status(&mut self, value: Vec<u8>) {
         *self.status = Some(value);
     }
+
+    fn flag_throw(&self) -> bool {
+        self.flag_throw
+    }
+
+    fn fixed_scores(&self) -> bool {
+        self.fixed_scores
+    }
+
+    fn name(&mut self, number: u16) -> Vec<u8> {
+        self.peers
+            .at(usize::from(number))
+            .and_then(|handle| self.world.entity(handle))
+            .map(|peer| peer.name.clone())
+            .unwrap_or_default()
+    }
+
+    fn tell_all(&mut self, command: Vec<u8>) {
+        self.told.push(Told::Everyone(command));
+    }
+
+    fn flag_timer(&mut self, number: u16) -> Option<&mut jkr_game_jka::japro_ctf::FlagTimer> {
+        let handle = self.peers.at(usize::from(number))?;
+        self.world
+            .entity_mut(handle)
+            .map(|peer| &mut peer.flag_timer)
+    }
+
+    fn frames_per_second(&self) -> f32 {
+        self.fps
+    }
 }
 
 impl NativeGame {
+    /// `Use_target_remove_powerups`: one carried flag is returned before clearing all slots.
+    pub(super) fn remove_target_powerups(&mut self, client: usize, time: i32) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let team = [(4, 1), (5, 2), (6, 0)]
+            .into_iter()
+            .find_map(|(slot, team)| (peer.state.powerups[slot] != 0).then_some(team));
+        if let Some(team) = team {
+            self.with_flags(time, |flags, world| ctf::return_flag(flags, world, team));
+        }
+        if let Some(peer) = self.peer_mut(client) {
+            peer.state.powerups.fill(0);
+            peer.movement = peer.movement.reseeded(&peer.state);
+        }
+    }
+
     /// `run` with the server's [`FlagWorld`] and flags; afterwards the flag status is
     /// published and — the scores having changed — the ranks recalculated.
     fn with_flags<T>(
@@ -169,6 +223,8 @@ impl NativeGame {
         let mut status = None;
         let mut flags = self.flags;
         let scoring = self.scoring();
+        let rules = self.flag_rules();
+        let fps = self.cvars.value(b"sv_fps");
         let Self {
             server,
             world,
@@ -177,6 +233,7 @@ impl NativeGame {
             pool,
             team_scores,
             map,
+            told,
             ..
         } = self;
         let world = server.world_mut(*world).expect("the game's world");
@@ -190,6 +247,10 @@ impl NativeGame {
             status: &mut status,
             level_time,
             scoring,
+            flag_throw: rules.throw,
+            fixed_scores: rules.fixed_scores,
+            fps,
+            told,
         };
         let result = run(&mut flags, &mut flag_world);
         self.flags = flags;
@@ -211,6 +272,9 @@ impl NativeGame {
             pickup.dropped.is_some(),
         );
         let (gametype, intermission) = (self.gametype, self.match_end.intermission_time != 0);
+        if self.flag_locked_out(client, row.tag, level_time) {
+            return false;
+        }
         let Some(peer) = self.peer(client) else {
             return false;
         };
@@ -226,6 +290,7 @@ impl NativeGame {
             base: base_of(pickup),
             current_origin: pickup.origin,
         };
+        self.log(&jkr_game_jka::game_log::item(client, row.classname));
         let respawn = self.with_flags(level_time, |flags, world| {
             ctf::touch(flags, world, flag, client as u16, level_time, intermission)
         });

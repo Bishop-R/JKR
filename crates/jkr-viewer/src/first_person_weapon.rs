@@ -117,6 +117,10 @@ pub(crate) struct Inputs {
     pub(crate) weapon: u8,
     pub(crate) frames: LegacyViewWeaponFrames,
     pub(crate) pose: LegacyViewWeaponPose,
+    /// `cg_fovViewmodel`'s stretch of the hand's forward axis; 1 while it is off.
+    pub(crate) stretch: f32,
+    /// EternalJK's `cg_gunAlpha`: the gun drawn see-through at this alpha.
+    pub(crate) alpha: Option<u8>,
 }
 
 /// First-person view of the local player: eye origin and look angles.
@@ -150,12 +154,17 @@ pub(crate) fn frame_inputs(
             .is_some()
             .then(|| state.local_prediction.predicted_state())
             .flatten();
+        let console = state.console.as_ref();
+        let bobs = (
+            crate::cgame_options::scalar(console, "cg_weaponBob", 1.0) != 0.0,
+            crate::cgame_options::scalar(console, "cg_fallingBob", 1.0) != 0.0,
+        );
         inputs_with_weapon(
             &state.first_person_weapon,
             snapshot?,
             state.third_person,
             view,
-            camera.map_or(0.0, |camera| camera.landing),
+            (camera.map_or(0.0, |camera| camera.landing), bobs),
             local_torso_frame(&state.actor_meshes, local_entity, presentation_time),
             presentation_time,
             predicted_weapon,
@@ -166,6 +175,14 @@ pub(crate) fn frame_inputs(
             (camera.yaw, camera.pitch)
         });
         inputs.pose.origin = offsets::apply(inputs.pose.origin, yaw, pitch, state.console.as_ref());
+        // `cg.refdef.fov_x`, from the vertical field of view the frame keeps.
+        let aspect = state.configuration.width as f32 / state.configuration.height as f32;
+        let fov_x = 2.0 * ((state.field_of_view.to_radians() * 0.5).tan() * aspect).atan();
+        inputs.stretch = offsets::stretch(state.console.as_ref(), fov_x.to_degrees());
+        inputs.alpha = state
+            .console
+            .as_ref()
+            .and_then(|console| console.gun_alpha());
         inputs
     })
 }
@@ -176,7 +193,7 @@ fn inputs_with_weapon(
     snapshot: &Snapshot,
     third_person: bool,
     view: View,
-    landing: f32,
+    (landing, bobs): (f32, (bool, bool)),
     torso_frame: Option<f32>,
     presentation_time: i64,
     predicted_weapon: Option<&jkr_client::pmove::MovementState>,
@@ -206,7 +223,10 @@ fn inputs_with_weapon(
             ),
             landing,
             presentation_time,
+            bobs,
         ),
+        stretch: 1.0,
+        alpha: None,
     })
 }
 
@@ -224,10 +244,15 @@ pub(crate) fn local_torso_frame(
 }
 
 /// Push the gun and barrel instances for `inputs`; returns how many.
+/// The gun and its barrels into the object groups (`groups.0`), or with `cg_gunAlpha`
+/// see-through into the forced-alpha overrides (`groups.1`).
 pub(crate) fn submit(
     catalog: &Catalog,
     inputs: Inputs,
-    object_groups: &mut [Vec<ActorInstance>],
+    (object_groups, overrides): (
+        &mut Vec<Vec<ActorInstance>>,
+        &mut Vec<entity_materials::OverrideInstance>,
+    ),
 ) -> usize {
     let Some(Some(entry)) = catalog.entries.get(usize::from(inputs.weapon)) else {
         return 0;
@@ -242,16 +267,33 @@ pub(crate) fn submit(
     for (tag, mesh) in
         std::iter::once((entry.tag_weapon, entry.gun_mesh)).chain(entry.barrels.iter().copied())
     {
-        let tag = entry.hand.lerp_tag(
+        let mut tag = entry.hand.lerp_tag(
             tag,
             frames.old_frame as usize,
             frames.frame as usize,
             front_lerp,
         );
+        // A stretched hand axis carries what hangs on its tags: the tag's offset along it,
+        // and each of the part's axes by its share of it (exact for the tags turned by
+        // quarter turns, the nearest per-axis scale for the others).
+        tag.origin[0] *= inputs.stretch;
         let (origin, rotation) = position_on_tag(hand_origin, hand_rotation, &tag);
-        let mut instance = ActorInstance::new(origin.to_array(), rotation.to_array(), [1.0; 3]);
+        let scale = tag
+            .axes
+            .map(|axis| 1.0 + (inputs.stretch - 1.0) * axis[0] * axis[0]);
+        let mut instance = ActorInstance::new(origin.to_array(), rotation.to_array(), scale);
         instance.depth_hack = 1.0;
-        object_groups[mesh].push(instance);
+        match inputs.alpha {
+            Some(alpha) => overrides.push(entity_materials::OverrideInstance {
+                mesh: entity_materials::OverrideMesh::Object(mesh),
+                material: None,
+                instance: instance.with_forced_alpha(alpha),
+                no_depth: false,
+                forced_alpha: true,
+                switched_off: None,
+            }),
+            None => object_groups[mesh].push(instance),
+        }
         submitted += 1;
     }
     submitted

@@ -93,7 +93,7 @@ const PS_LEGS_TIMER: usize = 21;
 const PS_WEAPON_STATE: usize = 33;
 const PS_WEAPON: usize = 47;
 /// `EF_DEAD`.
-const EF_DEAD: u32 = 1;
+const EF_DEAD: u32 = 1 << 1;
 const ES_ANGLES_YAW: usize = 9;
 /// `CONTENTS_BODY`, `CONTENTS_BOTCLIP`.
 const CONTENTS_BODY: u32 = 0x100;
@@ -290,6 +290,10 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         most: i32,
     ) {
         use crate::npc_combat_points::{PointSearch, cp};
+        // A flee script runs instead (`NPC_behavior.c:1589-1593`).
+        if self.activate_behavior(at, crate::script_entity::BSET_FLEE) {
+            return;
+        }
         if let Some(enemy) = enemy {
             self.set_enemy(at, enemy);
         }
@@ -436,8 +440,12 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         self.sleep_shuffle(me);
     }
 
-    /// `NPC_ST_SleepShuffle` (`NPC_AI_Stormtrooper.c:419-454`).
+    /// `NPC_ST_SleepShuffle` (`NPC_AI_Stormtrooper.c:419-454`): its awake script, if it
+    /// has one, instead of the shuffle.
     fn sleep_shuffle(&mut self, me: usize) {
+        if self.activate_behavior(me, crate::script_entity::BSET_AWAKE) {
+            return;
+        }
         let level_time = self.level_time;
         let timers = &mut self.actors[me].mind.timers;
         if timers.done("shuffleTime", level_time) {

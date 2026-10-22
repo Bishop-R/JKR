@@ -372,6 +372,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     fn sweep_blades(&mut self, me: usize, blades: &NpcBlades, hits: &mut SaberHits) {
         let level_time = self.level_time;
         let gametype = self.host.gametype();
+        let settings = self.host.saber_settings();
         let number = self.actors[me].number;
         // Thrown, the first saber's blade is read where it flies; knocked out of the hand, it
         // is swept no more (`w_saber.c:8788-8797`, `8848-8888`).
@@ -443,6 +444,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                     jedi_master: false,
                     more_saber_damage: false,
                     enemy: npc.mind.enemy,
+                    settings,
                 };
                 let trail = npc.saber.trails[saber][blade];
                 let (base, end) = {

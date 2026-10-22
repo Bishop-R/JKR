@@ -5,8 +5,9 @@
 //!   level-3 saber that can block (`WP_SaberCanBlock`: the shot's temp entity and the
 //!   block's flash, nothing else); then the shot's temp entity (`EV_DISRUPTOR_MAIN_SHOT`
 //!   from the muzzle to the impact, the shooter in `eventParm`) and — unless the surface
-//!   takes no impact — thirty points into what takes damage with `EV_DISRUPTOR_HIT`
-//!   (weapon 1 for a client), or `EV_DISRUPTOR_SNIPER_MISS` on the world.
+//!   takes no impact — thirty points into what takes damage (a player, an NPC, glass, a
+//!   breakable brush) with `EV_DISRUPTOR_HIT` (weapon 1 for a client), or
+//!   `EV_DISRUPTOR_SNIPER_MISS` on anything else.
 //! - `WP_DisruptorAltFire` (`:712-995`), the scoped shot: the charge's count (one unit
 //!   every 50 ms, doubled, sixty at most — a full charge) added to seventy points; one,
 //!   two or three traces (under ten, under twenty, else) each from where the last ended
@@ -16,12 +17,13 @@
 //!   the damage without knockback and `EV_DISRUPTOR_HIT`, and — killed by a full charge —
 //!   is disintegrated: `EF_DISINTEGRATION`, `lastHitLoc`, its poses as before the death,
 //!   its body passable, its velocity gone (the next think puts it in `PM_NOCLIP`, and no
-//!   body is left for it). The world ends the traces with `EV_DISRUPTOR_SNIPER_MISS`; a
-//!   surface that takes no impact ends them silently.
-//! - `Jedi_DodgeEvasion` (`w_force.c:5490-5620`) is gated as the reference gates it
-//!   (`g_forceDodge 1`: Force Sight active at level 3, on the ground, the weapon free):
-//!   until the Force powers are ported nobody has Sight active, so nobody dodges; the
-//!   dodge's own pose and speed burst are not ported.
+//!   body is left for it); an NPC so killed is not disintegrated yet. Anything else that
+//!   takes damage (glass, a breakable brush) is hurt with `EV_DISRUPTOR_HIT` and ends the
+//!   traces, as glass and movers do silently; the world ends them with
+//!   `EV_DISRUPTOR_SNIPER_MISS`, and a surface that takes no impact silently.
+//! - `Jedi_DodgeEvasion` (`w_force.c:5490-5620`, [`crate::force_dodge`]) is asked of
+//!   whatever each trace strikes, after the duel's pass and before the saber's block: a
+//!   target that dodges takes the dodge on itself and the shot passes as if it missed.
 //!
 //! Held against `tools/game-oracle/disruptor.c`.
 
@@ -29,6 +31,7 @@ use crate::damage::{Attacker, DamageRequest};
 use crate::event_entity::EventEntity;
 use crate::pmove::MovementTrace;
 use crate::pmove::flight::flight_axes;
+use crate::shot_target::ShotTarget;
 use jkr_protocol::{PlayerState, legacy_direction_to_byte};
 
 /// `EV_DISRUPTOR_MAIN_SHOT`, `EV_DISRUPTOR_SNIPER_SHOT`, `EV_DISRUPTOR_SNIPER_MISS`,
@@ -56,10 +59,7 @@ const DAMAGE_NO_KNOCKBACK: u32 = 4;
 const EF_ALT_FIRING: u32 = 1 << 10;
 /// `EF_DISINTEGRATION`.
 pub const EF_DISINTEGRATION: u32 = 1 << 26;
-/// `FP_SEE` in `fd.forcePowersActive`.
-const FP_SEE: u32 = 1 << 14;
 const ENTITY_WORLD: u16 = 1_022;
-const MAX_CLIENTS: u16 = 32;
 /// `WP_MuzzlePoint` for the disruptor.
 const MUZZLE_OFFSET: [f32; 3] = [12.0, 6.0, -6.0];
 
@@ -69,8 +69,6 @@ const ES_ORIGIN2: [usize; 3] = [56, 60, 53];
 const ES_SHOULD_TARGET: usize = 57;
 const ES_OTHER_ENTITY: usize = 59;
 const PS_EFLAGS: usize = 17;
-/// `fd.forcePowerLevel[FP_SEE]`.
-const PS_SEE_LEVEL: usize = 109;
 const PS_LEGS_ANIM: usize = 13;
 const PS_TORSO_ANIM: usize = 15;
 /// `lastHitLoc` as `[x, y, z]`.
@@ -83,8 +81,6 @@ pub struct StruckPlayer {
     pub duelling_another: bool,
     /// `fd.forcePowerLevel[FP_SABER_DEFENSE]`.
     pub saber_defense: u8,
-    /// [`would_dodge`]: the shot passes as if it missed.
-    pub dodges: bool,
 }
 
 /// What a blow came to, for the shot that goes on.
@@ -100,9 +96,15 @@ pub trait DisruptorTargets {
     fn trace(&mut self, skip: u16, start: [f32; 3], end: [f32; 3], mask: u32) -> MovementTrace;
     /// A player entity's view, `None` for anything else (the world takes no damage).
     fn player(&self, number: u16) -> Option<StruckPlayer>;
+    /// `Jedi_DodgeEvasion(other, shooter, &tr, G_GetHitLocation(other, point))` for what
+    /// the shot struck at `point`: whether it dodged, the dodge taken on itself.
+    fn dodges(&mut self, number: u16, point: [f32; 3]) -> bool;
     /// `WP_SaberCanBlock(other, point, 0, mod, qtrue, 0)`.
     fn can_block(&mut self, number: u16, point: [f32; 3]) -> bool;
-    /// `G_Damage` on `number` (and, before it, `LogAccuracyHit` where the shot counts).
+    /// What the shot makes of `number` (`g_entities[tr.entityNum]`).
+    fn target(&mut self, number: u16) -> ShotTarget;
+    /// `G_Damage` on `number`, whatever it is (and, before it, `LogAccuracyHit` where the
+    /// shot counts).
     fn hurt(&mut self, number: u16, request: DamageRequest) -> Blow;
     /// The disintegration of a player a full charge killed: the flag, the point, the
     /// poses restored, the body made passable, the velocity cleared.
@@ -138,18 +140,6 @@ impl Shooter<'_> {
     }
 }
 
-/// `Jedi_DodgeEvasion`'s gate for a player: Force Sight active at level 3 (`g_forceDodge`
-/// 1), alive, on the ground, the weapon free and the hand not extended. The dodge
-/// itself is not ported: nobody has Sight active yet.
-pub fn would_dodge(target: &PlayerState, alive: bool) -> bool {
-    alive
-        && target.force_powers_active() & FP_SEE != 0
-        && target.ground_entity_num() != 1_023
-        && target.weapon_time() <= 0
-        && target.force_hand_extend() == 0
-        && target.raw_field(PS_SEE_LEVEL).unwrap_or(0) >= 3
-}
-
 fn temp(event: u32, origin: [f32; 3], parameter: u32) -> EventEntity {
     EventEntity {
         event,
@@ -182,14 +172,17 @@ pub fn fire_main(shooter: &Shooter, level_time: i32, targets: &mut dyn Disruptor
     for _ in 0..10 {
         trace = targets.trace(ignore, start, end, MASK_SHOT);
         let struck = trace.entity_number;
-        let Some(player) = targets.player(struck) else {
-            break;
-        };
-        if player.duelling_another || player.dodges {
+        let player = targets.player(struck);
+        if player.is_some_and(|player| player.duelling_another)
+            || targets.dodges(struck, trace.end_position)
+        {
             start = trace.end_position;
             ignore = struck;
             continue;
         }
+        let Some(player) = player else {
+            break;
+        };
         if player.saber_defense >= 3 && targets.can_block(struck, trace.end_position) {
             targets.raise(beam(
                 EV_DISRUPTOR_MAIN_SHOT,
@@ -213,7 +206,8 @@ pub fn fire_main(shooter: &Shooter, level_time: i32, targets: &mut dyn Disruptor
         return;
     }
     let struck = trace.entity_number;
-    if struck < ENTITY_WORLD && targets.player(struck).is_some() {
+    let target = targets.target(struck);
+    if struck < ENTITY_WORLD && target.takes_damage {
         targets.hurt(
             struck,
             DamageRequest {
@@ -231,7 +225,7 @@ pub fn fire_main(shooter: &Shooter, level_time: i32, targets: &mut dyn Disruptor
             trace.end_position,
             u32::from(legacy_direction_to_byte(trace.plane_normal)),
         );
-        if struck < MAX_CLIENTS {
+        if target.client {
             hit.extra[0] = (ES_WEAPON, 1);
         }
         targets.raise(hit);
@@ -307,12 +301,14 @@ pub fn fire_alt(shooter: &Shooter, level_time: i32, targets: &mut dyn DisruptorT
         }
         let render_impact = trace.surface_flags & SURF_NOIMPACT == 0;
         let player = targets.player(struck);
+        if player.is_some_and(|player| player.duelling_another)
+            || targets.dodges(struck, trace.end_position)
+        {
+            skip = struck;
+            start = trace.end_position;
+            continue;
+        }
         if let Some(player) = player {
-            if player.duelling_another || player.dodges {
-                skip = struck;
-                start = trace.end_position;
-                continue;
-            }
             if player.saber_defense >= 3 && targets.can_block(struck, trace.end_position) {
                 let mut shot = beam(
                     EV_DISRUPTOR_SNIPER_SHOT,
@@ -337,53 +333,45 @@ pub fn fire_alt(shooter: &Shooter, level_time: i32, targets: &mut dyn DisruptorT
             targets.raise(shot);
             break;
         }
-        let Some(_) = player else {
-            // The world (or a mover, a glass brush: not here yet).
-            targets.raise(shot);
-            targets.raise(temp(
-                EV_DISRUPTOR_SNIPER_MISS,
-                trace.end_position,
-                u32::from(legacy_direction_to_byte(trace.plane_normal)),
-            ));
-            break;
+        let request = DamageRequest {
+            level_time,
+            attacker: Some(shooter.attacker),
+            direction: Some(forward),
+            point: Some(trace.end_position),
+            damage,
+            flags: DAMAGE_NO_KNOCKBACK,
+            means: MOD_DISRUPTOR_SNIPER,
         };
-        if struck < MAX_CLIENTS {
-            shot.extra[4] = (ES_OTHER_ENTITY, u32::from(struck));
+        let direction = u32::from(legacy_direction_to_byte(trace.plane_normal));
+        let target = targets.target(struck);
+        if !(target.takes_damage && target.client) {
+            // Glass, a mover or anything else that takes damage is hurt and ends the shot;
+            // the world takes the miss mark.
+            targets.raise(shot);
+            if target.takes_damage {
+                targets.hurt(struck, request);
+                targets.raise(temp(EV_DISRUPTOR_HIT, trace.end_position, direction));
+            } else if !target.glass_or_mover {
+                targets.raise(temp(
+                    EV_DISRUPTOR_SNIPER_MISS,
+                    trace.end_position,
+                    direction,
+                ));
+            }
+            break;
         }
+        shot.extra[4] = (ES_OTHER_ENTITY, u32::from(struck));
         targets.raise(shot);
-        if struck < MAX_CLIENTS {
-            let mut miss = temp(
-                EV_MISSILE_MISS,
-                trace.end_position,
-                u32::from(legacy_direction_to_byte(trace.plane_normal)),
-            );
-            miss.extra[0] = (ES_EFLAGS, EF_ALT_FIRING);
-            targets.raise(miss);
-        }
+        let mut miss = temp(EV_MISSILE_MISS, trace.end_position, direction);
+        miss.extra[0] = (ES_EFLAGS, EF_ALT_FIRING);
+        targets.raise(miss);
         let poses = targets.poses(struck);
-        let blow = targets.hurt(
-            struck,
-            DamageRequest {
-                level_time,
-                attacker: Some(shooter.attacker),
-                direction: Some(forward),
-                point: Some(trace.end_position),
-                damage,
-                flags: DAMAGE_NO_KNOCKBACK,
-                means: MOD_DISRUPTOR_SNIPER,
-            },
-        );
+        let blow = targets.hurt(struck, request);
         if blow.killed && full_charge {
             targets.disintegrate(struck, trace.end_position, poses);
         }
-        let mut hit = temp(
-            EV_DISRUPTOR_HIT,
-            trace.end_position,
-            u32::from(legacy_direction_to_byte(trace.plane_normal)),
-        );
-        if struck < MAX_CLIENTS {
-            hit.extra[0] = (ES_WEAPON, 1);
-        }
+        let mut hit = temp(EV_DISRUPTOR_HIT, trace.end_position, direction);
+        hit.extra[0] = (ES_WEAPON, 1);
         targets.raise(hit);
         muzzle = trace.end_position;
         start = trace.end_position;

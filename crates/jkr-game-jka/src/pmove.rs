@@ -105,6 +105,9 @@ pub struct MoveContext<'a> {
     pub sabers: crate::saber_info::Sabers,
     pub gametype: i32,
     pub saber_throws: bool,
+    /// The kind of the mover's duel (jaPRO's `dueltypes`): the weapon a duel holds it to,
+    /// and the Force duel's saber throw.
+    pub duel_kind: crate::duel_kind::DuelKind,
     pub bodies: &'a dyn Fn(u16) -> Option<u16>,
     /// Whether entity `number` is an NPC and no vehicle (`PM_BGEntForNum`'s `s.eType ==
     /// ET_NPC`): what stands on one is bounced off its head.
@@ -156,16 +159,52 @@ impl MoveContext<'static> {
         sabers: crate::saber_info::Sabers::STOCK,
         gametype: 0,
         saber_throws: false,
+        duel_kind: crate::duel_kind::DuelKind::Saber,
         bodies: &no_bodies,
         npcs: &no_npcs,
         foot_bolts: &no_foot_bolts,
     };
 }
 
+/// What a rocket lock's trace struck ([`MovementCollision::lock_target`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LockTarget {
+    /// A player or an NPC, a vehicle too (`ET_PLAYER`, `ET_NPC`): it can be locked on.
+    Lockable,
+    /// Anything under a cloak (`PW_CLOAKED`), which drops the lock at once.
+    Cloaked,
+    /// Anything else.
+    Other,
+}
+
+/// [`MovementCollision::lock_target`] without the entities' states: the players by number,
+/// nothing else.
+pub fn players_by_number(number: u16) -> LockTarget {
+    if number < 32 {
+        LockTarget::Lockable
+    } else {
+        LockTarget::Other
+    }
+}
+
 pub trait MovementCollision {
+    /// What `PM_RocketLock` reads of entity `number`, struck by its trace
+    /// (`PM_BGEntForNum`: `s.powerups`' `PW_CLOAKED` first, then `s.eType`). Without the
+    /// entities' states, a client's prediction knows the players by number alone.
+    fn lock_target(&self, number: u16) -> LockTarget {
+        players_by_number(number)
+    }
     /// Contents for PM_SetWaterLevel and ledge probes; dry synthetic worlds may omit it.
     fn point_contents(&self, _point: [f32; 3]) -> u32 {
         0
+    }
+    /// `PM_ClientImpact` (`bg_slidemove.c:604-641`), which only the game compiles: a
+    /// player's move struck `entity` moving at `velocity`, last on the ground at
+    /// `last_on_ground`. Returns whether `entity` is out of the way now — broken by the
+    /// blow — so that the move carries on through it. A prediction breaks nothing, which is
+    /// the default.
+    fn client_impact(&self, _entity: u16, _velocity: [f32; 3], _last_on_ground: i32) -> bool {
+        false
     }
     fn trace(
         &self,
@@ -199,6 +238,20 @@ pub struct MovementConfig {
     /// (`g_fixSaberMoveData`, `g_fixWeaponAttackAnim`, `g_fixRunWalkAnims`, bits 0-2).
     /// A retail server publishes none and runs none.
     pub legacy_fixes: u32,
+    /// jaPRO's `g_flagDrag`: a flag carrier off the ground loses this tenth of its speed a
+    /// second ([`Predictor::set_flag_drag`]); 0, as everywhere but on such a server's own
+    /// `Pmove` (`#ifdef _GAME`), is none.
+    pub flag_drag: f32,
+    /// jaPRO's gun game: the fire mode a player's rung allows, which the server's own
+    /// `PM_Weapon` forces ([`crate::gun_game::force_fire`], [`Predictor::set_forced_fire`]).
+    pub forced_fire: crate::gun_game::FireMode,
+    /// `g_debugMelee` (`pm->debugMelee`; a client's from `CS_SERVERINFO`): fists kick on the
+    /// alternate attack and grab on both ([`crate::pmove_melee`]), and a grabbed wall is
+    /// held while the jump is.
+    pub debug_melee: bool,
+    /// The server's `grappleState` for the mover: already in a grapple, so `TryGrapple`
+    /// grabs at nothing ([`Predictor::set_melee_rules`]).
+    pub grappling: bool,
 }
 
 impl Default for MovementConfig {
@@ -214,6 +267,10 @@ impl Default for MovementConfig {
             authoritative: false,
             // The reference server's cvar defaults: every fix on.
             legacy_fixes: 0b111,
+            flag_drag: 0.0,
+            forced_fire: crate::gun_game::FireMode::Both,
+            debug_melee: false,
+            grappling: false,
         }
     }
 }
@@ -342,6 +399,10 @@ pub struct MovementState {
     /// `footstepTime`, which is not on the wire either: until when the last step is heard
     /// (the bots' hearing reads it).
     pub footstep_time: i32,
+    /// `lastOnGround`, no wire field: the command time at which `PM_GroundTrace` last found
+    /// ground to walk on. A player's impact on a breakable reads it ([`MovementCollision::
+    /// client_impact`]).
+    pub last_on_ground: i32,
     pub forced_saber: bool,
     pub weapon: u8,
     pub weapon_state: u8,
@@ -368,6 +429,9 @@ pub struct MovementState {
     /// `fd.forceJumpSound`: a Force jump began since the game last looked, which the game
     /// sounds (`PDSOUND_FORCEJUMP`) at its next Force update. Not on the wire.
     pub force_jump_sound: bool,
+    /// `TryGrapple` began a grab since the game last looked (its `dangerTime`). Not on the
+    /// wire.
+    pub grab_started: bool,
     /// Number of holstered saber blades from player state.
     pub saber_holstered: u8,
     /// Whether the saber entity is currently in flight.
@@ -603,6 +667,7 @@ impl MovementState {
             rocket_target_time: f32::from_bits(player.raw_field(71).unwrap_or(0)),
             rocket_last_valid_time: 0.0,
             footstep_time: 0,
+            last_on_ground: 0,
             forced_saber: player.is_jedi_master()
                 || player.is_true_jedi()
                 || player.duel_in_progress(),
@@ -618,6 +683,7 @@ impl MovementState {
             slope_recalc_time: 0,
             read_foot_bolts: false,
             force_jump_sound: false,
+            grab_started: false,
             saber_holstered: player.saber_holstered(),
             saber_in_flight: player.saber_in_flight(),
             saber_entity_num: player.saber_entity_num(),
@@ -801,6 +867,35 @@ impl Predictor {
         self.config.roll_rules = rules;
     }
 
+    /// jaPRO's `g_flagDrag` for the server's own moves ([`MovementConfig::flag_drag`]).
+    pub fn set_flag_drag(&mut self, drag: f32) {
+        self.config.flag_drag = drag;
+    }
+
+    /// jaPRO's gun game fire mode for the server's own moves
+    /// ([`MovementConfig::forced_fire`]).
+    pub fn set_forced_fire(&mut self, fire: crate::gun_game::FireMode) {
+        self.config.forced_fire = fire;
+    }
+
+    /// `g_debugMelee` and whether the mover is in a grapple, for the server's own moves
+    /// ([`MovementConfig::debug_melee`], [`MovementConfig::grappling`]).
+    pub fn set_melee_rules(&mut self, debug_melee: bool, grappling: bool) {
+        self.config.debug_melee = debug_melee;
+        self.config.grappling = grappling;
+    }
+
+    /// The `CS_LEGACY_FIXES` mask the server runs (`g_fixSaberMoveData`,
+    /// `g_fixWeaponAttackAnim`, `g_fixRunWalkAnims`), for its own moves.
+    pub fn set_legacy_fixes(&mut self, legacy_fixes: u32) {
+        self.config.legacy_fixes = legacy_fixes;
+    }
+
+    /// The server's movement variables for its next move ([`crate::pmove_rules::MoveCvars`]).
+    pub fn set_move_cvars(&mut self, cvars: crate::pmove_rules::MoveCvars) {
+        self.config.apply_move_cvars(cvars);
+    }
+
     /// Refresh movement policy without discarding the replay state.
     pub fn set_config(&mut self, config: MovementConfig) {
         self.config = config;
@@ -878,6 +973,7 @@ impl Predictor {
         // server's copies are the only ones.
         fresh.state.rocket_last_valid_time = self.state.rocket_last_valid_time;
         fresh.state.footstep_time = self.state.footstep_time;
+        fresh.state.last_on_ground = self.state.last_on_ground;
         fresh.state.saber_anim_level_base = self.state.saber_anim_level_base;
         fresh.copied_to_entity();
         fresh
@@ -1025,6 +1121,12 @@ impl Predictor {
     /// clears it.
     pub fn take_force_jump_sound(&mut self) -> bool {
         std::mem::take(&mut self.state.force_jump_sound)
+    }
+
+    /// Whether `TryGrapple` began a grab since the last call
+    /// ([`MovementState::grab_started`]); clears it.
+    pub fn take_grab_started(&mut self) -> bool {
+        std::mem::take(&mut self.state.grab_started)
     }
 
     pub fn state(&self) -> &MovementState {
@@ -1337,9 +1439,14 @@ impl Predictor {
         // `BG_VehicleAdjustBBoxForOrientation` (`bg_pmove.c:10814-10818`).
         let bounds = self.vehicle_box(bounds, collision);
         self.box_bounds = (bounds.minimums, bounds.maximums);
-        // A wall run falls at half gravity (`bg_pmove.c:10726-10730`), until the slice ends.
+        // A jetpack's gravity is lightened and it climbs or hovers (`bg_pmove.c:10712-10811`);
+        // a wall run falls at half gravity (`:10726-10730`); either until the slice ends.
         let gravity = self.state.gravity;
-        if self.slow_fall {
+        if jetpack::active(&self.state) {
+            let ground_distance = jetpack::ground_distance(&self.state, bounds, collision);
+            self.state.gravity = jetpack::lightened_gravity(gravity, ground_distance);
+            jetpack::steer(&mut self.state, &command, ground_distance);
+        } else if self.slow_fall {
             self.state.gravity = wall_moves::halved_gravity(gravity);
         }
         self.state.legs_timer_at_entry = self.state.legs_timer;
@@ -1450,6 +1557,11 @@ impl Predictor {
             );
         }
         self.sample_water(collision);
+        // jaPRO's gun game (`forcedFireMode`, at the top of the server's `PM_Weapon`): the
+        // button a rung forbids fires the other, for the rest of the move too.
+        if !self.npc_without_weapon(&command) {
+            crate::gun_game::force_fire(&mut command.buttons, self.config.forced_fire);
+        }
         if self.npc_without_weapon(&command) {
             // `PM_Weapon` returned at its first lines (`bg_pmove.c:6668-6682`).
         } else if self.piloted_vehicle() {
@@ -1461,6 +1573,7 @@ impl Predictor {
                 millis,
                 self.animation_lengths.as_deref(),
                 &mut self.events,
+                Some(collision),
             );
         } else if predict_weapon {
             let buttons = crate::pmove_weapon::advance_events_in(
@@ -1474,6 +1587,7 @@ impl Predictor {
                 context,
                 (bounds.minimums, bounds.maximums),
                 self.config.legacy_fixes,
+                crate::pmove_melee::MeleeRules::of(&self.config),
                 opponent,
                 outcome,
             );
@@ -1516,7 +1630,7 @@ impl Predictor {
         if self.config.snap_velocity {
             self.state.velocity = self.state.velocity.map(f32::round_ties_even);
         }
-        if self.slow_fall {
+        if jetpack::active(&self.state) || self.slow_fall {
             self.state.gravity = gravity;
         }
         // `AttachRiders` (`bg_pmove.c:11138-11154`).
@@ -1686,9 +1800,13 @@ impl Predictor {
             end,
             PLAYER_CONTENT_MASK,
         );
-        // PM_FLOAT always takes PM_GroundTraceMissed, even above a floor
-        // (bg_pmove.c:4137-4143); it must not acquire walking friction/land timers.
-        if trace.all_solid || trace.fraction == 1.0 || self.state.movement_type == 2 {
+        // PM_FLOAT and PM_JETPACK always take PM_GroundTraceMissed, even above a floor
+        // (bg_pmove.c:4137-4143); they must not acquire walking friction/land timers.
+        if trace.all_solid
+            || trace.fraction == 1.0
+            || self.state.movement_type == 2
+            || jetpack::active(&self.state)
+        {
             if !trace.all_solid
                 && let Some(lengths) = self.animation_lengths.as_deref()
             {
@@ -1734,6 +1852,7 @@ impl Predictor {
             };
         }
         self.state.ground_entity_number = trace.entity_number;
+        self.state.last_on_ground = command.server_time;
         // `PM_AddTouchEnt(trace.entityNum)` (`bg_pmove.c:4244`): what a player stands on
         // is touched, which is how a lift knows somebody is riding it.
         self.touched.add(trace.entity_number);
@@ -1888,10 +2007,14 @@ impl Predictor {
         let (forward, right) = (vector_normalize(forward), vector_normalize(right));
         // A hovering vehicle has air control along its `moveDir` (`bg_pmove.c:3087-3095`).
         let (wish_direction, wish_speed) = self.vehicle_air_wish().unwrap_or_else(|| {
+            let steered =
+                forward * f32::from(command.forward_move) + right * f32::from(command.right_move);
             let wish_velocity = if self.slow_fall {
                 Vec3::ZERO
+            } else if jetpack::active(&self.state) {
+                steered * jetpack::air_control(command.up_move)
             } else {
-                forward * f32::from(command.forward_move) + right * f32::from(command.right_move)
+                steered
             };
             (
                 vector_normalize(wish_velocity),
@@ -2020,6 +2143,18 @@ impl Predictor {
             self.touched.add(trace.entity_number);
             self.record_vehicle_impact(&trace, &mut velocity, seconds);
             bumped = true;
+            // A player's `PM_ClientImpact` (`bg_slidemove.c:739-746`): what the blow broke
+            // is passed through, the rest of the time left as it was.
+            if self.state.client_num < MAX_CLIENTS
+                && trace.entity_number < ENTITY_NUMBER_WORLD
+                && collision.client_impact(
+                    trace.entity_number,
+                    velocity.to_array(),
+                    self.state.last_on_ground,
+                )
+            {
+                continue;
+            }
             time_left -= time_left * trace.fraction;
             if plane_count >= planes.len() {
                 self.state.velocity = [0.0; 3];
@@ -2222,6 +2357,9 @@ mod force_jump;
 
 #[path = "pmove_jump.rs"]
 mod jump;
+
+#[path = "pmove_jetpack.rs"]
+pub mod jetpack;
 
 #[path = "pmove_wall_moves.rs"]
 mod wall_moves;

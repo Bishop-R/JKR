@@ -8,11 +8,13 @@ pub(crate) struct Catalog {
 
     mesh_by_item: [Option<usize>; ITEM_COUNT],
     pub(super) holo_mesh: Option<usize>,
+    /// The jetpack a carrier wears, and its flame bolts.
+    pub(crate) jetpack: Option<crate::actor_world_submission::jetpack::JetpackModel>,
 }
 
 impl Catalog {
     /// Resolve item and carrier appearances once against successfully loaded rigid meshes.
-    pub(crate) fn build(meshes: &[StaticModelMesh]) -> Self {
+    pub(crate) fn build(meshes: &[StaticModelMesh], vfs: &VirtualFileSystem) -> Self {
         let mesh_by_item = std::array::from_fn(|item_index| {
             let appearance = legacy_item_appearance(item_index as i16)?;
             meshes.iter().position(|mesh| mesh.appearance == appearance)
@@ -32,11 +34,12 @@ impl Catalog {
 
             mesh_by_item,
             holo_mesh,
+            jetpack: crate::actor_world_submission::jetpack::JetpackModel::build(vfs, meshes),
         }
     }
 
     /// Return the retained item handle without a runtime model-name search.
-    pub(super) fn mesh(&self, item_index: usize) -> Option<usize> {
+    pub(crate) fn mesh(&self, item_index: usize) -> Option<usize> {
         self.mesh_by_item.get(item_index).copied().flatten()
     }
 }

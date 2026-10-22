@@ -128,6 +128,7 @@ impl ClientSession {
             scores: Vec::new(),
             team_scores: [0; 2],
             team_info: TeamInfoTable::default(),
+            siege_extended: Default::default(),
             base_command_events: VecDeque::with_capacity(64),
             unknown_command_names: Vec::new(),
             compat_profile,

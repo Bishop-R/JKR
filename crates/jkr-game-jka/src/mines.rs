@@ -139,6 +139,9 @@ pub struct Charge {
     pub number: u16,
     /// `SVF_OWNERNOTSHARED`, set once stuck: its owner runs into it and can shoot it.
     pub owner_not_shared: bool,
+    /// `target_ent`: the still breakable brush a det pack stuck to, which its blow hits
+    /// directly (`DetPackBlow`).
+    pub attached: Option<u16>,
 }
 
 /// The wire fields of a charge, as the transcript prints them (`s.time` and the rest
@@ -283,6 +286,7 @@ pub fn place_laser_trap(
         linked: true,
         number: 0,
         owner_not_shared: false,
+        attached: None,
     }
 }
 
@@ -370,6 +374,7 @@ pub fn drop_det_pack(
         linked: true,
         number: 0,
         owner_not_shared: false,
+        attached: None,
     }
 }
 
@@ -431,11 +436,50 @@ pub fn blow_det_packs<K>(
     true
 }
 
+/// `RemoveDetpacks` (`g_weapon.c`), a Siege team change's in place of [`blow_det_packs`]:
+/// with `hasDetPackPlanted`, every det pack of `owner`'s is freed at its next think, now,
+/// and the flag cleared. Returns whether any were.
+pub fn remove_det_packs<K>(
+    state: &mut PlayerState,
+    charges: &mut [(K, Charge)],
+    level_time: i32,
+) -> bool {
+    if state.raw_field(PS_HAS_DETPACK_PLANTED).unwrap_or(0) == 0 {
+        return false;
+    }
+    for (_, charge) in charges.iter_mut() {
+        if charge.kind != Kind::DetPack || charge.missile.owner != state.client_num() {
+            continue;
+        }
+        write_vector(&mut charge.missile.state, ES_ORIGIN, charge.missile.current);
+        charge.phase = Phase::Freeing;
+        charge.next_think = level_time;
+    }
+    state.set_raw_field(PS_HAS_DETPACK_PLANTED, 0);
+    true
+}
+
 /// What a frame's run needs beyond the world: the sound table and where a temp entity
 /// goes.
 pub struct ChargeFrame<'a> {
     pub sounds: &'a mut dyn FnMut(&[u8]) -> u16,
     pub raise: &'a mut dyn FnMut(EventEntity),
+    /// What the entity of a number is to a det pack running into it.
+    pub struck: &'a dyn Fn(u16) -> Struck,
+}
+
+/// What a det pack ran into, as `charge_stick` sorts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Struck {
+    /// A perfectly still breakable brush (`FL_BBRUSH`, both trajectories stationary): it
+    /// sticks to it, and its blow hits it directly.
+    Breakable,
+    /// Another mover (`ET_MOVER`): it sticks when it lands on its top.
+    Mover,
+    /// A client, or anything without a weapon: it bounces off.
+    Bounce,
+    /// Anything else with a weapon (another charge, a missile): it blows at once.
+    Explode,
 }
 
 /// A player as a proximity mine sees it (`proxMineThink`): connected, playing, alive,
@@ -549,33 +593,56 @@ fn touch_laser_trap(
     }
 }
 
-/// `charge_stick` (`:2728-2833`): off a player (or anything without a weapon) it
-/// bounces — its delta pushed along the normal by a random tenth to whole of its own
-/// size on each axis — and stays touchable; off another projectile it blows at once
-/// (not here: nothing else flies through a det pack); on the world it sticks: primed to
-/// blow thirty seconds on (unless already primed), stationary where it is, turned along
-/// the normal, `count` -1, the stick sound and an `EV_MISSILE_MISS` temp entity (its
-/// owner off the wire).
+/// `charge_stick` (`:2728-2833`): on a still breakable brush it sticks and remembers
+/// the brush for its blow; on a mover's top it sticks, the mover its ground; off a
+/// player (or anything else without a weapon) it bounces — its delta pushed along the
+/// normal by a random tenth to whole of its own size on each axis — and stays
+/// touchable; off anything with a weapon it blows at once, along the normal. Where it
+/// sticks (the world, or the two above): primed to blow thirty seconds on (unless
+/// already primed), stationary where it is, turned along the normal, `count` -1, the
+/// stick sound and an `EV_MISSILE_MISS` temp entity (its owner off the wire). Returns
+/// the blow of one that blew.
 fn charge_stick(
     charge: &mut Charge,
     trace: &MovementTrace,
     level_time: i32,
     rng: &mut Rng,
     frame: &mut ChargeFrame,
-) {
-    if trace.entity_number < ENTITY_WORLD {
-        let normal = trace.plane_normal;
-        let delta = read_vector(&charge.missile.state, ES_POS_DELTA);
-        let magnitude = delta.map(f32::abs);
-        let mut pushed = delta;
-        for axis in 0..3 {
-            pushed[axis] += normal[axis] * (magnitude[axis] * (rng.irand(1, 10) as f32 * 0.1));
+) -> Option<ChargeRun> {
+    let other = (trace.entity_number < ENTITY_WORLD).then_some(trace.entity_number);
+    let struck = other.map(|other| (frame.struck)(other));
+    match struck {
+        Some(Struck::Breakable) => charge.attached = other,
+        Some(Struck::Mover) if trace.plane_normal[2] > 0.0 => {
+            charge
+                .missile
+                .state
+                .set_raw_field(ES_GROUND_ENTITY, u32::from(trace.entity_number));
         }
-        write_vector(&mut charge.missile.state, ES_POS_DELTA, pushed);
-        let (pitch, yaw) = vector_to_angles(normal);
-        write_vector(&mut charge.missile.state, ES_ANGLES, [pitch, yaw, 0.0]);
-        write_vector(&mut charge.missile.state, ES_APOS_BASE, [pitch, yaw, 0.0]);
-        return;
+        Some(Struck::Explode) => {
+            charge.touches = false;
+            let state = &mut charge.missile.state;
+            write_vector(state, ES_APOS_DELTA, [0.0; 3]);
+            state.set_raw_field(ES_APOS_TYPE, TR_STATIONARY);
+            charge.normal = trace.plane_normal;
+            charge.count = -1;
+            return Some(det_pack_blow(charge, level_time));
+        }
+        None => {}
+        Some(Struck::Mover | Struck::Bounce) => {
+            let normal = trace.plane_normal;
+            let delta = read_vector(&charge.missile.state, ES_POS_DELTA);
+            let magnitude = delta.map(f32::abs);
+            let mut pushed = delta;
+            for axis in 0..3 {
+                pushed[axis] += normal[axis] * (magnitude[axis] * (rng.irand(1, 10) as f32 * 0.1));
+            }
+            write_vector(&mut charge.missile.state, ES_POS_DELTA, pushed);
+            let (pitch, yaw) = vector_to_angles(normal);
+            write_vector(&mut charge.missile.state, ES_ANGLES, [pitch, yaw, 0.0]);
+            write_vector(&mut charge.missile.state, ES_APOS_BASE, [pitch, yaw, 0.0]);
+            return None;
+        }
     }
     if charge.phase == Phase::Flying {
         charge.touches = false;
@@ -609,6 +676,7 @@ fn charge_stick(
         broadcast: false,
         extra: [(0, 0); 12],
     });
+    None
 }
 
 /// `G_PlayEffect`: the effect's temp entity at `origin` with `direction` as its angles.
@@ -754,11 +822,11 @@ fn run_item(
         std::array::from_fn(|axis| (velocity[axis] + -2.0 * dot * normal[axis]) * 0.0);
     write_vector(state, ES_POS_DELTA, reflected);
     if charge.touches {
-        charge_stick(charge, &trace, level_time, rng, frame);
+        let blown = charge_stick(charge, &trace, level_time, rng, frame);
         return Some(if matches!(run, ChargeRun::Blown { .. }) {
             run
         } else {
-            ChargeRun::Moved
+            blown.unwrap_or(ChargeRun::Moved)
         });
     }
     if normal[2] > 0.0 && reflected[2] < 40.0 {
@@ -817,7 +885,9 @@ fn run_think(
                 && charge.touches
             {
                 if charge.kind == Kind::DetPack {
-                    charge_stick(charge, &trace, level_time, rng, frame);
+                    if let Some(blown) = charge_stick(charge, &trace, level_time, rng, frame) {
+                        return blown;
+                    }
                 } else {
                     touch_laser_trap(charge, &trace, level_time, frame);
                 }
@@ -964,4 +1034,179 @@ pub fn blast_request(charge: &Charge, level_time: i32, attacker: Attacker) -> (D
         },
         charge.missile.splash_radius,
     )
+}
+
+/// Charge `charge`, entity `number`, as a mover's push takes it: a det pack is a physics
+/// object (`drop_charge`, `g_weapon.c:2904`) that blocks a mover — hurt for 999 first while
+/// it can be (`takedamage`, its owner a player, under 500 health), which sets it off. A
+/// mine is fixed to its wall and no physics object. `None` for a mine or one unlinked.
+pub fn pushee(number: u16, charge: &Charge) -> Option<crate::path_movers::Pushee> {
+    if charge.kind != Kind::DetPack || !charge.linked {
+        return None;
+    }
+    let fragile = charge.takes_damage
+        && charge.missile.owner < MAX_CLIENTS
+        && (1..500).contains(&charge.health);
+    Some(crate::item_physics::pushee(
+        number,
+        &charge.missile.state,
+        charge.missile.bounds,
+        crate::path_movers::Fate::Blocks,
+        fragile,
+    ))
+}
+
+/// `G_TryPushingEntity` moving det pack `charge` to `to` ([`crate::item_physics::shove`]):
+/// one stuck to a mover's top rides it.
+pub fn shove(charge: &mut Charge, to: [f32; 3], carried: bool) {
+    let missile = &mut charge.missile;
+    crate::item_physics::shove(&mut missile.state, &mut missile.current, to, carried);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Client `client` with a det pack out, and a det pack each for it and client 7.
+    fn planted(client: u16) -> (PlayerState, Vec<((), Charge)>) {
+        let mut state = PlayerState::zero();
+        state.set_client_num(client);
+        state.set_raw_field(PS_HAS_DETPACK_PLANTED, 1);
+        let mut other = PlayerState::zero();
+        other.set_client_num(7);
+        let mut rand = CrtRand::new(1);
+        let mut drop = |state: &PlayerState, x: f32| {
+            let mut charge = drop_det_pack(state, [x, 0.0, 0.0], [1.0, 0.0, 0.0], 9, 0, &mut rand);
+            charge.phase = Phase::Planted;
+            charge.next_think = 0;
+            ((), charge)
+        };
+        let charges = vec![drop(&state, 10.0), drop(&other, 20.0)];
+        (state, charges)
+    }
+
+    /// A det pack is a physics object a mover pushes, hurt first where it cannot be moved
+    /// on while it can be hurt; shoved, it lies where the mover put it.
+    #[test]
+    fn a_det_pack_is_pushed_and_broken_by_movers() {
+        let state = PlayerState::zero();
+        let mut rand = CrtRand::new(1);
+        let mut charge = drop_det_pack(&state, [0.0; 3], [1.0, 0.0, 0.0], 9, 0, &mut rand);
+        charge.linked = true;
+        let pushee = pushee(300, &charge).unwrap();
+        assert_eq!(pushee.fate, crate::path_movers::Fate::Blocks);
+        assert!(
+            pushee.fragile,
+            "a det pack can be hurt: {} health",
+            charge.health
+        );
+        shove(&mut charge, [4.0, 5.0, 6.0], false);
+        assert_eq!(charge.missile.current, [4.0, 5.0, 6.0]);
+        assert_eq!(pushee_origin(&charge), [4.0, 5.0, 6.0]);
+        charge.linked = false;
+        assert!(super::pushee(300, &charge).is_none());
+    }
+
+    fn pushee_origin(charge: &Charge) -> [f32; 3] {
+        ES_POS_BASE.map(|index| f32::from_bits(charge.missile.state.raw_field(index).unwrap()))
+    }
+
+    /// `charge_stick`: on a still breakable it sticks and keeps it for its blow; on a
+    /// mover's top it sticks with the mover its ground, off its side it bounces; into a
+    /// thing with a weapon it blows at once along the normal.
+    #[test]
+    fn a_det_pack_sticks_to_breakables_and_movers_and_blows_on_weapons() {
+        let state = PlayerState::zero();
+        let mut rand = CrtRand::new(1);
+        let mut rng = Rng(1);
+        let mut sticks = |struck: Struck, normal: [f32; 3]| {
+            let mut charge = drop_det_pack(&state, [0.0; 3], [1.0, 0.0, 0.0], 9, 0, &mut rand);
+            let trace = MovementTrace {
+                fraction: 0.5,
+                end_position: [8.0, 0.0, 0.0],
+                plane_normal: normal,
+                surface_flags: 0,
+                start_solid: false,
+                all_solid: false,
+                entity_number: 77,
+            };
+            let mut frame = ChargeFrame {
+                sounds: &mut |_| 1,
+                raise: &mut |_| {},
+                struck: &|number| {
+                    assert_eq!(number, 77);
+                    struck
+                },
+            };
+            let run = charge_stick(&mut charge, &trace, 1_000, &mut rng, &mut frame);
+            (charge, run)
+        };
+        let (on_brush, run) = sticks(Struck::Breakable, [-1.0, 0.0, 0.0]);
+        assert_eq!(
+            (on_brush.attached, on_brush.count, run),
+            (Some(77), -1, None)
+        );
+        assert_eq!(on_brush.phase, Phase::Planted);
+        let (on_lift, _) = sticks(Struck::Mover, [0.0, 0.0, 1.0]);
+        assert_eq!(on_lift.missile.state.raw_field(ES_GROUND_ENTITY), Some(77));
+        assert_eq!((on_lift.count, on_lift.attached), (-1, None));
+        let (off_door, _) = sticks(Struck::Mover, [-1.0, 0.0, 0.0]);
+        assert_eq!((off_door.count, off_door.phase), (0, Phase::Flying));
+        let (into_mine, run) = sticks(Struck::Explode, [-1.0, 0.0, 0.0]);
+        assert!(matches!(run, Some(ChargeRun::Blown { .. })));
+        assert_eq!((into_mine.count, into_mine.normal), (-1, [-1.0, 0.0, 0.0]));
+    }
+
+    #[test]
+    fn a_death_blows_the_players_det_packs_and_a_siege_team_change_frees_them() {
+        let (mut state, mut charges) = planted(3);
+        let (mut sounds, mut raised) = (Vec::new(), 0);
+        let mut frame = ChargeFrame {
+            sounds: &mut |name| {
+                sounds.push(name.to_vec());
+                5
+            },
+            raise: &mut |_| raised += 1,
+            struck: &|_| Struck::Bounce,
+        };
+        assert!(blow_det_packs(
+            &mut state,
+            &mut charges,
+            1_000,
+            &mut Rng(0),
+            &mut frame
+        ));
+        assert_eq!(state.raw_field(PS_HAS_DETPACK_PLANTED), Some(0));
+        // With the flag down there is nothing more to blow.
+        let before = charges.clone();
+        assert!(!blow_det_packs(
+            &mut state,
+            &mut charges,
+            1_000,
+            &mut Rng(0),
+            &mut frame
+        ));
+        assert_eq!(charges, before);
+        let blowing = &charges[0].1;
+        assert_eq!(blowing.phase, Phase::Planted);
+        assert!((1_100..=1_300).contains(&blowing.next_think));
+        assert_eq!(read_vector(&blowing.missile.state, ES_ORIGIN)[0], 6.0);
+        assert_eq!(charges[1].1.next_think, 0);
+        assert_eq!(
+            (sounds, raised),
+            (vec![b"sound/weapons/detpack/warning.wav".to_vec()], 1)
+        );
+
+        let (mut state, mut charges) = planted(3);
+        assert!(remove_det_packs(&mut state, &mut charges, 2_000));
+        assert_eq!(
+            (charges[0].1.phase, charges[0].1.next_think),
+            (Phase::Freeing, 2_000)
+        );
+        assert_eq!(
+            (charges[1].1.phase, charges[1].1.next_think),
+            (Phase::Planted, 0)
+        );
+        assert_eq!(state.raw_field(PS_HAS_DETPACK_PLANTED), Some(0));
+    }
 }

@@ -40,6 +40,8 @@ pub trait LegacyConsoleHost {
     fn status(&self) -> LegacyConsoleStatus<'_>;
     /// `Cvar_InfoString(CVAR_SERVERINFO)`.
     fn server_info(&self) -> &[u8];
+    /// `Cvar_InfoString_Big(CVAR_SYSTEMINFO)`.
+    fn system_info(&self) -> Vec<u8>;
     /// A kick: `SV_DropClient` (which leaves a zombie alone), then the client's
     /// `lastPacketTime` set to now so that its zombie time runs from the kick.
     fn kick(&mut self, client: usize, reason: &[u8]);
@@ -68,6 +70,17 @@ pub trait LegacyConsoleHost {
     fn start_demo(&mut self, client: usize, name: &[u8], path: &str) -> bool;
     /// End the client's demo (`SV_StopRecordDemo`).
     fn stop_demo(&mut self, client: usize);
+    /// The name of the client's demo being recorded, if one is.
+    fn demo_name(&self, client: usize) -> Option<&[u8]>;
+    /// TaystJK's `svdemometa`: a key of the client's demo metadata set, or taken out when
+    /// `value` is empty.
+    fn set_demo_meta(&mut self, client: usize, key: &str, value: &str);
+    /// TaystJK's `svdemoclearmeta`: none of the client's metadata kept.
+    fn clear_demo_meta(&mut self, client: usize);
+    /// TaystJK's `svdemoclearprerecord`: none of the client's messages kept.
+    fn clear_demo_pre_record(&mut self, client: usize);
+    /// `FS_Rename` among the server's own files.
+    fn rename_file(&mut self, from: &str, to: &str);
     /// `FS_FileExists` among the server's own files.
     fn file_exists(&mut self, path: &str) -> bool;
     /// The local date and time, `%Y-%m-%d_%H-%M-%S`.
@@ -220,7 +233,7 @@ pub fn execute_legacy_console(
     // The commands that need a running server (`com_sv_running`): most say so, the ban
     // file's reading and `svrecord` in their own way.
     if !host.running() {
-        const NEEDS_SERVER: [&[u8]; 16] = [
+        const NEEDS_SERVER: [&[u8]; 17] = [
             b"status",
             b"kick",
             b"kickbots",
@@ -230,6 +243,7 @@ pub fn execute_legacy_console(
             b"svsay",
             b"svtell",
             b"serverinfo",
+            b"systeminfo",
             b"dumpuser",
             b"sv_banaddr",
             b"sv_exceptaddr",
@@ -248,6 +262,16 @@ pub fn execute_legacy_console(
         if is(b"svrecord") {
             print(b"cannot record server demo - null svs.clients\n");
             return;
+        }
+        for (command, text) in [
+            (&b"svdemometa"[..], &b"Can't set demo metadata"[..]),
+            (b"svdemoclearmeta", b"Can't clear demo metadata"),
+            (b"svdemoclearprerecord", b"Can't clear demo pre-record"),
+        ] {
+            if is(command) {
+                print(&[text, b", svs.clients is null\n"].concat());
+                return;
+            }
         }
     }
     if is(b"echo") {
@@ -276,6 +300,9 @@ pub fn execute_legacy_console(
     } else if is(b"serverinfo") {
         print(b"Server info settings:\n");
         info_print(host.server_info(), print);
+    } else if is(b"systeminfo") {
+        print(b"System info settings:\n");
+        info_print(&host.system_info(), print);
     } else if is(b"dumpuser") {
         commands::dump_user(host, &arguments, print);
     } else if is(b"sv_rehashbans") {
@@ -300,6 +327,16 @@ pub fn execute_legacy_console(
         demos::record(host, &arguments, print);
     } else if is(b"svstoprecord") {
         demos::stop(host, &arguments, print);
+    } else if is(b"svdemometa") {
+        demos::meta(host, &arguments, print);
+    } else if is(b"svdemoclearmeta") {
+        demos::clear_meta(host, &arguments, print);
+    } else if is(b"svdemoclearprerecord") {
+        demos::clear_pre_record(host, &arguments, print);
+    } else if is(b"svrenamedemo") {
+        demos::rename(host, &arguments);
+    } else if is(b"sv_listrecording") {
+        demos::list(host, print);
     } else {
         host.game_command(line, print);
     }

@@ -13,19 +13,14 @@ use super::super::*;
 use jkr_game_jka::emplaced::{self, Blast, EmplacedGun, GunThink, Gunner, Used};
 use jkr_game_jka::try_heal::{Heal, try_heal};
 
-/// `WP_EMPLACED_GUN`; `GT_SIEGE`; `MOD_UNKNOWN`; `EV_GENERAL_SOUND`; `ES_SOLID`,
-/// `ES_EVENT`.
+/// `WP_EMPLACED_GUN`; `GT_SIEGE`; `MOD_UNKNOWN`; `ES_SOLID`, `ES_EVENT`.
 const WP_EMPLACED_GUN: u8 = 17;
 const GT_SIEGE: i32 = 7;
 const MOD_UNKNOWN: u32 = 0;
-const EV_GENERAL_SOUND: u32 = 76;
 const ES_SOLID: usize = 26;
 const ES_EVENT: usize = 28;
 /// `EVENT_VALID_MSEC`.
 const EVENT_VALID_MSEC: i32 = 300;
-/// `SETANIM_TORSO`, `SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD`.
-const SETANIM_TORSO: u8 = 2;
-const OVERRIDE_HOLD: u8 = 1 | 2;
 
 /// The level's guns and what their shots are credited to.
 #[derive(Default)]
@@ -63,6 +58,7 @@ impl Mounted {
                 bounds: emplaced::BOUNDS,
                 contents: emplaced::CONTENTS_SOLID,
                 model: None,
+                linked_box: None,
             })
     }
 
@@ -294,21 +290,7 @@ impl NativeGame {
         if gametype == GT_SIEGE && allied != 0 && allied == peer.session.team {
             return true;
         }
-        if matches!(
-            peer.state.torso_animation(),
-            jkr_game_jka::try_heal::BOTH_BUTTON_HOLD | jkr_game_jka::try_heal::BOTH_CONSOLE1
-        ) {
-            peer.state.set_raw_field(20, 500);
-        } else {
-            peer.movement.set_animation_parts(
-                SETANIM_TORSO,
-                jkr_game_jka::try_heal::BOTH_BUTTON_HOLD,
-                OVERRIDE_HOLD,
-            );
-            peer.movement.write_player_state(&mut peer.state);
-        }
-        let torso_timer = peer.state.torso_timer();
-        peer.state.set_raw_field(10, torso_timer as u32);
+        super::super::bridge_use::hold_use_pose(peer, true);
         let Self {
             server,
             world,
@@ -347,11 +329,7 @@ impl NativeGame {
     /// repairer held in the use pose.
     fn heal_gun(&mut self, client: usize, index: usize, level_time: i32) {
         let gametype = self.gametype;
-        // `bgSiegeClasses[client->siegeClass].name`: the class the player plays.
-        let class = self
-            .siege_class_of(client)
-            .map(|class| class.name)
-            .unwrap_or_default();
+        let class = self.healer_class(client);
         let gun = &mut self.mounted.guns[index].1;
         let (mut health, max) = (gun.health, gun.max_health);
         let healed = try_heal(
@@ -370,36 +348,11 @@ impl NativeGame {
             gun.state.set_raw_field(69, health.max(0) as u32);
             if let Some(sound) = gun.healing.sound.clone() {
                 let origin = gun.origin;
-                let (sounds, told) = (&mut self.sounds, &mut self.told);
-                let index = sounds.index(&sound, &mut |index, value| {
-                    told.push(Told::ConfigString {
-                        index,
-                        previous: Vec::new(),
-                        value: value.to_vec(),
-                    })
-                });
-                let event = jkr_game_jka::event_entity::EventEntity {
-                    event: EV_GENERAL_SOUND,
-                    parameter: u32::from(index),
-                    origin,
-                    client: None,
-                    broadcast: false,
-                    extra: [(0, 0); 12],
-                };
-                let _ = self.pool.spawn_temporary(event.state(), level_time, None);
+                self.healing_sound(&sound, origin, level_time);
             }
         }
         if let Some(peer) = self.peer_mut(client) {
-            match jkr_game_jka::try_heal::healer_pose(peer.state.torso_animation()) {
-                Some(pose) => {
-                    peer.movement
-                        .set_animation_parts(SETANIM_TORSO, pose, OVERRIDE_HOLD);
-                    peer.movement.write_player_state(&mut peer.state);
-                }
-                None => {
-                    peer.state.set_raw_field(20, 500);
-                }
-            }
+            super::super::bridge_repairs::hold_healer_pose(peer);
         }
     }
 
@@ -444,7 +397,7 @@ impl NativeGame {
         &mut self,
         number: u16,
         damage: i32,
-        attacker: Option<u16>,
+        (attacker, means): (Option<u16>, u32),
         level_time: i32,
     ) -> bool {
         let Some(index) = self.mounted.index(number) else {
@@ -472,8 +425,12 @@ impl NativeGame {
                 }
             }
         }
-        let _ = emplaced::damage(&mut self.mounted.guns[index].1, damage, level_time);
+        let take = emplaced::damage(&mut self.mounted.guns[index].1, damage, level_time);
+        let survived = self.mounted.guns[index].1.health > 0;
         self.publish_gun(index);
+        if survived {
+            self.tally_damage_by(attacker, means, take);
+        }
         true
     }
 
@@ -592,6 +549,7 @@ impl NativeGame {
             }
         }
         self.map = map;
+        self.blast_thrown_flags(origin, damage, radius, level_time);
         self.flush_npc_blows();
         self.splash_targets = targets;
         self.mounted.solids = solids;

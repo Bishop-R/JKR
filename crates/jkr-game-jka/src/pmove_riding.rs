@@ -27,7 +27,7 @@ const EF_NODRAW: u32 = 1 << 8;
 /// `WP_MELEE`, `WP_SABER`, `WP_BLASTER`.
 const WP_MELEE: u8 = 2;
 const WP_SABER: u8 = 3;
-const WP_BLASTER: u8 = 4;
+const WP_BLASTER: u8 = 5;
 /// `BUTTON_ATTACK`, `BUTTON_ALT_ATTACK`.
 const BUTTON_ATTACK: u16 = 1;
 const BUTTON_ALT_ATTACK: u16 = 128;

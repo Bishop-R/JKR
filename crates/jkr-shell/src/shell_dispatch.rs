@@ -99,6 +99,11 @@ impl Shell {
                     if arguments.is_empty() {
                         return self.describe_cvar(name);
                     }
+                    // `bind p "cg_thirdPerson !"` swaps it (`Cvar_Command`, OpenJK
+                    // `cvar.cpp:955-961`).
+                    if arguments == ["!"] {
+                        return self.toggle_command(&[name.to_owned()]);
+                    }
                     self.cvars.set_text(name, &arguments.join(" "))?;
                     return self.describe_cvar(name);
                 }
@@ -157,5 +162,46 @@ impl Shell {
         self.command_buffer
             .set_wait(if frames < 0 { 1 } else { frames as u32 });
         Ok(Vec::new())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{BindTable, CvarDefinition, CvarFlags, CvarRegistry, Shell};
+
+    #[test]
+    fn a_bang_after_a_cvar_swaps_it() {
+        let mut cvars = CvarRegistry::new();
+        cvars
+            .register(CvarDefinition::new(
+                "cg_thirdPerson",
+                false,
+                CvarFlags::ARCHIVE,
+                "",
+            ))
+            .unwrap();
+        let mut shell = Shell::new(cvars, BindTable::new());
+        let value = |shell: &Shell| shell.cvars.get("cg_thirdPerson").unwrap().value.as_text();
+        shell.execute_line("cg_thirdPerson !").unwrap();
+        assert_eq!(value(&shell), "1");
+        shell.execute_line("cg_thirdperson !").unwrap();
+        assert_eq!(value(&shell), "0");
+    }
+
+    #[test]
+    fn a_cvar_is_found_by_any_spelling() {
+        let mut cvars = CvarRegistry::new();
+        cvars
+            .register(CvarDefinition::new(
+                "cg_speedTrail",
+                1_i64,
+                CvarFlags::ARCHIVE,
+                "",
+            ))
+            .unwrap();
+        for name in ["cg_speedtrail", "cg_speedTrail", "CG_SPEEDTRAIL"] {
+            assert!(cvars.get(name).is_some(), "{name}");
+        }
+        assert!(cvars.get("cg_speedTrails").is_none());
     }
 }

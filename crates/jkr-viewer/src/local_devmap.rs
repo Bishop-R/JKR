@@ -14,6 +14,7 @@ fn settings(map: String) -> HostSettings {
         capturelimit: 0,
         allow_lan: false,
         cheats: true,
+        team_auto_join: true,
     }
 }
 
@@ -45,5 +46,19 @@ impl crate::GpuState {
             return;
         }
         self.start_local_game(settings(map));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A console devmap starts the server with the cheats on and the player straight in
+    /// the match.
+    #[test]
+    fn devmap_turns_cheats_on_and_joins_at_once() {
+        let settings = super::settings("mp/ffa3".into());
+        let arguments = settings.arguments(std::path::Path::new("GameData"), 0);
+        for flag in ["--cheats", "--team-auto-join"] {
+            assert!(arguments.iter().any(|argument| argument == flag), "{flag}");
+        }
     }
 }

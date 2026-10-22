@@ -24,6 +24,8 @@ pub(crate) struct HiltBlade {
 /// Loaded hilt mesh and all valid `*blade1` through `*blade8` sockets.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Hilt {
+    /// Exact authored bolt origins for AEV_EFFECT; no blade-one fallback.
+    event_bolts: [Option<[f32; 3]>; 9],
     pub(crate) mesh_index: usize,
     blades: [Option<HiltBlade>; 8],
     pub(crate) num_blades: u8,
@@ -34,6 +36,18 @@ pub(crate) struct Hilt {
 }
 
 impl Hilt {
+    pub(crate) fn event_bolt(self, name: &str) -> Option<[f32; 3]> {
+        let index = if name == "*flash" {
+            8
+        } else {
+            let blade = name.strip_prefix("*blade")?.parse::<usize>().ok()?;
+            if !(1..=8).contains(&blade) {
+                return None;
+            }
+            blade - 1
+        };
+        self.event_bolts.get(index).copied().flatten()
+    }
     pub(crate) fn blade(self, index: usize) -> Option<HiltBlade> {
         (index < usize::from(self.num_blades))
             .then(|| self.blades[index])
@@ -174,7 +188,7 @@ fn default_definition() -> crate::saber_defs::Definition {
     }
 }
 
-type CachedModel = (usize, [Option<BladeSocket>; 8]);
+type CachedModel = (usize, [Option<BladeSocket>; 8], [Option<[f32; 3]>; 9]);
 
 fn append_hilt(
     vfs: &VirtualFileSystem,
@@ -183,12 +197,14 @@ fn append_hilt(
     object_meshes: &mut Vec<StaticModelMesh>,
     model_cache: &mut BTreeMap<String, CachedModel>,
 ) -> Result<Hilt, Box<dyn Error>> {
-    let (mesh_index, sockets) = if let Some(cached) = model_cache.get(&definition.model) {
-        *cached
-    } else {
-        load_hilt_model(vfs, definition, scene, object_meshes, model_cache)?
-    };
+    let (mesh_index, sockets, event_bolts) =
+        if let Some(cached) = model_cache.get(&definition.model) {
+            *cached
+        } else {
+            load_hilt_model(vfs, definition, scene, object_meshes, model_cache)?
+        };
     Ok(Hilt {
+        event_bolts,
         mesh_index,
         blades: hilt_blades(definition, &sockets),
         num_blades: definition.num_blades,
@@ -260,6 +276,26 @@ fn load_hilt_model(
         .ok_or_else(|| format!("hilt model {} is missing", definition.model))?;
     let model = Glm::parse(&asset.bytes)?;
     let sockets = hilt_sockets(&model)?;
+    let pose = vec![
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0]
+        ];
+        model.bone_count
+    ];
+    let event_bolts = std::array::from_fn(|i| {
+        let name = if i == 8 {
+            "*flash".to_owned()
+        } else {
+            format!("*blade{}", i + 1)
+        };
+        model
+            .surface_bolt_matrix(&name, 0, &pose)
+            .ok()
+            .flatten()
+            .map(|matrix| crate::bolt::column(&matrix, 3))
+    });
     let mesh_index = object_meshes.len();
     let draws = append_static_glm_mesh(scene, &model)?;
     object_meshes.push(StaticModelMesh {
@@ -270,8 +306,10 @@ fn load_hilt_model(
         draws,
         center: [0.0; 3],
         flash_bolt: None,
+        ghoul2: true,
+        posed: None,
     });
-    let cached = (mesh_index, sockets);
+    let cached = (mesh_index, sockets, event_bolts);
     model_cache.insert(definition.model.clone(), cached);
     Ok(cached)
 }

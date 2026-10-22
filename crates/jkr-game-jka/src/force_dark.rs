@@ -51,6 +51,11 @@ pub struct OtherPlayer<'a> {
     /// `r.absmin`, `r.absmax`.
     pub absmin: [f32; 3],
     pub absmax: [f32; 3],
+    /// A player's jetpack, which a grip puts out (`Jetpack_Off`); `None` for an NPC.
+    pub jetpack: Option<&'a mut crate::holdables::Packs>,
+    /// Its typing under jaPRO's god chat ([`crate::god_chat`]): typing too long, no Force
+    /// reaches it. Never an NPC's.
+    pub typing: crate::god_chat::Typing,
 }
 
 /// Everyone but a Force power's user, as its grip, lightning, drain and mind trick reach
@@ -196,10 +201,18 @@ impl Forcer<'_, '_> {
         if crate::force_powers::has_ysalamiri(victim.state, gametype) {
             return false;
         }
-        if !crate::force_powers::can_use_now(self.state, power, level_time, gametype)
-            || self.state.duel_in_progress()
-            || victim.state.duel_in_progress()
+        let kind = self.force.duel_kind;
+        if !crate::force_powers::can_use_now(self.state, kind, power, level_time, gametype)
+            || crate::force_powers::duel_shields(
+                crate::force_powers::duellist(self.state, kind),
+                victim.state,
+                number,
+            )
         {
+            return false;
+        }
+        // jaPRO's god chat: not by one typing, nor on one typing too long.
+        if self.frame.typing.typing() || victim.typing.sheltered(level_time) {
             return false;
         }
         if crate::force_throw::npc_immune(
@@ -227,16 +240,23 @@ impl Forcer<'_, '_> {
             && crate::saber_rules::in_special(victim.state.raw_field(PS_SABER_MOVE).unwrap_or(0)))
     }
 
-    /// `OnSameTeam` with `g_friendlyFire` off: teammates in the team games.
+    /// `OnSameTeam` with `g_friendlyFire` off: teammates in the team games, nobody with
+    /// friendly fire on.
     pub(crate) fn teammate(&self, team: i32) -> bool {
-        same_team(self.frame.gametype, self.frame.team, team)
+        !self.frame.rules.friendly_fire && same_team(self.frame.gametype, self.frame.team, team)
     }
 
     /// `WP_AbsorbConversion` on player `number` for `power` at the user's level: the
     /// level left, or `None` where nothing is absorbed.
     fn absorbed(&mut self, number: u16, power: usize, spent: i32) -> Option<i32> {
         let (level_time, level) = (self.frame.level_time, i32::from(self.force.levels[power]));
+        let (gametype, team, scale) = (
+            self.frame.gametype,
+            self.frame.team,
+            self.frame.rules.team_absorb_scale,
+        );
         let victim = self.frame.others.player(number)?;
+        let teammate = same_team(gametype, team, victim.team);
         let (left, event) = crate::force_throw::absorb_conversion(
             victim.state,
             victim.force,
@@ -244,6 +264,7 @@ impl Forcer<'_, '_> {
             level,
             spent,
             level_time,
+            teammate.then_some(scale),
         )?;
         if let Some(event) = event {
             self.raise(event);
@@ -412,6 +433,10 @@ impl Forcer<'_, '_> {
         let Some(held) = self.frame.others.player(number) else {
             return;
         };
+        // "make sure the guy being gripped has his jetpack off".
+        if let Some(packs) = held.jetpack {
+            packs.jetpack_on = false;
+        }
         held.force.grip_being_gripped = (level_time + 1_000) as f32;
         let elapsed = level_time as f32 - held.force.grip_started;
         if level == 1 {
@@ -635,7 +660,8 @@ impl Forcer<'_, '_> {
     }
 
     /// The players in front of the user within `radius` (from the nearest point of each
-    /// one's box), alive, not teammates, in its PVS and in its sight: `visit` for each in
+    /// one's box), alive, not teammates (unless friendly fire is on), in its PVS and in its
+    /// sight: `visit` for each in
     /// entity order, with the direction and the box's centre. `wants` filters first.
     fn arc(
         &mut self,
@@ -647,6 +673,7 @@ impl Forcer<'_, '_> {
         let center = self.origin();
         let (gametype, own_team, client) =
             (self.frame.gametype, self.frame.team, self.frame.client);
+        let friendly_fire = self.frame.rules.friendly_fire;
         for number in 0..self.frame.others.slots() {
             if number == client {
                 continue;
@@ -661,8 +688,9 @@ impl Forcer<'_, '_> {
             }) {
                 continue;
             }
-            if *player.health <= 0 || same_team(gametype, own_team, player.team) || !wants(&player)
-            {
+            // `!g_friendlyFire && OnSameTeam(self, traceEnt)`.
+            let spared = !friendly_fire && same_team(gametype, own_team, player.team);
+            if *player.health <= 0 || spared || !wants(&player) {
                 continue;
             }
             let nearest: [f32; 3] = std::array::from_fn(|axis| {
@@ -853,6 +881,14 @@ impl Forcer<'_, '_> {
         let pool = (victim.state.raw_field(PS_FORCE_POWER).unwrap_or(0) as i32 - amount).max(0);
         victim.state.set_raw_field(PS_FORCE_POWER, pool as u32);
         victim.force.regen_debounce = level_time + 800;
+        // jaPRO's statistics: drain on teammates and on enemies, in the team games.
+        if self.frame.gametype >= 6 {
+            if team == self.frame.team {
+                self.frame.stats.team_drain += amount;
+            } else {
+                self.frame.stats.enemy_drain += amount;
+            }
+        }
         let drained = victim.force.sound_debounce < level_time;
         if drained {
             victim.force.sound_debounce = level_time + 400;

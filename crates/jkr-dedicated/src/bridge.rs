@@ -17,12 +17,12 @@ use jkr_game_jka::{
     crt_rand::CrtRand,
     damage::{
         Attacker, DAMAGE_NO_ARMOR, DAMAGE_NO_PROTECTION, DamageRequest, Damaged, HitLocation,
-        MOD_FALLING, SplashTarget, Target, Wounds, damage_at, fall_damage, radius_damage,
+        MOD_FALLING, SplashTarget, Target, Wounds, damage_at, radius_damage,
     },
     demp2::{ShockTarget, Sphere, SphereRun, run_sphere},
     disruptor::{
         Blow, DisruptorTargets, EF_DISINTEGRATION, Shooter, StruckPlayer, disintegrated, fire_alt,
-        fire_main, would_dodge,
+        fire_main,
     },
     entity_clip::BoxObstacle,
     entity_id::EntityId,
@@ -72,8 +72,11 @@ pub enum SpawnOrder {
 /// deactivated it.
 #[derive(Clone, Copy, Debug, Default)]
 struct MapTarget {
+    /// A delay's firing time; for a print, until when it stays quiet.
     next_think: i32,
     inactive: bool,
+    /// A relay used once with `wait` -1: gone (`G_FreeEntity`), past any activation.
+    spent: bool,
 }
 
 /// What the operator configured; not yet a cvar system.
@@ -102,6 +105,9 @@ pub struct NativeGame {
     settings: ForceServerSettings,
     /// Everyone a moving player can run into, gathered before it moves; kept to be reused.
     obstacles: Vec<BoxObstacle>,
+    /// The players and NPCs gathered with the obstacles, and whether each is cloaked
+    /// (`s.powerups`' `PW_CLOAKED`): what a rocket lock can lock on.
+    lock_kinds: Vec<(u16, bool)>,
     /// Each player's legs by number, gathered with the obstacles, for a move's saber
     /// specials (`PM_BGEntForNum`); kept to be reused.
     body_legs: Vec<Option<u16>>,
@@ -124,6 +130,10 @@ pub struct NativeGame {
     pool: EntityPool,
     /// The pool's entities as the snapshots cull them, worked out once a frame.
     pool_links: std::cell::RefCell<bridge_links::PoolLinks>,
+    /// TaystJK's duel isolation for this frame (`sv_snapShotDuelCull`).
+    duel_cull: std::cell::RefCell<bridge_duel_cull::DuelCull>,
+    /// TaystJK's HTTP download server, while one runs (`sv_httpDownloads`).
+    http_downloads: Option<crate::http_downloads::HttpDownloads>,
     /// The server's clock at the last frame, for what happens between frames without one.
     last_frame_time: i32,
     /// Every missile in flight, by its entity number, run at every frame.
@@ -156,6 +166,15 @@ pub struct NativeGame {
     door_portals: Vec<bool>,
     /// The breakable brushes the map placed, by the entity number each was given.
     breakables: Vec<(EntityId, jkr_game_jka::breakables::Breakable)>,
+    /// The blows a blast dealt brushes while the map was set aside for its lines: the
+    /// brush, the damage, the means, the attacker and the time.
+    brush_blows: Vec<(u16, i32, u32, u16, i32)>,
+    /// The blows a player's move dealt on glass and weak breakables (`PM_ClientImpact`),
+    /// dealt once the move is over; kept for its room.
+    strikes: jkr_game_jka::client_impact::Strikes,
+    /// The body queue's bodies beside their wire states: their fall, their box, the health
+    /// each slot holds ([`jkr_game_jka::corpses`]).
+    corpses: jkr_game_jka::corpses::Corpses,
     /// Its targets: the name they are fired by, what they are, and what each is doing.
     targets: Vec<(String, jkr_game_jka::triggers::Target, MapTarget)>,
     /// `G_ModelIndex`'s table.
@@ -181,8 +200,6 @@ pub struct NativeGame {
     /// The siege level being played (`bridge_siege.rs`), and what outlives it.
     siege: Option<Box<bridge_siege::SiegeState>>,
     siege_keep: bridge_siege::SiegeKeep,
-    /// The `func_usable` entities the map placed.
-    usable_entities: Vec<(EntityId, jkr_game_jka::use_key::Usable)>,
     /// `g_gametype`, which decides which of the map's spawn points are used.
     gametype: i32,
     /// `level.intermissionQueued`, `level.intermissiontime` and the two ready timers:
@@ -193,6 +210,8 @@ pub struct NativeGame {
     limits: jkr_game_jka::match_end::Limits,
     /// `level.startTime`: when the match began, which the time limit measures from.
     level_start_time: i32,
+    /// `level.framenum`: the level's frames so far, this one counted.
+    level_frames: i32,
     /// `level.teamScores[TEAM_RED]` and `[TEAM_BLUE]`.
     team_scores: [i32; 2],
     /// `level.lastTeamLocationTime`: when the team overlay was last sent.
@@ -237,10 +256,15 @@ pub struct NativeGame {
     vote: jkr_game_jka::vote::Vote,
     /// `g_allowVote` (already limited to what this server can carry out) and `g_voteDelay`.
     vote_rules: (i32, i32),
+    /// jaPRO's vote tweaks and flood protection ([`bridge_vote_tweaks::JaproVotes`]).
+    japro_votes: bridge_vote_tweaks::JaproVotes,
     /// Passed votes' commands, carried out at the start of the next frame as the
     /// reference's console buffer runs them between frames.
     vote_commands: Vec<Vec<u8>>,
     map: Option<LoadedMap>,
+    /// The running map's pk3 files when it was loaded with `sv_pure` set, which the
+    /// endpoint checks its clients against.
+    pure: Option<crate::pure_files::PureFiles>,
     /// Saber definitions set by the host over the map's game data's (a server without
     /// game data, a test).
     saber_definitions: Option<std::sync::Arc<jkr_game_jka::saber_definition::SaberParms>>,
@@ -262,6 +286,10 @@ pub struct NativeGame {
     ip_filter: jkr_game_jka::ip_filter::IpFilter,
     /// `level.logFile`: `g_log`, open while a level runs.
     log_file: Option<std::fs::File>,
+    /// `level.security.log`: `security.log`, open while `g_securityLog` asks for it.
+    security_file: Option<std::fs::File>,
+    /// `G_WeaponLog*`: the level's weapon statistics, written while `g_statLog` is on.
+    stat_log: jkr_game_jka::stat_log::StatLog,
     /// Server demo files, by wire client number.
     demo_files: Vec<Option<std::fs::File>>,
     /// The console's command buffer (`exec`, `vstr`, `wait`, typed lines).
@@ -274,6 +302,54 @@ pub struct NativeGame {
     mounted: bridge_use::bridge_emplaced::Mounted,
     /// Its effect runners and speakers, and the effect and soundset tables (`bridge_map_effects`).
     map_effects: bridge_map_effects::MapEffects,
+    /// jaPRO's team locks (`amLockTeam`), cleared with each map.
+    team_locks: crate::admin::TeamLocks,
+    /// jaPRO's `g_flagDrag`, kept from the cvar: a flag carrier's drag in the air.
+    flag_drag: f32,
+    /// `g_debugMelee`, kept from the cvar: the fists' kicks and grapple, walls held
+    /// ([`jkr_game_jka::debug_melee`]).
+    debug_melee: bool,
+    /// jaPRO's `g_fixFlagHitbox`, kept from the cvar: flags are taken from further.
+    wide_flag_box: bool,
+    /// jaPRO's `g_selfDamageScale`, kept from the cvar: a blow on oneself's share outside
+    /// siege (stock's half).
+    self_damage_scale: f32,
+    /// jaPRO's `g_showHealth`, kept from the cvar: players' health goes out.
+    show_health: bool,
+    /// `BODY_SINK_TIME` in milliseconds: jaPRO's `g_corpseRemovalTime` (stock's 30 s).
+    body_sink_ms: i32,
+    /// jaPRO's `g_lagIcon`, kept from the cvar: a silent player's connection trouble is
+    /// shown (stock always shows it).
+    lag_icon: bool,
+    /// jaPRO's `g_godChat` ([`jkr_game_jka::god_chat`]).
+    god_chat: bool,
+    /// jaPRO's `g_autoQuit` days, and whether the quit it asks for is queued.
+    auto_quit_days: i32,
+    quitting: bool,
+    /// jaPRO's Force options (`bridge_force_options`), kept from the cvar hook.
+    force_rules: jkr_game_jka::force_powers::ForceRules,
+    /// The saber settings (`g_saberDamageScale`, the delays, locks, `g_friendlySaber`),
+    /// kept from the cvar hook.
+    saber_settings: jkr_game_jka::saber_damage::SaberSettings,
+    /// How blows push and where they land count, kept from the cvar hook.
+    damage_rules: jkr_game_jka::damage::DamageRules,
+    /// The animation fixes the moves run (`CS_LEGACY_FIXES`), kept from the cvar hook.
+    legacy_fixes: u32,
+    /// `g_smoothClients`: players' entities are extrapolated, kept from the cvar hook.
+    smooth_clients: bool,
+    /// The movement variables every move reads (`pmove_fixed`, `pmove_msec`, `pmove_float`,
+    /// `g_stepSlideFix`, `g_noSpecMove`), kept from the cvar hook.
+    move_cvars: jkr_game_jka::pmove_rules::MoveCvars,
+    /// `g_synchronousClients`: a human's commands run once a frame (`synchronous_think`),
+    /// kept from the cvar hook.
+    synchronous_clients: bool,
+    /// `timescale`: how fast the server's time runs ([`Self::timescale`]), kept from the
+    /// cvar hook.
+    timescale: f32,
+    /// TaystJK's hibernation of an empty server (`bridge_taystjk_server`).
+    hibernation: bridge_taystjk_server::Hibernation,
+    /// jaPRO's `g_gunGame` (`bridge_gun_game`), kept from the cvar hook.
+    gun_game: i32,
     /// Its turrets (`bridge_map_turrets`).
     map_turrets: bridge_map_turrets::MapTurrets,
     /// Its logic entities, named entities and path movers (`bridge_map_logic`).
@@ -315,10 +391,7 @@ const ES_WEAPON: usize = 14;
 
 /// `r.absmin`, `r.absmax`: a linked box grown by a unit.
 fn grown(obstacle: &BoxObstacle) -> ([f32; 3], [f32; 3]) {
-    (
-        std::array::from_fn(|axis| obstacle.origin[axis] + obstacle.bounds.0[axis] - 1.0),
-        std::array::from_fn(|axis| obstacle.origin[axis] + obstacle.bounds.1[axis] + 1.0),
-    )
+    obstacle.absolute_box()
 }
 
 impl NativeGame {
@@ -357,13 +430,16 @@ impl NativeGame {
         // The `CVAR_SERVERINFO` cvars a legacy cgame reads from `CS_SERVERINFO`
         // (`CG_ParseServerinfo`), at the reference's defaults. `sv_maxclients` is the
         // protocol-26 roster — the cgame sizes its client arrays from it — not the
-        // core's capacity, which the browser's `getinfo` reports.
+        // core's entity capacity. Browser queries subtract reserved player slots.
         status_info.extend_from_slice(format!("\\sv_maxclients\\{wire_clients}").as_bytes());
         for (key, value) in SERVERINFO_DEFAULTS {
             status_info.extend_from_slice(format!("\\{key}\\{value}").as_bytes());
         }
+        let pure = pure_files(&cvars, map.as_ref());
+        let mut cvars = cvars;
+        let system_info = system_info(&mut cvars, map.as_ref(), pure.as_ref(), SERVER_ID);
         let (config_strings, sounds) =
-            world_config_strings(&status_info, map.as_ref(), GAMETYPE_FFA, SERVER_ID);
+            world_config_strings(&status_info, system_info, map.as_ref(), GAMETYPE_FFA);
         let mut game = Self {
             server,
             world,
@@ -374,6 +450,7 @@ impl NativeGame {
             told: Vec::new(),
             settings: SETTINGS,
             obstacles: Vec::with_capacity(wire_clients),
+            lock_kinds: Vec::with_capacity(wire_clients),
             body_legs: Vec::with_capacity(wire_clients),
             force_scratch: bridge_force::ForceScratch::default(),
             duel_slot: PlayerState::zero(),
@@ -387,6 +464,8 @@ impl NativeGame {
             ),
             pool: EntityPool::new(0),
             pool_links: Default::default(),
+            duel_cull: Default::default(),
+            http_downloads: None,
             last_frame_time: 0,
             missiles: Vec::new(),
             fired: Vec::new(),
@@ -403,6 +482,9 @@ impl NativeGame {
             doors: Vec::new(),
             door_portals: Vec::new(),
             breakables: Vec::new(),
+            brush_blows: Vec::new(),
+            strikes: Default::default(),
+            corpses: Default::default(),
             models: ModelTable::default(),
             previous_frame_time: 0,
             deaths: Deaths {
@@ -417,11 +499,11 @@ impl NativeGame {
             spawn_order: SpawnOrder::default(),
             siege: None,
             siege_keep: Default::default(),
-            usable_entities: Vec::new(),
             gametype: GAMETYPE_FFA,
             match_end: Default::default(),
             limits: Default::default(),
             level_start_time: 0,
+            level_frames: 0,
             team_scores: [0; 2],
             last_team_info: 0,
             flags: Default::default(),
@@ -443,8 +525,10 @@ impl NativeGame {
                 bridge_votes::SUPPORTED_VOTES,
                 jkr_game_jka::vote::DEFAULT_VOTE_DELAY,
             ),
+            japro_votes: Default::default(),
             vote_commands: Vec::new(),
             map,
+            pure,
             saber_definitions: None,
             jedi_master: Default::default(),
             broadcast_scratch: Vec::new(),
@@ -458,15 +542,41 @@ impl NativeGame {
             config_files: Default::default(),
             ip_filter: Default::default(),
             log_file: None,
+            security_file: None,
+            stat_log: Default::default(),
             demo_files: Vec::new(),
             npcs: Default::default(),
             mounted: Default::default(),
             map_effects: Default::default(),
+            team_locks: Default::default(),
+            flag_drag: 0.0,
+            debug_melee: false,
+            wide_flag_box: false,
+            self_damage_scale: 0.5,
+            show_health: false,
+            body_sink_ms: jkr_game_jka::corpses::BODY_SINK_TIME,
+            lag_icon: true,
+            god_chat: false,
+            auto_quit_days: 0,
+            quitting: false,
+            force_rules: Default::default(),
+            saber_settings: Default::default(),
+            damage_rules: Default::default(),
+            legacy_fixes: authoritative().legacy_fixes,
+            smooth_clients: true,
+            move_cvars: Default::default(),
+            synchronous_clients: false,
+            timescale: 1.0,
+            hibernation: Default::default(),
+            gun_game: 0,
             map_turrets: Default::default(),
             stock: Default::default(),
             scripts: Default::default(),
         };
         game.pool = EntityPool::with_budget(0, game.entity_budget());
+        // The level is built under the rules the process was started with.
+        game.refresh_rule_settings();
+        game.worldspawn_cvars();
         game.spawn_items();
         game.spawn_triggers();
         game.spawn_movers();
@@ -482,8 +592,7 @@ impl NativeGame {
         game.spawn_npcs();
         game.spawn_scripts();
         // What the process already knows, over the registrations' defaults; cheats are
-        // off until a `devmap`, and this server runs twenty frames a second unless told
-        // otherwise.
+        // off until a `devmap`.
         let hostname = String::from_utf8_lossy(&game.identity.hostname).into_owned();
         let mapname = String::from_utf8_lossy(&game.identity.mapname).into_owned();
         for (name, value) in [
@@ -493,13 +602,6 @@ impl NativeGame {
             ("sv_cheats", "0"),
         ] {
             game.cvars.set(name.as_bytes(), value.as_bytes());
-        }
-        if game
-            .cvars
-            .var(b"sv_fps")
-            .is_some_and(|var| var.string == var.reset)
-        {
-            game.cvars.set(b"sv_fps", b"20");
         }
         game.apply_cvars();
         game.process_ip_bans();
@@ -671,199 +773,6 @@ impl NativeGame {
         self.map = Some(map);
     }
 
-    /// The breakable brushes the map placed, each an `ET_MOVER` standing where the map
-    /// drew it — which is all a client needs to draw the brush and to watch it go.
-    fn spawn_breakables(&mut self) {
-        let Some(map) = self.map.take() else { return };
-        for brush in &map.breakables {
-            let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
-            state.set_raw_field(ES_ENTITY_TYPE, jkr_game_jka::breakables::ET_MOVER);
-            jkr_game_jka::triggers::set_brush_model(&mut state, brush.model);
-            // `G_ScaleNetHealth`: a `showhealth` brush carries what a HUD draws a bar from.
-            if brush.max_health > 0 {
-                state.set_raw_field(ES_HEALTH, brush.health.max(0) as u32);
-                state.set_raw_field(ES_MAX_HEALTH, brush.max_health as u32);
-            }
-            if let Some(number) = self.pool.spawn_entity(state, 0) {
-                self.pool.set_bounds(number, brush.bounds);
-                self.breakables.push((number, brush.clone()));
-            }
-        }
-        self.map = Some(map);
-    }
-
-    /// A shot that landed on a breakable brush (`G_Damage` for a non-client entity, which
-    /// is the one thing on this server that is neither a player nor a missile). Returns
-    /// whether it was one of ours at all, so the caller can fall back to a player.
-    fn hurt_brush(
-        &mut self,
-        number: u16,
-        damage: i32,
-        means: u32,
-        owner: u16,
-        level_time: i32,
-    ) -> bool {
-        if self.hurt_glass(number, damage, owner, level_time) {
-            return true;
-        }
-        let Some(index) = self
-            .breakables
-            .iter()
-            .position(|(ours, _)| ours.legacy_number() == number)
-        else {
-            return false;
-        };
-        let from = self
-            .peer_mut(usize::from(owner))
-            .map(|peer| peer.state.origin());
-        let hit = jkr_game_jka::breakables::hurt(
-            &mut self.breakables[index].1,
-            damage,
-            means,
-            false,
-            from,
-            level_time,
-        );
-        match hit {
-            jkr_game_jka::breakables::Hit::Ignored => {}
-            jkr_game_jka::breakables::Hit::Hurt { paintarget, .. } => {
-                self.publish_breakable(index);
-                if let Some(target) = paintarget {
-                    self.fire_targets(&target, usize::from(owner), level_time);
-                }
-            }
-            // The delay is the map's own; without one it comes apart in the same frame.
-            jkr_game_jka::breakables::Hit::Broken { at } if at > level_time => {
-                self.publish_breakable(index)
-            }
-            jkr_game_jka::breakables::Hit::Broken { .. } => {
-                self.break_brush(index, from, level_time)
-            }
-        }
-        true
-    }
-
-    /// `funcBBrushDieGo` on the server: the brush leaves the world, fires what it targets,
-    /// throws its fireball and its debris as the two event entities a client draws them
-    /// from, hurts whoever is close, and is freed.
-    fn break_brush(&mut self, index: usize, from: Option<[f32; 3]>, level_time: i32) {
-        let (id, number) = (
-            self.breakables[index].0,
-            self.breakables[index].0.legacy_number(),
-        );
-        // `Q_flrand(0.0f, 1.0f)`, which decides how many chunks there are.
-        let drawn = self.deaths.rng.flrand(0.0, 1.0);
-        let broken = jkr_game_jka::breakables::break_apart(
-            &mut self.breakables[index].1,
-            from,
-            number,
-            drawn,
-            level_time,
-        );
-        // Worth saying out loud: it is the one thing on this server that dies without
-        // being a player, and an operator watching a log wants to see it happen.
-        println!(
-            "breakable {number} broken at {level_time} ({} chunks, splash {:?})",
-            broken.debris.chunks,
-            broken.splash.map(|(damage, radius, _)| (damage, radius))
-        );
-        if let Some(target) = &broken.target {
-            self.fire_targets(target, 0, level_time);
-        }
-        if let Some(explosion) = &broken.explosion {
-            self.raise_event(
-                jkr_game_jka::breakables::explosion_fields(explosion),
-                level_time,
-            );
-        }
-        self.raise_event(
-            jkr_game_jka::breakables::debris_fields(&broken.debris),
-            level_time,
-        );
-        if let Some((damage, radius, at)) = broken.splash {
-            self.splash_from_brush(number, damage, radius, at, level_time);
-        }
-        // The portal it stood in opens (`funcBBrushDieGo`, `g_mover.c:2514`).
-        let bounds = self.breakables[index].1.bounds;
-        self.adjust_portal([0.0; 3], bounds, true);
-        self.pool.free(id, level_time);
-        self.breakables.remove(index);
-    }
-
-    /// One event entity, built from the wire fields the reference crams its debris and
-    /// its explosions into.
-    fn raise_event(&mut self, fields: Vec<(usize, u32)>, level_time: i32) {
-        let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
-        for (index, bits) in fields {
-            state.set_raw_field(index, bits);
-        }
-        let _ = self.pool.spawn_temporary(state, level_time, None);
-    }
-
-    /// `G_RadiusDamage` from a brush that went off: everybody within its radius, hurt by
-    /// how close they were, with the brush itself as the attacker.
-    fn splash_from_brush(
-        &mut self,
-        number: u16,
-        damage: i32,
-        radius: i32,
-        at: [f32; 3],
-        level_time: i32,
-    ) {
-        for client in 0..self.players.places() {
-            let Some(peer) = self.peer_mut(client) else {
-                continue;
-            };
-            if !peer.playing() || peer.health <= 0 {
-                continue;
-            }
-            let origin = peer.state.origin();
-            let away: f32 = (0..3)
-                .map(|axis| (origin[axis] - at[axis]).powi(2))
-                .sum::<f32>()
-                .sqrt();
-            if away >= radius as f32 {
-                continue;
-            }
-            // `G_RadiusDamage`'s own falloff: full at the middle, nothing at the edge.
-            let points = (damage as f32 * (1.0 - away / radius as f32)) as i32;
-            if points <= 0 {
-                continue;
-            }
-            let attacker = Attacker {
-                npc: false,
-                client: number,
-                max_health: 100,
-                team: 0,
-                saber_knockback: [0.0; 4],
-            };
-            let request = DamageRequest {
-                level_time,
-                attacker: Some(attacker),
-                direction: None,
-                point: Some(at),
-                damage: points,
-                flags: 0,
-                means: 0,
-            };
-            let _ = self.hurt(client, request);
-        }
-    }
-
-    /// What a client is told of a brush that is still standing: the health bar, if the
-    /// map asked for one.
-    fn publish_breakable(&mut self, index: usize) {
-        let (number, brush) = &self.breakables[index];
-        let (number, health, max_health) = (*number, brush.health.max(0), brush.max_health);
-        if max_health <= 0 {
-            return;
-        }
-        let Some(slot) = self.pool.state_mut(number) else {
-            return;
-        };
-        slot.set_raw_field(ES_HEALTH, health as u32);
-    }
-
     /// `G_TouchTriggers` for the triggers that move a player: the jump pad's throw (the
     /// movement's own, which the client predicts too), a pusher's push, and a
     /// teleporter's jump to where it points.
@@ -1012,79 +921,112 @@ impl NativeGame {
         {
             return;
         }
+        let wide_flag_box = self.wide_flag_box;
         for index in 0..self.items.len() {
-            let (number, pickup) = &self.items[index];
-            let (number, item, origin, contents, dropped) = (
-                number.legacy_number(),
-                pickup.item,
-                pickup.origin,
-                pickup.contents,
-                pickup.dropped.map(|dropped| dropped.count),
-            );
+            let (_, pickup) = &self.items[index];
+            let (item, origin, contents) = (pickup.item, pickup.origin, pickup.contents);
             if contents == 0 {
                 continue;
             }
             let Some(peer) = self.peer_mut(client) else {
                 return;
             };
-            if !jkr_game_jka::items::touches(peer.state.origin(), origin) {
+            let flag = jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Team;
+            let touched = if flag && wide_flag_box {
+                jkr_game_jka::items::touches_flag(peer.state.origin(), origin)
+            } else {
+                jkr_game_jka::items::touches(peer.state.origin(), origin)
+            };
+            if !touched {
                 continue;
             }
             // A flag (`Pickup_Team`); one returned or captured may have changed the items.
-            if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Team {
-                if self.touch_flag(client, index, level_time) {
-                    break;
-                }
-                continue;
+            if self.touch_item(client, index, level_time) {
+                break;
             }
-            if jkr_game_jka::dropped_items::refuses(
-                &mut self.items[index].1,
-                client as u16,
-                level_time,
-            ) {
-                continue;
-            }
-            let Some(peer) = self.peer_mut(client) else {
-                return;
-            };
-            if !jkr_game_jka::items::can_be_grabbed(item, &peer.state, dropped.is_some()) {
-                continue;
-            }
-            let taken = jkr_game_jka::items::pick_up(
-                item,
-                &mut peer.state,
-                &mut peer.health,
-                dropped.unwrap_or(0),
-                dropped.is_some(),
-            );
-            if taken.predicted && peer.accepted.predict_item_pickup {
-                jkr_game_jka::items::add_predictable_event(
-                    &mut peer.state,
-                    jkr_game_jka::items::EV_ITEM_PICKUP,
-                    u32::from(number),
-                );
-            } else {
-                let bits = (peer.state.raw_field(EFLAGS_EVENT).unwrap_or(0) & 0x300)
-                    .wrapping_add(0x100)
-                    & 0x300;
-                peer.state
-                    .set_raw_field(EFLAGS_EVENT, jkr_game_jka::items::EV_ITEM_PICKUP | bits);
-                peer.state
-                    .set_raw_field(EFLAGS_EVENT_PARM, u32::from(number));
-                peer.entity.event_raised(level_time);
-            }
-            peer.movement = peer.movement.reseeded(&peer.state);
-            if dropped.is_some() {
-                let (_, pickup) = &mut self.items[index];
-                jkr_game_jka::dropped_items::taken(pickup, taken.respawn, level_time);
-            } else {
-                let spread = self.deaths.rng.flrand(-1.0, 1.0);
-                let (_, pickup) = &mut self.items[index];
-                let _ = jkr_game_jka::items::taken(pickup, taken.respawn, level_time, spread);
-            }
-            let _ = number;
-            self.publish_item(index);
         }
+    }
+
+    /// `Touch_Item` of item `index` by `client`: a flag's own rules (whether the items may
+    /// have changed — one returned or captured), or the item given — what it gives, the
+    /// pickup event (predicted, as every client here asks for) and the item out of the
+    /// world until it comes again.
+    fn touch_item(&mut self, client: usize, index: usize, level_time: i32) -> bool {
+        let (number, pickup) = &self.items[index];
+        let (number, item, dropped) = (
+            number.legacy_number(),
+            pickup.item,
+            pickup.dropped.map(|dropped| dropped.count),
+        );
+        if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Team {
+            return self.touch_flag(client, index, level_time);
+        }
+        if jkr_game_jka::dropped_items::refuses(&mut self.items[index].1, client as u16, level_time)
+        {
+            return false;
+        }
+        let respawns = self.item_respawns();
+        let Some(peer) = self.peer(client) else {
+            return false;
+        };
+        // `Touch_Item`: enlightenment only for its own side, then the shared rules.
+        if jkr_game_jka::items::wrong_side(item, u32::from(peer.state.force_side()))
+            || !jkr_game_jka::items::can_be_grabbed(item, &peer.state, dropped.is_some())
+        {
+            return false;
+        }
+        self.log(&jkr_game_jka::game_log::item(
+            client,
+            jkr_game_jka::items::ITEMS[item].classname,
+        ));
+        let Some(peer) = self.peer_mut(client) else {
+            return false;
+        };
+        // `Pickup_Powerup` tallies a powerup the player did not have yet.
+        let had_powerup = usize::try_from(jkr_game_jka::items::ITEMS[item].tag)
+            .ok()
+            .and_then(|tag| peer.state.powerups.get(tag))
+            .is_some_and(|until| *until != 0);
+        let taken = jkr_game_jka::items::pick_up(
+            item,
+            &mut peer.state,
+            &mut peer.health,
+            (dropped.unwrap_or(0), dropped.is_some()),
+            level_time,
+            respawns,
+        );
+        if taken.predicted && peer.accepted.predict_item_pickup {
+            jkr_game_jka::items::add_predictable_event(
+                &mut peer.state,
+                jkr_game_jka::items::EV_ITEM_PICKUP,
+                u32::from(number),
+            );
+        } else {
+            let bits = (peer.state.raw_field(EFLAGS_EVENT).unwrap_or(0) & 0x300)
+                .wrapping_add(0x100)
+                & 0x300;
+            peer.state
+                .set_raw_field(EFLAGS_EVENT, jkr_game_jka::items::EV_ITEM_PICKUP | bits);
+            peer.state
+                .set_raw_field(EFLAGS_EVENT_PARM, u32::from(number));
+            peer.entity.event_raised(level_time);
+        }
+        peer.movement = peer.movement.reseeded(&peer.state);
+        self.tally_pickup(client, item, had_powerup);
+        if dropped.is_some() {
+            let (_, pickup) = &mut self.items[index];
+            jkr_game_jka::dropped_items::taken(pickup, taken.respawn, level_time);
+        } else {
+            let spread = self.deaths.rng.flrand(-1.0, 1.0);
+            let (_, pickup) = &mut self.items[index];
+            let _ = jkr_game_jka::items::taken(pickup, taken.respawn, level_time, spread);
+        }
+        if jkr_game_jka::items::ITEMS[item].kind == jkr_game_jka::items::Kind::Powerup {
+            let at = jkr_game_jka::items::trajectory_base(&self.items[index].1);
+            self.deny_nearby(client, at);
+        }
+        self.publish_item(index);
+        false
     }
 
     /// A spectator where the map starts them, looking the way its author chose, at
@@ -1192,6 +1134,12 @@ impl NativeGame {
             ),
         };
         self.map = map;
+        self.blast_thrown_flags(
+            origin,
+            missile.splash_damage as f32,
+            missile.splash_radius,
+            level_time,
+        );
         self.flush_npc_blows();
         self.splash_targets = targets;
         if hit_client
@@ -1275,6 +1223,11 @@ impl NativeGame {
         match step {
             ExitStep::Playing => {}
             ExitStep::Logged(ending) => {
+                if self.cvars.integer(b"d_powerDuelPrint") != 0
+                    && let Some(condition) = ending.power_duel_condition()
+                {
+                    println!("POWERDUEL WIN CONDITION: {condition}");
+                }
                 self.log_exit(ending.reason);
                 // `LogExit` tells every client at once, a second before the scoreboard,
                 // so that they can stop the sounds the intermission would cut off.
@@ -1355,6 +1308,9 @@ impl NativeGame {
             .or_else(|| self.peer(client).map(|peer| peer.last_command))
             .unwrap_or_default();
         let siege_place = self.siege_spawn_place(client, &aim, server_time);
+        // jaPRO's gun game: the rung whose weapon is the loadout.
+        let gun_rung = self.gun_game_rung(client);
+        let protection = self.cvars.integer(b"g_spawnInvulnerability");
         let Self {
             server,
             world,
@@ -1411,10 +1367,11 @@ impl NativeGame {
             &peer.userinfo,
             &peer.accepted,
             settings,
-            SPAWN_INVULNERABILITY,
+            protection,
             trial_place,
             None,
             lengths_ref,
+            gun_rung,
         );
         let playing = trial.team != i32::from(TEAM_SPECTATOR);
         // `ClientBegin` clears the state before `ClientSpawn`: a join avoids the origin.
@@ -1442,16 +1399,19 @@ impl NativeGame {
             &peer.userinfo,
             &peer.accepted,
             settings,
-            SPAWN_INVULNERABILITY,
+            protection,
             place,
             Some(&peer.state),
             lengths_ref,
+            gun_rung,
         );
         begun.commands.extend(advice);
 
         self.spawned(client, begun, place, command, server_time);
         self.siege_point_fired(siege_place, client, server_time);
         self.log(&jkr_game_jka::game_log::client_begin(client));
+        self.stat_log.clear(client);
+        self.motd_on_begin(client);
     }
 
     /// `ClientRespawn` outside power duels and siege: the body is left behind
@@ -1486,6 +1446,9 @@ impl NativeGame {
         }
         self.gather_obstacles(client);
         let siege_place = self.siege_spawn_place(client, &command, level_time);
+        // jaPRO's gun game: the rung whose weapon is the loadout.
+        let gun_rung = self.gun_game_rung(client);
+        let protection = self.cvars.integer(b"g_spawnInvulnerability");
         let Self {
             server,
             world,
@@ -1527,15 +1490,28 @@ impl NativeGame {
                     peer.session.duel_team,
                 )
             });
+        // jaPRO's `g_duelRespawn`: where it fell, unless a living player stands there.
+        let place = match peer.duel_respawn.take() {
+            Some((spot, yaw)) if spot != [0.0; 3] && !living_player_at(obstacles, spot) => {
+                SpawnPlace {
+                    origin: spot,
+                    angles: [place.angles[0], yaw, place.angles[2]],
+                    ..place
+                }
+            }
+            _ => place,
+        };
         let Some(begun) = client_respawn(
             client as u16,
             &mut peer.session,
+            &peer.userinfo,
             &peer.accepted,
             settings,
-            SPAWN_INVULNERABILITY,
+            protection,
             place,
             &peer.state,
             lengths_ref,
+            gun_rung,
         ) else {
             return;
         };
@@ -1546,11 +1522,13 @@ impl NativeGame {
     /// `MaintainBodyQueue`: the corpse's entity goes into the body queue and everyone is
     /// told to move the ragdoll over — or, where no body is made, to reset the corpse.
     fn leave_body(&mut self, client: usize, level_time: i32) {
+        let sink_ms = self.body_sink_ms;
         let Self {
             server,
             world,
             players,
             pool,
+            corpses,
             told,
             ..
         } = self;
@@ -1558,21 +1536,39 @@ impl NativeGame {
             .at(client)
             .and_then(|handle| server.world_mut(*world)?.entity_mut(handle));
         let Some(peer) = peer else { return };
-        Self::leave_body_of(peer, pool, told, client, level_time);
+        Self::leave_body_of(peer, (pool, corpses), told, client, (level_time, sink_ms));
     }
 
     fn leave_body_of(
         peer: &Peer,
-        pool: &mut EntityPool,
+        (pool, corpses): (&mut EntityPool, &mut jkr_game_jka::corpses::Corpses),
         told: &mut Vec<Told>,
         client: usize,
-        level_time: i32,
+        (level_time, sink_ms): (i32, i32),
     ) {
         match body_left_behind(&peer.state, peer.entity.state(), level_time)
             .filter(|_| !peer.no_corpse)
         {
             Some(body) => {
-                let number = pool.spawn_body(body.state.clone(), level_time);
+                let number = pool.spawn_body(body.state.clone(), level_time, sink_ms);
+                // `CopyToBodyQue`: the dead player's box, its owner, and whether it takes
+                // damage (a gibbed player's does not).
+                let (bottom, mut top) = peer.movement.box_bounds();
+                if let Some((_, corpse_top)) = peer.corpse {
+                    top[2] = corpse_top;
+                }
+                pool.set_bounds(number, (bottom, top));
+                if let Some(slot) = pool.body_slot(number) {
+                    corpses.copied(
+                        slot,
+                        client as u16,
+                        (bottom, top),
+                        &body.state,
+                        peer.health,
+                        level_time,
+                        sink_ms,
+                    );
+                }
                 told.push(Told::Everyone(
                     body.command(client as u16, number.legacy_number()),
                 ));
@@ -1593,10 +1589,17 @@ impl NativeGame {
         if !self.power_duel_death_begins(server_time) {
             return;
         }
+        self.note_duel_death(client, request.means);
+        self.begin_slow_motion(request.attacker, server_time);
         self.eject_on_death(client, server_time);
+        // "Make sure the jetpack is turned off" (`player_die`).
+        if let Some(peer) = self.peer_mut(client) {
+            peer.gear.packs.jetpack_on = false;
+        }
         // A carrier's item drops (or goes home) at once; a hack ends.
         self.siege_carrier_gone(client, server_time);
         self.siege_hack_ends(client);
+        self.det_packs_on_death(client, request.means, server_time);
         if let Some(killer) = request
             .attacker
             .filter(|killer| usize::from(*killer) != client)
@@ -1605,7 +1608,31 @@ impl NativeGame {
             request.killer_last_kill_time = killer.mortality.last_kill_time;
         }
         self.log_kill(client, request.attacker, request.means);
+        self.austrian_kill(client, request.attacker, request.means, server_time);
+        let killer = request.attacker.filter(|_| !request.npc_attacker);
+        self.tally_death(client, killer, request.means);
         request.gametype = self.gametype;
+        request.flag_rules = self.flag_rules();
+        // jaPRO's gun game drops nothing at a death but a flag; a suicide counts against
+        // the ladder (`ps.fd.suicides`).
+        request.gun_game = self.gun_game_runs();
+        if request.attacker == Some(client as u16) {
+            self.gun_game_suicide(client);
+        }
+        // `OnSameTeam(self, attacker)`: a teammate's kill costs the killer its point, and
+        // counts in jaPRO's statistics.
+        request.team_kill = !request.npc_attacker
+            && request.attacker.is_some_and(|attacker| {
+                let attacker = usize::from(attacker);
+                attacker != client && self.players_on_same_team(client, attacker)
+            });
+        if request.team_kill
+            && let Some(killer) = request
+                .attacker
+                .and_then(|attacker| self.peer_mut(usize::from(attacker)))
+        {
+            killer.stats.team_kills += 1;
+        }
         request.duel_opponent = self.duel_opponent(client);
         request.jedi_master = self.jedi_masters(
             request
@@ -1691,7 +1718,10 @@ impl NativeGame {
             (usize::from(score.killer), score.points)
         });
         let scoring = self.scoring();
-        if scoring && let Some(team) = self.peer_mut(scorer).map(|peer| peer.session.team) {
+        if scoring
+            && request.penalize_team
+            && let Some(team) = self.peer_mut(scorer).map(|peer| peer.session.team)
+        {
             self.add_team_score(team, points);
         }
         // `AddScore` for the killer (`PERS_EXCELLENT_COUNT` for a quick second kill), which
@@ -1715,6 +1745,16 @@ impl NativeGame {
                 killer.mortality.last_kill_time = server_time;
             }
         }
+        // jaPRO's heal on a kill (`g_startingItems` bit 15), outside Jedi Master.
+        if let Some(score) = died.killer_score
+            && score.kill
+            && usize::from(score.killer) != client
+            && self.gametype != GAMETYPE_JEDIMASTER
+        {
+            self.kill_heal(usize::from(score.killer));
+            // jaPRO's gun game: the killer's next rung.
+            self.gun_game_kill(usize::from(score.killer));
+        }
         self.jedi_master_died(client, died.master_point, died.saber_lost);
         // "Give them back a point since they didn't really die" (`g_combat.c:2691-2699`).
         let team_change = request.means == jkr_game_jka::means_of_death::MOD_TEAM_CHANGE;
@@ -1735,6 +1775,21 @@ impl NativeGame {
             died.saber_lost.is_some(),
         );
         self.power_duel_death(client);
+    }
+
+    /// `OnSameTeam` for two players (`g_team.c:20-73`): a power duel's sides, everyone in
+    /// the single-player game, a team game's teams; nobody otherwise.
+    fn players_on_same_team(&self, one: usize, other: usize) -> bool {
+        const GT_SINGLE_PLAYER: i32 = 5;
+        let (Some(one), Some(other)) = (self.peer(one), self.peer(other)) else {
+            return false;
+        };
+        match self.gametype {
+            GAMETYPE_POWERDUEL => one.session.duel_team == other.session.duel_team,
+            GT_SINGLE_PLAYER => true,
+            gametype if gametype < GAMETYPE_TEAM => false,
+            _ => one.session.team == other.session.team,
+        }
     }
 
     /// `AddScore`'s team half (`g_combat.c:476-477`): only `GT_TEAM` scores teams by kills.
@@ -1785,10 +1840,33 @@ impl NativeGame {
                 powerups: jkr_game_jka::player_entity::powerup_bits(&peer.state),
             });
         }
-        for player in &everyone {
-            if let Some(message) = jkr_game_jka::team_info::message(player.team, &everyone) {
-                self.told
-                    .push(Told::One(usize::from(player.client), message));
+        // `TeamplayInfoMessage` for each client in the game: its team's overlay, or, for a
+        // spectator following a player, that player's team's; none for a client whose
+        // userinfo says `teamoverlay 0` (`pers.teamInfo`).
+        let recipients: Vec<(usize, i32)> = everyone
+            .iter()
+            .filter_map(|player| {
+                let client = usize::from(player.client);
+                let peer = self.peer(client)?;
+                let wanted =
+                    jkr_protocol::info_value(&peer.userinfo, b"teamoverlay").is_none_or(|value| {
+                        value.is_empty() || jkr_game_jka::userinfo::atoi(value) != 0
+                    });
+                if !wanted {
+                    return None;
+                }
+                if peer.session.team != i32::from(TEAM_SPECTATOR) {
+                    return Some((client, peer.session.team));
+                }
+                let followed = usize::try_from(peer.session.spectator_client).ok()?;
+                (peer.session.spectator_state == jkr_game_jka::client_begin::SPECTATOR_FOLLOW)
+                    .then(|| self.peer(followed).map(|peer| (client, peer.session.team)))
+                    .flatten()
+            })
+            .collect();
+        for (client, team) in recipients {
+            if let Some(message) = jkr_game_jka::team_info::message(team, &everyone) {
+                self.told.push(Told::One(client, message));
             }
         }
     }
@@ -1814,8 +1892,9 @@ impl NativeGame {
             muzzle,
             forward,
             level_time,
+            // A plain trace, unlike the disruptor's (`g_weapon.c:1458`).
             &mut |skip, start, end, mask| {
-                DisruptorTargets::trace(&mut targets, skip, start, end, mask)
+                targets.box_trace(skip, start, ([0.0; 3], [0.0; 3]), end, mask)
             },
         );
         if let Some(number) = self.pool.spawn_hidden(level_time) {
@@ -1824,10 +1903,16 @@ impl NativeGame {
     }
 
     /// The shock spheres' thinks (`DEMP2_AltDetonate`, `DEMP2_AltRadiusDamage`) at
-    /// `server_time`, after the missiles: the effect, the shockwave's damage on every
-    /// player it reaches for the first time (the owner spared), the freeing.
+    /// `server_time`, after the missiles: the effect, the shockwave's damage on everything
+    /// it reaches for the first time that can be hurt and has a body (`EntitiesInBox`:
+    /// players, NPCs, turrets, guns, shields and corpses; the owner spared), a cloak it
+    /// reaches switched off, the freeing.
     fn run_spheres(&mut self, server_time: i32) {
+        if self.spheres.is_empty() {
+            return;
+        }
         let mut spheres = std::mem::take(&mut self.spheres);
+        let mut targets = Vec::new();
         spheres.retain_mut(|(number, sphere)| {
             let owner = usize::from(sphere.owner);
             let Some(shooter) = self.peer_mut(owner) else {
@@ -1840,36 +1925,21 @@ impl NativeGame {
                 team: shooter.session.team,
                 saber_knockback: [0.0; 4],
             };
-            let mut targets = Vec::with_capacity(self.players.places());
-            if let Some(world) = self.server.world(self.world) {
-                for (other, handle) in self.players.holders().enumerate() {
-                    let peer = handle
-                        .and_then(|handle| world.entity(handle))
-                        .filter(|peer| {
-                            peer.begun
-                                && peer.playing()
-                                && peer.corpse.is_none_or(|(contents, _)| contents != 0)
-                        });
-                    if let Some(peer) = peer {
-                        let (bottom, mut top) = peer.movement.box_bounds();
-                        if let Some((_, corpse_top)) = peer.corpse {
-                            top[2] = corpse_top;
-                        }
-                        let origin = peer.state.origin();
-                        let bounds = (
-                            std::array::from_fn(|axis| origin[axis] + bottom[axis] - 1.0),
-                            std::array::from_fn(|axis| origin[axis] + top[axis] + 1.0),
-                        );
-                        targets.push(ShockTarget {
-                            number: other as u16,
-                            bounds,
-                            origin,
-                        });
-                    }
-                }
-            }
+            self.gather_splash_targets();
+            targets.clear();
+            targets.extend(
+                self.splash_targets
+                    .iter()
+                    .filter(|target| target.takes_damage)
+                    .map(|target| ShockTarget {
+                        number: target.number,
+                        bounds: target.bounds,
+                        origin: target.origin,
+                    }),
+            );
             let mut hurt = |target: u16, request: DamageRequest| {
                 let _ = self.strike(owner, usize::from(target), request, false);
+                self.shock_decloak(target, server_time);
             };
             match run_sphere(sphere, server_time, attacker, &targets, &mut hurt) {
                 SphereRun::Waiting | SphereRun::Expanded | SphereRun::Done => true,
@@ -1950,6 +2020,7 @@ impl NativeGame {
             raise: &mut |event| {
                 let _ = pool.spawn_temporary(event.state(), level_time, None);
             },
+            struck: &|_| jkr_game_jka::mines::Struck::Bounce,
         };
         if det_pack && alternate {
             let mut rng = self.deaths.rng;
@@ -2078,6 +2149,7 @@ impl NativeGame {
                         bounds: other_charge.missile.bounds,
                         contents: other_charge.missile.contents,
                         model: None,
+                        linked_box: None,
                     }),
             );
             let (number, charge) = &mut charges[index];
@@ -2102,6 +2174,11 @@ impl NativeGame {
                     }
                 }
             }
+            // What it may run into, sorted before the frame borrows the pool.
+            let struck: Vec<(u16, jkr_game_jka::mines::Struck)> = own
+                .iter()
+                .map(|obstacle| (obstacle.entity, self.charge_struck(obstacle.entity)))
+                .collect();
             let Self {
                 sounds,
                 told,
@@ -2121,6 +2198,12 @@ impl NativeGame {
                 },
                 raise: &mut |event| {
                     let _ = pool.spawn_temporary(event.state(), server_time, None);
+                },
+                struck: &|number| {
+                    struck
+                        .iter()
+                        .find(|(entity, _)| *entity == number)
+                        .map_or(jkr_game_jka::mines::Struck::Bounce, |(_, kind)| *kind)
                 },
             };
             let run = match map {
@@ -2189,6 +2272,16 @@ impl NativeGame {
             };
             let (request, radius) =
                 jkr_game_jka::mines::blast_request(&charge, server_time, attacker);
+            // `DetPackBlow`: one stuck to a breakable brush hits it directly first.
+            if let Some(brush) = charge.attached {
+                let _ = self.hurt_brush(
+                    brush,
+                    charge.missile.damage,
+                    charge.missile.method_of_death,
+                    charge.missile.owner,
+                    server_time,
+                );
+            }
             self.gather_splash_targets();
             let mut targets = std::mem::take(&mut self.splash_targets);
             targets.extend(charges.iter().filter(|(other, _)| *other != id).map(
@@ -2203,13 +2296,6 @@ impl NativeGame {
             // The map is set aside while the blast's lines are traced through it.
             let map = self.map.take();
             let mut hurt = |target: u16, request: DamageRequest| {
-                if usize::from(target) < self.players.places() || self.npcs.roster.is_npc(target) {
-                    return self
-                        .strike(owner, usize::from(target), request, false)
-                        .0
-                        .died
-                        .is_some();
-                }
                 if let Some((_, other)) = charges
                     .iter_mut()
                     .find(|(other, _)| other.legacy_number() == target)
@@ -2221,8 +2307,14 @@ impl NativeGame {
                         server_time,
                         &mut rng,
                     );
+                    return false;
                 }
-                false
+                // Everything else that takes damage: players, NPCs, turrets, shields,
+                // bodies and brushes.
+                self.strike(owner, usize::from(target), request, false)
+                    .0
+                    .died
+                    .is_some()
             };
             match &map {
                 Some(map) => {
@@ -2258,6 +2350,7 @@ impl NativeGame {
                 }
             }
             self.map = map;
+            self.blast_thrown_flags(origin, request.damage as f32, radius, server_time);
             self.deaths.rng = rng;
             self.flush_npc_blows();
             self.splash_targets = targets;
@@ -2334,6 +2427,7 @@ impl NativeGame {
             team: peer.session.team,
             saber_knockback: [0.0; 4],
         };
+        let self_damage = self.self_damage_scale;
         let mut targets = InstantTargets {
             game: self,
             shooter: client,
@@ -2345,6 +2439,7 @@ impl NativeGame {
             forward,
             attacker,
             level_time,
+            self_damage,
             &mut targets,
         );
         // The shooter's own shove is in the wire state: the movement restarts from it.
@@ -2372,11 +2467,16 @@ impl NativeGame {
         request: DamageRequest,
         location: Option<HitLocation>,
     ) -> Damaged {
-        // A siege player waiting for its wave cannot be hurt (`takedamage = qfalse`).
+        let debug_melee = self.debug_melee;
+        // A siege player waiting for its wave cannot be hurt (`takedamage = qfalse`), nor
+        // one an admin froze outside a duel (jaPRO's `amfreeze`).
         if self.duel_refuses(target, &request)
-            || self
-                .peer(target)
-                .is_some_and(|peer| peer.temp_spectate != 0)
+            || self.peer(target).is_some_and(|peer| {
+                peer.temp_spectate != 0
+                    || (peer.admin_frozen
+                        && bridge_emotes::reaches_holds(peer)
+                        && !peer.state.duel_in_progress())
+            })
         {
             return Damaged::default();
         }
@@ -2391,15 +2491,24 @@ impl NativeGame {
         let mut rng = self.deaths.rng;
         let spared_by_master =
             self.jedi_master_spares(request.attacker.map(|attacker| attacker.client), target);
-        // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`):
-        // only a DEMP2's shock, which comes first, lands.
-        let sheltered = self.peer(target).is_some_and(|victim| {
-            victim.noclip || self.npcs.roster.shelters(&victim.state, request.flags)
-        });
+        let self_damage = jkr_game_jka::damage::self_damage(self.gametype, self.self_damage_scale);
+        let rules = self.damage_rules;
+        // jaPRO's statistics read what the victim had before the blow.
+        let had = self.health_and_armor(target);
+        // Aboard a ship that shelters it, or in noclip (`client->noclip`, `g_combat.c`),
+        // or under jaPRO's god chat — typing too long outside a duel (`takedamage`), or hurt
+        // by one typing: only a DEMP2's shock, which comes first, lands.
+        let sheltered = self.typing_attacker(request.attacker)
+            || self.peer(target).is_some_and(|victim| {
+                victim.noclip
+                    || self.npcs.roster.shelters(&victim.state, request.flags)
+                    || (victim.typing.sheltered(level_time) && !victim.state.duel_in_progress())
+            });
         let Some(victim) = self.peer_mut(target) else {
             return Damaged::default();
         };
         let was_dead = victim.health <= 0;
+        let alive_before = !was_dead && victim.state.stats[0] as i32 > 0;
         let (bottom, top) = victim.movement.box_bounds();
         let origin = victim.state.origin();
         let bounds = (
@@ -2407,6 +2516,7 @@ impl NativeGame {
             std::array::from_fn(|axis| origin[axis] + top[axis] + 1.0),
         );
         let team = victim.session.team;
+        let god_mode = victim.riding.flags & jkr_game_jka::cheat_flags::FL_GODMODE != 0;
         let mut target_view = Target {
             client: target as u16,
             state: &mut victim.state,
@@ -2418,6 +2528,10 @@ impl NativeGame {
             wounds: &mut victim.wounds,
             force: Some(&mut victim.force),
             spared_by_master,
+            god_mode,
+            jetpack: Some(&mut victim.gear.packs),
+            self_damage,
+            rules,
         };
         let damaged = if sheltered {
             jkr_game_jka::damage::shock(&mut target_view, &request, &mut rng);
@@ -2425,9 +2539,45 @@ impl NativeGame {
         } else {
             damage_at(&mut target_view, request, location, &mut rng)
         };
+        // `g_debugMelee`: hurt but alive, a held wall is let go (`g_combat.c:5519-5525`).
+        if debug_melee
+            && damaged.take != 0
+            && damaged.died.is_none()
+            && jkr_game_jka::debug_melee::stuck_to_wall(&victim.state)
+        {
+            jkr_game_jka::debug_melee::let_go_of_wall(&mut victim.state);
+        }
         // The knockback is in the wire state: the movement restarts from it.
         victim.movement = victim.movement.reseeded(&victim.state);
+        // `G_BreakArm`'s pain pose, held on the whole body (`g_client.c:2812-2816`).
+        if let Some(broken) = damaged.broke_arm {
+            use jkr_game_jka::pmove_anim::{
+                SETANIM_BOTH, SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE,
+            };
+            victim.movement.set_animation_parts(
+                SETANIM_BOTH,
+                broken.pose,
+                SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+            );
+            victim.movement.write_player_state(&mut victim.state);
+        }
         self.deaths.rng = rng;
+        if let Some(line) = &damaged.debug_line {
+            print!("{line}");
+        }
+        if let Some(broken) = damaged.broke_arm {
+            self.arm_broken_sounds(target, broken, level_time);
+        }
+        // `G_Damage`'s hit counter (`g_combat.c:4920-4932`), whatever the blow.
+        if damaged.attacker_hits != 0
+            && let Some(attacker) = request.attacker.filter(|attacker| !attacker.npc)
+        {
+            self.record_hit(
+                usize::from(attacker.client),
+                damaged.attacker_hits,
+                damaged.attackee_armor,
+            );
+        }
         for event in &damaged.events {
             let _ = self.pool.spawn_temporary(event.state(), level_time, None);
         }
@@ -2435,6 +2585,22 @@ impl NativeGame {
             && let Some(attacker) = request.attacker
         {
             self.blow_landed(usize::from(attacker.client), target, level_time);
+        }
+        self.count_damage(
+            request.attacker,
+            target,
+            damaged.take + damaged.absorbed,
+            had,
+        );
+        if damaged.died.is_none() {
+            self.tally_damage(request.attacker, request.means, damaged.take);
+        }
+        // jaPRO's damage numbers, for a blow on one alive before it.
+        if alive_before && let Some(attacker) = request.attacker {
+            let dealt = damaged.take + damaged.absorbed;
+            let dealer = bridge_damage_numbers::Party::attacker(attacker);
+            let taker = bridge_damage_numbers::Party::Player(target);
+            self.tell_damage(dealer, taker, dealt, level_time);
         }
         if damaged.died.is_some()
             && was_dead
@@ -2478,6 +2644,10 @@ impl NativeGame {
                 duel_opponent: None,
                 jedi_master: None,
                 in_space: false,
+                penalize_team: true,
+                flag_rules: Default::default(),
+                team_kill: false,
+                gun_game: false,
             };
             self.die(target, request);
         }
@@ -2497,6 +2667,7 @@ impl NativeGame {
         self.bot_frame(server_time);
         self.previous_frame_time = self.last_frame_time;
         self.last_frame_time = server_time;
+        self.level_frames = self.level_frames.wrapping_add(1);
         // `level.startTime`, which the time limit is measured from: the first frame.
         if self.level_start_time == 0 {
             self.level_start_time = server_time;
@@ -2504,6 +2675,9 @@ impl NativeGame {
         self.pool.run_frame(server_time);
         // At the frame's very start, before `level.time` moves (`g_main.c:2935`).
         self.siege_respawn_wave(self.previous_frame_time);
+        // A duel's end in slow motion, from the same `level.time` (`g_main.c:2956`).
+        self.run_slow_motion(self.previous_frame_time);
+        self.check_hibernation();
         // `CheckTournament` before `CheckExitRules` (`g_main.c:3390-3394`).
         self.check_tournament(server_time);
         self.run_match_end(server_time);
@@ -2511,6 +2685,9 @@ impl NativeGame {
         // `G_RunFrame`'s pass over the entities in number order: the players first (the
         // saber's fields, the look target), the missiles after them.
         for client in 0..self.players.places() {
+            if !self.forced_client_update(client, server_time) {
+                self.synchronous_think(client, server_time);
+            }
             self.client_frame(client, server_time);
             self.look_around(client, server_time);
             self.run_bot_client(client, server_time);
@@ -2520,10 +2697,15 @@ impl NativeGame {
         self.update_saber_entities(server_time);
         self.saber_thinks(server_time);
         self.run_emplaced(server_time);
+        self.run_corpses(server_time);
+        self.run_breakables(server_time);
         self.run_missiles(server_time);
         self.run_spheres(server_time);
         self.run_charges(server_time);
         self.run_items(server_time);
+        self.sample_flag_timers();
+        self.check_client_timeouts(server_time);
+        self.auto_quit(server_time);
         self.run_jedi_master(server_time);
         self.run_holocrons(server_time);
         self.run_siege_items(server_time);
@@ -2532,8 +2714,11 @@ impl NativeGame {
         self.run_stock_entities(server_time);
         self.run_doors(server_time);
         self.run_map_turrets(server_time);
+        self.run_sentries(server_time);
+        self.run_ewebs(server_time);
         self.run_scripts(server_time);
 
+        self.npc_grapples(server_time);
         self.run_npcs(server_time);
 
         self.siege_timers(server_time);
@@ -2559,6 +2744,15 @@ impl NativeGame {
             &peer.sabers.hands[0],
         ) {
             peer.movement = peer.movement.reseeded(&peer.state);
+        }
+        // Kicks land first, from the pose of the frame before (`w_saber.c:8149-8152`); a
+        // player not kicking grabs or grapples instead (`:8153-8390`).
+        let kicking = self
+            .peer(client)
+            .is_some_and(|peer| jkr_game_jka::saber_rules::kicking(peer.state.leg_animation()));
+        self.kick_frame(client, server_time);
+        if !kicking {
+            self.grapple_frame(client as u16, server_time);
         }
         self.pose_saber(client, server_time);
         self.throw_frame(client, server_time);
@@ -2627,6 +2821,7 @@ impl NativeGame {
             bounds: (bottom, top),
             contents: CONTENTS_BODY,
             model: None,
+            linked_box: None,
         };
         everyone.push(own);
         let mut watcher = Watcher {
@@ -2771,6 +2966,7 @@ impl NativeGame {
                     // brush, a turret, an emplaced gun — damages it, and nothing is counted
                     // for the accuracy.
                     if let MissileRun::HitEntity(other) = run {
+                        self.punt_flag(other, missile, server_time);
                         self.hurt_thing(other, missile, server_time);
                     }
                     let counted = struck.is_some_and(|other| {
@@ -2796,6 +2992,7 @@ impl NativeGame {
                                 bounds: missile.bounds,
                                 contents: missile.contents,
                                 model: None,
+                                linked_box: None,
                             },
                             missile.owner,
                             *number,
@@ -2819,16 +3016,51 @@ impl NativeGame {
         self.missiles.extend(waiting);
     }
 
-    /// `g_gravity` as worldspawn set it, read the way a cvar's value is; 800 without a map.
+    /// `g_gravity`: worldspawn's at each level's start ([`Self::worldspawn_gravity`]), then
+    /// whatever the server sets.
     fn gravity(&self) -> f32 {
+        self.cvars.value(b"g_gravity")
+    }
+
+    /// `SP_worldspawn`'s settings: `g_gravity` from the map's `gravity` key (800 without
+    /// one or without a map), and the message of the day (`g_motd`) as `CS_MOTD`, which
+    /// the loading screen shows.
+    pub(super) fn worldspawn_cvars(&mut self) {
         let text = self
             .map
             .as_ref()
-            .map_or(&b"800"[..], |map| &map.world.gravity);
-        std::str::from_utf8(text)
-            .ok()
-            .and_then(|text| text.trim().parse().ok())
-            .unwrap_or(0.0)
+            .map_or(b"800".to_vec(), |map| map.world.gravity.clone());
+        self.cvars.set(b"g_gravity", &text);
+        let motd = self.cvars.string(b"g_motd").to_vec();
+        self.set_config_string(jkr_game_jka::worldspawn::CS_MOTD, &motd);
+        self.publish_legacy_fixes();
+    }
+
+    /// `UpdateLegacyFixesConfigstring` (`g_cvar.c:33-60`): the animation fixes the moves
+    /// run, from `g_fixSaberMoveData`, `g_fixWeaponAttackAnim` and `g_fixRunWalkAnims`,
+    /// told to every client, which predicts with them.
+    pub(super) fn publish_legacy_fixes(&mut self) {
+        let fixes = [
+            b"g_fixSaberMoveData".as_slice(),
+            b"g_fixWeaponAttackAnim",
+            b"g_fixRunWalkAnims",
+        ];
+        self.legacy_fixes = fixes
+            .iter()
+            .enumerate()
+            .filter(|(_, name)| self.cvars.integer(name) != 0)
+            .fold(0, |mask, (bit, _)| mask | 1 << bit);
+        let (index, value) = jkr_game_jka::pmove::MovementConfig {
+            legacy_fixes: self.legacy_fixes,
+            ..authoritative()
+        }
+        .legacy_fixes_config_string();
+        self.set_config_string(index, &value);
+    }
+
+    /// `g_speed`: how fast a player on foot runs.
+    pub(super) fn player_speed(&self) -> f32 {
+        self.cvars.value(b"g_speed")
     }
 
     /// Player `client`, when it is one in the world; `None` for any other number (a dead
@@ -2866,13 +3098,14 @@ struct InstantTargets<'a> {
     level_time: i32,
 }
 
-impl jkr_game_jka::melee::MeleeTargets for InstantTargets<'_> {
-    fn trace(
+impl InstantTargets<'_> {
+    /// `trap->Trace` through the map and the boxes `gather_obstacles` collects, passing
+    /// `skip` (and what it owns).
+    fn box_trace(
         &mut self,
         skip: u16,
         start: [f32; 3],
-        mins: [f32; 3],
-        maxs: [f32; 3],
+        (mins, maxs): ([f32; 3], [f32; 3]),
         end: [f32; 3],
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
@@ -2893,6 +3126,63 @@ impl jkr_game_jka::melee::MeleeTargets for InstantTargets<'_> {
             }
             .trace(start, mins, maxs, end, mask),
         }
+    }
+
+    /// A hitscan shot's `trap->Trace` under `d_projectileGhoul2Collision` (the disruptor's
+    /// and the concussion beam's, `g_weapon.c:575-602`, `3127-3150`): through the posed
+    /// models, so a box the ray only crosses — a body lying on the floor — is passed;
+    /// a client's model struck keeps the surface (`g2LastSurfaceHit`, which places the
+    /// damage), and the trace's surface index is cleared. With the cvar 0, the boxes.
+    fn shot_trace(
+        &mut self,
+        skip: u16,
+        start: [f32; 3],
+        bounds: ([f32; 3], [f32; 3]),
+        end: [f32; 3],
+        mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        if self.game.cvars.integer(b"d_projectileGhoul2Collision") == 0 {
+            return self.box_trace(skip, start, bounds, end, mask);
+        }
+        let level_time = self.level_time;
+        let mut trace = self.game.shot_sweep(
+            usize::from(skip),
+            start,
+            bounds,
+            end,
+            mask,
+            true,
+            level_time,
+        );
+        let struck = trace.entity_number;
+        let surface = trace.surface_flags;
+        let modelled = if let Some(peer) = self.game.peer_mut(usize::from(struck)) {
+            if peer.skeleton.is_some() {
+                peer.saber_cut.stamp_surface(surface as usize, level_time);
+            }
+            peer.skeleton.is_some()
+        } else {
+            self.game.npcs.roster.is_npc(struck)
+                && self.game.npcs.stamp_struck(struck, surface, level_time)
+        };
+        if modelled {
+            trace.surface_flags = 0;
+        }
+        trace
+    }
+}
+
+impl jkr_game_jka::melee::MeleeTargets for InstantTargets<'_> {
+    fn trace(
+        &mut self,
+        skip: u16,
+        start: [f32; 3],
+        mins: [f32; 3],
+        maxs: [f32; 3],
+        end: [f32; 3],
+        mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        self.box_trace(skip, start, (mins, maxs), end, mask)
     }
     fn struck(&self, number: u16) -> Option<jkr_game_jka::melee::Struck> {
         let Some(peer) = self
@@ -2952,25 +3242,12 @@ impl ConcussionTargets for InstantTargets<'_> {
         end: [f32; 3],
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
-        self.game.gather_obstacles(usize::from(skip));
-        let NativeGame { map, obstacles, .. } = &*self.game;
-        match map {
-            Some(map) => WithPlayers {
-                world: WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                },
-                players: obstacles,
-            }
-            .trace(start, [-1.0; 3], [1.0; 3], end, mask),
-            None => WithPlayers {
-                world: Void,
-                players: obstacles,
-            }
-            .trace(start, [-1.0; 3], [1.0; 3], end, mask),
-        }
+        self.shot_trace(skip, start, ([-1.0; 3], [1.0; 3]), end, mask)
     }
     fn player(&self, number: u16) -> Option<jkr_game_jka::concussion::StruckPlayer> {
+        if self.game.npcs.roster.is_npc(number) {
+            return self.game.npc_beam_target(number, self.shooter);
+        }
         let peer = self
             .game
             .players
@@ -2991,18 +3268,25 @@ impl ConcussionTargets for InstantTargets<'_> {
         Some(jkr_game_jka::concussion::StruckPlayer {
             counts,
             no_knockback: peer.wounds.no_knockback,
-            dodges: would_dodge(&peer.state, peer.health > 0),
+            wields_saber: peer.state.weapon() == WP_SABER,
         })
+    }
+    fn dodges(&mut self, number: u16) -> bool {
+        self.game
+            .shot_dodge(number, jkr_game_jka::force_dodge::HL_NONE, self.level_time)
     }
     fn count_hit(&mut self) {
         if let Some(shooter) = self.game.peer_mut(self.shooter) {
             shooter.accuracy.0 += 1;
         }
     }
+    fn target(&mut self, number: u16) -> jkr_game_jka::shot_target::ShotTarget {
+        self.game.shot_target(number)
+    }
     fn hurt(&mut self, number: u16, request: DamageRequest) {
-        let _ = self
-            .game
-            .strike(self.shooter, usize::from(number), request, false);
+        // A player's accuracy is counted by the beam itself; an NPC's here, by `strike`.
+        let count = self.game.npcs.roster.is_npc(number);
+        let _ = self.game.shot_hurt(self.shooter, number, request, count);
     }
     fn shove(
         &mut self,
@@ -3014,7 +3298,10 @@ impl ConcussionTargets for InstantTargets<'_> {
     ) {
         let level_time = self.level_time;
         let Some(victim) = self.game.peer_mut(usize::from(number)) else {
-            return;
+            let shot = (forward, shooter, shooter_origin);
+            return self
+                .game
+                .concussion_shove_npc(number, no_knockback, shot, level_time);
         };
         if jkr_game_jka::knockdown::concussion_shove(
             &mut victim.state,
@@ -3046,23 +3333,7 @@ impl DisruptorTargets for InstantTargets<'_> {
         end: [f32; 3],
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
-        self.game.gather_obstacles(usize::from(skip));
-        let NativeGame { map, obstacles, .. } = &*self.game;
-        match map {
-            Some(map) => WithPlayers {
-                world: WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                },
-                players: obstacles,
-            }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
-            None => WithPlayers {
-                world: Void,
-                players: obstacles,
-            }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
-        }
+        self.shot_trace(skip, start, ([0.0; 3], [0.0; 3]), end, mask)
     }
     fn player(&self, number: u16) -> Option<StruckPlayer> {
         let peer = self
@@ -3081,8 +3352,11 @@ impl DisruptorTargets for InstantTargets<'_> {
         Some(StruckPlayer {
             duelling_another: jkr_game_jka::duel::elsewhere(&peer.state, self.shooter as u16),
             saber_defense,
-            dodges: would_dodge(&peer.state, peer.health > 0),
         })
+    }
+    fn dodges(&mut self, number: u16, point: [f32; 3]) -> bool {
+        let location = self.game.player_hit_location(number, point);
+        self.game.shot_dodge(number, location, self.level_time)
     }
     fn can_block(&mut self, number: u16, point: [f32; 3]) -> bool {
         let level_time = self.level_time;
@@ -3108,17 +3382,18 @@ impl DisruptorTargets for InstantTargets<'_> {
         defender.movement.set_saber_blocked(raised);
         blocked
     }
+    fn target(&mut self, number: u16) -> jkr_game_jka::shot_target::ShotTarget {
+        self.game.shot_target(number)
+    }
     fn hurt(&mut self, number: u16, request: DamageRequest) -> Blow {
-        let (damaged, _) = self
-            .game
-            .strike(self.shooter, usize::from(number), request, true);
+        let damaged = self.game.shot_hurt(self.shooter, number, request, true);
         Blow {
             killed: damaged.died.is_some(),
         }
     }
     fn disintegrate(&mut self, number: u16, point: [f32; 3], poses: (u32, u32)) {
         let Some(victim) = self.game.peer_mut(usize::from(number)) else {
-            return;
+            return self.game.disintegrate_npc(number, point, poses);
         };
         disintegrated(&mut victim.state, point, poses);
         // `r.contents = 0`: nothing runs into the body.
@@ -3126,6 +3401,9 @@ impl DisruptorTargets for InstantTargets<'_> {
         victim.movement = victim.movement.reseeded(&victim.state);
     }
     fn poses(&self, number: u16) -> (u32, u32) {
+        if let Some(poses) = self.game.npc_poses(number) {
+            return poses;
+        }
         let state = self
             .game
             .players
@@ -3195,23 +3473,15 @@ const SETTINGS: ForceServerSettings = ForceServerSettings {
     weapons_disabled: 0,
     cheats: false,
 };
-/// `g_spawnInvulnerability`'s default, in milliseconds.
-const SPAWN_INVULNERABILITY: i32 = 3_000;
-/// `g_forceRespawn`'s default: a dead player is respawned after this many seconds.
-const FORCE_RESPAWN_SECONDS: i32 = 60;
 /// `BUTTON_ATTACK`, `BUTTON_USE_HOLDABLE`: either respawns a dead player.
 const BUTTON_ATTACK: u16 = 1;
 const BUTTON_USE_HOLDABLE: u16 = 4;
-/// `g_speed`'s default.
-const PLAYER_SPEED: f32 = 250.0;
 /// Wire field `saberEntityNum`.
 const SABER_ENTITY: usize = 31;
-/// `persistant[PERS_SCORE]`, `PERS_HITS`, `PERS_RANK`, `PERS_ATTACKEE_ARMOR`,
-/// `PERS_EXCELLENT_COUNT`.
+/// `persistant[PERS_SCORE]`, `PERS_RANK`, `PERS_EXCELLENT_COUNT` (the hit counters are
+/// `bridge_hit_feedback`'s).
 const PERS_SCORE: usize = 0;
-const PERS_HITS: usize = 1;
 const PERS_RANK: usize = 2;
-const PERS_ATTACKEE_ARMOR: usize = 7;
 const PERS_EXCELLENT_COUNT: usize = 10;
 const PERS_GAUNTLET_FRAG_COUNT: usize = 13;
 /// `ps.hasDetPackPlanted`.
@@ -3234,6 +3504,7 @@ const WP_ROCKET_LAUNCHER: u8 = 11;
 const WP_CONCUSSION: u8 = 15;
 const WP_STUN_BATON: u8 = 1;
 const WP_MELEE: u8 = 2;
+const WP_SABER: u8 = 3;
 const WP_TRIP_MINE: u8 = 13;
 const WP_DET_PACK: u8 = 14;
 /// `EV_GENERAL_SOUND`.
@@ -3251,8 +3522,6 @@ const CONTENTS_BODY: u32 = 0x100;
 
 /// `CS_PLAYERS` (`bg_public.h`): one string per legacy client number.
 const CS_PLAYERS: usize = 1_131;
-/// `g_maxConnPerIP`'s default.
-const CONNECTIONS_PER_ADDRESS: usize = 3;
 
 #[path = "bridge_chat.rs"]
 mod bridge_chat;
@@ -3260,28 +3529,46 @@ mod bridge_chat;
 mod bridge_cheats;
 #[path = "bridge_ctf.rs"]
 mod bridge_ctf;
+#[path = "bridge_dodge.rs"]
+mod bridge_dodge;
 #[path = "bridge_duel.rs"]
 mod bridge_duel;
+#[path = "bridge_duel_cull.rs"]
+mod bridge_duel_cull;
 #[path = "bridge_follow.rs"]
 mod bridge_follow;
 #[path = "bridge_force.rs"]
 mod bridge_force;
+#[path = "bridge_force_options.rs"]
+mod bridge_force_options;
 #[path = "bridge_generic.rs"]
 mod bridge_generic;
+#[path = "bridge_grapple.rs"]
+mod bridge_grapple;
+#[path = "bridge_gun_game.rs"]
+mod bridge_gun_game;
 #[path = "bridge_holocron.rs"]
 mod bridge_holocron;
+#[path = "bridge_http_downloads.rs"]
+mod bridge_http_downloads;
 #[path = "bridge_icarus.rs"]
 mod bridge_icarus;
+#[path = "bridge_information_commands.rs"]
+mod bridge_information_commands;
 #[path = "bridge_jedimaster.rs"]
 mod bridge_jedimaster;
 #[path = "bridge_lock.rs"]
 mod bridge_lock;
+#[path = "bridge_map_list.rs"]
+mod bridge_map_list;
 #[path = "bridge_maps.rs"]
 mod bridge_maps;
 #[path = "bridge_missile_models.rs"]
 mod bridge_missile_models;
 #[path = "bridge_multiples.rs"]
 mod bridge_multiples;
+#[path = "bridge_player_log.rs"]
+mod bridge_player_log;
 #[path = "bridge_power_duel.rs"]
 mod bridge_power_duel;
 #[path = "bridge_restart.rs"]
@@ -3294,23 +3581,35 @@ mod bridge_saber_bounce;
 mod bridge_saber_damage;
 #[path = "bridge_spawn.rs"]
 mod bridge_spawn;
+#[path = "bridge_stats.rs"]
+mod bridge_stats;
 #[path = "bridge_think.rs"]
 mod bridge_think;
 #[path = "bridge_tournament.rs"]
 mod bridge_tournament;
+#[path = "bridge_vote_tweaks.rs"]
+mod bridge_vote_tweaks;
 #[path = "bridge_votes.rs"]
 mod bridge_votes;
-use bridge_maps::{authoritative, fixed, world_config_strings};
+use bridge_maps::{authoritative, fixed, pure_files, system_info, world_config_strings};
 #[path = "bridge_console.rs"]
 mod bridge_console;
 #[path = "bridge_cvars.rs"]
 mod bridge_cvars;
+#[path = "bridge_entity_list.rs"]
+mod bridge_entity_list;
 #[path = "bridge_log.rs"]
 mod bridge_log;
 #[path = "bridge_ranks.rs"]
 mod bridge_ranks;
+#[path = "bridge_slow_motion.rs"]
+mod bridge_slow_motion;
 #[path = "bridge_svcmds.rs"]
 mod bridge_svcmds;
+#[path = "bridge_taystjk_server.rs"]
+mod bridge_taystjk_server;
+#[path = "bridge_toggles.rs"]
+mod bridge_toggles;
 #[path = "bridge_userinfo.rs"]
 mod bridge_userinfo;
 use bridge_userinfo::judge;
@@ -3319,7 +3618,7 @@ mod bridge_demos;
 #[path = "bridge_intermission.rs"]
 mod bridge_intermission;
 use bridge_cvars::{SERVERINFO_DEFAULTS, server_info_with};
-use bridge_spawn::spawn_place;
+use bridge_spawn::{living_player_at, spawn_place};
 
 #[path = "bridge_bots.rs"]
 mod bridge_bots;
@@ -3335,12 +3634,32 @@ mod bridge_items;
 #[path = "bridge_throw.rs"]
 mod bridge_throw;
 use bridge_throw::init_saber_entity;
+#[path = "bridge_admin.rs"]
+mod bridge_admin;
+#[path = "bridge_austrian.rs"]
+mod bridge_austrian;
 #[path = "bridge_client_spawn.rs"]
 mod bridge_client_spawn;
 #[path = "bridge_collision_gather.rs"]
 mod bridge_collision_gather;
+#[path = "bridge_damage_numbers.rs"]
+mod bridge_damage_numbers;
+#[path = "bridge_damage_options.rs"]
+mod bridge_damage_options;
 #[path = "bridge_doors.rs"]
 mod bridge_doors;
+#[path = "bridge_duel_kinds.rs"]
+mod bridge_duel_kinds;
+#[path = "bridge_duel_options.rs"]
+mod bridge_duel_options;
+#[path = "bridge_emotes.rs"]
+mod bridge_emotes;
+#[path = "bridge_flag_throw.rs"]
+mod bridge_flag_throw;
+#[path = "bridge_game_options.rs"]
+mod bridge_game_options;
+#[path = "bridge_hit_feedback.rs"]
+mod bridge_hit_feedback;
 #[path = "bridge_holdables.rs"]
 mod bridge_holdables;
 #[path = "bridge_links.rs"]
@@ -3351,12 +3670,22 @@ mod bridge_map_effects;
 mod bridge_map_logic;
 #[path = "bridge_map_turrets.rs"]
 mod bridge_map_turrets;
+#[path = "bridge_motd.rs"]
+mod bridge_motd;
+#[path = "bridge_mover_push.rs"]
+mod bridge_mover_push;
 #[path = "bridge_npcs.rs"]
 mod bridge_npcs;
 #[path = "bridge_path_movers.rs"]
 mod bridge_path_movers;
 #[path = "bridge_sabers.rs"]
 mod bridge_sabers;
+#[path = "bridge_server_config.rs"]
+mod bridge_server_config;
+#[path = "bridge_shot_target.rs"]
+mod bridge_shot_target;
+#[path = "bridge_show_net.rs"]
+mod bridge_show_net;
 #[path = "bridge_siege.rs"]
 mod bridge_siege;
 #[path = "bridge_siege_clients.rs"]
@@ -3365,8 +3694,16 @@ mod bridge_siege_clients;
 mod bridge_siege_items;
 #[path = "bridge_siege_triggers.rs"]
 mod bridge_siege_triggers;
+#[path = "bridge_spot.rs"]
+mod bridge_spot;
+#[path = "bridge_starting_items.rs"]
+mod bridge_starting_items;
+#[path = "bridge_stat_log.rs"]
+mod bridge_stat_log;
 #[path = "bridge_stock_rules.rs"]
 mod bridge_stock_rules;
+#[path = "bridge_target_laser.rs"]
+mod bridge_target_laser;
 #[path = "bridge_teleport.rs"]
 mod bridge_teleport;
 #[path = "bridge_use.rs"]
@@ -3379,3 +3716,37 @@ pub use bridge_votes::SUPPORTED_VOTES;
 
 #[path = "bridge_continuation.rs"]
 mod continuation;
+
+#[path = "bridge_breakables.rs"]
+mod bridge_breakables;
+#[path = "bridge_map_shooters.rs"]
+mod bridge_map_shooters;
+#[path = "bridge_props.rs"]
+mod bridge_props;
+#[path = "bridge_repairs.rs"]
+mod bridge_repairs;
+#[path = "bridge_stations.rs"]
+mod bridge_stations;
+#[path = "bridge_usables.rs"]
+mod bridge_usables;
+
+#[path = "bridge_target_actions.rs"]
+mod bridge_target_actions;
+
+#[path = "bridge_script_client.rs"]
+mod bridge_script_client;
+
+#[path = "bridge_script_npcs.rs"]
+mod bridge_script_npcs;
+
+#[path = "bridge_kicks.rs"]
+mod bridge_kicks;
+
+#[path = "bridge_det_packs.rs"]
+mod bridge_det_packs;
+
+#[path = "bridge_client_impact.rs"]
+mod bridge_client_impact;
+
+#[path = "bridge_corpses.rs"]
+mod bridge_corpses;

@@ -6,7 +6,7 @@
 //! throw's conditions. The special moves' own movement (a lunge's shove, a flip's leap)
 //! is set here as the reference sets it, in the move.
 
-use crate::pmove::MovementTrace;
+use crate::pmove::{MovementCollision, MovementTrace};
 use crate::pmove_lightsaber::*;
 use crate::saber_move_data::{SABER_MOVES, movement::*};
 use crate::saber_rules as rules;
@@ -71,17 +71,22 @@ pub(crate) fn quadrant_for_movement(command: &UserCommand) -> u8 {
 /// `PM_GroundDistance` (`bg_saber.c:1936-1950`): how far below the player, box and all, the
 /// solid ground is.
 pub(crate) fn ground_distance(saber: &Lightsaber) -> f32 {
-    let origin = saber.state.origin;
+    ground_distance_below(saber.state.origin, saber.bounds, saber.collision)
+}
+
+/// [`ground_distance`] from `origin` with the move's box `bounds`: 4096 without a world
+/// to trace.
+pub(crate) fn ground_distance_below(
+    origin: [f32; 3],
+    bounds: ([f32; 3], [f32; 3]),
+    collision: Option<&dyn MovementCollision>,
+) -> f32 {
     let down = [origin[0], origin[1], origin[2] - 4_096.0];
-    let end = trace(
-        saber,
-        origin,
-        saber.bounds.0,
-        saber.bounds.1,
-        down,
-        MASK_SOLID,
-    )
-    .map_or(down, |trace| trace.end_position);
+    let end = collision.map_or(down, |collision| {
+        collision
+            .trace(origin, bounds.0, bounds.1, down, MASK_SOLID)
+            .end_position
+    });
     let apart = [origin[0] - end[0], origin[1] - end[1], origin[2] - end[2]];
     f64::from(apart[0] * apart[0] + apart[1] * apart[1] + apart[2] * apart[2]).sqrt() as f32
 }
@@ -591,22 +596,22 @@ fn backward_attack(saber: &mut Lightsaber, no_specials: bool) -> u16 {
 
 /// `PM_KickMoveForConditions` (`bg_saber.c:2561-2635`): a kick the way the player moves,
 /// the move then spent on it; `None` standing still.
-pub(crate) fn kick_for_conditions(saber: &mut Lightsaber) -> Option<u16> {
-    if saber.command.right_move != 0 {
-        let kick = if saber.command.right_move > 0 {
+pub(crate) fn kick_for_conditions(command: &mut UserCommand) -> Option<u16> {
+    if command.right_move != 0 {
+        let kick = if command.right_move > 0 {
             LS_KICK_R
         } else {
             LS_KICK_L
         };
-        saber.command.right_move = 0;
+        command.right_move = 0;
         Some(kick)
-    } else if saber.command.forward_move != 0 {
-        let kick = if saber.command.forward_move > 0 {
+    } else if command.forward_move != 0 {
+        let kick = if command.forward_move > 0 {
             LS_KICK_F
         } else {
             LS_KICK_B
         };
-        saber.command.forward_move = 0;
+        command.forward_move = 0;
         Some(kick)
     } else {
         None
@@ -664,7 +669,12 @@ pub(crate) fn throw(saber: &mut Lightsaber) {
     let needed = crate::force_powers::FORCE_POWER_NEEDED[usize::from(level.min(3))][FP_SABERTHROW];
     let state = &*saber.state;
     if !(state.saber_can_throw
-        && can_use_power_now(state, saber.seed, saber.context.gametype)
+        && can_use_power_now(
+            state,
+            saber.seed,
+            saber.context.gametype,
+            saber.context.duel_kind == crate::duel_kind::DuelKind::Force,
+        )
         && level > 0)
     {
         return;
@@ -697,15 +707,17 @@ pub(crate) fn throw(saber: &mut Lightsaber) {
 /// `BG_HasYsalamiri` and `BG_CanUseFPNow` (`bg_misc.c:1709-1789`) for the saber throw and
 /// the Force jump (neither is a push, nor saber offense or defense; levitation outlasts a
 /// duel).
+/// jaPRO's Force duel (`force_duel`) does not restrict the throw.
 pub(crate) fn can_use_power_now(
     state: &crate::pmove::MovementState,
     time: i32,
     gametype: i32,
+    force_duel: bool,
 ) -> bool {
-    can_use_power(state, time, gametype, false)
+    can_use_power(state, time, gametype, force_duel)
 }
 
-/// [`can_use_power_now`] for the Force jump (`FP_LEVITATION`), which a duel allows.
+/// [`can_use_power_now`] for the Force jump (`FP_LEVITATION`), which every duel allows.
 pub(crate) fn can_levitate_now(
     state: &crate::pmove::MovementState,
     time: i32,
@@ -718,7 +730,7 @@ fn can_use_power(
     state: &crate::pmove::MovementState,
     time: i32,
     gametype: i32,
-    levitation: bool,
+    unrestricted_by_duel: bool,
 ) -> bool {
     let powerups = &state.powerup_deadlines;
     let flags = powerups[crate::ctf::PW_REDFLAG] != 0 || powerups[crate::ctf::PW_BLUEFLAG] != 0;
@@ -729,7 +741,7 @@ fn can_use_power(
         || state.true_non_jedi
         || state.weapon == 17
         || state.vehicle_entity_num != 0
-        || state.duel_in_progress && !levitation
+        || state.duel_in_progress && !unrestricted_by_duel
         || state.saber_lock_frame != 0
         || state.saber_lock_time > time
         || state.falling_to_death != 0)

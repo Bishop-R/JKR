@@ -8,6 +8,7 @@ use super::*;
 use jkr_game_jka::map_turret_model::{TurretModel, TurretPose};
 use jkr_game_jka::map_turret_world::{BoltIndex, Shot, TurretHost};
 use jkr_game_jka::registries::{BoneTable, EffectTable};
+use jkr_game_jka::saber_block::MissilePaths;
 use std::sync::Arc;
 
 /// A splash a turret asked for (`G_RadiusDamage`).
@@ -61,8 +62,9 @@ pub(super) struct ServerTurretHost<'a> {
     /// The configstrings registered, for the clients.
     pub(super) registered: &'a mut Vec<(usize, Vec<u8>)>,
     pub(super) map: Option<&'a LoadedMap>,
-    /// The level's boxes but the turret's own and what it owns ([`NativeGame::gather_obstacles`]).
-    pub(super) obstacles: &'a [BoxObstacle],
+    /// The level's boxes but the turret's own and what it owns ([`NativeGame::gather_obstacles`]);
+    /// a sentry's own box among them while it moves, which its sight passes.
+    pub(super) obstacles: &'a mut [BoxObstacle],
     pub(super) pool: &'a mut EntityPool,
     pub(super) missiles: &'a mut Vec<(EntityId, Missile)>,
     pub(super) work: &'a mut TurretWork,
@@ -96,10 +98,6 @@ impl ServerTurretHost<'_> {
             .instances
             .iter_mut()
             .find(|instance| instance.number == me)
-    }
-
-    fn register(&mut self) -> impl FnMut(usize, &[u8]) + '_ {
-        |index, value| self.registered.push((index, value.to_vec()))
     }
 }
 
@@ -138,25 +136,10 @@ impl TurretHost for ServerTurretHost<'_> {
 
     /// `G_IconIndex` (`CS_ICONS`): what the clients' radar draws a turret by.
     fn icon_index(&mut self, name: &[u8]) -> u16 {
-        if let Some(index) = self
-            .work
-            .icons
-            .iter()
-            .position(|known| known.eq_ignore_ascii_case(name))
-        {
-            return index as u16 + 1;
-        }
-        if self.work.icons.len() + 1 >= MAX_ICONS {
-            eprintln!(
-                "G_IconIndex: overflow; {} not registered",
-                String::from_utf8_lossy(name)
-            );
-            return 0;
-        }
-        self.work.icons.push(name.to_vec());
-        let index = self.work.icons.len();
-        (self.register())(CS_ICONS + index, name);
-        index as u16
+        let (icons, registered) = (&mut self.work.icons, &mut self.registered);
+        register_icon(icons, name, &mut |index, value| {
+            registered.push((index, value.to_vec()))
+        })
     }
 
     fn register_weapon(&mut self, weapon: u32) {
@@ -169,10 +152,21 @@ impl TurretHost for ServerTurretHost<'_> {
         &mut self,
         start: [f32; 3],
         end: [f32; 3],
-        _: u16,
+        pass: u16,
         mask: u32,
     ) -> jkr_game_jka::pmove::MovementTrace {
-        let players = self.obstacles;
+        self.trace_box(start, ([0.0; 3], [0.0; 3]), end, pass, mask)
+    }
+
+    fn trace_box(
+        &mut self,
+        start: [f32; 3],
+        (mins, maxs): ([f32; 3], [f32; 3]),
+        end: [f32; 3],
+        pass: u16,
+        mask: u32,
+    ) -> jkr_game_jka::pmove::MovementTrace {
+        let players = &*self.obstacles;
         match self.map {
             Some(map) => WithPlayers {
                 world: WorldCollision {
@@ -181,12 +175,23 @@ impl TurretHost for ServerTurretHost<'_> {
                 },
                 players,
             }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
+            .trace_from(pass, start, mins, maxs, end, mask),
             None => WithPlayers {
                 world: Void,
                 players,
             }
-            .trace(start, [0.0; 3], [0.0; 3], end, mask),
+            .trace_from(pass, start, mins, maxs, end, mask),
+        }
+    }
+
+    fn move_entity(&mut self, number: u16, origin: [f32; 3]) {
+        if let Some(moved) = self
+            .obstacles
+            .iter_mut()
+            .find(|known| known.entity == number)
+        {
+            moved.linked_box = Some(moved.absolute_box());
+            moved.origin = origin;
         }
     }
 
@@ -209,6 +214,8 @@ impl TurretHost for ServerTurretHost<'_> {
         self.work.instances.retain(|instance| instance.number != me);
         let path = if model.ends_with(b"laser_cannon_model.glm") {
             "models/map_objects/wedge/laser_cannon_model.glm"
+        } else if model == jkr_game_jka::eweb::MODEL {
+            "models/map_objects/hoth/eweb_model.glm"
         } else {
             "models/map_objects/imp_mine/turret_canon.glm"
         };
@@ -287,9 +294,14 @@ impl TurretHost for ServerTurretHost<'_> {
         }
     }
 
-    /// The turbolaser's firing and resting animations are the clients' to play: the server
-    /// does not pose its barrels by them (its muzzles stay where its pitch puts them).
-    fn set_bone_anim(&mut self, _: u16, _: i32, _: i32) {}
+    fn set_bone_anim(&mut self, me: u16, start: i32, end: i32) {
+        let time = self.level_time;
+        if let Some(instance) = self.instance(me) {
+            let _ = instance
+                .pose
+                .set_root_animation(&instance.model, start, end, time);
+        }
+    }
 
     fn raise(&mut self, event: EventEntity) {
         let _ = self
@@ -329,4 +341,28 @@ impl TurretHost for ServerTurretHost<'_> {
             means,
         });
     }
+}
+
+/// Shared G_IconIndex namespace for turrets and other map entities.
+pub(super) fn register_icon(
+    icons: &mut Vec<Vec<u8>>,
+    name: &[u8],
+    set: &mut impl FnMut(usize, &[u8]),
+) -> u16 {
+    if name.is_empty() {
+        return 0;
+    }
+    if let Some(index) = icons
+        .iter()
+        .position(|known| known.eq_ignore_ascii_case(name))
+    {
+        return index as u16 + 1;
+    }
+    if icons.len() + 1 >= MAX_ICONS {
+        return 0;
+    }
+    icons.push(name.to_vec());
+    let index = icons.len();
+    set(CS_ICONS + index, name);
+    index as u16
 }

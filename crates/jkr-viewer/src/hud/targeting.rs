@@ -152,6 +152,8 @@ pub(crate) struct State {
 
     /// Projected muzzle trace offset, or zero for the static crosshair.
     pub(crate) dynamic_offset: Option<[f32; 2]>,
+    /// A pickup's swell of the crosshair (`ITEM_BLOB_TIME`), 1 without one.
+    pub(super) swell: f32,
 }
 
 impl Default for State {
@@ -162,6 +164,7 @@ impl Default for State {
             color: [0.92, 0.98, 1.0, 1.0],
 
             dynamic_offset: None,
+            swell: 1.0,
         }
     }
 }
@@ -169,9 +172,15 @@ impl Default for State {
 impl State {
     /// Apply the existing trace classification after local-health/style precedence.
     pub(crate) fn classify(&mut self, color: Option<[f32; 4]>, weapon: u8) {
-        if self.policy.identify && !self.policy.health && !(self.policy.style && weapon == 3) {
+        if self.identifies(weapon) {
             self.color = color.unwrap_or([1.0; 4]);
         }
+    }
+
+    /// Whether the crosshair takes its colour from what is under it (`CG_DrawCrosshair`'s
+    /// last branch, the one that names `crossEnt`) rather than from health or saber style.
+    pub(crate) fn identifies(&self, weapon: u8) -> bool {
+        self.policy.identify && !self.policy.health && !(self.policy.style && weapon == 3)
     }
     pub(super) fn update(&mut self, console: Option<&ViewerConsole>, player: &PlayerState) {
         self.policy = Policy::read(console);
@@ -209,6 +218,9 @@ impl State {
             parameters[0] = offset[0];
             parameters[1] = offset[1];
         }
+        // The crosshair is its size over these dimensions: a smaller frame, a bigger one.
+        parameters[2] /= self.swell;
+        parameters[3] /= self.swell;
         parameters
     }
 

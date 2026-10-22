@@ -41,6 +41,18 @@ impl Mesh {
         color: [f32; 4],
         depth_hack: bool,
     ) {
+        // Strip order is 0,1,2 / 2,1,3. Cyclically rotate those triangles
+        // into the polygon expander's order without changing their winding
+        // or diagonal. CPU-only vertices are not uploaded in expansion mode.
+        if self.expanded_quad(
+            [points[2], points[0], points[1], points[3]],
+            uv,
+            uv_transform,
+            color,
+            depth_hack,
+        ) {
+            return;
+        }
         if self.vertices.len() + 4 > MAX_VERTICES || self.indices.len() + 6 > MAX_INDICES {
             self.dropped += 1;
             return;

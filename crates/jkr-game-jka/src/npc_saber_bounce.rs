@@ -12,7 +12,7 @@ use crate::saber_damage::{BounceSound, WallBounce};
 use crate::saber_splash::{MAX_SPLASH_ENTITIES, SplashTarget, SplashWorld};
 
 /// `MOD_MELEE`.
-const MOD_MELEE: u32 = 1;
+const MOD_MELEE: u32 = 2;
 /// `CLASS_ATST`, `CLASS_RANCOR`: never thrown back by a splash.
 const CLASS_ATST: i32 = 1;
 const CLASS_RANCOR: i32 = 54;

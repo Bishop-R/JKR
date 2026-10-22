@@ -145,6 +145,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     pub fn client_think(&mut self, me: usize, command: UserCommand) {
         let level_time = self.level_time;
         let gravity = self.host.gravity();
+        let move_cvars = self.host.move_cvars();
         let npc = &mut self.actors[me];
         npc.mind.last_command_time = level_time;
         npc.mind.command = command;
@@ -165,7 +166,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         let npc = &mut self.actors[me];
         let mut base = npc.movement.state().saber_anim_level_base;
-        crate::saber_stance::upkeep(&mut npc.player, &npc.definition.sabers, &mut base);
+        crate::saber_stance::upkeep(&mut npc.player, &npc.definition.sabers, &mut base, 0);
         npc.movement.set_saber_anim_level_base(base);
         let command_time = npc.player.command_time();
         let command = &mut npc.mind.command;
@@ -177,6 +178,10 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             command.server_time = command_time + 100;
         }
         let msec = (command.server_time - command_time).min(200);
+        // `pmove_fixed` (`g_active.c:2038-2041`): the time rounded up to a whole
+        // `pmove_msec`, and the move made with the server's movement variables.
+        command.server_time = move_cvars.command_time(command.server_time);
+        npc.movement.set_move_cvars(move_cvars);
         self.movement_type(me);
         self.speed(me);
         let npc = &mut self.actors[me];
@@ -507,6 +512,11 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 held(second, second.move_speed_scale),
             ],
         );
+        // `pmove.debugMelee` (`g_active.c:2889`) and its grapple, as a player's.
+        let grappling = npc.mind.grapple.state != 0;
+        npc.movement
+            .set_melee_rules(host.force_rules().debug_melee, grappling);
+        npc.movement.set_legacy_fixes(host.legacy_fixes());
         let level = |power: usize| npc.force_levels[power].clamp(0, 255) as u8;
         let legs_of = |number: u16| {
             body_legs
@@ -525,6 +535,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             },
             gametype: host.gametype(),
             saber_throws: true,
+            duel_kind: crate::duel_kind::DuelKind::Saber,
             bodies: &legs_of,
             npcs: &npcs,
             // The host that keeps the NPC's model reads its feet ([`NpcHost::move_npc`]).
@@ -606,8 +617,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         let sent = crate::player_entity::extrapolate(
             &npc.player,
             &mut npc.mind.shown_events,
-            &mut npc.state,
-            overflow,
+            (&mut npc.state, overflow),
+            host.smooth_clients(),
         );
         npc.state.set_raw_field(es::TYPE, ET_NPC);
         if sent {

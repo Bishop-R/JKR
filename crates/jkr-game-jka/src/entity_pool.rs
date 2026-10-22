@@ -23,13 +23,13 @@ use jkr_protocol::{EntityState, LEGACY_ENTITY_FIELDS, LEGACY_GAME_ENTITIES, Lega
 pub const JKA_PROFILE_BUDGET: usize = LEGACY_GAME_ENTITIES;
 /// `EVENT_VALID_MSEC`.
 const EVENT_VALID_MS: i32 = 300;
-/// `BODY_QUEUE_SIZE`: how many bodies lie around before the oldest is reused.
-const BODIES: usize = 8;
-/// `BODY_SINK_TIME`: a body fades this long after it fell, and is unlinked 18 s later.
-const BODY_SINK_MS: i32 = 30_000;
+/// `BODY_QUEUE_SIZE`: how many bodies lie around before the oldest is reused. They hold the
+/// pool's first slots, in turn.
+pub const BODIES: usize = 8;
+/// A faded body is unlinked this long after `BodySink` faded it.
 const BODY_FADE_THINK_MS: i32 = 18_000;
 /// `EV_BODYFADE`, with `G_AddEvent`'s stepped sequence bits.
-const EV_BODYFADE: u32 = 125;
+const EV_BODYFADE: u32 = 100;
 const ES_EVENT: usize = 28;
 /// `s.eFlags`, `s.eventParm`, `s.eType`.
 const ES_EFLAGS: usize = 19;
@@ -75,9 +75,14 @@ struct Slot {
     free_after_event: bool,
     /// `SVF_NOTSINGLECLIENT`'s `singleClient`: everyone but this wire client is sent it.
     not_for: Option<u16>,
+    /// `SVF_SINGLECLIENT`'s `singleClient`: only this wire client is sent it.
+    only_for: Option<u16>,
     linked: bool,
-    /// `timestamp` of a body: when it fell; `None` for anything else.
-    body_since: Option<i32>,
+    /// A body's `BodySink` think: when it fades (`BODY_SINK_TIME` after it fell, as the
+    /// server's option stood then); `None` for anything else.
+    body_sink_at: Option<i32>,
+    /// `BodyRid`'s time for a body burnt away (`body_die`), which thinks no more of fading.
+    body_rid_at: Option<i32>,
     /// `r.mins`, `r.maxs`: the box `SV_LinkEntity` links around it (a point for most
     /// temp entities).
     bounds: ([f32; 3], [f32; 3]),
@@ -120,6 +125,8 @@ pub struct PoolEntity<'a> {
     pub state: &'a EntityState,
     /// The one wire client that is not sent it, if any.
     pub not_for: Option<u16>,
+    /// The one wire client that alone is sent it, if any.
+    pub only_for: Option<u16>,
     /// `r.mins`, `r.maxs`.
     pub bounds: ([f32; 3], [f32; 3]),
     /// `SVF_BROADCAST`: sent to everyone wherever they are — set for the entity, or for
@@ -130,6 +137,12 @@ pub struct PoolEntity<'a> {
 }
 
 impl PoolEntity<'_> {
+    /// Whether wire client `client` is kept from it: everyone but it, or it alone, is sent
+    /// it (`SVF_NOTSINGLECLIENT`, `SVF_SINGLECLIENT`).
+    pub fn withheld_from(&self, client: u16) -> bool {
+        self.not_for == Some(client) || self.only_for.is_some_and(|only| only != client)
+    }
+
     /// The number a legacy client knows it by, or `None` when it lies beyond what a
     /// legacy client can represent: the snapshot adapter withholds it and counts it.
     pub fn legacy_number(&self) -> Option<u16> {
@@ -167,8 +180,9 @@ impl EntityPool {
     }
 
     /// `CopyToBodyQue`'s slot: the next of the eight, round robin, linked from now and
-    /// sinking `BODY_SINK_TIME` on; returns its identity.
-    pub fn spawn_body(&mut self, state: EntityState, level_time: i32) -> EntityId {
+    /// sinking `sink_ms` on (`BODY_SINK_TIME`, jaPRO's `g_corpseRemovalTime`); returns its
+    /// identity.
+    pub fn spawn_body(&mut self, state: EntityState, level_time: i32, sink_ms: i32) -> EntityId {
         let slot = self.next_body;
         self.next_body = (self.next_body + 1) % BODIES;
         let id = self.occupy(
@@ -182,7 +196,7 @@ impl EntityPool {
             },
         );
         let entry = &mut self.slots[slot];
-        (entry.body_since, entry.broadcast) = (Some(level_time), true);
+        (entry.body_sink_at, entry.broadcast) = (Some(level_time + sink_ms), true);
         id
     }
 
@@ -288,8 +302,10 @@ impl EntityPool {
             event_time,
             free_after_event,
             not_for,
+            only_for: None,
             linked,
-            body_since: None,
+            body_sink_at: None,
+            body_rid_at: None,
             bounds: ([0.0; 3], [0.0; 3]),
             broadcast: false,
             ground_residue: None,
@@ -469,16 +485,24 @@ impl EntityPool {
             if !slot.in_use {
                 continue;
             }
-            // `BodySink`: a body's think, `BODY_SINK_TIME` after it fell, fades it
-            // (`EV_BODYFADE`) and thinks again 18 s later, when it is unlinked.
-            if let Some(since) = slot.body_since
-                && slot.linked
-            {
-                if level_time - since > BODY_SINK_MS + BODY_FADE_THINK_MS {
-                    slot.linked = false;
-                } else if level_time - since >= BODY_SINK_MS
-                    && slot.event_time < since + BODY_SINK_MS
+            // A body's event shown long enough is taken off it first, as off any entity
+            // (`g_main.c:3080-3090`). Then `BodySink`, its think `BODY_SINK_TIME` after it
+            // fell, fades it (`EV_BODYFADE`) and thinks again 18 s later, when it is
+            // unlinked; a body burnt away thinks `BodyRid` instead, unlinked when due.
+            if let Some(sink_at) = slot.body_sink_at {
+                if level_time - slot.event_time > EVENT_VALID_MS
+                    && slot.state.raw_field(ES_EVENT) != Some(0)
                 {
+                    slot.state.set_raw_field(ES_EVENT, 0);
+                }
+                if !slot.linked {
+                    continue;
+                }
+                if let Some(at) = slot.body_rid_at {
+                    slot.linked = level_time < at;
+                } else if level_time > sink_at + BODY_FADE_THINK_MS {
+                    slot.linked = false;
+                } else if level_time >= sink_at && slot.event_time < sink_at {
                     let bits = (slot.state.raw_field(ES_EVENT).unwrap_or(0) & EVENT_BITS)
                         .wrapping_add(EVENT_BIT1)
                         & EVENT_BITS;
@@ -554,6 +578,7 @@ impl EntityPool {
                     id: EntityId::new(ordinal as u32, slot.generation),
                     state: &slot.state,
                     not_for: slot.not_for,
+                    only_for: slot.only_for,
                     bounds: slot.bounds,
                     broadcast: slot.broadcast
                         || broadcast_event(&slot.state)
@@ -563,10 +588,49 @@ impl EntityPool {
             })
     }
 
+    /// The body lying in body-queue slot `slot`, linked or not.
+    pub fn body(&self, slot: usize) -> Option<EntityId> {
+        let entry = self
+            .slots
+            .get(slot)
+            .filter(|entry| slot < BODIES && entry.in_use && entry.body_sink_at.is_some())?;
+        Some(EntityId::new(slot as u32, entry.generation))
+    }
+
+    /// Whether `id` is one of `InitBodyQue`'s eight entities, a body lying there or not.
+    pub fn in_body_queue(&self, id: EntityId) -> bool {
+        id.ordinal() < BODIES && self.slot(id).is_some()
+    }
+
+    /// The body-queue slot body `id` lies in.
+    pub fn body_slot(&self, id: EntityId) -> Option<usize> {
+        self.slot(id)
+            .filter(|entry| entry.in_use && entry.body_sink_at.is_some())
+            .map(|_| id.ordinal())
+    }
+
+    /// `body_die`'s `think = BodyRid` for body `id`, due at `at`: unlinked then, and never
+    /// faded.
+    pub fn rid_body(&mut self, id: EntityId, at: i32) {
+        if let Some(entry) = self.slot_mut(id)
+            && entry.body_sink_at.is_some()
+        {
+            entry.body_rid_at = Some(at);
+        }
+    }
+
     /// `r.mins`/`r.maxs` of an entity in use: the box it is linked by.
     pub fn set_bounds(&mut self, id: EntityId, bounds: ([f32; 3], [f32; 3])) {
         if let Some(slot) = self.slot_mut(id) {
             slot.bounds = bounds;
+        }
+    }
+
+    /// `SVF_SINGLECLIENT`: an entity in use sent to wire client `client` alone, or to
+    /// whoever may see it again (`None`).
+    pub fn set_only_for(&mut self, id: EntityId, client: Option<u16>) {
+        if let Some(slot) = self.slot_mut(id) {
+            slot.only_for = client;
         }
     }
 
@@ -628,8 +692,10 @@ impl Slot {
             event_time: 0,
             free_after_event: false,
             not_for: None,
+            only_for: None,
             linked: false,
-            body_since: None,
+            body_sink_at: None,
+            body_rid_at: None,
             bounds: ([0.0; 3], [0.0; 3]),
             broadcast: false,
             ground_residue: None,

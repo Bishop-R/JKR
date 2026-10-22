@@ -11,7 +11,14 @@ use jkr_runtime::{HeldEquipment, HeldItemKind};
 #[path = "saber_lights.rs"]
 pub(crate) mod lights;
 
-/// Submit both hilts and every numbered blade for one actor.
+/// The console's blade options: `cg_saberTrail` and TaystJK's `cg_saberStaffMultiColor`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Options {
+    pub(crate) trails: bool,
+    pub(crate) staff_colors: bool,
+}
+
+/// Submit both hilts, each to `hilts` by its mesh, and every numbered blade for one actor.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn submit(
     entity_id: u64,
@@ -22,10 +29,10 @@ pub(crate) fn submit(
     catalog: Option<&HiltCatalog>,
     states: &mut StateSlab,
     segments: &mut SegmentPool,
-    object_groups: &mut [Vec<ActorInstance>],
+    hilts: &mut dyn FnMut(usize, ActorInstance),
     saber_instances: &mut Vec<Instance>,
     presentation_time: i64,
-    trails_enabled: bool,
+    options: Options,
     lights: &mut crate::dynamic_lights::PointLightList,
 ) -> bool {
     if equipment.kind != HeldItemKind::EnergyBlade {
@@ -57,11 +64,10 @@ pub(crate) fn submit(
         let hilt = catalog.get(name);
         let (grip, weapon_rotation) =
             saber::world_attachment(actor_origin, actor_rotation, attachment);
-        object_groups[hilt.mesh_index].push(ActorInstance::new(
-            grip.to_array(),
-            weapon_rotation.to_array(),
-            [1.0; 3],
-        ));
+        hilts(
+            hilt.mesh_index,
+            ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]),
+        );
         let color = BladeColor::from_rgb(if saber_index == 0 {
             equipment.color
         } else {
@@ -71,6 +77,13 @@ pub(crate) fn submit(
         for blade_index in 0..usize::from(hilt.num_blades) {
             let Some(hilt_blade) = hilt.blade(blade_index) else {
                 continue;
+            };
+            // TaystJK's `cg_saberStaffMultiColor`: a staff's blades past the first take the
+            // second saber's colour.
+            let color = if options.staff_colors && saber_index == 0 && blade_index >= 1 {
+                BladeColor::from_rgb(equipment.secondary_color)
+            } else {
+                color
             };
             let active = blade_is_active(&equipment, saber_index, blade_index);
             let Some(state) = states.blade_mut(entity_id, saber_index, blade_index) else {
@@ -105,7 +118,7 @@ pub(crate) fn submit(
                 }),
             );
             light_blades[blade_index] = Some(blade);
-            if trails_enabled
+            if options.trails
                 && let Some(quad) = state.trail.update(
                     blade,
                     presentation_time,

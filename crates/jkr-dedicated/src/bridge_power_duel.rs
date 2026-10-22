@@ -17,7 +17,7 @@ use jkr_game_jka::power_duel::{
 const CS_CLIENT_DUELISTS: usize = 30;
 const CS_CLIENT_DUELWINNER: usize = 29;
 /// `EV_GLOBAL_DUEL`: every client is told who duels whom.
-const EV_GLOBAL_DUEL: u32 = 23;
+const EV_GLOBAL_DUEL: u32 = 14;
 /// Entity fields the duel event carries its three in.
 const ES_OTHER_ENTITY: usize = 59;
 const ES_OTHER_ENTITY2: usize = 39;
@@ -42,12 +42,14 @@ impl NativeGame {
         self.gametype == GAMETYPE_POWERDUEL
     }
 
-    /// Everyone in the game as `G_PowerDuelCount` counts them.
+    /// Everyone in the game as `G_PowerDuelCount` counts them: its entity in use, which
+    /// a bot's is from its connection and a player's only once it spawns (`ClientSpawn`,
+    /// `g_client.c:3365`), so a player still loading the map counts on no side.
     fn counted(&self) -> impl Iterator<Item = Counted> + '_ {
         (0..self.players.places())
             .filter_map(|client| self.peer(client))
             .map(|peer| Counted {
-                in_game: true,
+                in_game: peer.bot || peer.begun,
                 spectator: peer.session.team == i32::from(TEAM_SPECTATOR),
                 duel_team: peer.session.duel_team,
             })
@@ -167,6 +169,7 @@ impl NativeGame {
         let (sorted, playing) = self.sorted();
         if playing >= 3 && self.non_spectators() >= 3 && self.can_reset_duellists(&sorted) {
             self.announce_duellists(&sorted, server_time);
+            self.austrian_power_duel_pulled();
         }
     }
 

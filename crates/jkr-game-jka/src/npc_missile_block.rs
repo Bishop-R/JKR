@@ -30,7 +30,7 @@ const FP_LIGHTNING: usize = 7;
 const FP_DRAIN: usize = 13;
 const FP_SABER_DEFENSE: usize = 16;
 /// `CLASS_BOBAFETT`; `EF2_FLYING`; `MOD_ROCKET_HOMING`.
-const CLASS_BOBAFETT: i32 = 5;
+const CLASS_BOBAFETT: i32 = 52;
 const EF2_FLYING: u32 = 1 << 4;
 const MOD_ROCKET_HOMING: u32 = 21;
 /// `ENTITYNUM_NONE`.
@@ -380,6 +380,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 bounds: (entity.mins, entity.maxs),
                 contents: crate::npc_saber::CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
         let start = bodies.len();

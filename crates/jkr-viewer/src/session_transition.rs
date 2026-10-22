@@ -241,7 +241,9 @@ impl GpuState {
     }
 
     pub(crate) fn poll_world_install(&mut self) -> Result<Option<GpuState>, Box<dyn Error>> {
-        if self.is_menu_world {
+        // A demo played from the menu loads its own map as any session's; the gate only
+        // opens onto servers.
+        if self.is_menu_world && self.demo_session.is_none() {
             return self.poll_gate_destination();
         }
         if self.join_task.is_some()
@@ -265,12 +267,22 @@ impl GpuState {
             crate::log::progress(format_args!(
                 "session transition: loading {map_path} on worker"
             ));
-            // The old world is a backdrop beneath the loading notice.
+            // The old world is a backdrop beneath the loading notice, which says what
+            // the server says of itself (`CG_DrawInformation`).
+            let details = self
+                .resident
+                .session
+                .as_ref()
+                .map(jkr_client::ClientSession::game_state)
+                .or_else(|| self.demo_session.as_ref().map(|s| s.game_state()))
+                .map(|game| crate::menu::loading_info::lines(game, &self.localization))
+                .unwrap_or_default();
             if let Some(menu) = &mut self.client_menu {
                 menu.state_loading(
                     map_path
                         .trim_start_matches("maps/")
                         .trim_end_matches(".bsp"),
+                    details,
                 );
             }
             let game = self

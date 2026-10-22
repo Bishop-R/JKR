@@ -57,8 +57,6 @@ const PMF_DUCKED: u32 = 1;
 const ENTITY_NONE: u32 = 1_023;
 /// `FP_RAGE`, `FP_SABER_OFFENSE`.
 const FP_RAGE: usize = 8;
-/// `g_saberLockRandomNess`: what the game adds to a press, drawn up to this.
-pub const LOCK_RANDOMNESS: i32 = 2;
 /// `MASK_PLAYERSOLID`: what the two are drawn together through.
 pub const MASK_PLAYERSOLID: u32 = 0x1 | 0x10 | 0x100 | 0x1000;
 
@@ -695,6 +693,7 @@ fn obstacle(fighter: &LockFighter) -> crate::entity_clip::BoxObstacle {
         bounds: fighter.bounds,
         contents: 0x100,
         model: None,
+        linked_box: None,
     }
 }
 
@@ -770,7 +769,8 @@ const SS_DESANN: i32 = 4;
 /// while recovering from it, and a little at random — and weight left over pushes the
 /// lock this move (`saberLockAdvance`). Outside a lock the lock's frame is cleared.
 /// `rage` is the rage level, `rage_recovery_time` `fd.forceRageRecoveryTime`, `bonus` the
-/// sabers' `lockBonus` ([`crate::player_sabers::PlayerSabers::lock_bonus`]).
+/// sabers' `lockBonus` ([`crate::player_sabers::PlayerSabers::lock_bonus`]) and
+/// `randomness` `g_saberLockRandomNess`, what a press may add at random.
 #[allow(clippy::too_many_arguments)]
 pub fn think(
     state: &mut PlayerState,
@@ -779,7 +779,7 @@ pub fn think(
     command_angles: [i32; 3],
     rage: u8,
     rage_recovery_time: i32,
-    bonus: i32,
+    (bonus, randomness): (i32, i32),
     level_time: i32,
     rng: &mut Rng,
 ) {
@@ -819,8 +819,8 @@ pub fn think(
             hits -= 1;
         }
         memory.hits += hits + bonus;
-        if LOCK_RANDOMNESS != 0 {
-            memory.hits += rng.irand(0, LOCK_RANDOMNESS);
+        if randomness != 0 {
+            memory.hits += rng.irand(0, randomness);
             memory.hits = memory.hits.max(0);
         }
     }

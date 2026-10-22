@@ -26,13 +26,8 @@ use jkr_game_jka::npc_roster::{Fired, NpcRoster};
 use jkr_game_jka::player_death::Rng;
 use jkr_game_jka::pmove::{MovementCollision, MovementTrace};
 
-/// `g_forceRegenTime`'s default: a point of Force every 200 ms.
-const FORCE_REGEN_TIME: i32 = 200;
 /// `CONTENTS_BODY`.
 const CONTENTS_BODY: u32 = 0x100;
-/// `PERS_HITS`, `PERS_ATTACKEE_ARMOR`.
-const PERS_HITS: usize = 1;
-const PERS_ATTACKEE_ARMOR: usize = 7;
 
 /// What a player's grip, lightning and drain need beside the world, kept between updates
 /// so that none allocates: the state its own is swapped with while it runs, the blows it
@@ -81,6 +76,14 @@ impl NativeGame {
             self.limits.duel_fraglimit,
             self.gametype,
         );
+        // Regeneration's own paces: Siege's (`w_force.c:5448-5455`), and Holocron FFA's
+        // point per holocron with no carry limit.
+        let siege_pace = (gametype == GAMETYPE_SIEGE)
+            .then(|| self.siege_regen_pace(client))
+            .flatten();
+        let duel_pace = self.duel_regen_pace(client);
+        let holocron_regen = gametype == jkr_game_jka::holocron::GT_HOLOCRON
+            && self.cvars.value(b"g_maxHolocronCarry") == 0.0;
         // The Jedi Master's rule for the user's blows on an NPC, which is never the master.
         let spared_by_master = self.jedi_master_spares(Some(client as u16), usize::MAX);
         let mut scratch = std::mem::take(&mut self.force_scratch);
@@ -100,6 +103,7 @@ impl NativeGame {
                 gametype,
                 spared_by_master,
             ),
+            (siege_pace, duel_pace, holocron_regen),
             run,
         );
         let (telefrags, outcomes) = (
@@ -114,12 +118,8 @@ impl NativeGame {
             return None;
         };
         // What the user's blows on NPCs gave its hit counter (`g_combat.c:4895-4905`).
-        if let Some(peer) = self.peer_mut(client) {
-            for (hits, armor) in scratch.hits.drain(..).filter(|(hits, _)| *hits != 0) {
-                peer.state.persistent[PERS_HITS] =
-                    (peer.state.persistent[PERS_HITS] as i32 + hits) as u32;
-                peer.state.persistent[PERS_ATTACKEE_ARMOR] = armor.unwrap_or(0);
-            }
+        for (hits, armor) in scratch.hits.drain(..).filter(|(hits, _)| *hits != 0) {
+            self.record_hit(client, hits, armor);
         }
         scratch.hits.clear();
         // The others the powers changed restart their movement from their state.
@@ -177,6 +177,7 @@ fn run_frame<T>(
         i32,
         bool,
     ),
+    (siege_pace, duel_pace, holocron_regen): (Option<f64>, Option<f64>, bool),
     run: impl FnOnce(&mut PlayerState, &mut ForcePowers, &mut ForceFrame) -> T,
 ) -> Option<(T,)> {
     let ForceScratch {
@@ -204,6 +205,9 @@ fn run_frame<T>(
         peer.session.team,
     );
     let saber_style = peer.sabers.base_style();
+    let typing = peer.typing;
+    let rules = host.force_rules;
+    let mut stats = peer.stats;
     // `Cmd_ToggleSaber_f`'s off-sounds: each held saber's own, where it has one.
     let hands = &peer.sabers.hands;
     let saber_off_sounds = std::array::from_fn(|hand| match hands[hand].sound_off {
@@ -216,7 +220,7 @@ fn run_frame<T>(
         && peer.session.duel_team == jkr_game_jka::power_duel::DUELTEAM_LONE)
         .then(|| {
             jkr_game_jka::power_duel::lone_regen_time(
-                FORCE_REGEN_TIME,
+                rules.regen_time,
                 peer.session.wins,
                 duel_fraglimit,
             )
@@ -236,19 +240,23 @@ fn run_frame<T>(
     let mut frame = ForceFrame {
         level_time: server_time,
         gametype,
-        regen_time: FORCE_REGEN_TIME,
+        regen_time: rules.regen_time,
         since_last_frame,
         client: client as u16,
         npc: false,
         team,
         saber_style,
         saber_only,
-        lone_regen,
+        regen_pace: siege_pace.or(lone_regen).or(duel_pace),
+        holocron_regen,
         health: &mut health,
         hand_extend_time: &mut hand,
         invulnerable_until: &mut invulnerable,
         others: &mut others,
         saber_off_sounds,
+        typing,
+        rules,
+        stats: &mut stats,
     };
     let result = run(state, &mut force, &mut frame);
     let world = host.server.world_mut(host.world)?;
@@ -258,6 +266,7 @@ fn run_frame<T>(
         .and_then(|handle| world.entity_mut(handle))?;
     std::mem::swap(&mut peer.state, state);
     peer.force = force;
+    peer.stats = stats;
     (
         peer.health,
         peer.knockdown.hand_extend_time,
@@ -332,6 +341,8 @@ impl OtherPlayers for ServerOthers<'_, '_> {
             team: peer.session.team,
             absmin,
             absmax,
+            jetpack: Some(&mut peer.gear.packs),
+            typing: peer.typing,
         })
     }
 

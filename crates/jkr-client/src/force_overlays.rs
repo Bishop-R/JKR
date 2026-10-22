@@ -106,6 +106,8 @@ pub struct LegacyActorOverlayState {
     pub dead: bool,
     /// Whether `bolt1` requests the sight bubble.
     pub sight_bubble: bool,
+    /// A jaPRO racer (`bolt1` 2), not a duellist.
+    pub racing: bool,
     /// Whether this client currently owns the Jedi Master saber.
     pub jedi_master: bool,
     /// Cgame time through which the electric body effect is active.
@@ -125,6 +127,7 @@ impl LegacyActorOverlayState {
             powerups: entity.powerups(),
             dead: entity.e_flags() & EF_DEAD != 0,
             sight_bubble: entity.bolt1(),
+            racing: entity.raw_field(91) == Some(2),
             jedi_master: entity.is_jedi_master(),
             electrify_until: entity.emplaced_owner(),
             team: client_team(game_state, entity.client_num()),
@@ -140,6 +143,7 @@ impl LegacyActorOverlayState {
             powerups: u32::from(player.powerup_active(7, now)) << 7,
             dead: player.health() <= 0,
             sight_bubble: false,
+            racing: false,
             jedi_master: player.is_jedi_master(),
             electrify_until: player.electrify_time(),
             team: client_team(game_state, player.client_num()),
@@ -149,7 +153,7 @@ impl LegacyActorOverlayState {
 }
 
 /// Frame-local values shared by every actor overlay decision.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LegacyForceOverlayContext {
     /// Current cgame time.
     pub now: i32,
@@ -171,6 +175,37 @@ pub struct LegacyForceOverlayContext {
     pub third_person: bool,
     /// Runtime value of `cg_auraShell`.
     pub aura_shell: bool,
+    /// EternalJK's `cg_alwaysShowAbsorb`: every absorb shows while it runs, not only
+    /// one's own and those that just absorbed something.
+    pub always_show_absorb: bool,
+    /// How far the local duel opponent is drawn from the local player, in whole units
+    /// (`duelEnt->lerpOrigin - cg.snap->ps.origin`); the duel glow and tint read it.
+    pub duel_distance: u16,
+    /// jaPRO's `cg_stylePlayer` ([`crate::style_player`]).
+    pub style: u32,
+    /// The mod the server runs, which some style choices read.
+    pub server_mod: crate::ServerMod,
+}
+
+impl Default for LegacyForceOverlayContext {
+    fn default() -> Self {
+        Self {
+            now: 0,
+            local_client: 0,
+            local_force_powers_active: 0,
+            local_see_level: 0,
+            local_duel: false,
+            local_duel_index: 0,
+            local_team: 0,
+            gametype: 0,
+            third_person: false,
+            aura_shell: false,
+            always_show_absorb: false,
+            duel_distance: 0,
+            style: crate::style_player::DEFAULT,
+            server_mod: crate::ServerMod::BaseJka,
+        }
+    }
 }
 
 impl LegacyForceOverlayContext {
@@ -196,8 +231,79 @@ impl LegacyForceOverlayContext {
             ),
             third_person,
             aura_shell,
+            always_show_absorb: false,
+            duel_distance: 1_020,
+            style: crate::style_player::DEFAULT,
+            server_mod: crate::ServerMod::from_serverinfo(
+                game_state.config_string(CS_SERVERINFO).unwrap_or_default(),
+            ),
         }
     }
+}
+
+/// `CG_Player`'s duel colouring of a player model (`cg_players.c:10552-10633`): the
+/// `RF_RGB_TINT` colour it is drawn with from `base`, if any. With the local player's
+/// Force Sight on another player starts yellow; while the local player duels everyone
+/// but the two duellists is drawn at a fifth of that, and the duellists darker by an
+/// eighth of the distance between them; otherwise a living duellist is dark grey.
+///
+/// `cg_stylePlayer` (EternalJK `cg_players.c:12266-12372`): [`style_player::FULLBRIGHT`]
+/// draws every player white instead; without [`style_player::SHELL`] the duellists keep
+/// their colour, and with it on JA+ and jaPRO servers they are not darkened; a duellist
+/// drawn as the stand-in, or a jaPRO racer, is not greyed.
+///
+/// [`style_player::FULLBRIGHT`]: crate::style_player::FULLBRIGHT
+/// [`style_player::SHELL`]: crate::style_player::SHELL
+pub fn legacy_duel_tint(
+    base: [u8; 3],
+    actor: LegacyActorOverlayState,
+    context: LegacyForceOverlayContext,
+) -> Option<[u8; 3]> {
+    use crate::style_player::{FULLBRIGHT, SHELL};
+    let local = actor.number == context.local_client;
+    let fullbright = context.style & FULLBRIGHT != 0;
+    let rgb = if fullbright {
+        [255; 3]
+    } else if context.local_force_powers_active & FP_SEE != 0 && !local {
+        [255, 255, 0]
+    } else {
+        base
+    };
+    let tinted = fullbright.then_some(rgb);
+    if context.local_duel {
+        if actor.number != context.local_duel_index && !local {
+            Some(rgb.map(|channel| (f32::from(channel) / 5.0) as u8))
+        } else if context.style & SHELL == 0 {
+            tinted
+        } else if context.server_mod >= crate::ServerMod::JaPlus {
+            Some(rgb)
+        } else {
+            let distance = duel_span(context.duel_distance);
+            Some(rgb.map(|channel| (f32::from(channel) - distance / 8.0).max(1.0) as u8))
+        }
+    } else if greyed(actor, context) && !local {
+        Some([50, 50, 50])
+    } else {
+        tinted
+    }
+}
+
+/// A duellist seen from outside its duel: greyed, and inside a blue sight bubble — unless
+/// it is drawn as the stand-in, or is a racer on jaPRO.
+fn greyed(actor: LegacyActorOverlayState, context: LegacyForceOverlayContext) -> bool {
+    let view = crate::style_player::LocalView {
+        duelling: context.local_duel,
+        ..Default::default()
+    };
+    actor.sight_bubble
+        && !actor.dead
+        && !(actor.racing && context.server_mod == crate::ServerMod::JaPro)
+        && !crate::style_player::duellist_stand_in(context.style, view, u32::from(!actor.racing))
+}
+
+/// The distance the duel glow reads, held within 1 and 1020 units.
+fn duel_span(distance: u16) -> f32 {
+    f32::from(distance).clamp(1.0, 1_020.0)
 }
 
 /// Injected random draws preserving cgame's ordered presentation decisions.
@@ -247,7 +353,21 @@ pub fn legacy_force_overlays(
             false,
         ));
     }
-    if !context.local_duel && actor.sight_bubble && !actor.dead && !local {
+    // `cg_players.c:10561-10611`: in a duel the two duellists glow through `forceShell`,
+    // brighter the nearer they are.
+    if context.local_duel
+        && context.style & crate::style_player::SHELL != 0
+        && (local || actor.number == context.local_duel_index)
+    {
+        let grey = (255.0 - duel_span(context.duel_distance) / 4.0).max(1.0) as u8;
+        output.push(request(
+            "powerups/forceshell",
+            [grey, grey, grey, legs_alpha],
+            LegacyOverlayTint::Shader,
+            false,
+        ));
+    }
+    if !context.local_duel && greyed(actor, context) && !local {
         output.push(request(
             "gfx/misc/sightbubble",
             [50, 50, 255, 255],
@@ -263,7 +383,9 @@ pub fn legacy_force_overlays(
             false,
         ));
     }
+    // EternalJK's `cg_alwaysShowAbsorb`: everyone's absorb shows while it runs.
     if (local && context.local_force_powers_active & FP_ABSORB != 0)
+        || (context.always_show_absorb && actor.force_powers_active & FP_ABSORB != 0)
         || (team_power.until > context.now && team_power.kind == 3)
     {
         legs_alpha = 254;
@@ -377,4 +499,148 @@ fn info_int(info: &[u8], key: &str) -> i32 {
         }
     }
     0
+}
+
+#[cfg(test)]
+mod duel_tests {
+    use super::*;
+
+    struct NoRandom;
+
+    impl LegacyOverlayRandom for NoRandom {
+        fn unit(&mut self) -> f32 {
+            0.0
+        }
+        fn bit(&mut self) -> bool {
+            false
+        }
+        fn byte_1_255(&mut self) -> u8 {
+            1
+        }
+    }
+
+    /// The local player 0, duelling player 1 at 400 units when `duelling`.
+    fn context(duelling: bool) -> LegacyForceOverlayContext {
+        LegacyForceOverlayContext {
+            local_client: 0,
+            local_duel: duelling,
+            local_duel_index: 1,
+            duel_distance: 400,
+            ..LegacyForceOverlayContext::default()
+        }
+    }
+
+    fn actor(number: u16, duelling: bool) -> LegacyActorOverlayState {
+        LegacyActorOverlayState {
+            number,
+            sight_bubble: duelling,
+            base_alpha: 255,
+            ..LegacyActorOverlayState::default()
+        }
+    }
+
+    #[test]
+    fn duellists_and_bystanders_are_tinted_as_stock_tints_them() {
+        let white = [255; 3];
+        // Not duelling: a duellist dark grey, anyone else as drawn.
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, true), context(false)),
+            Some([50; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, false), context(false)),
+            None
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(0, true), context(false)),
+            None
+        );
+        // Duelling: a bystander a fifth, the duellists darker by an eighth of 400.
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, false), context(true)),
+            Some([51; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(1, true), context(true)),
+            Some([205; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(white, actor(0, true), context(true)),
+            Some([205; 3])
+        );
+        // Force Sight starts others yellow.
+        let seeing = LegacyForceOverlayContext {
+            local_force_powers_active: FP_SEE,
+            ..context(true)
+        };
+        assert_eq!(
+            legacy_duel_tint(white, actor(2, false), seeing),
+            Some([51, 51, 0])
+        );
+    }
+
+    #[test]
+    fn the_player_style_changes_the_duel_colouring() {
+        use crate::style_player::{FULLBRIGHT, SHELL};
+        let white = [255; 3];
+        let styled = |style, server_mod| LegacyForceOverlayContext {
+            style,
+            server_mod,
+            ..context(true)
+        };
+        // EternalJK's default draws the duellists as they are.
+        assert_eq!(
+            legacy_duel_tint(white, actor(1, true), styled(0, crate::ServerMod::BaseJka)),
+            None
+        );
+        // With the shell on JA+ they keep their colour, tinted.
+        assert_eq!(
+            legacy_duel_tint(
+                white,
+                actor(1, true),
+                styled(SHELL, crate::ServerMod::JaPlus)
+            ),
+            Some(white)
+        );
+        // Fullbright draws everyone white, bystanders still a fifth of it.
+        let bright = styled(FULLBRIGHT, crate::ServerMod::BaseJka);
+        assert_eq!(
+            legacy_duel_tint([10; 3], actor(1, true), bright),
+            Some(white)
+        );
+        assert_eq!(
+            legacy_duel_tint([10; 3], actor(2, false), bright),
+            Some([51; 3])
+        );
+        assert_eq!(
+            legacy_duel_tint(
+                [10; 3],
+                actor(2, false),
+                LegacyForceOverlayContext {
+                    local_duel: false,
+                    ..bright
+                }
+            ),
+            Some(white)
+        );
+    }
+
+    #[test]
+    fn duellists_glow_brighter_the_nearer_they_are() {
+        let glow = |number, duelling| {
+            legacy_force_overlays(
+                actor(number, true),
+                LegacyTeamPowerEffect::default(),
+                context(duelling),
+                &mut NoRandom,
+            )
+            .iter()
+            .find(|request| request.shader == "powerups/forceshell")
+            .map(|request| request.rgba)
+        };
+        assert_eq!(glow(1, true), Some([155, 155, 155, 255]));
+        assert_eq!(glow(0, true), Some([155, 155, 155, 255]));
+        assert_eq!(glow(2, true), None);
+        assert_eq!(glow(1, false), None);
+    }
 }

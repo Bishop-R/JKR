@@ -34,10 +34,13 @@ fn vertex_main(input: VertexInput) -> VertexOutput {
     return output;
 }
 
+// Colour leaves premultiplied (the pipeline blends ONE, ONE_MINUS_SRC_ALPHA). A
+// parameters.y of 2 samples the atlas; 3 also leaves alpha at zero, adding the colour.
 @fragment
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     if input.parameters.y > 1.5 {
-        return textureSample(icon_texture, icon_sampler, input.uv) * input.start_color;
+        let texel = textureSample(icon_texture, icon_sampler, input.uv) * input.start_color;
+        return vec4(texel.rgb * texel.a, select(texel.a, 0.0, input.parameters.y > 2.5));
     }
     let radius = input.parameters.x;
     // A negative parameters.y is a rounded border: its magnitude is the ring width.
@@ -61,5 +64,6 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     }
     let amount = select(input.local.x, input.local.y, input.parameters.y > 0.5);
     let color = mix(input.start_color, input.end_color, amount);
-    return vec4(color.rgb, color.a * coverage);
+    let alpha = color.a * coverage;
+    return vec4(color.rgb * alpha, alpha);
 }

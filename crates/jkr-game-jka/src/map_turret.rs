@@ -141,11 +141,39 @@ pub struct MiscTurret {
     pub targetname: String,
     pub target: String,
     pub target2: String,
-    /// `healingclass`, `healingrate`, `healingsound`: siege's healers mend it with the use
-    /// key (`TryHeal: see try_heal.rs`, not wired here).
-    pub healing_class: String,
-    pub healing_rate: i32,
-    pub healing_sound: String,
+    /// The base's `healingclass`, `healingrate`, `healingsound`: the Siege class that
+    /// mends it with the use key ([`repair`]).
+    pub healing: crate::try_heal::Healable,
+}
+
+/// `TryHeal` on the base of `turret` by a player of Siege class `healer`: ten points every
+/// `healingrate`, the base's bar told, and the top (its `target_ent`) given the base's
+/// health when it shows a bar too.
+pub fn repair(
+    turret: &mut MiscTurret,
+    healer: Option<&[u8]>,
+    gametype: i32,
+    level_time: i32,
+) -> crate::try_heal::Heal {
+    let MiscTurret {
+        base, top, healing, ..
+    } = turret;
+    let healed = crate::try_heal::try_heal(
+        healing,
+        &mut base.health,
+        base.max_health,
+        healer,
+        gametype,
+        level_time,
+    );
+    if healed == (crate::try_heal::Heal::Yes { repaired: true }) {
+        base.show_health();
+        if top.max_health != 0 {
+            top.health = base.health;
+            top.show_health();
+        }
+    }
+    healed
 }
 
 /// `turret_base_think` (`g_turret.c:531-631`) for the base, entity `me`, at `level_time`.
@@ -429,3 +457,64 @@ fn aim(turret: &mut MiscTurret, targets: &[Sighted], level_time: i32, host: &mut
 #[path = "map_turret_life.rs"]
 mod life;
 pub use life::{damage, spawn, used};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::try_heal::{Heal, Healable};
+
+    /// `siege_hoth`'s hangar turret: 3,000 health shown on both halves, mended by the
+    /// Rebel Tech.
+    fn turret(health: i32) -> MiscTurret {
+        let mut half = Half::new([0.0; 3], [0.0; 3]);
+        (half.health, half.max_health) = (health, 3_000);
+        MiscTurret {
+            base: half.clone(),
+            top: half,
+            next_think: 0,
+            thinking: true,
+            usable: true,
+            flags: 0,
+            spawnflags: 0,
+            aim_debounce: 0,
+            timestamp: 0,
+            set_time: 0,
+            bounce_count: 0,
+            last_shot: 0,
+            effects: [0; 3],
+            targetname: String::new(),
+            target: String::new(),
+            target2: String::new(),
+            healing: Healable {
+                class: Some(b"Rebel Tech".to_vec()),
+                rate: 250,
+                sound: None,
+                debounce: 0,
+            },
+        }
+    }
+
+    /// `TryHeal` on the base: ten points a quarter second for its class, the top given the
+    /// base's health, both bars a hundredth of it; nobody else mends it.
+    #[test]
+    fn a_tech_mends_a_turret_through_its_base() {
+        let mut hurt = turret(2_000);
+        let tech = Some(&b"rebel tech"[..]);
+        assert_eq!(
+            repair(&mut hurt, tech, 7, 1_000),
+            Heal::Yes { repaired: true }
+        );
+        assert_eq!((hurt.base.health, hurt.top.health), (2_010, 2_010));
+        assert_eq!(hurt.top.state.raw_field(es::HEALTH), Some(20));
+        assert_eq!(
+            repair(&mut hurt, tech, 7, 1_100),
+            Heal::Yes { repaired: false }
+        );
+        assert_eq!(hurt.base.health, 2_010);
+        assert_eq!(
+            repair(&mut hurt, Some(b"Imperial Tech"), 7, 2_000),
+            Heal::No
+        );
+        assert_eq!(repair(&mut turret(2_000), tech, 0, 1_000), Heal::No);
+    }
+}

@@ -23,6 +23,7 @@ use crate::frame_queue::{FrameQueue, Writes};
 use std::cell::{Cell, OnceCell, RefCell};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::thread::JoinHandle;
 
 /// Cuts beyond this many per frame stay in the current encoder. It is below every
 /// channel's capacity, so neither a cut nor a worker's reply can block on a full queue.
@@ -147,6 +148,7 @@ struct Submitter {
     frames: SyncSender<Batch>,
     returned: Receiver<Option<Batch>>,
     in_flight: Cell<bool>,
+    thread: JoinHandle<()>,
 }
 
 impl Submitter {
@@ -158,7 +160,7 @@ impl Submitter {
         let (frames, take) = sync_channel::<Batch>(1);
         let (give, returned) = sync_channel(2);
         let queue = queue.clone();
-        std::thread::Builder::new()
+        let thread = std::thread::Builder::new()
             .name("jkr-submit".into())
             .spawn(move || {
                 for mut batch in take {
@@ -177,6 +179,7 @@ impl Submitter {
             frames,
             returned,
             in_flight: Cell::new(false),
+            thread,
         })
     }
 }
@@ -278,11 +281,23 @@ impl Splitter {
 
 impl Drop for Splitter {
     fn drop(&mut self) {
+        let Some(Some(submitter)) = self.submitter.take() else {
+            return;
+        };
         // A frame still in flight completes before the renderer's resources go away.
-        if let Some(Some(submitter)) = self.submitter.get()
-            && submitter.in_flight.get()
-        {
+        if submitter.in_flight.get() {
             let _ = submitter.returned.recv();
         }
+        // The thread's queue handle can be the device's last. Closing both channels ends
+        // the thread, and joining it drops that handle here: left to the thread, it could
+        // fall while the process exits, and wgpu's GL instance then panics in EGL teardown.
+        let Submitter {
+            frames,
+            returned,
+            thread,
+            ..
+        } = submitter;
+        drop((frames, returned));
+        let _ = thread.join();
     }
 }

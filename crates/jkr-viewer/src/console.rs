@@ -2,6 +2,12 @@
 
 use super::{TextVertex, UiFont};
 use crate::keybind_editor;
+#[path = "console_anti_kiss.rs"]
+mod anti_kiss;
+#[path = "console_auto_kill.rs"]
+mod auto_kill;
+#[path = "console_auto_login.rs"]
+mod auto_login;
 #[path = "console_browser.rs"]
 mod browser;
 #[path = "console_chat_log.rs"]
@@ -14,12 +20,17 @@ pub(crate) mod clipboard;
 mod console_connect;
 #[path = "console_cvars.rs"]
 mod console_cvars;
+#[path = "console_deferred.rs"]
+mod deferred;
 #[path = "demo_director.rs"]
 pub(crate) mod director;
+#[path = "console_ignore_vgs.rs"]
+mod ignore_vgs;
 #[path = "console_qcommon.rs"]
 mod qcommon;
 #[path = "console_window_options.rs"]
 mod window_options;
+pub(crate) use chat_log::{LevelClock, civil_date};
 pub(crate) use qcommon::wait_control;
 #[path = "console_ui_options.rs"]
 mod ui_options;
@@ -95,6 +106,15 @@ pub(crate) struct ViewerConsole {
     show_timedelta: crate::net_timing::CvarSetting,
     time_nudge: crate::presentation_clock::CvarSetting,
     smooth_clients: console_cvars::IntegerSetting,
+    no_predict: console_cvars::IntegerSetting,
+    cycle_ammo: console_cvars::IntegerSetting,
+    gun_alpha: console_cvars::FloatSetting,
+    flag_alpha: console_cvars::FloatSetting,
+    vehicle_range: console_cvars::FloatSetting,
+    /// When `cg_autoKillWhenFalling` last asked to die (`cg.lastAutoKillTime`).
+    last_auto_kill: Option<std::time::Instant>,
+    /// EternalJK's deferred script and when it runs (`cg.doVstr`, `cg.doVstrTime`).
+    deferred: Option<(String, std::time::Instant)>,
     draw_fog: console_cvars::IntegerSetting,
     remaps: console_cvars::IntegerSetting,
     packet_dup: console_cvars::IntegerSetting,
@@ -126,6 +146,9 @@ pub(crate) struct ViewerConsole {
     script_vfs: Option<Arc<jkr_vfs::VirtualFileSystem>>,
     config_directory: PathBuf,
     force_profile: jkr_client::ForceProfileNegotiator,
+    /// The server's Force rules (free saber, disabled powers, gametype, team side), for
+    /// the Force menu as stock's UI reads them (`ui_freeSaber`, `g_forcePowerDisable`).
+    server_force_rules: Option<jkr_client::ForceLegalizeRules>,
     movement_policy_log: Option<[i32; 4]>,
     window_options: window_options::Options,
     chat_log: chat_log::ChatLog,
@@ -142,6 +165,38 @@ impl ViewerConsole {
     /// Cached `cg_smoothClients` for live and demo snapshot translation.
     pub(crate) fn smooth_clients(&self) -> bool {
         self.smooth_clients.enabled()
+    }
+
+    /// Cached `cg_noPredict`: the local view follows the snapshots, unpredicted.
+    pub(crate) fn no_predict(&self) -> bool {
+        self.no_predict.enabled()
+    }
+
+    /// Cached TaystJK `cg_weaponCycleAmmo`: the weapon chosen while cycling is shown with
+    /// its ammunition.
+    pub(crate) fn weapon_cycle_ammo(&self) -> bool {
+        self.cycle_ammo.enabled()
+    }
+
+    /// EternalJK's `cg_gunAlpha` as the first-person weapon's forced alpha
+    /// (`cg_weapons.c:395-397,921-924`): only a value between 0 and 1 fades it.
+    pub(crate) fn gun_alpha(&self) -> Option<u8> {
+        let alpha = self.gun_alpha.value();
+        (alpha > 0.0 && alpha < 1.0).then(|| (alpha * 255.0) as u8)
+    }
+
+    /// EternalJK's `cg_thirdPersonFlagAlpha` as the forced alpha of a flag the viewer
+    /// carries (`cg_players.c:4903-4907`): any value whose integer is not 1, held within
+    /// what a byte holds.
+    pub(crate) fn own_flag_alpha(&self) -> Option<u8> {
+        let alpha = self.flag_alpha.value();
+        (alpha as i32 != 1).then(|| (alpha * 255.0).clamp(0.0, 255.0) as u8)
+    }
+
+    /// TaystJK's `cg_vehicleRange`: added to the camera range of a vehicle that sets its
+    /// own (`cg_view.c:423-425`).
+    pub(crate) fn vehicle_range(&self) -> f32 {
+        self.vehicle_range.value()
     }
 
     /// Cached `cl_showtimedelta` state for the allocation-free runtime read.
@@ -201,6 +256,13 @@ impl ViewerConsole {
     /// Add text to the scrollback without showing it among the notify lines.
     pub(crate) fn push_log_quiet(&mut self, text: impl Into<String>) {
         self.shell.push_log_quiet(text);
+    }
+
+    /// Queue script text (`Cbuf_AddText`); errors land in the console log.
+    pub(crate) fn queue_script(&mut self, text: &str) {
+        if let Err(error) = self.shell.queue_script(text) {
+            self.shell.push_log(format!("^1{error}"));
+        }
     }
 
     /// Queue a bound script through the same frame-buffered path as cfg text.

@@ -12,9 +12,10 @@ use jkr_game_jka::player_death::DeathRequest;
 use jkr_game_jka::ranks::calculate_ranks_in;
 use jkr_game_jka::tournament::{self, Duellist, Waiting};
 
-/// `CS_CLIENT_DUELISTS`, `CS_CLIENT_DUELWINNER`.
+/// `CS_CLIENT_DUELISTS`, `CS_CLIENT_DUELWINNER`, `CS_CLIENT_DUELHEALTHS`.
 const CS_CLIENT_DUELISTS: usize = 30;
 const CS_CLIENT_DUELWINNER: usize = 29;
+const CS_CLIENT_DUELHEALTHS: usize = 31;
 /// `persistant[PERS_SCORE]`, `stats[STAT_ARMOR]`.
 const PERS_SCORE: usize = 0;
 const STAT_ARMOR: usize = 5;
@@ -71,27 +72,30 @@ impl NativeGame {
     /// What `PickTeam` weighs when a player asks for a team game without naming a side:
     /// how many are on each, the asking client excluded, and what each has scored.
     pub(super) fn sides(&mut self, ignore: usize) -> Sides {
-        let mut sides = Sides {
+        Sides {
             red_score: self.team_scores[0],
             blue_score: self.team_scores[1],
             non_spectators: self.non_spectators(),
             power_duel_full: self.power_duel_full(ignore),
-            ..Sides::default()
-        };
-        for other in 0..self.players.places() {
-            if other == ignore {
-                continue;
-            }
-            let Some(peer) = self.peer_mut(other) else {
-                continue;
-            };
-            match peer.session.team {
-                1 => sides.red_players += 1,
-                2 => sides.blue_players += 1,
-                _ => {}
-            }
+            red_players: self.team_count(Some(ignore), 1) as i32,
+            blue_players: self.team_count(Some(ignore), 2) as i32,
+            force_balance: self.cvars.integer(b"g_teamForceBalance") != 0
+                && self.cvars.integer(b"g_jediVmerc") == 0,
         }
-        sides
+    }
+
+    /// `TeamCount` (`g_client.c:1287-1308`): the clients on `team`, `ignore` left out; in
+    /// a siege game also those who want it (`siegeDesiredTeam`) — a spectator waiting for
+    /// the round counts for the side it chose, so the next player is sent to the other.
+    pub(super) fn team_count(&self, ignore: Option<usize>, team: i32) -> usize {
+        let siege = self.gametype == crate::bridge::GAMETYPE_SIEGE;
+        (0..self.players.places())
+            .filter(|&other| Some(other) != ignore)
+            .filter_map(|other| self.peer(other))
+            .filter(|peer| {
+                peer.session.team == team || (siege && peer.session.siege_desired_team == team)
+            })
+            .count()
     }
 
     /// `SetTeam(ent, wanted)` as the game calls it itself.
@@ -147,13 +151,19 @@ impl NativeGame {
             if peer.health <= 0 {
                 self.leave_body(client, server_time);
             } else {
-                // `SetTeam` (`g_cmds.c:815`) sets the health and its stat first.
+                // `SetTeam` (`g_cmds.c:814-815`) clears god mode, then sets the health
+                // and its stat.
                 let (origin, sounds) = (peer.state.origin(), peer.saber_off_sounds());
+                peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
                 peer.health = 0;
                 peer.state.stats[0] = 0;
+                // `g_dontPenalizeTeam` around it: the point comes off the player alone.
                 self.die(
                     client,
-                    DeathRequest::suicide(server_time, client as u16, origin, sounds, 0),
+                    DeathRequest {
+                        penalize_team: false,
+                        ..DeathRequest::suicide(server_time, client as u16, origin, sounds, 0)
+                    },
                 );
             }
         }
@@ -211,6 +221,18 @@ impl NativeGame {
                 self.check_power_duel(server_time);
                 self.limits.warmup_time = 0;
             } else {
+                // Every game type but the power duel names its two first, whatever it is
+                // (`g_main.c:2284-2290`).
+                let (sorted, playing) = self.sorted();
+                if playing >= 2 {
+                    self.set_config_string(
+                        CS_CLIENT_DUELISTS,
+                        &tournament::duelists_string(
+                            usize::from(sorted[0]),
+                            usize::from(sorted[1]),
+                        ),
+                    );
+                }
                 self.check_warmup(server_time);
             }
             return;
@@ -233,6 +255,17 @@ impl NativeGame {
                 );
             }
         }
+        // `DUEL_HEALTH` (`g_main.c:2307-2317`): with `g_showDuelHealths`, the two
+        // duellists' health for the spectators' panel and the duellists' HUDs.
+        let (sorted, playing) = self.sorted();
+        if playing >= 2 && self.integer_cvar(b"g_showDuelHealths", 0) >= 1 {
+            let health = |client: u16| {
+                self.peer(usize::from(client))
+                    .map_or(0, |peer| peer.state.stats[0] as i32)
+            };
+            let healths = tournament::healths_string(health(sorted[0]), health(sorted[1]));
+            self.set_config_string(CS_CLIENT_DUELHEALTHS, &healths);
+        }
     }
 
     /// `AddTournamentPlayer`: the longest waiting spectator plays, while fewer than two do.
@@ -240,6 +273,7 @@ impl NativeGame {
         if self.sorted().1 >= 2 {
             return;
         }
+        let high_ping_duelists = self.cvars.integer(b"g_allowHighPingDuelist") != 0;
         let waiting: Vec<Waiting> = (0..self.players.places())
             .filter_map(|client| {
                 let peer = self.peer(client)?;
@@ -248,8 +282,7 @@ impl NativeGame {
                     connected: peer.begun,
                     spectator: peer.session.team == i32::from(TEAM_SPECTATOR),
                     spectator_num: peer.session.spectator_num,
-                    // `g_allowHighPingDuelist` is on by default.
-                    lagging: false,
+                    lagging: !high_ping_duelists && peer.ping >= 999,
                     scoreboard: peer.session.spectator_state
                         == jkr_game_jka::client_begin::SPECTATOR_SCOREBOARD
                         || peer.session.spectator_client < 0,
@@ -346,8 +379,15 @@ impl NativeGame {
     /// `g_main.c:1673-1811`): the loser to the back of the line, the next one in, the
     /// duellists named and no winner shown.
     pub(super) fn duel_round_ends(&mut self, server_time: i32) {
+        self.austrian_results();
+        // Past the duel limit the tournament is over: nobody is moved, nobody named, and
+        // the level ends (`if (!DuelLimitHit())`, `g_main.c:1695`).
+        if self.match_end.duel_exit {
+            return;
+        }
         if self.gametype == super::GAMETYPE_POWERDUEL {
             self.power_duel_round_ends(server_time);
+            self.austrian_initiated();
             return;
         }
         if self.gametype != GAMETYPE_DUEL {
@@ -359,6 +399,7 @@ impl NativeGame {
             self.set_team_to(loser, b"s", server_time);
         }
         self.add_tournament_player(server_time);
+        self.austrian_initiated();
         let (sorted, playing) = self.sorted();
         if playing >= 2 {
             self.set_config_string(
@@ -381,6 +422,7 @@ impl NativeGame {
             self.queue_restart(server_time);
             return true;
         }
+        self.austrian_winner();
         for client in 0..self.players.places() {
             if let Some(peer) = self.peer_mut(client)
                 && peer.begun
@@ -421,6 +463,49 @@ impl NativeGame {
         if playing && self.match_end.intermission_time != 0 {
             self.match_end.intermission_time = 0;
             self.queue_restart(server_time);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Identity, NativeGame};
+    use jkr_network::LegacyGameHost;
+    use jkr_protocol::UserCommand;
+
+    /// A duel of two players in the game and a third waiting as a spectator.
+    fn duel() -> NativeGame {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/duel1".to_vec(),
+        };
+        let mut cvars = crate::cvars::Cvars::server();
+        cvars.set(b"g_gametype", b"3");
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        for (client, name) in [(0, "a"), (1, "b"), (2, "c")] {
+            let userinfo = format!(
+                "\\name\\{name}\\rate\\25000\\snaps\\40\\model\\kyle/default\\forcepowers\\7-1-032330000000001333\\color1\\4\\color2\\4\\handicap\\100\\cg_predictItems\\1\\saber1\\single_1\\saber2\\none\\char_color_red\\255\\char_color_green\\255\\char_color_blue\\255\\ip\\127.0.0.{}:1",
+                client + 1
+            );
+            game.client_connect(client, userinfo.as_bytes()).unwrap();
+            game.enter_world(client, &UserCommand::default(), 100);
+            game.peer_mut(client).unwrap().session.team = if client < 2 { 0 } else { 3 };
+        }
+        game
+    }
+
+    /// `if (!DuelLimitHit())` (`g_main.c:1695`): once the tournament is over the round's
+    /// end moves nobody; short of it, the loser goes to the back of the line and the one
+    /// waiting comes in.
+    #[test]
+    fn a_finished_tournament_keeps_its_duellists() {
+        for (over, loser_kept) in [(true, true), (false, false)] {
+            let mut game = duel();
+            game.peer_mut(0).unwrap().state.persistent[0] = 1;
+            game.match_end.duel_exit = over;
+            game.duel_round_ends(5_000);
+            let team = game.peer(1).unwrap().session.team;
+            assert_eq!(team != 3, loser_kept, "tournament over: {over}");
         }
     }
 }

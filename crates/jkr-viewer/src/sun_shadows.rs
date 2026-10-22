@@ -890,7 +890,7 @@ impl super::Runtime {
         casts: impl Fn(Range<u32>) -> bool,
     ) {
         for draw in input.entities {
-            if draw.no_depth || draw.instances.start >= actor_end {
+            if draw.no_depth || draw.forced_alpha || draw.instances.start >= actor_end {
                 continue;
             }
             if !casts(draw.instances.start..draw.instances.end.min(actor_end)) {

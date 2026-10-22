@@ -18,8 +18,12 @@
 //! NPCs are clients too: they throw and are thrown alike (an NPC's world is
 //! [`crate::npc_force_throw`]'s), but a vehicle, and any NPC in siege, is out of reach.
 //!
-//! Not yet: doors, buttons and `func_static`s pushed or pulled (the movers' part), thrown
-//! sabers and limbs, a push breaking a saber lock, and riders thrown off their vehicles.
+//! A Force-activated door or a Force-pushable button is worked as the reference works it
+//! (`GEntity_UseFunc`, `Touch_Button`): a door only when the thrower points right at it
+//! and the throw would move it away from the end it is at.
+//!
+//! Not yet: Force-usable `func_static`s (no stock map has one), thrown sabers and limbs, a
+//! push breaking a saber lock, and riders thrown off their vehicles.
 
 use crate::event_entity::EventEntity;
 use crate::force_powers::{FORCE_POWER_NEEDED, FP_ABSORB, FP_GRIP, FP_PULL, FP_PUSH, ForcePowers};
@@ -49,6 +53,9 @@ pub struct ThrowPlayer<'a> {
     pub push_effect_until: &'a mut i32,
     /// `ps.saberLockHits`, which a push in a saber lock adds to.
     pub lock_hits: &'a mut i32,
+    /// Its typing under jaPRO's god chat ([`crate::god_chat`]): typing, its push reaches
+    /// no one; typing too long, no push reaches it. Never an NPC's.
+    pub typing: crate::god_chat::Typing,
 }
 
 /// An entity `EntitiesInBox` found, as the throw reads it.
@@ -64,7 +71,7 @@ pub struct Candidate {
 }
 
 /// What a candidate is.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CandidateKind {
     Player,
     /// A missile: its trajectory type, `EF_MISSILE_STICK`, its weapon.
@@ -73,8 +80,64 @@ pub enum CandidateKind {
         stuck: bool,
         weapon: u32,
     },
-    /// Anything else the throw leaves alone (items, the world, movers not yet ported).
+    /// A mover the throw works.
+    Mover(ThrownMover),
+    /// A dropped item, listed only under jaPRO's flag throwing: pushed or pulled
+    /// ([`ThrowWorld::push_item`]).
+    DroppedItem,
+    /// Anything else the throw leaves alone (items, the world, other movers).
     Other,
+}
+
+/// A mover a throw works (`w_force.c:3209-3240`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ThrownMover {
+    /// A `func_button` the map made Force-pushable (`SPF_BUTTON_FPUSHABLE`): pushed,
+    /// never pulled, and pressed as if touched (`Touch_Button`).
+    Button,
+    /// A `func_door` the map made Force-activated (`MOVER_FORCE_ACTIVATE`): whether it is
+    /// at rest, and at its first place, and its two ends as the throw measures them
+    /// ([`door_ends`]).
+    Door {
+        at_rest: bool,
+        at_pos1: bool,
+        ends: ([f32; 3], [f32; 3]),
+    },
+}
+
+/// A door's two ends as the throw measures them (`w_force.c:3598-3618`). Without an
+/// origin brush its places are offsets from the map's own position, so they are added
+/// to the middle of the box where it started; with one they are where it is.
+#[allow(clippy::too_many_arguments)]
+pub fn door_ends(
+    origin_brush: bool,
+    absmin: [f32; 3],
+    absmax: [f32; 3],
+    start_open: bool,
+    at_pos1: bool,
+    at_pos2: bool,
+    pos1: [f32; 3],
+    pos2: [f32; 3],
+) -> ([f32; 3], [f32; 3]) {
+    if origin_brush {
+        return (pos1, pos2);
+    }
+    let mut centre: [f32; 3] =
+        std::array::from_fn(|axis| absmin[axis] + 0.5 * (absmax[axis] - absmin[axis]));
+    let moved = if start_open && at_pos1 {
+        Some(pos1)
+    } else if !start_open && at_pos2 {
+        Some(pos2)
+    } else {
+        None
+    };
+    if let Some(moved) = moved {
+        centre = std::array::from_fn(|axis| centre[axis] - moved[axis]);
+    }
+    (
+        std::array::from_fn(|axis| centre[axis] + pos1[axis]),
+        std::array::from_fn(|axis| centre[axis] + pos2[axis]),
+    )
 }
 
 /// Everything beyond the thrower that a throw reaches.
@@ -89,6 +152,9 @@ pub trait ThrowWorld {
     fn player(&mut self, number: u16) -> Option<ThrowPlayer<'_>>;
     /// `G_ReflectMissile(thrower, missile, forward)`.
     fn reflect_missile(&mut self, missile: u16, thrower: u16, forward: [f32; 3]);
+    /// A door used by the thrower (`GEntity_UseFunc`), or a button pressed by it
+    /// (`Touch_Button`).
+    fn work_mover(&mut self, mover: u16, thrower: u16, button: bool);
     /// `TossClientWeapon(victim, direction, speed)`.
     fn toss_weapon(&mut self, victim: u16, direction: [f32; 3], speed: f32);
     /// A temp entity raised now.
@@ -97,6 +163,8 @@ pub trait ThrowWorld {
     fn sound_index(&mut self, name: &[u8]) -> u16;
     /// The game's generator (`Q_irand`).
     fn rng(&mut self) -> &mut Rng;
+    /// jaPRO's push on a dropped item: it flies from where it is at `velocity`.
+    fn push_item(&mut self, _item: u16, _velocity: [f32; 3]) {}
 }
 
 const RADIUS: f32 = 1_024.0;
@@ -138,13 +206,15 @@ const ES_SABER_ENTITY: usize = 37;
 const ES_TRICKED: usize = 58;
 const EV_GENERAL_SOUND: u32 = 76;
 
-/// The throw's context: the time, the game type, the thrower's number.
+/// The throw's context: the time, the game type, the thrower's number, and jaPRO's
+/// Force options.
 #[derive(Clone, Copy, Debug)]
 pub struct Throw {
     pub level_time: i32,
     pub gametype: i32,
     pub thrower: u16,
     pub pull: bool,
+    pub rules: crate::force_powers::ForceRules,
 }
 
 /// What the thrower brings to every target, read once.
@@ -188,6 +258,17 @@ pub fn throw(context: Throw, world: &mut dyn ThrowWorld) {
                     world.reflect_missile(candidate.number, context.thrower, thrower.forward);
                 }
             }
+            CandidateKind::Mover(mover) => {
+                work_mover(context, &thrower, candidate.number, mover, world)
+            }
+            CandidateKind::DroppedItem => {
+                let speed = if context.pull {
+                    -crate::flag_throw::FORCE_THROW_SPEED
+                } else {
+                    crate::flag_throw::FORCE_THROW_SPEED
+                };
+                world.push_item(candidate.number, thrower.forward.map(|axis| axis * speed));
+            }
             CandidateKind::Other => {}
         }
     }
@@ -217,7 +298,10 @@ fn begin(context: Throw, world: &mut dyn ThrowWorld) -> Option<Thrower> {
     if hand != HANDEXTEND_NONE && (hand != HANDEXTEND_KNOCKDOWN || !in_get_up(state)) {
         return None;
     }
-    // `g_useWhileThrowing` is 1: a thrown saber does not keep its thrower from throwing.
+    // `g_useWhileThrowing 0`: a thrown saber keeps its thrower from throwing.
+    if !context.rules.use_while_throwing && state.saber_in_flight() {
+        return None;
+    }
     if field(state, PS_WEAPON_TIME) as i32 > 0
         || player.health <= 0
         || state.powerups[PW_DISINT_4] as i32 > level_time
@@ -231,6 +315,7 @@ fn begin(context: Throw, world: &mut dyn ThrowWorld) -> Option<Thrower> {
         power,
         level_time,
         context.gametype,
+        context.rules,
     ) {
         return None;
     }
@@ -428,6 +513,10 @@ fn in_reach(
                 return None;
             }
         }
+        // A button is never pulled; a door must be at rest.
+        CandidateKind::Mover(ThrownMover::Button) if context.pull => return None,
+        CandidateKind::Mover(ThrownMover::Door { at_rest: false, .. }) => return None,
+        CandidateKind::Mover(_) | CandidateKind::DroppedItem => {}
         CandidateKind::Other => return None,
     }
     let centre = thrower.origin;
@@ -452,7 +541,9 @@ fn in_reach(
     if length(v) >= RADIUS {
         return None;
     }
-    if !world.in_pvs(middle, thrower.origin) {
+    // A brush model is not held to the PVS.
+    let brush = matches!(candidate.kind, CandidateKind::Mover(_));
+    if !brush && !world.in_pvs(middle, thrower.origin) {
         return None;
     }
     let sighted = |world: &mut dyn ThrowWorld, from: [f32; 3]| {
@@ -465,6 +556,35 @@ fn in_reach(
     Some(candidate)
 }
 
+/// What the throw does to a mover it reached (`w_force.c:3584-3662`): a button is
+/// pressed; a door is used if the thrower points right at it and it is not already at
+/// the end the throw would move it to — a pull does nothing at the end nearest the
+/// thrower, a push nothing at the farthest.
+fn work_mover(
+    context: Throw,
+    thrower: &Thrower,
+    number: u16,
+    mover: ThrownMover,
+    world: &mut dyn ThrowWorld,
+) {
+    let ThrownMover::Door { at_pos1, ends, .. } = mover else {
+        world.work_mover(number, context.thrower, true);
+        return;
+    };
+    let end: [f32; 3] =
+        std::array::from_fn(|axis| thrower.eye[axis] + RADIUS * thrower.forward[axis]);
+    let hit = world.trace(thrower.eye, end, context.thrower, MASK_SHOT);
+    if hit.entity_number != number || hit.fraction == 1.0 || hit.all_solid || hit.start_solid {
+        return;
+    }
+    let near_pos1 = length(std::array::from_fn(|axis| ends.0[axis] - thrower.eye[axis]))
+        < length(std::array::from_fn(|axis| ends.1[axis] - thrower.eye[axis]));
+    let at_nearest = near_pos1 == at_pos1;
+    if at_nearest != context.pull {
+        world.work_mover(number, context.thrower, false);
+    }
+}
+
 /// What the throw does to a player it reached (`w_force.c:3326-3571`).
 fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dyn ThrowWorld) {
     let level_time = context.level_time;
@@ -474,6 +594,7 @@ fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dy
         let Some(victim) = world.player(candidate.number) else {
             return;
         };
+        let teammate = on_same_team(context.gametype, thrower.team, victim.team);
         match absorb_conversion(
             victim.state,
             victim.force,
@@ -481,6 +602,7 @@ fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dy
             thrower.level as i32,
             thrower.cost,
             level_time,
+            teammate.then_some(context.rules.team_absorb_scale),
         ) {
             Some((level, event)) => {
                 events.extend(event);
@@ -507,6 +629,11 @@ fn shove(context: Throw, thrower: &Thrower, candidate: Candidate, world: &mut dy
         };
         origin = victim.state.origin();
         let mut other = i32::from(victim.force.levels[power]);
+        // `g_debugMelee`: no resistance holding a wall, and pushed or pulled off it.
+        if context.rules.debug_melee && crate::debug_melee::stuck_to_wall(victim.state) {
+            other = 0;
+            crate::debug_melee::let_go_of_wall(victim.state);
+        }
         if victim.command.forward_move != 0 || victim.command.right_move != 0 {
             other = (other - 1).max(0);
         }
@@ -675,8 +802,10 @@ fn break_grip(context: Throw, number: u16, level: i32, world: &mut dyn ThrowWorl
 /// `WP_AbsorbConversion` (`w_force.c:791-848`) on player `number` for a push, pull,
 /// grip, lightning or drain at `level` that cost `spent`: with absorption running, the
 /// power loses the victim's absorb levels and the victim's pool gains a third of the cost
-/// for each (one at least), with the absorbing hit's sound at most every 400 ms. Returns
-/// the power's level now and that sound's event, or `None` where nothing is absorbed.
+/// for each (one at least) — scaled by `teammate_scale` when the user is its teammate
+/// (jaPRO's `g_teamAbsorbScale`) — with the absorbing hit's sound at most every 400 ms.
+/// Returns the power's level now and that sound's event, or `None` where nothing is
+/// absorbed.
 pub(crate) fn absorb_conversion(
     state: &mut PlayerState,
     force: &mut ForcePowers,
@@ -684,6 +813,7 @@ pub(crate) fn absorb_conversion(
     level: i32,
     spent: i32,
     level_time: i32,
+    teammate_scale: Option<f32>,
 ) -> Option<(i32, Option<EventEntity>)> {
     let absorb = i32::from(force.levels[FP_ABSORB]);
     if absorb == 0 || state.raw_field(PS_ACTIVE).unwrap_or(0) & (1 << FP_ABSORB) == 0 {
@@ -692,6 +822,10 @@ pub(crate) fn absorb_conversion(
     let mut gain = (spent / 3) * absorb;
     if gain < 1 && spent >= 1 {
         gain = 1;
+    }
+    // jaPRO's `g_teamAbsorbScale`, for a teammate's power: `addTot *= value`.
+    if let Some(scale) = teammate_scale {
+        gain = (gain as f32 * scale) as i32;
     }
     let pool = (state.raw_field(PS_FORCE_POWER).unwrap_or(0) as i32 + gain).min(force.max);
     state.set_raw_field(PS_FORCE_POWER, pool as u32);
@@ -745,6 +879,7 @@ fn can_counter_throw(
         power,
         context.level_time,
         context.gametype,
+        context.rules,
     ) {
         return false;
     }
@@ -757,22 +892,27 @@ fn usable_on(context: Throw, number: u16, _power: usize, world: &mut dyn ThrowWo
     let Some(thrower) = world.player(context.thrower) else {
         return false;
     };
+    let kind = thrower.force.duel_kind;
     if !crate::force_powers::can_use_now(
         thrower.state,
+        kind,
         if context.pull { FP_PULL } else { FP_PUSH },
         context.level_time,
         context.gametype,
     ) {
         return false;
     }
-    if thrower.state.duel_in_progress() {
+    // jaPRO's god chat: not by one typing, nor on one typing too long.
+    if thrower.typing.typing() {
         return false;
     }
+    let duellist = crate::force_powers::duellist(thrower.state, kind);
     let Some(other) = world.player(number) else {
         return false;
     };
     if crate::force_powers::has_ysalamiri(other.state, context.gametype)
-        || other.state.duel_in_progress()
+        || crate::force_powers::duel_shields(duellist, other.state, number)
+        || other.typing.sheltered(context.level_time)
     {
         return false;
     }
@@ -808,7 +948,7 @@ fn in_get_up(state: &PlayerState) -> bool {
 
 /// `InFieldOfVision` (`ai_main.c:2058-2095`): `angles` within half of `fov` of the view,
 /// in pitch and in yaw.
-pub(crate) fn in_field_of_vision(view: [f32; 3], fov: f32, angles: [f32; 2]) -> bool {
+pub fn in_field_of_vision(view: [f32; 3], fov: f32, angles: [f32; 2]) -> bool {
     for axis in 0..2 {
         let angle = angle_mod(view[axis]);
         let target = angle_mod(angles[axis]);
@@ -865,5 +1005,29 @@ fn normalize(v: &mut [f32; 3]) {
         for axis in v.iter_mut() {
             *axis *= inverse;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// jaPRO's `g_teamAbsorbScale` scales what absorb takes from a teammate's power only.
+    #[test]
+    fn absorb_scales_a_teammates_power() {
+        let mut state = PlayerState::default();
+        state.set_raw_field(PS_ACTIVE, 1 << FP_ABSORB);
+        let mut force = ForcePowers::with_levels([0; crate::force_powers::NUM_FORCE_POWERS]);
+        force.levels[FP_ABSORB] = 3;
+        let mut gained = |scale| {
+            state.set_raw_field(PS_FORCE_POWER, 0);
+            let _ = absorb_conversion(&mut state, &mut force, 1, 3, 20, 0, scale);
+            state.raw_field(PS_FORCE_POWER).unwrap_or(0)
+        };
+        // A third of the cost per absorb level: (20 / 3) * 3.
+        assert_eq!(gained(None), 18);
+        assert_eq!(gained(Some(1.0)), 18);
+        assert_eq!(gained(Some(0.5)), 9);
+        assert_eq!(gained(Some(0.0)), 0);
     }
 }

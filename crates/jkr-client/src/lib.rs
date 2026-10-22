@@ -8,6 +8,8 @@ pub mod animation_events;
 mod animation_selection;
 mod asset_catalog;
 mod base_server_commands;
+pub mod breakage;
+pub mod dismember;
 mod shader_remaps;
 pub use shader_remaps::{SHADER_STATE_CONFIG, ShaderRemapTable, ShaderRemaps, shader_name};
 mod catalog_tokens;
@@ -29,7 +31,9 @@ mod force_profile_negotiation;
 mod force_rank_reply;
 mod freeze_probe;
 mod gamestate_probe;
+pub mod ghoul2_marks;
 mod ghoul2_pose;
+pub mod http_download;
 mod impact_events;
 mod information;
 use jkr_game_jka::intermission;
@@ -44,6 +48,7 @@ mod maintained_sounds;
 mod map_effects;
 mod match_info;
 mod missile_effects;
+pub mod music_duck;
 mod muzzle_effects;
 mod npc_identity;
 mod obituary;
@@ -51,8 +56,13 @@ mod permanent_entities;
 mod player_angle_rules;
 mod player_angles;
 mod player_identity;
+mod siege_looks;
+mod trip_mine_beams;
+pub use siege_looks::{SiegeClassLook, SiegeClassLooks};
+pub mod speed_trail;
 mod vehicle_missile_effects;
 pub use client_info::{LegacyClientInfo, legacy_body_frame};
+pub mod player_lookup;
 mod player_profile;
 mod player_sprites;
 pub use jkr_game_jka::pmove;
@@ -62,9 +72,13 @@ use jkr_game_jka::pmove_saber;
 pub use jkr_game_jka::predicted_events;
 mod prediction_error;
 pub use jkr_game_jka::prediction_items;
+pub mod camera_mode;
 mod presentation;
 mod pure_checksums;
+pub mod radar;
 pub mod referenced_paks;
+pub mod rocket_lock;
+pub mod saber_compensation;
 pub mod string_table;
 pub use permanent_entities::{legacy_permanent_visible, legacy_scene_entities};
 mod presentation_equipment;
@@ -73,21 +87,35 @@ mod saber_clash_flare;
 mod saber_definitions;
 mod saber_move;
 use jkr_game_jka::saber_move_data;
+pub mod cloak_fade;
+pub mod concussion_shot;
+pub mod event_feedback;
+mod npc_voices;
 pub mod selection;
 mod server_address;
 mod server_clock;
 mod session_transition;
+pub mod siege_extended;
+pub mod siege_notices;
+pub mod siege_round;
+pub mod sound_commands;
 mod sound_events;
+pub mod speaker;
+pub mod special_entities;
+pub mod style_player;
 mod taystjk_cosmetics;
 mod team_commands;
 mod team_info;
 mod thrown_sabers;
+pub mod trick_fade;
 mod userinfo_update;
 mod view_bob;
 mod view_weapon;
 mod visual_effect_events;
 mod vote_state;
+mod weapon_shake;
 use jkr_game_jka::weapon_data;
+mod server_mod;
 mod weapon_selection;
 
 pub use actor_color::{TeamColorPolicy, legacy_body_color, legacy_player_color};
@@ -120,7 +148,8 @@ pub use demo_recorder::{
 pub use force_overlay_events::{LegacyForceOverlayTracker, LegacyShieldHit};
 pub use force_overlays::{
     LegacyActorOverlayState, LegacyForceOverlayContext, LegacyOverlayList, LegacyOverlayRandom,
-    LegacyOverlayRequest, LegacyOverlayTint, LegacyTeamPowerEffect, legacy_force_overlays,
+    LegacyOverlayRequest, LegacyOverlayTint, LegacyTeamPowerEffect, legacy_duel_tint,
+    legacy_force_overlays,
 };
 pub use force_profile::{
     FORCE_POWER_COUNT, ForceAllocation, ForceLegalizeRules, ForcePower, ForceProfileError,
@@ -174,15 +203,15 @@ pub use player_angles::{
     LegacyPlayerAngleController, LegacyPlayerAngleInputs, LegacyPlayerAngleSample,
 };
 pub use player_identity::{
-    legacy_client_appearance, legacy_client_appearance_forced, legacy_client_saber_name,
-    legacy_client_saber_names,
+    legacy_client_appearance, legacy_client_appearance_dressed, legacy_client_appearance_forced,
+    legacy_client_saber_name, legacy_client_saber_names,
 };
 pub use player_profile::{
     PlayerProfile, PlayerProfileError, SaberColor, pack_saber_rgb, unpack_saber_rgb,
 };
 pub use player_sprites::{
     LEGACY_PLAYER_SPRITE_HEIGHT, LEGACY_PLAYER_SPRITE_RADIUS, LegacyPlayerSprite,
-    legacy_player_sprite,
+    legacy_player_sprite, with_voice as legacy_player_sprite_with_voice,
 };
 pub use pmove_anim::{AnimationLengthTable, AnimationLengths, AnimationTiming};
 pub use pmove_roll::{PMF_ROLLING, RollRules};
@@ -205,6 +234,7 @@ pub use saber_definitions::{
 pub use saber_move::legacy_saber_trail_length;
 pub use server_address::{LegacyAddressError, LegacyServerAddress};
 pub use server_clock::ServerClock;
+pub use server_mod::ServerMod;
 pub use session_transition::{SessionTransition, SessionTransitionKind};
 pub use sound_events::{
     LegacyMusicAction, LegacySoundAdapter, LegacySoundDecision, LegacySoundEvent,
@@ -216,6 +246,9 @@ pub use taystjk_cosmetics::{
 pub use team_commands::{LegacyTeamChoice, legacy_team_command};
 pub use team_info::{
     MAX_TEAM_CLIENTS, TeamInfo, TeamInfoError, TeamInfoTable, legacy_team_location,
+};
+pub use trip_mine_beams::{
+    TRIP_MINE_GLOW_EFFECT, TRIP_MINE_LASER_EFFECT, TripMineBeam, trip_mine_beam,
 };
 pub use userinfo_update::UserinfoUpdateStatus;
 pub use view_bob::{
@@ -237,8 +270,10 @@ pub use weapon_data::{
     LEGACY_WEAPON_COUNT, LEGACY_WEAPON_DATA, LegacyWeaponData, legacy_weapon_data,
 };
 pub use weapon_selection::{
-    LegacyWeaponInventory, legacy_cycle_weapon, legacy_direct_weapon, legacy_weapon_selectable,
+    LegacyWeaponInventory, legacy_clean_weapon, legacy_cycle_weapon, legacy_direct_weapon,
+    legacy_weapon_ammo, legacy_weapon_selectable,
 };
+pub use weapon_shake::{FireFeedback, WeaponShake, charge_shake, fire_feedback, kick_fraction};
 
 pub use jkr_game_jka::{legacy_animation_count, legacy_animation_name};
 
@@ -323,6 +358,8 @@ pub struct ClientSession {
     scores: Vec<ScoreEntry>,
     team_scores: [i32; 2],
     team_info: TeamInfoTable,
+    /// `sxd`: teammates' health and ammunition for a Siege stat viewer.
+    siege_extended: siege_extended::SiegeExtended,
     base_command_events: VecDeque<BaseServerCommandEvent>,
     unknown_command_names: Vec<Vec<u8>>,
     compat_profile: CompatProfile,
@@ -573,6 +610,11 @@ impl ClientSession {
         &self.team_info
     }
 
+    /// Teammates' health and ammunition supplied by `sxd`.
+    pub fn siege_extended(&self) -> &siege_extended::SiegeExtended {
+        &self.siege_extended
+    }
+
     /// Pop one typed BaseJKA action while preserving reliable order.
     pub fn pop_base_command_event(&mut self) -> Option<BaseServerCommandEvent> {
         self.base_command_events.pop_front()
@@ -730,11 +772,10 @@ impl ClientSession {
                 &mut self.latest_snapshot,
                 &mut self.config_string_dirty,
             ) {
-                let mut commands = std::mem::take(&mut self.latest_snapshot.server_commands);
+                let commands = std::mem::take(&mut self.latest_snapshot.server_commands);
                 for command in &commands {
                     self.apply_server_command(&command.command)?;
                 }
-                commands.clear();
                 self.latest_snapshot.server_commands = commands;
                 Ok(&self.latest_snapshot)
             } else {
@@ -851,6 +892,7 @@ impl ClientSession {
                     self.compat_profile = CompatProfile::from_game_state(&self.game_state);
                     self.cosmetic_unlocks = CosmeticUnlockTable::default();
                     self.team_info = TeamInfoTable::default();
+                    self.siege_extended = Default::default();
                     self.base_command_events.clear();
                     self.history.clear();
                     self.command_history.begin_gamestate();
@@ -1039,6 +1081,18 @@ impl ClientSession {
             self.events.push_back(event);
             return Ok(());
         }
+        if name == b"cps" {
+            // CG_CenterPrintSE_f consumes one complete FILE_REFERENCE key,
+            // optionally prefixed with '@', unlike cp's embedded references.
+            let key = arguments.get(1).map_or(&[][..], Vec::as_slice);
+            let key = key.strip_prefix(b"@").unwrap_or(key);
+            self.events.push_back(ServerEvent {
+                kind: ServerEventKind::CenterPrint,
+                text: format!("@@@{}", String::from_utf8_lossy(key)),
+                sender: None,
+            });
+            return Ok(());
+        }
         let event_kind = match name {
             b"print" => Some(ServerEventKind::Print),
             b"cp" => Some(ServerEventKind::CenterPrint),
@@ -1070,6 +1124,22 @@ impl ClientSession {
             self.team_info.apply_command(&arguments)?;
             return Ok(());
         }
+        if name == b"sxd" {
+            // Dated by the latest snapshot; each report's weapon is the one its client's
+            // entity holds now, as `cg_entities` has it when cgame runs the command.
+            let snapshot = &self.latest_snapshot;
+            self.siege_extended
+                .apply(&arguments, snapshot.server_time, |client| {
+                    snapshot
+                        .entities
+                        .binary_search_by_key(&client, |entity| entity.number())
+                        .map_or((0, 0), |index| {
+                            let entity = &snapshot.entities[index];
+                            (entity.weapon(), entity.e_flags())
+                        })
+                });
+            return Ok(());
+        }
         if name == b"nfr" {
             if let Some(update) = parse_new_force_rank(&arguments) {
                 self.base_command_events
@@ -1095,6 +1165,11 @@ impl ClientSession {
                         .push_back(BaseServerCommandEvent::KillGhoul2(number));
                 }
             }
+            return Ok(());
+        }
+        if name == b"kls" {
+            // The shared snapshot sound adapter consumes this for live/local
+            // sessions and demos, including deferred audio initialization.
             return Ok(());
         }
         if let Some(event) = base_server_commands::siege_menu_command(name) {

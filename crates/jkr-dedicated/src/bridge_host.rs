@@ -7,6 +7,7 @@
 //! (`LegacyClientNumbers::client`). The game itself never stores a wire client number
 //! (`players.rs`).
 
+use super::bridge_duel_cull::Isolation;
 use super::*;
 use jkr_protocol::{LegacyClientNumbers, VehicleNetFields};
 
@@ -23,11 +24,28 @@ impl LegacyGameHost for NativeGame {
         let Some(client) = place(client) else {
             return Err(b"Server is full.".to_vec());
         };
-        self.connect_client(client, userinfo, false)
+        let admitted = self.connect_client(client, userinfo, false);
+        if admitted.is_ok() {
+            self.wake_from_hibernation();
+            self.publish_http_downloads();
+        }
+        admitted
     }
 
     fn client_disconnect(&mut self, client: usize) {
         let Some(client) = place(client) else { return };
+        self.disconnect_client(client);
+        self.note_client_left();
+        self.publish_http_downloads();
+    }
+
+    fn client_reconnect_disconnect(&mut self, client: usize) {
+        let Some(client) = place(client) else { return };
+        // `ClientConnect` (`g_client.c:2485-2490`): "if a player reconnects quickly after
+        // a disconnect, the client disconnect may never be called".
+        if self.peer(client).is_some() {
+            self.log(&format!("Forcing disconnect on active client: {client}"));
+        }
         self.disconnect_client(client);
     }
 
@@ -49,35 +67,49 @@ impl LegacyGameHost for NativeGame {
 
     fn client_think(&mut self, client: usize, command: &UserCommand, server_time: i32) {
         let Some(client) = place(client) else { return };
-        self.player_think(client, command, server_time);
+        self.client_command_arrived(client, command, server_time);
     }
 
     fn server_info(&self) -> LegacyServerInfo<'_> {
-        let peers = self.peers() as i32;
+        // SVC_Info excludes reserved slots and counts bots separately. The
+        // world's entity budget is not the protocol's advertised player limit.
+        let private = self.cvars.integer(b"sv_privateClients").max(0) as usize;
+        let mut clients = 0;
+        let mut humans = 0;
+        for (id, handle) in self.players.occupied() {
+            if id.legacy_client().is_none_or(|slot| slot < private) {
+                continue;
+            }
+            if let Some(peer) = self.server.world(self.world).and_then(|w| w.entity(handle)) {
+                clients += 1;
+                humans += i32::from(!peer.bot);
+            }
+        }
         LegacyServerInfo {
             hostname: &self.identity.hostname,
             mapname: &self.identity.mapname,
-            game_directory: b"",
-            clients: peers,
-            humans: peers,
-            max_clients: self
-                .server
-                .world(self.world)
-                .map_or(0, |world| world.entity_capacity() as i32),
-            gametype: 0,
-            needpass: 0,
-            true_jedi: 0,
-            weapon_disable: 0,
-            duel_weapon_disable: 0,
-            force_disable: 0,
+            game_directory: self.cvars.string(b"fs_game"),
+            clients,
+            humans,
+            max_clients: self.players.places().saturating_sub(private) as i32,
+            gametype: self.gametype,
+            needpass: self.cvars.integer(b"g_needpass"),
+            true_jedi: self.cvars.integer(b"g_jediVmerc"),
+            weapon_disable: self.cvars.integer(b"g_weaponDisable"),
+            duel_weapon_disable: self.cvars.integer(b"g_duelWeaponDisable"),
+            force_disable: self.cvars.integer(b"g_forcePowerDisable"),
             auto_demo: self.cvars.integer(b"sv_autoDemo"),
-            min_ping: 0,
-            max_ping: 0,
+            min_ping: self.cvars.integer(b"sv_minPing"),
+            max_ping: self.cvars.integer(b"sv_maxPing"),
+            http: self.http_advert(),
         }
     }
 
     fn status_info(&self) -> &[u8] {
         &self.status_info
+    }
+    fn system_info(&self) -> Vec<u8> {
+        self.cvars.info_string_big(crate::cvars::CVAR_SYSTEMINFO)
     }
 
     fn status_players(&self) -> impl Iterator<Item = LegacyStatusPlayer<'_>> {
@@ -117,6 +149,7 @@ impl LegacyGameHost for NativeGame {
     }
 
     fn take_output(&mut self, tell: &mut dyn FnMut(LegacyGameOutput<'_>)) {
+        self.refuse_long_commands();
         // Every string a registration told (a sound, a model, an effect) is kept for the
         // gamestate of whoever connects later, not only sent to those already in (a map
         // change drops what the old world told before it: `change_map`).
@@ -226,6 +259,9 @@ impl LegacyGameHost for NativeGame {
     fn file_exists(&mut self, path: &str) -> bool {
         self.config_files.home_has(path)
     }
+    fn rename_file(&mut self, from: &str, to: &str) {
+        self.config_files.rename_home(from, to);
+    }
     fn prune_auto_demos(&mut self, keep: usize) {
         self.config_files.prune_auto_demos(keep);
     }
@@ -257,7 +293,11 @@ impl LegacyGameHost for NativeGame {
     }
 
     fn checksum_feed(&self) -> i32 {
-        0
+        self.map.as_ref().map_or(0, |map| map.checksum_feed)
+    }
+
+    fn pure_manifest(&self) -> Option<&jkr_network::LegacyPureManifest> {
+        self.pure.as_ref().map(|pure| &pure.manifest)
     }
 
     fn baseline(&self, _: u16) -> Option<&EntityState> {
@@ -296,6 +336,14 @@ impl LegacyGameHost for NativeGame {
             bits.iter_mut().for_each(|byte| *byte ^= 255);
             frame.set_area_mask(&bits[..bytes]);
         }
+        // TaystJK's duel isolation: what the viewed player (the followed one for a
+        // spectator) is cut off from is not sent, and what this client's own entity passes
+        // through is sent not solid.
+        let cull = self.duel_cull();
+        let (viewer, own) = (
+            cull.party(frame.player.client_num()),
+            cull.party(client as u16),
+        );
         for (id, handle) in self.players.occupied() {
             // Or sent wherever it is (`broadcastClients`: the master in view, Force sight).
             // A player a legacy client cannot number is not sent (the connect admits none).
@@ -314,13 +362,28 @@ impl LegacyGameHost for NativeGame {
                                 .is_some_and(|word| word & (1 << (client % 64)) != 0))
                 });
             if let Some(peer) = shown {
+                let party = cull.party(other as u16);
+                if cull.between(viewer, party) == Isolation::Cut {
+                    continue;
+                }
                 // 32 players fit any snapshot; a refusal would leave this one unseen.
-                let _ = frame.push(peer.entity.state());
+                let _ = if cull.between(own, party) == Isolation::Shared {
+                    frame.push(peer.entity.state())
+                } else {
+                    frame.push_not_solid(peer.entity.state())
+                };
             }
         }
         // Then the game's own entities, numbered above the players.
-        self.pool_entities_for(client, &eye, |state| {
-            let _ = frame.push(state);
+        self.pool_entities_for(client, &eye, &cull, |state, party| {
+            if cull.between(viewer, party) == Isolation::Cut {
+                return;
+            }
+            let _ = if cull.between(own, party) == Isolation::Shared {
+                frame.push(state)
+            } else {
+                frame.push_not_solid(state)
+            };
         });
     }
 }

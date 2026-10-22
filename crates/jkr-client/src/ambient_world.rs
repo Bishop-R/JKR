@@ -95,6 +95,14 @@ impl LegacyRandom {
         let result = (self.0 >> 17) as i32;
         ((result * (max + 1 - min)) >> 15) + min
     }
+
+    /// `Q_flrand(min, max)` (`q_math.c:231-245`): `min <= x < max` in 15-bit steps
+    /// from the same generator.
+    pub fn flrand(&mut self, min: f32, max: f32) -> f32 {
+        self.0 = self.0.wrapping_mul(214_013).wrapping_add(2_531_011);
+        let unit = (self.0 >> 17) as f32;
+        ((unit * (max - min)) / 32_768.0) + min
+    }
 }
 
 /// Per-map ambient-set state owned by the loop adapter.

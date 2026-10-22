@@ -18,6 +18,9 @@ pub(crate) enum ClientPhase {
 pub(crate) struct ClientState {
     phase: ClientPhase,
     status: String,
+    /// What the server says of itself while its map loads
+    /// ([`crate::menu::loading_info::lines`]).
+    details: Vec<String>,
 }
 
 impl ClientState {
@@ -29,6 +32,7 @@ impl ClientState {
                 ClientPhase::InGame
             },
             status: String::new(),
+            details: Vec::new(),
         }
     }
 
@@ -42,6 +46,14 @@ impl ClientState {
 
     pub(crate) fn set_status(&mut self, status: impl Into<String>) {
         self.status = status.into();
+    }
+
+    pub(crate) fn details(&self) -> &[String] {
+        &self.details
+    }
+
+    pub(crate) fn set_details(&mut self, details: Vec<String>) {
+        self.details = details;
     }
 
     pub(crate) fn open_browser(&mut self) {
@@ -76,6 +88,7 @@ impl ClientState {
 
     pub(crate) fn connecting(&mut self, address: impl Into<String>) {
         let address = address.into();
+        self.details.clear();
         self.status = format!("Connecting to {address}...");
         self.phase = ClientPhase::Connecting(address);
     }
@@ -88,6 +101,7 @@ impl ClientState {
     pub(crate) fn entered_game(&mut self) {
         self.phase = ClientPhase::InGame;
         self.status.clear();
+        self.details.clear();
     }
 
     pub(crate) fn is_overlay_visible(&self) -> bool {

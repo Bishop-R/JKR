@@ -273,8 +273,9 @@ impl Predictor {
     /// `PM_AdjustAngleForWallJump` (`bg_pmove.c:1576-1732`): a grabbed wall is held,
     /// facing it and pulled to it, while the rebound's animation has more than 100 ms to
     /// run; then the player kicks off it — 200 units a second away, 336 up, half a second
-    /// without control, Force spent as a Force jump's. `g_debugMelee`'s hold-until-released
-    /// (`:1629-1650`) is not ported: the cvar is off by default.
+    /// without control, Force spent as a Force jump's. Under `g_debugMelee` the wall is held
+    /// for as long as the jump is (`:1621-1650`; jaPRO keeps that to its `g_debugMelee` 2
+    /// and up, this keeps stock's).
     fn hold_wall(&mut self, command: &mut UserCommand, collision: &impl MovementCollision) {
         let rebounding = |animation| rebound_jump(animation) || rebound_hold(animation);
         let state = &self.state;
@@ -298,6 +299,24 @@ impl Predictor {
                 return;
             }
         };
+        if self.config.debug_melee && command.up_move > 0 {
+            if rebound_hold(self.state.legs_anim) {
+                self.state.legs_timer = self.state.legs_timer.max(150);
+            } else if self.state.legs_timer <= 300 {
+                // `BOTH_FORCEWALLRELEASE_FORWARD + (legs - BOTH_FORCEWALLHOLD_FORWARD)`: the
+                // rebound's own hold pose.
+                self.state.saber_holstered = 2;
+                let hold = BOTH_FORCEWALLRELEASE_FORWARD + self.state.legs_anim
+                    - BOTH_FORCEWALLHOLD_FORWARD;
+                self.wall_animation(
+                    SETANIM_BOTH,
+                    hold,
+                    SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+                );
+                self.state.legs_timer = 150;
+                self.state.torso_timer = 150;
+            }
+        }
         let origin = Vec3::from_array(self.state.origin);
         let trace = collision.trace(
             self.state.origin,
@@ -852,5 +871,78 @@ impl Predictor {
             self.add_event(EV_JUMP, 0);
             self.state.movement_flags |= PMF_STUCK_TO_WALL;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pmove::{MovementConfig, MovementTrace, Predictor};
+
+    /// A wall 20 units ahead along x, facing back; nothing else.
+    struct Wall;
+
+    impl MovementCollision for Wall {
+        fn trace(
+            &self,
+            start: [f32; 3],
+            _: [f32; 3],
+            _: [f32; 3],
+            end: [f32; 3],
+            _: u32,
+        ) -> MovementTrace {
+            if end[0] <= start[0] + 20.0 {
+                return MovementTrace::miss(end);
+            }
+            MovementTrace {
+                fraction: 20.0 / (end[0] - start[0]),
+                end_position: [start[0] + 20.0, end[1], end[2]],
+                plane_normal: [-1.0, 0.0, 0.0],
+                ..MovementTrace::miss(end)
+            }
+        }
+    }
+
+    /// Whether a player holding a wall ahead, its hold 120 ms from its end, still holds it
+    /// after two 50 ms commands with the jump held.
+    fn still_held(debug_melee: bool) -> bool {
+        let state = MovementState {
+            health: 100,
+            speed: 250.0,
+            base_speed: 250.0,
+            gravity: 800.0,
+            standing_height: 40.0,
+            crouching_height: 16.0,
+            ground_entity_number: ENTITY_NUMBER_NONE,
+            legs_anim: BOTH_FORCEWALLHOLD_FORWARD,
+            torso_anim: BOTH_FORCEWALLHOLD_FORWARD,
+            legs_timer: 120,
+            torso_timer: 120,
+            movement_flags: PMF_STUCK_TO_WALL,
+            ..MovementState::default()
+        };
+        let config = MovementConfig {
+            authoritative: true,
+            debug_melee,
+            ..Default::default()
+        };
+        let mut movement = Predictor::from_state(state, config);
+        for server_time in [50, 100] {
+            let command = UserCommand {
+                server_time,
+                up_move: 127,
+                ..Default::default()
+            };
+            movement.predict_command(command, &Wall);
+        }
+        movement.state().movement_flags & PMF_STUCK_TO_WALL != 0
+    }
+
+    /// `g_debugMelee` holds a grabbed wall while the jump is held (`bg_pmove.c:1621-1650`);
+    /// without it the hold runs out and the player kicks off.
+    #[test]
+    fn debug_melee_holds_the_wall_while_the_jump_is_held() {
+        assert!(still_held(true));
+        assert!(!still_held(false));
     }
 }

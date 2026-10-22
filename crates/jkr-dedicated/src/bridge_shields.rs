@@ -24,6 +24,7 @@ impl Shields {
                 bounds: (shield.mins, shield.maxs),
                 contents: shield.contents,
                 model: None,
+                linked_box: None,
             })
     }
 
@@ -247,7 +248,11 @@ impl NativeGame {
             jkr_game_jka::map_turret_world::object_take(number, shield.takes_damage, 0, &blow)
         {
             shield.damage(take, request.level_time);
+            let survived = shield.health > 0;
             self.publish_shield(index);
+            if survived {
+                self.tally_object_damage(&blow, take);
+            }
         }
         true
     }

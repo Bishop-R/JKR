@@ -110,6 +110,9 @@ pub struct SiegeItem {
     pub health: i32,
     pub max_health: i32,
     pub take_damage: bool,
+    /// `healingclass`, `healingrate`, `healingsound`: the Siege class that mends it with
+    /// the use key (`TryHeal`).
+    pub healing: crate::try_heal::Healable,
     /// Whether it thinks (`think`), and whether walking into it is its touch.
     pub thinks: bool,
     pub touch: bool,
@@ -262,6 +265,7 @@ pub fn spawn(
         health,
         max_health,
         take_damage,
+        healing: crate::try_heal::Healable::from_entity(entity),
         thinks: false,
         touch: false,
         on_use: OnUse::Nothing,

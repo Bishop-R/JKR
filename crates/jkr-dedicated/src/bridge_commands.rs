@@ -8,36 +8,59 @@ impl NativeGame {
     /// `ClientCommand`: a reliable command from the player at `client`'s place, at the
     /// server's clock `server_time`.
     pub(super) fn player_command(&mut self, client: usize, text: &[u8], server_time: i32) {
+        // `ClientCommand`: "not fully in game yet" (`g_cmds.c:3440-3444`).
+        if !self.peer(client).is_some_and(|peer| peer.begun) {
+            self.security_log(&format!(
+                "ClientCommand({client}) without an active connection\n"
+            ));
+            return;
+        }
         let mut words = text
             .split(|byte| byte.is_ascii_whitespace())
             .filter(|word| !word.is_empty());
         let Some(command) = words.next() else { return };
-        if [
-            b"kill".as_slice(),
-            b"team",
-            b"follow",
-            b"follownext",
-            b"followprev",
-            b"setviewpos",
-        ]
-        .iter()
-        .any(|name| command.eq_ignore_ascii_case(name))
-        {}
+        if self.command_refused(client, command) {
+            return;
+        }
+        if self.emote_command(client, command, server_time)
+            || self.admin_command(client, text, server_time)
+            || self.flag_throw_command(client, command, server_time)
+            || self.ignore_command(client, text)
+            || self.jetpack_command(client, command)
+            || self.spot_command(client, command, server_time)
+            || self.server_config_command(client, command)
+            || self.aminfo_command(client, command)
+            || self.show_net_command(client, text)
+            || self.amlookup_command(client, text)
+            || self.amlistmaps_command(client, command)
+            || self.print_stats_command(client, command)
+            || self.japro_duel_command(client, text, server_time)
+        {
+            return;
+        }
+        // jaPRO's `ammotd` (`CMD_NOINTERMISSION`): the message of the day again.
+        if command.eq_ignore_ascii_case(b"ammotd") {
+            if !self.refused_at_intermission(client, command) {
+                self.show_motd(client, true);
+            }
+            return;
+        }
+        if command.eq_ignore_ascii_case(b"addbot") {
+            // `Cmd_AddBot_f`: the menus offer it, but only the server adds bots.
+            self.told.push(Told::One(
+                client,
+                b"print \"@@@ONLY_ADD_BOTS_AS_SERVER.\n\"".to_vec(),
+            ));
+            return;
+        }
         if command.eq_ignore_ascii_case(b"score") {
             // `Cmd_Score_f`: the scoreboard, as this client asked for it.
             let message = self.scoreboard(server_time);
             self.told.push(Told::One(client, message));
             return;
         }
-        if command.eq_ignore_ascii_case(b"kill") {
-            self.kill(client, server_time);
-            return;
-        }
         if command.eq_ignore_ascii_case(b"duelteam") {
-            let word = text
-                .split(|byte| byte.is_ascii_whitespace())
-                .filter(|word| !word.is_empty())
-                .nth(1);
+            let word = words.next();
             self.duel_team_command(client, word, server_time);
             return;
         }
@@ -60,54 +83,40 @@ impl NativeGame {
             self.set_view_position(client, &arguments, server_time);
             return;
         }
-        if command.eq_ignore_ascii_case(b"give") {
-            // `ClientCommand`'s gates (`g_cmds.c:3466-3480`): a cheat needs `sv_cheats`, and
-            // this one a living player; then `Cmd_Give_f`.
-            if !self.settings.cheats {
-                self.told
-                    .push(Told::One(client, b"print \"@@@NOCHEATS\n\"".to_vec()));
-                return;
-            }
-            let arguments: Vec<&[u8]> = words.collect();
-            let Some(peer) = self.peer_mut(client) else {
-                return;
-            };
-            if peer.health <= 0 || !peer.playing() {
-                self.told
-                    .push(Told::One(client, b"print \"@@@MUSTBEALIVE\n\"".to_vec()));
-                return;
-            }
-            let (name, rest) = arguments
-                .split_first()
-                .map_or((&b""[..], &[][..]), |(name, rest)| (*name, rest));
-            let _ = give(&mut peer.state, &mut peer.health, name, rest);
-            // The weapons and the ammo are the movement's to spend: it restarts from
-            // the state as given.
-            peer.movement = peer.movement.reseeded(&peer.state);
-            peer.movement.set_health(peer.health);
-            return;
-        }
         if command.eq_ignore_ascii_case(b"siegeclass") {
             // `Cmd_SiegeClass_f`: only a siege game has classes.
             self.siege_class_command(client, text, server_time);
             return;
         }
-        if self.chat_command(client, text, server_time)
+        if command.eq_ignore_ascii_case(b"forcechanged") {
+            let arguments: Vec<&[u8]> = words.collect();
+            self.force_changed(client, &arguments, server_time);
+            return;
+        }
+        if self.information_command(client, text, server_time)
+            || self.chat_command(client, text, server_time)
             || self.vote_command(client, text, server_time)
             || self.npc_client_command(client, text)
-            || self.cheat_command(client, text)
+            || self.cheat_command(client, text, server_time)
         {
             return;
         }
-        if !command.eq_ignore_ascii_case(b"team") {
-            // Every other game command is still to come.
+        if command.eq_ignore_ascii_case(b"team") {
+            let arguments: Vec<&[u8]> = words.collect();
+            self.team_request(client, &arguments, server_time);
             return;
         }
-        let arguments: Vec<&[u8]> = words.collect();
+        // Not in the reference's table (`g_cmds.c:3446-3450`).
+        let reply = [b"print \"Unknown command ".as_slice(), command, b"\n\""].concat();
+        self.told.push(Told::One(client, reply));
+    }
+
+    /// `Cmd_Team_f` with `arguments`, the words after `team`.
+    fn team_request(&mut self, client: usize, arguments: &[&[u8]], server_time: i32) {
         let gametype = self.gametype;
         // `SetTeam` on a siege server, once `Cmd_Team_f`'s own checks have passed.
         if self.siege.is_some()
-            && let [word] = arguments.as_slice()
+            && let [word] = arguments
             && self
                 .peer(client)
                 .is_some_and(|peer| peer.session.switch_team_time <= server_time)
@@ -116,6 +125,10 @@ impl NativeGame {
             return;
         }
         let sides = self.sides(client);
+        if let Some(refusal) = self.locked_team(client, arguments, sides, server_time) {
+            self.told.push(Told::One(client, refusal.to_vec()));
+            return;
+        }
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -126,7 +139,7 @@ impl NativeGame {
         match team_command(
             &mut peer.session,
             &name,
-            &arguments,
+            arguments,
             gametype,
             sides,
             server_time,
@@ -143,8 +156,107 @@ impl NativeGame {
         }
     }
 
-    /// `ClientThink`: one movement command from the player at `client`'s place.
+    /// `Cmd_ForceChanged_f` (`g_cmds.c:1276-1311`): a spectator's Force is read again at
+    /// once; a player is told and gets it at the next spawn. Outside duels an argument
+    /// is the menu's combined team choice.
+    fn force_changed(&mut self, client: usize, arguments: &[&[u8]], server_time: i32) {
+        let settings = self.settings;
+        let Some(peer) = self.peer_mut(client) else {
+            return;
+        };
+        if peer.session.team == i32::from(TEAM_SPECTATOR) {
+            let mut force = jkr_game_jka::client_begin::init_force_powers(
+                &mut peer.session,
+                &peer.userinfo,
+                settings,
+            );
+            let commands = std::mem::take(&mut force.commands);
+            peer.session.force = Some(force);
+            for command in commands {
+                self.told.push(Told::One(client, command));
+            }
+        } else {
+            peer.session.force_do_init = true;
+            self.told.push(Told::One(
+                client,
+                b"print \"^2@@@FORCEPOWERCHANGED\n\"".to_vec(),
+            ));
+        }
+        const GT_DUEL: i32 = 3;
+        const GT_POWERDUEL: i32 = 4;
+        if matches!(self.gametype, GT_DUEL | GT_POWERDUEL) {
+            return;
+        }
+        if let Some(word) = arguments.first().filter(|word| !word.is_empty()) {
+            self.team_request(client, &[word], server_time);
+        }
+    }
+
+    /// `G_RunClient`'s forced update (`g_active.c:3625-3638`): a player who has sent no
+    /// command for `g_forceClientUpdateRate` milliseconds is thought for anyway with its
+    /// last command emptied of moves and buttons, so that its body still falls, drowns
+    /// and respawns while it lags. Bots think on their own. Whether it thought.
+    pub(super) fn forced_client_update(&mut self, client: usize, level_time: i32) -> bool {
+        let rate = self.cvars.integer(b"g_forceClientUpdateRate");
+        let Some(peer) = self.peer(client) else {
+            return false;
+        };
+        if rate == 0 || peer.bot || !peer.begun || peer.last_command_time >= level_time - rate {
+            return false;
+        }
+        let command = UserCommand {
+            server_time: level_time,
+            buttons: 0,
+            forward_move: 0,
+            right_move: 0,
+            up_move: 0,
+            ..peer.last_command
+        };
+        self.player_think(client, &command, level_time);
+        true
+    }
+
+    /// The rest of `G_RunClient` (`g_active.c:3639-3646`): under `g_synchronousClients` a
+    /// human's last command runs once a frame, timed at the frame, its arrivals having
+    /// only kept it ([`Self::client_command_arrived`]).
+    pub(super) fn synchronous_think(&mut self, client: usize, level_time: i32) {
+        if !self.synchronous_clients {
+            return;
+        }
+        let Some(peer) = self.peer(client).filter(|peer| !peer.bot && peer.begun) else {
+            return;
+        };
+        let command = UserCommand {
+            server_time: level_time,
+            ..peer.last_command
+        };
+        self.player_think(client, &command, level_time);
+    }
+
+    /// `ClientThink` for a command the network delivered: under `g_synchronousClients` a
+    /// human's waits for the frame ([`Self::synchronous_think`]), its arrival marked;
+    /// otherwise it runs now.
+    pub(super) fn client_command_arrived(
+        &mut self,
+        client: usize,
+        command: &UserCommand,
+        server_time: i32,
+    ) {
+        if self.synchronous_clients
+            && let Some(peer) = self.peer_mut(client).filter(|peer| !peer.bot)
+        {
+            peer.last_command_time = server_time;
+            peer.last_command = *command;
+            return;
+        }
+        self.player_think(client, command, server_time);
+    }
+
     pub(super) fn player_think(&mut self, client: usize, command: &UserCommand, server_time: i32) {
+        // `ClientThink`: "mark the time we got info" (`lastCmdTime`), before anything.
+        if let Some(peer) = self.peer_mut(client) {
+            peer.last_command_time = server_time;
+        }
         // `ClientThink_real` (g_active.c:2006-2012) keeps a command's time within a
         // second behind and a fifth of a second ahead of the server's.
         let mut command = *command;
@@ -153,41 +265,66 @@ impl NativeGame {
             server_time.wrapping_sub(1000),
             server_time.wrapping_add(200),
         );
+        // `pmove_fixed` (`g_active.c:2038-2041`): the time rounded up to a whole
+        // `pmove_msec`, for everything that follows.
+        command.server_time = self.move_cvars.command_time(command.server_time);
 
         // A pilot's command goes to its vehicle first (`g_active.c:1889-1910`).
         self.riding_opening(client, &mut command, self.last_frame_time);
         // `ClientThink_real`'s stance upkeep (`g_active.c:1914-1993`): the style the
         // sabers held allow.
+        let restrict_force = self.cvars.integer(b"g_saberRestrictForce") != 0;
+        let class_stances = self.class_stances(client);
         if let Some(peer) = self.peer_mut(client) {
             jkr_game_jka::saber_stance::upkeep_player(
                 &mut peer.state,
                 &mut peer.movement,
                 &peer.sabers.hands,
+                class_stances,
             );
             // The powers the sabers forbid (`WP_ForcePowerUsable`), as they stand now.
-            peer.force.saber_restrictions = peer.sabers.force_restrictions();
+            peer.force.saber_restrictions = peer.sabers.force_restrictions(restrict_force);
         }
         // `G_HeldByMonster` (`g_active.c:2000-2003`): a monster's victim goes where it is held.
         self.held_by_monster(client, &mut command);
-        // `ClientThink_real` (`g_active.c:2356-2363`) sets the speed before EVERY move,
-        // not once at the spawn: `g_speed`, times a siege class's own multiplier. Doing
-        // it only at the spawn leaves a client that picked a class predicting one speed
-        // while the server moves it at another, which shows up as prediction misses a
-        // snapshot's worth of movement wide.
-        if let Some(siege) = self.siege.as_ref() {
-            let registry = std::sync::Arc::clone(&siege.registry);
-            if let Some(peer) = self.peer_mut(client)
-                && peer.playing()
-            {
-                let class_speed = peer
-                    .siege_class_index
-                    .map_or(1.0, |index| registry.classes[index].speed);
-                peer.state.set_speed(PLAYER_SPEED * class_speed);
-                peer.state
-                    .set_base_speed((PLAYER_SPEED * class_speed) as i32);
+        // `ClientThink_real` (`g_active.c:2353-2402`) sets the speed and the gravity before
+        // EVERY move, not once at the spawn: `g_speed` (off a vehicle, which keeps its
+        // rider's), times a siege class's own multiplier, and `g_gravity` (space's and a
+        // ship's wreck's come after, `space_gravity`). Doing it only at the spawn leaves a
+        // class predicting one speed while the server moves it at another, and a changed
+        // `g_speed` or `g_gravity` unfelt until the next life.
+        let (player_speed, gravity) = (self.player_speed(), self.gravity());
+        let registry = self
+            .siege
+            .as_ref()
+            .map(|siege| std::sync::Arc::clone(&siege.registry));
+        if let Some(peer) = self.peer_mut(client)
+            && peer.playing()
+        {
+            let mut changed = false;
+            if peer.state.vehicle_entity_num() == 0 {
+                let class_speed = registry
+                    .as_ref()
+                    .zip(peer.siege_class_index)
+                    .map_or(1.0, |(registry, index)| registry.classes[index].speed);
+                // The move derives its speed from the base (`BG_AdjustClientSpeed`).
+                let speed = player_speed * class_speed;
+                if peer.state.base_speed() != speed as i32 {
+                    peer.state.set_speed(speed);
+                    peer.state.set_base_speed(speed as i32);
+                    changed = true;
+                }
+            }
+            if peer.state.gravity() != gravity as i32 {
+                peer.state.set_gravity(gravity as i32);
+                changed = true;
+            }
+            if changed {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         }
+        // jaPRO's gun game: the rung's fire mode and a saber rung's speed.
+        self.gun_game_think(client);
         // `ClientThink_real` (`g_active.c:2046-2054`): at an intermission a player does
         // nothing at all but press the button that says it is ready to go.
         if self.match_end.intermission_time != 0 {

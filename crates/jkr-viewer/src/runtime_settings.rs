@@ -29,9 +29,47 @@ impl GpuState {
         // cg_shadows 1, cg_drawGun 1.
         self.effect_aux
             .decals
-            .set_marks_enabled(console.bool_cvar("cg_marks").unwrap_or(true));
+            .set_marks(console.integer_cvar("cg_marks").unwrap_or(1));
         self.effect_aux.saber_contacts.enabled =
             console.bool_cvar("cg_saberContact").unwrap_or(true);
+        self.effect_aux.saber_contacts.compensation.enabled = console
+            .bool_cvar("cg_saberClientVisualCompensation")
+            .unwrap_or(true);
+        // EternalJK's effect options.
+        self.saber_clash_flare.disabled = !console.bool_cvar("cg_saberClash").unwrap_or(true);
+        self.effect_aux.options = crate::effect_aux::EffectOptions {
+            no_teleport: console.bool_cvar("cg_noTeleFX").unwrap_or(false),
+            flesh_sparks: console.integer_cvar("cg_fleshSparks").unwrap_or(7),
+            no_fx: console.integer_cvar("cg_noFX").unwrap_or(0),
+            drain_fx: console.integer_cvar("cg_drainFX").unwrap_or(2),
+            footsteps: console.integer_cvar("cg_footsteps").unwrap_or(3),
+        };
+        let no_fx = self.effect_aux.options.no_fx;
+        self.first_person_view
+            .set_instant_duck(console.bool_cvar("cg_instantDuck").unwrap_or(false));
+        let saber_team_colors = console.bool_cvar("cg_saberTeamColors").unwrap_or(true);
+        let rgb_sabers = console.integer_cvar("cg_noRGBSabers").unwrap_or(0) == 0;
+        if let Some(adapter) = &mut self.legacy_world_adapter {
+            adapter.set_saber_team_colors(saber_team_colors);
+            adapter.set_rgb_sabers(rgb_sabers);
+            adapter.set_no_fx(no_fx);
+        }
+        if let Some(session) = &mut self.demo_session {
+            session.set_saber_team_colors(saber_team_colors);
+            session.set_rgb_sabers(rgb_sabers);
+            session.set_no_fx(no_fx);
+            let looks = std::sync::Arc::clone(
+                self.clientinfo_watch
+                    .siege_looks
+                    .for_level(session.game_state(), self.vfs.as_deref()),
+            );
+            session.set_siege_class_looks(&looks);
+        }
+        self.effect_aux.marks.limit = console
+            .integer_cvar("cg_ghoul2Marks")
+            .map_or(jkr_client::ghoul2_marks::DEFAULT_LIMIT, |limit| {
+                limit.max(0) as usize
+            });
         self.player_shadows.set_enabled(
             console.bool_cvar("cg_shadows").unwrap_or(true)
                 && !self.world_materials.sun_shadows_active(),

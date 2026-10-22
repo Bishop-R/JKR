@@ -18,26 +18,35 @@ const HANDEXTEND_NONE: u8 = 0;
 const HANDEXTEND_DRAGGING: u8 = 15;
 /// `PMF_FOLLOW`.
 const PMF_FOLLOW: u16 = 4_096;
+/// `SETANIM_TORSO`, `SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD`.
+const SETANIM_TORSO: u8 = 1;
+const OVERRIDE_HOLD: u8 = 1 | 2;
+/// `STAT_HOLDABLE_ITEMS`; `HI_HEALTHDISP`, `HI_AMMODISP`.
+const STAT_HOLDABLE_ITEMS: usize = 2;
+const DISPENSERS: u32 =
+    (1 << jkr_game_jka::holdables::HI_HEALTHDISP) | (1 << jkr_game_jka::holdables::HI_AMMODISP);
+/// `GT_POWERDUEL`, `GT_SINGLE_PLAYER`, `GT_TEAM`.
+const GT_POWERDUEL: i32 = 4;
+const GT_SINGLE_PLAYER: i32 = 5;
+const GT_TEAM: i32 = 6;
+
+/// The use pose `TryUse` holds a player in while it uses something: a pose already held
+/// (the button's, and with `console_too` the console's) kept 500 ms more, else the button's
+/// begun; the weapon waits as long (`ps.weaponTime = ps.torsoTimer`).
+pub(super) fn hold_use_pose(peer: &mut crate::peer::Peer, console_too: bool) {
+    let torso = peer.state.torso_animation();
+    if torso == BOTH_BUTTON_HOLD || (console_too && torso == BOTH_CONSOLE1) {
+        peer.state.set_raw_field(20, 500);
+    } else {
+        peer.movement
+            .set_animation_parts(SETANIM_TORSO, BOTH_BUTTON_HOLD, OVERRIDE_HOLD);
+        peer.movement.write_player_state(&mut peer.state);
+    }
+    let torso_timer = peer.state.torso_timer();
+    peer.state.set_raw_field(10, torso_timer as u32);
+}
 
 impl NativeGame {
-    /// The `func_usable` brushes a map places, as the entities the use key reaches for.
-    /// One that starts off is spawned all the same but carries nothing a client draws or
-    /// a trace meets, which is what `SVF_NOCLIENT` and `EF_NODRAW` are for.
-    pub(super) fn spawn_usables(&mut self) {
-        let Some(map) = self.map.take() else { return };
-        for usable in &map.usables {
-            let mut state = EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS);
-            state.set_raw_field(ES_ENTITY_TYPE, jkr_game_jka::movers::ET_MOVER);
-            jkr_game_jka::triggers::set_brush_model(&mut state, usable.model);
-            state.set_raw_field(ES_EFLAGS, usable.eflags);
-            if let Some(number) = self.pool.spawn_entity(state, 0) {
-                self.pool.set_bounds(number, usable.bounds);
-                self.usable_entities.push((number, usable.clone()));
-            }
-        }
-        self.map = Some(map);
-    }
-
     /// `ClientThink_real`'s use key: held, `TryUse` every 100 ms.
     pub(super) fn try_use(&mut self, client: usize, level_time: i32) {
         let Some(peer) = self.peer_mut(client) else {
@@ -82,10 +91,22 @@ impl NativeGame {
             });
             return;
         }
+        // "can't use anything else so jp is off" (`goto tryJetPack`).
+        if peer.gear.packs.jetpack_on {
+            self.jetpack_by_use_key(client, level_time);
+            return;
+        }
         let Some(found) = self.use_target(client) else {
+            self.jetpack_by_use_key(client, level_time);
             return;
         };
-        if self.use_vehicle(client, found, level_time) || self.use_gun(client, found, level_time) {
+        if self.use_vehicle(client, found, level_time)
+            || self.use_dispensers(client, found, level_time)
+            || self.use_gun(client, found, level_time)
+        {
+            return;
+        }
+        if self.use_station(client, found, level_time) {
             return;
         }
         // A button the use key reached is pressed (`Use_BinaryMover`).
@@ -106,17 +127,15 @@ impl NativeGame {
             }
             return;
         }
-        // A `func_usable` fires what it targets (`func_usable_use`).
-        if let Some((_, usable)) = self
-            .usable_entities
-            .iter()
-            .find(|(number, _)| number.legacy_number() == found)
-            .cloned()
+        // A `func_usable` the key may use (`ValidUseTarget`, `GlobalUse`); a breakable
+        // brush it may use, or else mend (`TryHeal`).
+        if self.use_usable_by_key(client, found, level_time)
+            || self.use_breakable_by_key(client, found, level_time)
+            || self.repair_by_key(client, found, level_time)
         {
-            if !usable.target.is_empty() {
-                self.fire_targets(&usable.target, client, level_time);
-            }
+            return;
         }
+        self.jetpack_by_use_key(client, level_time);
     }
 
     /// `TryUse`'s vehicle (`g_utils.c:1699-1723`): the one the player rides it gets off, any
@@ -146,6 +165,62 @@ impl NativeGame {
             true
         });
         result.unwrap_or(false)
+    }
+
+    /// `TryUse`'s dispensers (`g_utils.c:1752-1777`): a player carrying either, facing a
+    /// live teammate (`OnSameTeam`) who needs health or ammunition, gives it what it needs
+    /// (`G_UseDispenserOn`) and holds the use pose. Whether it did. An NPC is nobody's
+    /// teammate here; a vehicle on the user's team, which stock would serve, is not.
+    fn use_dispensers(&mut self, client: usize, found: u16, level_time: i32) -> bool {
+        let target = usize::from(found);
+        let gametype = self.gametype;
+        let (Some(user), Some(mate)) = (self.peer(client), self.peer(target)) else {
+            return false;
+        };
+        let same_team = match gametype {
+            GT_POWERDUEL => user.session.duel_team == mate.session.duel_team,
+            GT_SINGLE_PLAYER => user.bot == mate.bot,
+            _ if gametype < GT_TEAM => false,
+            _ => user.session.team == mate.session.team,
+        };
+        if user.state.stats[STAT_HOLDABLE_ITEMS] & DISPENSERS == 0
+            || target == client
+            || !mate.playing()
+            || mate.health <= 0
+            || !same_team
+        {
+            return false;
+        }
+        let health = jkr_game_jka::dispensers::needs_health(&mate.state, mate.health);
+        if !health && !jkr_game_jka::dispensers::needs_ammo(&mate.state, mate.health) {
+            return false;
+        }
+        let mut pace = user.service.supply_debounce;
+        let Some(mate) = self.peer_mut(target) else {
+            return false;
+        };
+        if health {
+            jkr_game_jka::dispensers::heal(
+                &mut mate.state,
+                &mut mate.health,
+                &mut mate.service,
+                level_time,
+            );
+        }
+        if jkr_game_jka::dispensers::needs_ammo(&mate.state, mate.health) {
+            jkr_game_jka::dispensers::supply(
+                &mut mate.state,
+                &mut mate.service,
+                &mut pace,
+                level_time,
+            );
+        }
+        mate.movement = mate.movement.reseeded(&mate.state);
+        if let Some(user) = self.peer_mut(client) {
+            user.service.supply_debounce = pace;
+            hold_use_pose(user, false);
+        }
+        true
     }
 
     /// The NPCs' bodies a rider's traces meet: all but the vehicle it owns.

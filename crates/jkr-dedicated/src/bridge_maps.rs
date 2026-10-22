@@ -7,7 +7,8 @@ impl NativeGame {
     /// `ExitLevel` (`g_main.c:1434`). This server hosts one map and has no `nextmap`
     /// to run, so the level it goes to is the one it is on: the scores are cleared, the
     /// clock starts again, and everyone plays on. A map rotation is what would change
-    /// here, and nothing else.
+    /// here — and Siege, whose round ends with its level: it restarts the level, as the
+    /// reference's default `nextmap` (`map_restart 0`) does.
     pub(super) fn exit_level(&mut self, server_time: i32) {
         // A duel plays the next round on this level (`g_main.c:1440-1452`).
         // Siege plays its second round on this level, the sides swapped.
@@ -20,7 +21,7 @@ impl NativeGame {
         if let Some(next) = self.next_map() {
             self.at_map = self.at_map.wrapping_add(1);
             let loaded = self.game_data.as_ref().and_then(|game_data| {
-                match crate::map::load(game_data, &next) {
+                match crate::map::load(game_data, &self.game_directory(), &next) {
                     Ok(map) => Some(map),
                     Err(error) => {
                         // A map that will not load must not take the server down with it:
@@ -36,9 +37,16 @@ impl NativeGame {
                 return;
             }
         }
+        // A Siege round ends with its level: playing on in place would leave it ended.
+        if self.siege.is_some() {
+            println!("level exit at {server_time}; no nextmap on this server, map_restart");
+            self.restart_after_exit(server_time);
+            return;
+        }
         println!(
             "level exit at {server_time}; no nextmap on this server, so the match starts again"
         );
+        self.end_slow_motion_with_level();
         self.match_end = Default::default();
         self.team_scores = [0; 2];
         self.ready_mask = 0;
@@ -70,6 +78,11 @@ impl NativeGame {
     /// The maps this server plays after the one it started on, in order, for the process
     /// to set from its options. An empty rotation means the current map for ever, which
     /// is what a server started without one does.
+    /// The mod directory the server runs (`fs_game`, fixed once it runs); empty for none.
+    pub(super) fn game_directory(&self) -> String {
+        String::from_utf8_lossy(self.cvars.string(b"fs_game")).into_owned()
+    }
+
     pub fn set_rotation(&mut self, maps: Vec<String>, game_data: Option<std::path::PathBuf>) {
         self.rotation = maps;
         self.at_map = 0;
@@ -101,7 +114,13 @@ impl NativeGame {
             self.close_log();
         }
         // `SV_Map_f`'s `Cvar_Get("g_gametype")`: a game type waiting for this map.
+        let gametype_before = self.gametype;
         self.take_latched_cvars();
+        // `G_InitWorldSession`: sessions written under another game type are not used.
+        let new_session = self.gametype != gametype_before;
+        if new_session {
+            println!("Gametype changed, clearing session data.");
+        }
         println!(
             "map change to {mapname} at {server_time} (world {} -> {})",
             self.map_generation,
@@ -114,12 +133,15 @@ impl NativeGame {
         self.identity.mapname = mapname.as_bytes().to_vec();
         self.cvars.set(b"mapname", mapname.as_bytes());
         self.status_info = server_info_with(&self.status_info, "mapname", mapname);
-        let (config_strings, sounds) = world_config_strings(
-            &self.status_info,
+        self.pure = pure_files(&self.cvars, map.as_ref());
+        let system_info = system_info(
+            &mut self.cvars,
             map.as_ref(),
-            self.gametype,
+            self.pure.as_ref(),
             self.map_generation,
         );
+        let (config_strings, sounds) =
+            world_config_strings(&self.status_info, system_info, map.as_ref(), self.gametype);
         self.config_strings = config_strings;
         self.sounds = sounds;
         self.map = map;
@@ -129,6 +151,17 @@ impl NativeGame {
         self.told
             .retain(|told| !matches!(told, Told::ConfigString { .. }));
         self.map_effects = Default::default();
+        self.team_locks = Default::default();
+        // jaPRO's admin freeze is the client's, which a new level's connect clears.
+        for client in 0..self.players.places() {
+            if let Some(peer) = self.peer_mut(client) {
+                peer.admin_frozen = false;
+                peer.telemark = ([0.0; 3], [0.0; 2]);
+            }
+        }
+        // Entity registries and collision owners belong to the outgoing map.
+        self.map_turrets = Default::default();
+        self.stock = Default::default();
         // The game module is loaded afresh for a new map: its filter starts empty and
         // `G_InitGame` reads `g_banIPs` into it.
         self.ip_filter = Default::default();
@@ -150,6 +183,10 @@ impl NativeGame {
             // survive and alias items or sabers in the new pool.
             self.clear_client(client);
         }
+        if new_session {
+            self.renew_sessions();
+        }
+        self.refresh_http_downloads();
         self.told.push(Told::MapChanged { server_time });
     }
 }
@@ -179,34 +216,76 @@ impl NativeGame {
     }
 }
 
-/// Every configstring a world starts with, in index order: the two engine strings, what
-/// `G_InitGame` publishes, what the map's worldspawn does, and the registered items.
+/// `SV_SpawnServer`'s pure branch: the pk3 files `map` was loaded with when `sv_pure` is
+/// set, `None` otherwise or without a map.
+pub(super) fn pure_files(
+    cvars: &crate::cvars::Cvars,
+    map: Option<&LoadedMap>,
+) -> Option<crate::pure_files::PureFiles> {
+    let map = map.filter(|_| cvars.integer(b"sv_pure") != 0)?;
+    Some(crate::pure_files::PureFiles::new(
+        &map.files,
+        map.checksum_feed,
+    ))
+}
+
+/// `SV_SpawnServer`'s engine strings, set in their variables — the server's id, the paks
+/// a pure server loaded (`FS_LoadedPakChecksums`, `FS_LoadedPakNames`) and those a client
+/// needs (`FS_ReferencedPakChecksums`, `FS_ReferencedPakNames`) — and then the systeminfo
+/// every client is sent: `Cvar_InfoString_Big(CVAR_SYSTEMINFO)`, which also carries the
+/// cheats, the time scale and the movement settings clients predict with.
+pub(super) fn system_info(
+    cvars: &mut crate::cvars::Cvars,
+    map: Option<&LoadedMap>,
+    pure: Option<&crate::pure_files::PureFiles>,
+    server_id: i32,
+) -> Vec<u8> {
+    cvars.set(b"sv_serverid", server_id.to_string().as_bytes());
+    // A pure server lists every pk3 it loaded, so that its clients load from nothing else.
+    let (paks, names) = pure.map_or_else(Default::default, |pure| (pure.checksums(), pure.names()));
+    cvars.set(b"sv_paks", paks.as_bytes());
+    cvars.set(b"sv_pakNames", names.as_bytes());
+    // The paks a client needs, which it downloads if it lacks them, in search order: the
+    // pak its map came from and, on a pure server, the cgame's (`SV_TouchCGame`).
+    let map_pak = map.and_then(|map| map.pak.as_ref());
+    let referenced: Vec<(i32, &str)> = match pure {
+        Some(pure) => pure
+            .paks
+            .iter()
+            .filter(|pak| {
+                Some(*pak) == pure.cgame()
+                    || map_pak.is_some_and(|map_pak| pak.is_at(&map_pak.path))
+            })
+            .map(|pak| (pak.checksum, pak.game_name.as_str()))
+            .collect(),
+        None => map_pak
+            .map(|pak| (pak.checksum, pak.name.as_str()))
+            .into_iter()
+            .collect(),
+    };
+    let checksums: String = referenced
+        .iter()
+        .map(|(checksum, _)| format!("{checksum} "))
+        .collect();
+    let names: Vec<&str> = referenced.iter().map(|(_, name)| *name).collect();
+    cvars.set(b"sv_referencedPaks", checksums.as_bytes());
+    cvars.set(b"sv_referencedPakNames", names.join(" ").as_bytes());
+    cvars.info_string_big(crate::cvars::CVAR_SYSTEMINFO)
+}
+
+/// Every configstring a world starts with, in index order: the two engine strings
+/// ([`system_info`] the second), what `G_InitGame` publishes, what the map's worldspawn
+/// does, and the registered items.
 ///
 /// A map change rebuilds exactly this, which is why it is written down once. The sound
 /// table comes back with it because `init_game` fills one as it names its sounds, and the
 /// new world needs that table rather than the old one's.
 pub(super) fn world_config_strings(
     status_info: &[u8],
+    system_info: Vec<u8>,
     map: Option<&LoadedMap>,
     gametype: i32,
-    server_id: i32,
 ) -> (Vec<(usize, Vec<u8>)>, SoundTable) {
-    // The two engine strings every legacy client reads first. The game's own strings
-    // (version, models, sounds) arrive with the JKA game profile.
-    let mut system_info = format!("\\sv_serverid\\{server_id}\\sv_pure\\0").into_bytes();
-    system_info.extend_from_slice(b"\\sv_paks\\\\sv_pakNames\\");
-    // `SV_SpawnServer`: the paks a client needs, which it downloads if it lacks them
-    // (`FS_ReferencedPakChecksums`, `FS_ReferencedPakNames`). Not being pure, this server
-    // references only the pak its map came from.
-    if let Some(pak) = map.and_then(|map| map.pak.as_ref()) {
-        system_info.extend_from_slice(
-            format!(
-                "\\sv_referencedPaks\\{} \\sv_referencedPakNames\\{}",
-                pak.checksum, pak.name
-            )
-            .as_bytes(),
-        );
-    }
     let mut config_strings = vec![(0, status_info.to_vec()), (1, system_info)];
     // `G_InitGame`: its sounds, then what the map's worldspawn published, then the
     // location, duel and item strings; every index there is above these two.
@@ -241,17 +320,12 @@ pub(super) fn download_file(
     name: &[u8],
 ) -> jkr_network::LegacyDownloadFile {
     use jkr_network::LegacyDownloadFile;
-    let Some(pak) = map.and_then(|map| map.pak.as_ref()) else {
+    let Some(pak) = downloadable_pak(map) else {
         return LegacyDownloadFile::NotReferenced;
     };
-    let id_pak = (0..9).any(|number| {
-        pak.name
-            .eq_ignore_ascii_case(&format!("base/assets{number}"))
-    });
-    if id_pak
-        || !format!("{}.pk3", pak.name)
-            .as_bytes()
-            .eq_ignore_ascii_case(name)
+    if !format!("{}.pk3", pak.name)
+        .as_bytes()
+        .eq_ignore_ascii_case(name)
     {
         return LegacyDownloadFile::NotReferenced;
     }
@@ -259,6 +333,17 @@ pub(super) fn download_file(
         Ok(bytes) => LegacyDownloadFile::Found(bytes.into()),
         Err(_) => LegacyDownloadFile::Missing,
     }
+}
+
+/// The pak a client may download: the map's own, unless it is one of the game's
+/// (`base/assets0` to `assets8`), which are never sent.
+pub(super) fn downloadable_pak(map: Option<&LoadedMap>) -> Option<&crate::map::ReferencedPak> {
+    let pak = map.and_then(|map| map.pak.as_ref())?;
+    let id_pak = (0..9).any(|number| {
+        pak.name
+            .eq_ignore_ascii_case(&format!("base/assets{number}"))
+    });
+    (!id_pak).then_some(pak)
 }
 
 /// Stored configstrings as the endpoint wants them.

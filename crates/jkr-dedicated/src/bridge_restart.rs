@@ -25,6 +25,7 @@ impl NativeGame {
         let differs = gametype != self.gametype;
         self.gametype = gametype;
         self.settings.gametype = gametype;
+        self.refresh_weapons_disabled();
         if differs {
             self.spawn_level_entities();
         }
@@ -76,6 +77,7 @@ impl NativeGame {
     /// of the new.
     pub(super) fn spawn_level_entities(&mut self) {
         self.pool = EntityPool::with_budget(0, self.entity_budget());
+        self.corpses = Default::default();
         self.missiles.clear();
         self.fired.clear();
         self.husks.clear();
@@ -88,9 +90,9 @@ impl NativeGame {
         self.targets.clear();
         self.doors.clear();
         self.breakables.clear();
-        self.usable_entities.clear();
         self.map_effects.forget_entities();
         self.map_turrets.forget_entities();
+        self.worldspawn_cvars();
         self.spawn_items();
         self.spawn_triggers();
         self.spawn_movers();
@@ -112,11 +114,13 @@ impl NativeGame {
     /// siege round and no vote. A command a passed vote already queued still runs, as
     /// the reference's console buffer outlives the level.
     pub(super) fn start_level(&mut self, server_time: i32) {
+        self.end_slow_motion_with_level();
         self.match_end = Default::default();
         self.power_duel = Default::default();
         self.team_scores = [0; 2];
         self.ready_mask = 0;
         self.level_start_time = server_time;
+        self.level_frames = 0;
         // `InitSiegeMode`: the round of the new level, and its entities.
         self.init_siege(server_time);
         self.vote = Default::default();
@@ -178,11 +182,18 @@ impl NativeGame {
         // `G_InitGame` reads `g_banIPs` again into the filter it kept: every filter is
         // added a second time, as in the reference.
         self.process_ip_bans();
+        // `SV_MapRestart_f`'s new `sv_serverid`, which the systeminfo carries.
+        let system_info = super::system_info(
+            &mut self.cvars,
+            self.map.as_ref(),
+            self.pure.as_ref(),
+            self.map_generation,
+        );
         let (fresh, _) = super::world_config_strings(
             &self.status_info,
+            system_info,
             self.map.as_ref(),
             self.gametype,
-            self.map_generation,
         );
         // `SP_worldspawn` always writes the level's start time, a map or none.
         let start = (CS_LEVEL_START_TIME, server_time.to_string().into_bytes());

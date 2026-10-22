@@ -112,7 +112,7 @@ const PS_SABER_LOCK_FRAME: usize = 108;
 const PS_SEE_LEVEL: usize = 109;
 const PS_GRIP_CRIPPLE: usize = 111;
 const PS_FORCE_RESTRICTED: usize = 115;
-const PS_TRUE_NON_JEDI: usize = 116;
+const PS_TRUE_NON_JEDI: usize = 117;
 const PS_DUEL_IN_PROGRESS: usize = 119;
 /// The fields an update may change that the movement keeps a copy of: when one changed,
 /// the movement is reseeded from the state.
@@ -272,6 +272,10 @@ pub struct ForcePowers {
     pub jumped: bool,
     /// `ps.forceJumpFlip`: the jump's flip, for its next move to show.
     pub jump_flip: bool,
+    /// jaPRO's `dueltypes[n]`: the kind of the player's duel, or of its last challenge.
+    /// A Force duel (`engage_fullforceduel`) lets the duellists use every power on each
+    /// other; it outlives a respawn, as jaPRO's array does.
+    pub duel_kind: crate::duel_kind::DuelKind,
 }
 
 impl ForcePowers {
@@ -315,6 +319,7 @@ impl ForcePowers {
             jump_charge: 0.0,
             jumped: false,
             jump_flip: false,
+            duel_kind: crate::duel_kind::DuelKind::Saber,
         }
     }
 
@@ -324,10 +329,50 @@ impl ForcePowers {
     /// (`killSoundEntIndex` survives a respawn); the spawn's state has already stopped
     /// every power and filled the pool.
     pub fn respawned(&mut self, levels: [u8; NUM_FORCE_POWERS], level_time: i32) {
-        let kill_sounds = self.kill_sounds;
+        let (kill_sounds, duel_kind) = (self.kill_sounds, self.duel_kind);
         *self = Self::with_levels(levels);
         self.kill_sounds = kill_sounds;
+        self.duel_kind = duel_kind;
         self.regen_debounce = level_time;
+    }
+}
+
+/// The server's Force rules: stock's friendly fire and jaPRO's options; [`Default`] is a
+/// stock server's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ForceRules {
+    /// `g_friendlyFire`: grip, the arcs of lightning and drain, and drain reach teammates.
+    pub friendly_fire: bool,
+    /// `g_teamHealScale`, `g_teamEnergizeScale`: what team heal and team replenish give,
+    /// against stock's 50, 33 or 25.
+    pub team_heal_scale: f32,
+    pub team_energize_scale: f32,
+    /// `g_teamAbsorbScale`: what absorb takes from a teammate's power.
+    pub team_absorb_scale: f32,
+    /// `g_forcePowerDisableFFA`: the powers (a bit each) no one may use outside a duel —
+    /// in every game type, despite the name.
+    pub disabled_outside_duels: u32,
+    /// `g_debugMelee`: no offensive power while holding a wall
+    /// ([`crate::debug_melee::offensive`]), and a push or a pull takes one off it.
+    pub debug_melee: bool,
+    /// `g_forceRegenTime`: milliseconds a point of Force takes to come back.
+    pub regen_time: i32,
+    /// `g_useWhileThrowing`: push and pull work while the saber is thrown.
+    pub use_while_throwing: bool,
+}
+
+impl Default for ForceRules {
+    fn default() -> Self {
+        Self {
+            friendly_fire: false,
+            team_heal_scale: 1.0,
+            team_energize_scale: 1.0,
+            team_absorb_scale: 1.0,
+            disabled_outside_duels: 0,
+            debug_melee: false,
+            regen_time: 200,
+            use_while_throwing: true,
+        }
     }
 }
 
@@ -352,9 +397,15 @@ pub struct ForceFrame<'a> {
     /// saber-only (`HasSetSaberOnly`): Holocron FFA's.
     pub saber_style: u8,
     pub saber_only: bool,
-    /// A power duel's lone: its own regeneration pace
-    /// ([`crate::power_duel::lone_regen_time`]), added as the reference adds a double.
-    pub lone_regen: Option<f64>,
+    /// A regeneration pace of the user's own, added as the reference adds a double: a
+    /// power duel's lone's ([`crate::power_duel::lone_regen_time`]), a Siege class's with
+    /// fast regeneration (`CFL_FASTFORCEREGEN`: a fifth of `g_forceRegenTime`), a Siege
+    /// item carrier's whose item limits the Force (`forcelimit`: a point every 7 s)
+    /// (`w_force.c:5448-5467`).
+    pub regen_pace: Option<f64>,
+    /// Holocron FFA with no carry limit (`g_maxHolocronCarry` 0): a point regenerates for
+    /// each holocron carried, one without any, and neither the boon nor the master count.
+    pub holocron_regen: bool,
     pub health: &'a mut i32,
     /// `forceHandExtendTime` (the knockdown's memory keeps it).
     pub hand_extend_time: &'a mut i32,
@@ -365,6 +416,14 @@ pub struct ForceFrame<'a> {
     /// The sounds the user's `Cmd_ToggleSaber_f` plays turning its sabers off, each hand's
     /// (`saber[n].soundOff`): a gripped user's saber is kept off.
     pub saber_off_sounds: [SaberOffSound; 2],
+    /// The user's typing under jaPRO's god chat ([`crate::god_chat`]): typing, its powers
+    /// reach no one. Never an NPC's.
+    pub typing: crate::god_chat::Typing,
+    /// jaPRO's Force options.
+    pub rules: ForceRules,
+    /// The user's statistics, which team heal, team energize and drain add to
+    /// ([`crate::japro_stats::Stats`]); a scratch copy for an NPC.
+    pub stats: &'a mut crate::japro_stats::Stats,
 }
 
 /// A hand's off-sound as `Cmd_ToggleSaber_f` plays it (`g_cmds.c:2720-2730`).
@@ -518,10 +577,58 @@ pub fn key(
     None
 }
 
+/// `ForceSpeed(self, duration)` for a player, as a Force dodge by speed calls it
+/// (`g_forceDodge 2`, [`crate::force_dodge`]): on for `duration`, or off when it has run
+/// long enough to be turned off.
+pub fn speed(
+    state: &mut PlayerState,
+    force: &mut ForcePowers,
+    duration: i32,
+    frame: &mut ForceFrame,
+) {
+    let mut forcer = Forcer {
+        state,
+        force,
+        frame,
+        throw: None,
+        saber_knocked: false,
+        buttons: 0,
+    };
+    forcer.speed(duration);
+}
+
 /// The levels a client is sent: levitation's and seeing's.
 pub(crate) fn mirror_levels(state: &mut PlayerState, force: &ForcePowers) {
     state.set_raw_field(PS_LEVITATION_LEVEL, u32::from(force.levels[FP_LEVITATION]));
     state.set_raw_field(PS_SEE_LEVEL, u32::from(force.levels[FP_SEE]));
+}
+
+/// jaPRO's start of a Force or gun duel (`Cmd_EngageDuel_f`, `g_cmds.c:4411-4434` of
+/// jaPRO): the Force full, rage's recovery over, and rage, protection, speed, mind trick,
+/// absorption and sight stopped.
+pub fn duel_start(state: &mut PlayerState, force: &mut ForcePowers, frame: &mut ForceFrame) {
+    state.set_raw_field(PS_FORCE_POWER, force.max as u32);
+    state.set_raw_field(PS_RAGE_RECOVERY, 0);
+    let mut forcer = Forcer {
+        state,
+        force,
+        frame,
+        throw: None,
+        saber_knocked: false,
+        buttons: 0,
+    };
+    for power in [
+        FP_RAGE,
+        FP_PROTECT,
+        FP_SPEED,
+        FP_TELEPATHY,
+        FP_ABSORB,
+        FP_SEE,
+    ] {
+        if forcer.active(power) {
+            forcer.stop(power);
+        }
+    }
 }
 
 /// `ClientDisconnect`'s Force (`g_client.c:3913-3931`): every power on stopped — a grip
@@ -774,15 +881,15 @@ impl Forcer<'_, '_> {
                 // "jedi master regenerates 4 times as fast".
                 let master = self.frame.gametype == crate::jedi_master::GT_JEDIMASTER
                     && crate::jedi_master::is_master(self.state);
-                let amount = if self.state.powerups[PW_FORCE_BOON] != 0 {
-                    6
-                } else if master {
-                    4
-                } else {
-                    1
-                };
+                let amount = regen_amount(
+                    self.frame
+                        .holocron_regen
+                        .then(|| self.force.holocrons.count()),
+                    self.state.powerups[PW_FORCE_BOON] != 0,
+                    master,
+                );
                 self.set_pool((self.pool() + amount).min(self.force.max));
-                self.force.regen_debounce = match self.frame.lone_regen {
+                self.force.regen_debounce = match self.frame.regen_pace {
                     Some(pace) => (f64::from(self.force.regen_debounce) + pace) as i32,
                     None => self.force.regen_debounce + self.frame.regen_time.max(1),
                 };
@@ -838,6 +945,7 @@ impl Forcer<'_, '_> {
     fn can_use_now(&self, power: usize) -> bool {
         can_use_now(
             self.state,
+            self.force.duel_kind,
             power,
             self.frame.level_time,
             self.frame.gametype,
@@ -856,6 +964,7 @@ impl Forcer<'_, '_> {
             power,
             self.frame.level_time,
             self.frame.gametype,
+            self.frame.rules,
         )
     }
 
@@ -1337,21 +1446,21 @@ pub enum UsableOn {
     Absorbed,
 }
 
-/// `ForcePowerUsableOn` for player `attacker` using `power` on player `other`: not on
-/// one with ysalamiri, not by one who may not use it now, not in or at a duel; a grip
-/// not at one absorbing or in a saber special; a push or pull not at one knocked down.
-/// (NPCs, the vehicle and siege cases, are not players.)
+/// `ForcePowerUsableOn` for player `attacker` (with its duel kind) using `power` on
+/// player `other` (with its number): not on one with ysalamiri, not by one who may not use
+/// it now, not in or at a duel ([`duel_shields`]); a grip not at one absorbing or in a
+/// saber special; a push or pull not at one knocked down. (NPCs, the vehicle and siege
+/// cases, are not players.)
 pub fn usable_on(
-    attacker: &PlayerState,
-    other: &PlayerState,
+    (attacker, attacker_kind): (&PlayerState, crate::duel_kind::DuelKind),
+    (other, other_number): (&PlayerState, u16),
     power: usize,
     level_time: i32,
     gametype: i32,
 ) -> UsableOn {
     if has_ysalamiri(other, gametype)
-        || !can_use_now(attacker, power, level_time, gametype)
-        || attacker.duel_in_progress()
-        || other.duel_in_progress()
+        || !can_use_now(attacker, attacker_kind, power, level_time, gametype)
+        || duel_shields(duellist(attacker, attacker_kind), other, other_number)
     {
         return UsableOn::No;
     }
@@ -1382,14 +1491,42 @@ pub(crate) fn heard(force: &mut ForcePowers, power: usize, level_time: i32) {
 }
 
 /// `BG_HasYsalamiri`.
+/// `ForcePowerUsableOn`'s duel rule (`w_force.c:556-563`, jaPRO's `w_force.c:583-603`): a
+/// duellist uses no power on anyone, nor anyone one on a duellist — but in jaPRO's Force
+/// duel the two may on each other. The attacker is given by whether it duels, whom, and
+/// its duel kind; `other_number` is `other`'s client.
+pub(crate) fn duel_shields(
+    (in_duel, partner, kind): (bool, u16, crate::duel_kind::DuelKind),
+    other: &PlayerState,
+    other_number: u16,
+) -> bool {
+    if in_duel {
+        !(kind == crate::duel_kind::DuelKind::Force
+            && other.duel_in_progress()
+            && other_number == partner)
+    } else {
+        other.duel_in_progress()
+    }
+}
+
+/// [`duel_shields`]' attacker from its state and duel kind.
+pub(crate) fn duellist(
+    state: &PlayerState,
+    kind: crate::duel_kind::DuelKind,
+) -> (bool, u16, crate::duel_kind::DuelKind) {
+    (state.duel_in_progress(), state.duel_index(), kind)
+}
+
 pub(crate) fn has_ysalamiri(state: &PlayerState, gametype: i32) -> bool {
     (gametype == GT_CTY && (state.powerups[PW_REDFLAG] != 0 || state.powerups[PW_BLUEFLAG] != 0))
         || state.powerups[PW_YSALAMIRI] != 0
 }
 
-/// `BG_CanUseFPNow` (`bg_misc.c:1725-1788`).
+/// `BG_CanUseFPNow` (`bg_misc.c:1725-1788`); a duel restricts no power in jaPRO's Force
+/// duel (`duel_kind`, the player's).
 pub(crate) fn can_use_now(
     state: &PlayerState,
+    duel_kind: crate::duel_kind::DuelKind,
     power: usize,
     level_time: i32,
     gametype: i32,
@@ -1406,6 +1543,7 @@ pub(crate) fn can_use_now(
     }
     let lock_frame = field(PS_SABER_LOCK_FRAME);
     if field(PS_DUEL_IN_PROGRESS) != 0
+        && duel_kind != crate::duel_kind::DuelKind::Force
         && !matches!(power, FP_SABER_OFFENSE | FP_SABER_DEFENSE | FP_LEVITATION)
         && (lock_frame == 0 || power != FP_PUSH)
     {
@@ -1446,14 +1584,16 @@ pub(crate) fn available(
     pool >= drain
 }
 
-/// `WP_ForcePowerUsable` for a player in the game (never a spectator).
-pub(crate) fn usable(
+/// `WP_ForcePowerUsable` for a player in the game (never a spectator), under jaPRO's
+/// `rules`.
+pub fn usable(
     state: &PlayerState,
     force: &ForcePowers,
     health: i32,
     power: usize,
     level_time: i32,
     gametype: i32,
+    rules: ForceRules,
 ) -> bool {
     if has_ysalamiri(state, gametype)
         || health <= 0
@@ -1462,7 +1602,11 @@ pub(crate) fn usable(
     {
         return false;
     }
-    if !can_use_now(state, power, level_time, gametype)
+    // jaPRO's `g_forcePowerDisableFFA`.
+    if !state.duel_in_progress() && rules.disabled_outside_duels & (1 << power) != 0 {
+        return false;
+    }
+    if !can_use_now(state, force.duel_kind, power, level_time, gametype)
         || state.raw_field(PS_KNOWN).unwrap_or(0) & (1 << power) == 0
     {
         return false;
@@ -1473,12 +1617,44 @@ pub(crate) fn usable(
     if force.levels[power] == 0 {
         return false;
     }
+    if rules.debug_melee
+        && crate::debug_melee::stuck_to_wall(state)
+        && crate::debug_melee::offensive(power)
+    {
+        return false;
+    }
     // "this power is verboten when using this saber" (`w_force.c:732-788`, with
     // `g_saberRestrictForce` 0).
     if state.saber_holstered() == 0 && force.saber_restrictions & (1 << power) != 0 {
         return false;
     }
     available(state, force, power, 0)
+}
+
+/// The points one regeneration gives (`w_force.c:5425-5446`, `WP_ForcePowerRegenerate`):
+/// in Holocron FFA with no carry limit one for each holocron `carried` (one without any);
+/// else six under the boon, four for the Jedi Master, one otherwise.
+pub fn regen_amount(carried: Option<usize>, boon: bool, master: bool) -> i32 {
+    match carried {
+        Some(carried) => (carried as i32).max(1),
+        None if boon => 6,
+        None if master => 4,
+        None => 1,
+    }
+}
+
+/// Siege's own regeneration pace (`w_force.c:5448-5455`): a point every 7 s for the
+/// carrier of an item that limits the Force (`forcelimit`), a fifth of `regen_time` (one
+/// at least) for a class with fast regeneration (`CFL_FASTFORCEREGEN`); `None` for the
+/// usual pace.
+pub fn siege_regen_pace(force_limited: bool, fast_class: bool, regen_time: i32) -> Option<f64> {
+    if force_limited {
+        Some(7_000.0)
+    } else if fast_class {
+        Some((f64::from(regen_time) * 0.2).max(1.0))
+    } else {
+        None
+    }
 }
 
 /// `BG_ForcePowerDrain`: the cost taken from the pool, levitation's by how fast the
@@ -1520,4 +1696,67 @@ pub(crate) fn drain(
         cost
     };
     state.set_raw_field(PS_FORCE_POWER, (pool - cost).max(0) as u32);
+}
+
+#[cfg(test)]
+mod rules_tests {
+    use super::*;
+
+    /// jaPRO's `g_forcePowerDisableFFA` withholds a power outside a duel only.
+    #[test]
+    fn a_power_withheld_outside_duels_is_used_in_one() {
+        let mut state = PlayerState::default();
+        state.stats[STAT_HEALTH] = 100;
+        state.set_raw_field(PS_KNOWN, 1 << FP_LEVITATION);
+        state.set_raw_field(PS_FORCE_POWER, 100);
+        let mut force = ForcePowers::with_levels([0; NUM_FORCE_POWERS]);
+        force.levels[FP_LEVITATION] = 3;
+        let withheld = ForceRules {
+            disabled_outside_duels: 1 << FP_LEVITATION,
+            ..ForceRules::default()
+        };
+        let usable_with =
+            |state: &PlayerState, rules| usable(state, &force, 100, FP_LEVITATION, 1_000, 0, rules);
+        assert!(usable_with(&state, ForceRules::default()));
+        assert!(!usable_with(&state, withheld));
+        state.set_raw_field(PS_DUEL_IN_PROGRESS, 1);
+        assert!(usable_with(&state, withheld));
+    }
+
+    /// `g_debugMelee` (`w_force.c:713-731`): holding a wall, grip is out, push is not.
+    #[test]
+    fn no_offensive_power_holding_a_wall_under_debug_melee() {
+        const PS_PM_FLAGS: usize = 38;
+        let mut state = PlayerState::default();
+        state.stats[STAT_HEALTH] = 100;
+        state.set_raw_field(PS_KNOWN, (1 << FP_GRIP) | (1 << FP_PUSH));
+        state.set_raw_field(PS_FORCE_POWER, 100);
+        state.set_raw_field(PS_PM_FLAGS, 16_384);
+        let mut force = ForcePowers::with_levels([0; NUM_FORCE_POWERS]);
+        force.levels[FP_GRIP] = 3;
+        force.levels[FP_PUSH] = 3;
+        let debug_melee = ForceRules {
+            debug_melee: true,
+            ..ForceRules::default()
+        };
+        let usable_with = |power, rules| usable(&state, &force, 100, power, 1_000, 0, rules);
+        assert!(usable_with(FP_GRIP, ForceRules::default()));
+        assert!(!usable_with(FP_GRIP, debug_melee));
+        assert!(usable_with(FP_PUSH, debug_melee));
+    }
+
+    /// Regeneration's amounts and Siege's paces (`w_force.c:5425-5455`).
+    #[test]
+    fn regeneration_follows_the_game_type_and_class() {
+        assert_eq!(regen_amount(None, false, false), 1);
+        assert_eq!(regen_amount(None, true, true), 6);
+        assert_eq!(regen_amount(None, false, true), 4);
+        // Holocron FFA without a carry limit: a point per holocron, the boon aside.
+        assert_eq!(regen_amount(Some(3), true, false), 3);
+        assert_eq!(regen_amount(Some(0), false, false), 1);
+        assert_eq!(siege_regen_pace(false, true, 200), Some(40.0));
+        assert_eq!(siege_regen_pace(false, true, 2), Some(1.0));
+        assert_eq!(siege_regen_pace(true, true, 200), Some(7_000.0));
+        assert_eq!(siege_regen_pace(false, false, 200), None);
+    }
 }

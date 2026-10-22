@@ -1,17 +1,22 @@
 //! Discovery of shaders referenced by stock and server-configured EFX graphs.
 
-use jkr_effect::load_effect;
+use crate::effect_library::embedded::load_effect;
 use jkr_vfs::VirtualFileSystem;
 use std::collections::{BTreeSet, HashSet};
 
 pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "mp/drain",
     "mp/drainwide",
+    // EternalJK's wide drain (`cg_drainFX 1`), carried by JKR (`effect_embedded`).
+    "mp/drainwide_japro",
     "emplaced/dead_smoke",
     "emplaced/explode",
     "turret/explode",
+    "boba/jet",
     "sparks/spark_explosion",
     "tripmine/explosion",
+    "tripmine/lasermp",
+    "tripmine/glowbit",
     "detpack/explosion",
     "flechette/alt_blow",
     "stunbaton/flesh_impact",
@@ -19,6 +24,11 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "env/water_impact",
     "env/acid_splash",
     "env/lava_splash",
+    // A footstep's dust (`_PlayerFootStep`).
+    "materials/mud",
+    "materials/sand",
+    "materials/snow",
+    "materials/gravel",
     "materials/mud_large",
     "materials/sand_large",
     "materials/dirt_large",
@@ -48,6 +58,15 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
     "thermal/explosion",
     "thermal/shockwave",
     "concussion/explosion",
+    "concussion/alt_ring",
+    // `CG_MiscModelExplosion` (`jkr_client::breakage::EXPLOSION_EFFECTS`).
+    "chunks/glassbreak",
+    "chunks/metalexplode",
+    "chunks/sparkexplode",
+    "chunks/grateexplode",
+    "chunks/ropebreak",
+    "chunks/rockbreaklg",
+    "chunks/rockbreakmed",
     "sparks/spark_nosnd",
     "bryar/shot",
     "blaster/shot",
@@ -83,9 +102,16 @@ pub(crate) const STOCK_EFFECTS: &[&str] = &[
 ];
 
 /// Shaders referenced from code rather than from EFX graphs: the saber clash
-/// flare (`cg_draw.c`), the disruptor beam lines (`fx_disruptor.c`) and the
-/// sprites floated over players (`cg_players.c`).
+/// flare (`cg_draw.c`), the disruptor beam lines (`fx_disruptor.c`), the
+/// sprites floated over players (`cg_players.c`) and the marks laid on models.
 pub(crate) const CODE_SHADERS: &[&str] = &[
+    jkr_client::breakage::SHARD_SHADER,
+    "gfx/misc/blue_portashield",
+    "gfx/misc/blue_dmgshield",
+    "gfx/misc/red_portashield",
+    "gfx/misc/red_dmgshield",
+    "@jkr/solid-add",
+    "gfx/mp/vchat_icon",
     "gfx/damage/rivetmark",
     "gfx/effects/saberdamageglow",
     "gfx/misc/spark",
@@ -93,9 +119,13 @@ pub(crate) const CODE_SHADERS: &[&str] = &[
     "gfx/effects/sabers/red_glow",
     "gfx/effects/saberFlare",
     "gfx/effects/redLine",
+    "gfx/effects/blueLine",
     "gfx/misc/whiteline2",
     jkr_client::LegacyPlayerSprite::ConnectionInterrupted.shader(),
     jkr_client::LegacyPlayerSprite::Talk.shader(),
+    jkr_client::ghoul2_marks::BODY_BURN,
+    jkr_client::ghoul2_marks::BIG_BURN,
+    jkr_client::ghoul2_marks::SABER_GLOW,
 ];
 
 pub(crate) fn required_shaders<'a>(

@@ -54,6 +54,13 @@ runs the command-line `+` commands in order. With `--home`, `exec` checks its
 `base` directory first and archived variables are saved in `base/jkr_server.cfg`.
 Without a home, this archive is not written.
 
+The game's Force and weapon rules follow their cvars as stock's do, latched until
+the next map: `g_maxForceRank` and `g_forcePowerDisable` limit the Force
+configurations players may use, `g_forceBasedTeams` ties sides to teams, and
+`g_weaponDisable` (`g_duelWeaponDisable` in the duels) removes weapons from the
+map and from spawning players. Disabling every weapon but the saber makes a
+saber-only server: no pistol at spawn, no weapon or ammunition pickups.
+
 Type commands such as `status`, `map mp/ffa3` and `quit` on stdin. Remote console
 commands require an explicitly configured `rconpassword`; never commit that
 password. The console implementation lives in
@@ -75,10 +82,13 @@ startup, the server console's `devmap <map>` loads a map with it on and `map`
 loads one with it off. The client's [devmap](client.md#development-maps) starts
 an owned local game with cheats on.
 
-Players type these in the client console. Without cheats the server answers
-with the stock "cheats are not enabled" message (`@@@NOCHEATS`). `give`, `t_use`
-and `noclip` also need a living player in the game (`@@@MUSTBEALIVE`), as in
-OpenJK's `ClientCommand`; `setviewpos` also works for spectators.
+Players type these in the client console. Every command of OpenJK's
+`ClientCommand` table passes its gates first, in the reference's order: none
+during intermission (`@@@CANNOT_TASK_INTERMISSION`), then cheats
+(`@@@NOCHEATS`), then a living player in the game (`@@@MUSTBEALIVE`). The
+commands below all need cheats, and all but `giveother`, `killother` and
+`setviewpos` need the player alive. A command no route answers gets stock's
+`Unknown command` reply.
 
 | Command | Effect |
 | --- | --- |
@@ -88,13 +98,24 @@ OpenJK's `ClientCommand`; `setviewpos` also works for spectators.
 | `give weapons`, `give weaponnum N` | Every usable weapon, or the weapon with number `N` |
 | `give ammo [N]` | `N` (0–999, 999 without `N`) of every ammo type |
 | `give excellent` (also `impressive`, `gauntletaward`, `defend`, `assist`) | One more of that award |
+| `give <item>` | The item with that class name (`weapon_rocket_launcher`, `item_seeker`, `ammo_thermal`, ...), as if touched |
+| `giveother PLAYER ...` | `give` for another living player, named by number or name |
+| `god`, `notarget` | Toggle taking no damage, or being ignored by NPCs, turrets and sentries; spawning clears both |
+| `killother PLAYER` | Kill another living player |
 | `t_use NAME` | Fire every target named `NAME` as the player (`Cmd_TargetUse_f`), as mappers test triggers and scripts |
 | `setviewpos X Y Z YAW` | Teleport to the position, facing `YAW` |
 | `noclip` | Toggle flying through the world (see [Noclip](#noclip)) |
+| `thedestroyer` | Ignite the saber in hand |
+| `debugBMove_Forward BOT` (also `_Back`, `_Left`, `_Right`, `_Up`) | Push the bot with that number along that direction, or stop pushing |
 
-`give` follows OpenJK's `G_Give`; giving an item by its name (which the reference
-spawns on the player) is not ported and does nothing. See
+`levelshot` is refused: a dedicated server has no local client to take it.
+
+`give` follows OpenJK's `G_Give`. An item given by name is touched at once, as
+the reference spawns and frees it, unless the server would not spawn it there
+(`g_weaponDisable`, `g_duelWeaponDisable` and the game type's own rules). Flags
+are not given, and no pickup event is sent. See
 [give.rs](../crates/jkr-game-jka/src/give.rs),
+[cheat_flags.rs](../crates/jkr-game-jka/src/cheat_flags.rs),
 [bridge_commands.rs](../crates/jkr-dedicated/src/bridge_commands.rs),
 [bridge_cheats.rs](../crates/jkr-dedicated/src/bridge_cheats.rs) and
 [bridge_teleport.rs](../crates/jkr-dedicated/src/bridge_teleport.rs).

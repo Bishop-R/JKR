@@ -108,6 +108,11 @@ pub(crate) struct LocalPrediction {
     miss_log: telemetry::MissLog,
     /// The vehicle the local player pilots, predicted with it.
     rides: ride::Rides,
+    /// The kind of the duel the player is in, as its own `EV_PRIVATE_DUEL` told it
+    /// ([`jkr_game_jka::duel_kind::DuelKind::from_accept_event`]), and whether the last
+    /// snapshot had it in one.
+    duel_kind: jkr_game_jka::duel_kind::DuelKind,
+    in_duel: bool,
 }
 
 impl LocalPrediction {
@@ -175,6 +180,8 @@ impl LocalPrediction {
             last_sample: PredictionSample::default(),
             miss_log: telemetry::MissLog::default(),
             rides: ride::Rides::new(vfs),
+            duel_kind: jkr_game_jka::duel_kind::DuelKind::Saber,
+            in_duel: false,
         }
     }
 
@@ -224,6 +231,52 @@ impl LocalPrediction {
                 .or(self.predictor.as_ref())
                 .map(Predictor::state)
         })
+    }
+
+    /// The piloted vehicle for its HUD: its definition, predicted state and turbo time
+    /// (`cg.predictedVehicleState`, `m_pVehicle`).
+    pub(crate) fn piloted_vehicle(
+        &self,
+    ) -> Option<(
+        &jkr_game_jka::vehicle_fields::VehicleInfo,
+        &MovementState,
+        i32,
+    )> {
+        let ride = self
+            .rides
+            .preview
+            .as_ref()
+            .or(self.rides.committed.as_ref())?;
+        Some((self.rides.piloted_info()?, ride.state(), ride.turbo_time()))
+    }
+
+    /// The definition template of vehicle `entity` (cached by name), for the HUD.
+    pub(crate) fn vehicle_template(
+        &mut self,
+        entity: &jkr_protocol::EntityState,
+        game_state: &jkr_protocol::GameState,
+    ) -> Option<usize> {
+        self.rides.template_of(entity, game_state)
+    }
+
+    /// The definition a template holds.
+    pub(crate) fn vehicle_template_info(
+        &self,
+        index: usize,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleInfo> {
+        self.rides.template_info(index)
+    }
+
+    /// The template of the vehicle this client pilots.
+    pub(crate) fn piloted_template(&self) -> Option<usize> {
+        self.rides.piloted_template()
+    }
+
+    /// The piloted vehicle's first weapon, for the fighter's lead indicator.
+    pub(crate) fn piloted_weapon(
+        &self,
+    ) -> Option<&jkr_game_jka::vehicle_fields::VehicleWeaponInfo> {
+        self.rides.piloted_weapon()
     }
 
     /// Vehicle strafing already computed by prediction; read-only camera input.
@@ -334,6 +387,7 @@ impl LocalPrediction {
             self.rides.committed.as_mut(),
             command,
             &collision,
+            self.duel_kind,
         );
         self.rides.preview = None;
         touch_triggers(
@@ -379,7 +433,14 @@ impl LocalPrediction {
         };
         let collision =
             BspMovementCollision::with_movers(bsp, scratch, &self.physics_movers.colliders);
-        ride::predict(preview, self.rides.begin_preview(), command, &collision);
+        let duel_kind = self.duel_kind;
+        ride::predict(
+            preview,
+            self.rides.begin_preview(),
+            command,
+            &collision,
+            duel_kind,
+        );
         touch_triggers(
             preview,
             &self.physics_movers.triggers,
@@ -396,6 +457,11 @@ impl LocalPrediction {
     /// Latest fully constructed input, including mouse movement and strafe modifiers.
     pub(crate) fn guide_input(&self) -> Option<[i8; 2]> {
         self.latest_input.map(|c| [c.forward_move, c.right_move])
+    }
+
+    /// The last command sent, for the movement keys.
+    pub(crate) fn latest_command(&self) -> Option<&jkr_protocol::UserCommand> {
+        self.latest_input.as_ref()
     }
 
     /// Deliver this frame's committed, replayed and preview events without allocating.

@@ -13,14 +13,18 @@
 use super::{NativeGame, Peer, Told};
 use crate::collision::{Void, WithPlayers, WorldCollision};
 use crate::visibility::Eye;
+use jkr_game_jka::breakables::Breakable;
 use jkr_game_jka::crt_rand::CrtRand;
 use jkr_game_jka::entity_clip::BoxObstacle;
 use jkr_game_jka::entity_id::EntityId;
 use jkr_game_jka::entity_pool::EntityPool;
 use jkr_game_jka::event_entity::EventEntity;
 use jkr_game_jka::force_powers;
-use jkr_game_jka::force_throw::{self, Candidate, CandidateKind, ThrowPlayer, ThrowWorld};
+use jkr_game_jka::force_throw::{
+    self, Candidate, CandidateKind, ThrowPlayer, ThrowWorld, ThrownMover,
+};
 use jkr_game_jka::items::Pickup;
+use jkr_game_jka::movers::{Door, MoverKind, MoverState};
 use jkr_game_jka::npc_spawn::NpcActor;
 use jkr_game_jka::player_death::Rng;
 use jkr_game_jka::pmove::{MovementCollision, MovementTrace};
@@ -139,12 +143,19 @@ impl NativeGame {
             gametype: self.gametype,
             thrower: client as u16,
             pull,
+            rules: self.force_rules,
         };
         // What every player was, to tell afterwards whom the throw changed (a throw is a
         // button press, not a per-frame cost).
         let before: Vec<Option<jkr_protocol::PlayerState>> = (0..self.players.places())
             .map(|number| self.peer(number).map(|peer| peer.state.clone()))
             .collect();
+        // jaPRO: with flag throwing on, a throw outside a duel moves dropped items.
+        let gun_game = self.gun_game_runs();
+        let items_movable = self.flag_rules().throw
+            && self
+                .peer(client)
+                .is_some_and(|peer| !peer.state.duel_in_progress());
         let Self {
             server,
             world,
@@ -159,6 +170,8 @@ impl NativeGame {
             map,
             npcs,
             gametype,
+            doors,
+            breakables,
             ..
         } = self;
         let Some(world) = server.world_mut(*world) else {
@@ -178,10 +191,19 @@ impl NativeGame {
             rng: &mut deaths.rng,
             crt: rand,
             map: map.as_ref(),
+            doors,
+            breakables,
+            worked: Vec::new(),
             level_time: server_time,
             gametype: *gametype,
+            items_movable,
+            gun_game,
         };
         force_throw::throw(context, &mut throw_world);
+        let worked = throw_world.worked;
+        for (number, button) in worked {
+            self.work_thrown_mover(number, client, button, server_time);
+        }
         for (number, before) in before.into_iter().enumerate() {
             if let Some(peer) = self.peer_mut(number)
                 && before.as_ref() != Some(&peer.state)
@@ -216,8 +238,18 @@ struct ServerThrow<'a> {
     rng: &'a mut Rng,
     crt: &'a mut CrtRand,
     map: Option<&'a super::LoadedMap>,
+    /// The movers, which a throw may work and its traces meet, and the breakable brushes
+    /// they meet too.
+    doors: &'a [(EntityId, Door)],
+    breakables: &'a [(EntityId, Breakable)],
+    /// The doors and buttons the throw worked, worked once it is over: `(number, button)`.
+    worked: Vec<(u16, bool)>,
     level_time: i32,
     gametype: i32,
+    /// jaPRO's flag throwing is on and the thrower is in no duel: dropped items move.
+    items_movable: bool,
+    /// jaPRO's gun game runs: a pull disarms nobody.
+    gun_game: bool,
 }
 
 impl ServerThrow<'_> {
@@ -235,6 +267,10 @@ impl ThrowWorld for ServerThrow<'_> {
         out.clear();
         player_candidates(self.world, self.peers, mins, maxs, out);
         missile_candidates(self.missiles, mins, maxs, out);
+        if self.items_movable {
+            super::bridge_flag_throw::dropped_item_candidates(self.items, mins, maxs, out);
+        }
+        out.extend(mover_candidates(self.doors, self.level_time, mins, maxs));
         out.extend(
             self.npcs
                 .iter()
@@ -263,6 +299,7 @@ impl ThrowWorld for ServerThrow<'_> {
                 bounds,
                 contents,
                 model: None,
+                linked_box: None,
             });
         }
         players.extend(
@@ -270,6 +307,10 @@ impl ThrowWorld for ServerThrow<'_> {
                 .iter()
                 .filter(|npc| npc.begun() && npc.contents != 0 && npc.number != pass)
                 .map(NpcActor::body),
+        );
+        players.extend(
+            crate::collision::brush_obstacles(self.breakables, self.doors, self.level_time)
+                .filter(|brush| brush.entity != pass),
         );
         match self.map {
             Some(map) => WithPlayers {
@@ -313,7 +354,22 @@ impl ThrowWorld for ServerThrow<'_> {
             team: peer.session.team,
             push_effect_until: &mut peer.push_effect_until,
             lock_hits: &mut peer.lock.hits,
+            typing: peer.typing,
         })
+    }
+
+    fn work_mover(&mut self, mover: u16, _thrower: u16, button: bool) {
+        self.worked.push((mover, button));
+    }
+
+    fn push_item(&mut self, item: u16, velocity: [f32; 3]) {
+        super::bridge_flag_throw::push_dropped_item(
+            self.items,
+            self.pool,
+            item,
+            velocity,
+            self.level_time,
+        );
     }
 
     fn reflect_missile(&mut self, missile: u16, thrower: u16, forward: [f32; 3]) {
@@ -352,6 +408,10 @@ impl ThrowWorld for ServerThrow<'_> {
     /// (its weapon's pickup is not ported).
     fn toss_weapon(&mut self, victim: u16, direction: [f32; 3], speed: f32) {
         let (level_time, gametype) = (self.level_time, self.gametype);
+        // jaPRO's gun game: nobody is disarmed (`TossClientWeapon` returns at once).
+        if self.gun_game {
+            return;
+        }
         let Some(peer) = self.peer(victim) else {
             return;
         };
@@ -480,8 +540,73 @@ pub(super) fn missile_candidates(
     }
 }
 
+/// `func_door`'s `MOVER_FORCE_ACTIVATE`, `func_button`'s `SPF_BUTTON_FPUSHABLE`,
+/// `func_door`'s start-open flag.
+const MOVER_FORCE_ACTIVATE: u32 = 2;
+const SPF_BUTTON_FPUSHABLE: u32 = 2;
+const MOVER_START_OPEN: u32 = 1;
+
+/// `EntitiesInBox`' movers for a push or pull: the Force-activated doors and the
+/// Force-pushable buttons whose linked box meets `mins`..`maxs`.
+fn mover_candidates<'a>(
+    doors: &'a [(EntityId, Door)],
+    level_time: i32,
+    mins: [f32; 3],
+    maxs: [f32; 3],
+) -> impl Iterator<Item = Candidate> + 'a {
+    doors.iter().filter_map(move |(number, door)| {
+        let worked = match door.kind {
+            MoverKind::Door => door.spawnflags & MOVER_FORCE_ACTIVATE != 0,
+            MoverKind::Button => door.spawnflags & SPF_BUTTON_FPUSHABLE != 0,
+            MoverKind::Plat => false,
+        };
+        if !worked {
+            return None;
+        }
+        let origin = jkr_game_jka::movers::origin_at(door, level_time);
+        let absmin: [f32; 3] = std::array::from_fn(|axis| origin[axis] + door.bounds.0[axis] - 1.0);
+        let absmax: [f32; 3] = std::array::from_fn(|axis| origin[axis] + door.bounds.1[axis] + 1.0);
+        if !overlaps(absmin, absmax, mins, maxs) {
+            return None;
+        }
+        let kind = if door.kind == MoverKind::Button {
+            ThrownMover::Button
+        } else {
+            let (at_pos1, at_pos2) = (
+                door.state == MoverState::Pos1,
+                door.state == MoverState::Pos2,
+            );
+            // `SP_func_door` puts `s.origin` at the first place, or at the second when it
+            // starts open: with no origin brush that is the world's origin.
+            let start_open = door.spawnflags & MOVER_START_OPEN != 0;
+            let spawn_origin = if start_open { door.pos2 } else { door.pos1 };
+            ThrownMover::Door {
+                at_rest: at_pos1 || at_pos2,
+                at_pos1,
+                ends: force_throw::door_ends(
+                    spawn_origin != [0.0; 3],
+                    absmin,
+                    absmax,
+                    start_open,
+                    at_pos1,
+                    at_pos2,
+                    door.pos1,
+                    door.pos2,
+                ),
+            }
+        };
+        Some(Candidate {
+            number: number.legacy_number(),
+            kind: CandidateKind::Mover(kind),
+            absmin,
+            absmax,
+            origin: door.base,
+        })
+    })
+}
+
 /// Whether the box `absmin`..`absmax` meets `mins`..`maxs`.
-fn overlaps(absmin: [f32; 3], absmax: [f32; 3], mins: [f32; 3], maxs: [f32; 3]) -> bool {
+pub(super) fn overlaps(absmin: [f32; 3], absmax: [f32; 3], mins: [f32; 3], maxs: [f32; 3]) -> bool {
     (0..3).all(|axis| absmin[axis] <= maxs[axis] && absmax[axis] >= mins[axis])
 }
 

@@ -21,6 +21,10 @@
 //!   remaining whole second changes, never in Siege; a negative warmup means
 //!   "waiting for players"; `CG_ParseWarmup` (`cg_servercmds.c:226-236`) resets
 //!   the count on every `CS_WARMUP` change.
+//! - `cg_draw.c:8168-8236`: before a Siege round begins (`CS_SIEGE_STATE` 2)
+//!   the countdown speaks 3/2/1 whenever its whole second changes; `CG_Draw2D`
+//!   runs it, so never during an intermission (nor with `cg_draw2D 0`, which
+//!   this adapter cannot see).
 //! - `cg_servercmds.c:1070-1090`: `map_restart` clears both warning masks and
 //!   plays the "fight" line when there is no warmup outside Siege/Power Duel.
 //! - `cg_servercmds.c:1509-1572`: `chat`/`lchat` beep unless `cg_teamChatsOnly`
@@ -31,6 +35,7 @@
 //! `snapshot.server_time`, not per rendered frame on `cg.time`, so a sound may
 //! start up to one snapshot interval later than in the reference client.
 
+use crate::siege_round::{ClockRules, SiegeRound};
 use crate::sound_events::{CHAN_ANNOUNCER, LegacySoundEvent};
 use jkr_protocol::{GameState, Snapshot};
 
@@ -59,7 +64,6 @@ const BUFFERED_SPACING_MILLIS: i32 = 750;
 const MAX_LOCAL_SOUNDS_PER_SNAPSHOT: usize = 8;
 /// `cg_chatBeep` and `cg_teamChatsOnly` at their BaseJKA defaults.
 const CG_CHAT_BEEP: bool = true;
-const CG_TEAM_CHATS_ONLY: bool = false;
 
 /// One listener-local playback requested by a snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,6 +118,8 @@ pub(crate) struct LegacyLocalSounds {
     pub(crate) chat_mode: i64,
     /// Fixed-capacity filtering shared with chat presentation policy.
     pub(crate) chat_filter: chat_filter::Filter,
+    /// `cg_teamChatsOnly`: everything but team chat is dropped, its beep with it.
+    pub(crate) team_chats_only: bool,
     media: LocalSoundMedia,
     /// `cgAnnouncerTime`: no announcer line starts before this server time.
     announcer_time: i32,
@@ -136,6 +142,10 @@ pub(crate) struct LegacyLocalSounds {
     level_start_time: i32,
     previous_team: Option<u8>,
     last_command_sequence: i32,
+    /// The Siege round, for its countdown.
+    siege: SiegeRound,
+    /// The latest snapshot's server time.
+    time: i32,
     pending: Vec<LegacyLocalSound>,
 }
 
@@ -167,8 +177,11 @@ impl LegacyLocalSounds {
             level_start_time: 0,
             previous_team: None,
             last_command_sequence: game_state.server_command_sequence,
+            siege: SiegeRound::default(),
+            time: 0,
             chat_mode: 1,
             chat_filter: chat_filter::Filter::default(),
+            team_chats_only: false,
             pending: Vec::with_capacity(MAX_LOCAL_SOUNDS_PER_SNAPSHOT),
         };
         local.observe_config(game_state);
@@ -196,6 +209,7 @@ impl LegacyLocalSounds {
         }
         self.scores = [CS_SCORES1, CS_SCORES2].map(|index| config_int(game_state, index));
         self.level_start_time = config_int(game_state, CS_LEVEL_START_TIME);
+        self.siege.observe(game_state, self.time);
     }
 
     /// Run one snapshot through the reference frame order: new reliable
@@ -204,6 +218,7 @@ impl LegacyLocalSounds {
     pub(crate) fn observe_snapshot(&mut self, snapshot: &Snapshot) {
         self.pending.clear();
         let time = snapshot.server_time;
+        self.time = time;
         self.execute_server_commands(snapshot);
         let team = snapshot.player.team();
         let team_changed = self.previous_team.is_some_and(|previous| previous != team);
@@ -216,6 +231,17 @@ impl LegacyLocalSounds {
         }
         self.play_buffered(time);
         self.draw_warmup(time);
+        if snapshot.player.movement_type() != PM_INTERMISSION
+            && let Some(seconds) = self.siege.frame(time, team, ClockRules::default()).count
+        {
+            // `count1Sound` for one second left, up to `count3Sound`.
+            let sound = self.media.count.get((seconds - 1) as usize).copied();
+            self.push(
+                LegacySoundEvent::SiegeCountdown,
+                sound.flatten(),
+                CHAN_ANNOUNCER,
+            );
+        }
     }
 
     /// Sounds requested by the latest [`Self::observe_snapshot`].
@@ -243,7 +269,7 @@ impl LegacyLocalSounds {
                 {
                     continue;
                 }
-                b"chat" | b"lchat" if !CG_TEAM_CHATS_ONLY && CG_CHAT_BEEP => {
+                b"chat" | b"lchat" if !self.team_chats_only && CG_CHAT_BEEP => {
                     let private = self.chat_mode == 2
                         && verb == b"chat"
                         && command.command.windows(7).any(|bytes| bytes == b"^7]: ^6");

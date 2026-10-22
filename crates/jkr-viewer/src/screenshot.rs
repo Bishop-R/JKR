@@ -30,8 +30,15 @@ pub(crate) fn setup(
         } else {
             wgpu::TextureUsages::empty()
         };
+    // Screenshots belong beside the configuration (`GameData/jkr/screenshots/`), also
+    // when the renderer starts before a console is attached.
     let directory = console
         .map(|console| console.config_directory().to_owned())
+        .or_else(|| {
+            crate::platform::user_config_file()
+                .ok()
+                .and_then(|config| config.parent().map(Path::to_owned))
+        })
         .unwrap_or_else(|| fallback_directory.to_owned());
     let manager = Manager::new(directory, context.format, copy_supported);
     Setup {
@@ -53,6 +60,18 @@ pub(crate) struct Request {
     format: Format,
     name: Option<String>,
     silent: bool,
+}
+
+impl Request {
+    /// A PNG the client takes on its own, at `name` under the screenshot directory (a
+    /// subdirectory allowed, as EternalJK's `auto/`).
+    pub(crate) fn automatic(name: String) -> Self {
+        Self {
+            format: Format::Png,
+            name: Some(name),
+            silent: false,
+        }
+    }
 }
 
 /// Parse OpenJK-style screenshot commands registered by the renderer.
@@ -86,10 +105,14 @@ pub(crate) fn parse_request(tokens: &[String]) -> Result<Option<Request>, String
     }))
 }
 
+/// Map results arrive on a channel of the readback's own, so a map that failed can
+/// never be taken for a later screenshot's.
+type MapResult = Receiver<Result<(), wgpu::BufferAsyncError>>;
+
 enum State {
     Idle,
     Encoded(Readback),
-    Mapping(Readback),
+    Mapping(Readback, MapResult),
 }
 
 struct Readback {
@@ -106,8 +129,6 @@ pub(crate) struct Manager {
     directory: PathBuf,
     request: Option<Request>,
     state: State,
-    map_sender: SyncSender<Result<(), wgpu::BufferAsyncError>>,
-    map_receiver: Receiver<Result<(), wgpu::BufferAsyncError>>,
     write_sender: SyncSender<String>,
     write_receiver: Receiver<String>,
     write_pending: bool,
@@ -121,14 +142,11 @@ impl Manager {
         texture_format: wgpu::TextureFormat,
         copy_supported: bool,
     ) -> Self {
-        let (map_sender, map_receiver) = sync_channel(1);
         let (write_sender, write_receiver) = sync_channel(1);
         Self {
             directory: config_directory.join("screenshots"),
             request: None,
             state: State::Idle,
-            map_sender,
-            map_receiver,
             write_sender,
             write_receiver,
             write_pending: false,
@@ -137,8 +155,10 @@ impl Manager {
         }
     }
 
+    /// Keep `request` until the previous screenshot is written; one asked for while
+    /// another still waits is dropped.
     pub(crate) fn request(&mut self, request: Request) {
-        if self.request.is_none() && matches!(self.state, State::Idle) && !self.write_pending {
+        if self.request.is_none() {
             self.request = Some(request);
         }
     }
@@ -150,6 +170,9 @@ impl Manager {
         texture: &wgpu::Texture,
         size: [u32; 2],
     ) -> Result<bool, String> {
+        if !matches!(self.state, State::Idle) || self.write_pending {
+            return Ok(false);
+        }
         let Some(request) = self.request.take() else {
             return Ok(false);
         };
@@ -157,8 +180,9 @@ impl Manager {
             return Err("surface does not support screenshot readback".to_owned());
         }
         let directory = &self.directory;
-        fs::create_dir_all(directory).map_err(|error| error.to_string())?;
         let path = screenshot_path(directory, &request)?;
+        let parent = path.parent().unwrap_or(directory);
+        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         let row_bytes = size[0] * BYTES_PER_PIXEL;
         let padded_row_bytes = row_bytes.div_ceil(COPY_ALIGNMENT) * COPY_ALIGNMENT;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -194,18 +218,24 @@ impl Manager {
         Ok(true)
     }
 
+    /// Start mapping the readback encoded into the frame just submitted. One already
+    /// mapping is left as it is: dropping its buffer would abort the map.
     pub(crate) fn after_submit(&mut self) {
-        let State::Encoded(readback) = std::mem::replace(&mut self.state, State::Idle) else {
-            return;
+        let readback = match std::mem::replace(&mut self.state, State::Idle) {
+            State::Encoded(readback) => readback,
+            other => {
+                self.state = other;
+                return;
+            }
         };
-        let sender = self.map_sender.clone();
+        let (sender, result) = sync_channel(1);
         readback
             .buffer
             .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender.send(result);
+            .map_async(wgpu::MapMode::Read, move |mapped| {
+                let _ = sender.send(mapped);
             });
-        self.state = State::Mapping(readback);
+        self.state = State::Mapping(readback, result);
     }
 
     pub(crate) fn poll(&mut self, device: &wgpu::Device) -> Option<String> {
@@ -213,11 +243,11 @@ impl Manager {
             self.write_pending = false;
             return Some(message);
         }
-        if !matches!(self.state, State::Mapping(_)) {
+        let State::Mapping(_, result) = &self.state else {
             return None;
-        }
+        };
         let _ = device.poll(wgpu::PollType::Poll);
-        match self.map_receiver.try_recv() {
+        match result.try_recv() {
             Ok(Ok(())) => self.finish_mapping(),
             Ok(Err(error)) => {
                 self.state = State::Idle;
@@ -232,7 +262,7 @@ impl Manager {
     }
 
     fn finish_mapping(&mut self) -> Option<String> {
-        let State::Mapping(readback) = std::mem::replace(&mut self.state, State::Idle) else {
+        let State::Mapping(readback, _) = std::mem::replace(&mut self.state, State::Idle) else {
             return None;
         };
         let slice = readback.buffer.slice(..);

@@ -71,6 +71,7 @@ pub fn npc_as_thrown<'a>(npc: &'a mut NpcActor, invulnerable: &'a mut i32) -> Th
         team: npc.session_team,
         push_effect_until: &mut npc.mind.push_effect_time,
         lock_hits: &mut npc.mind.saber_lock_hits,
+        typing: Default::default(),
     }
 }
 
@@ -116,6 +117,11 @@ impl<H: NpcHost> ThrowWorld for NpcThrow<'_, '_, H> {
             )),
             None => self.players().force_throw_player(number),
         }
+    }
+
+    fn work_mover(&mut self, _mover: u16, _thrower: u16, _button: bool) {
+        // An NPC's throw lists no movers yet ([`Self::entities_in_box`]), so none is
+        // ever worked.
     }
 
     fn reflect_missile(&mut self, missile: u16, thrower: u16, forward: [f32; 3]) {
@@ -165,6 +171,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             gametype: self.host.gametype(),
             thrower,
             pull,
+            rules: self.host.force_rules(),
         };
         let Some(players) = self.host.player_force() else {
             return;

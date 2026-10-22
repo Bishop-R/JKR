@@ -34,6 +34,11 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             "Scope: 0 stock, 1 crosshair, 2 mask only",
         ),
         ("cg_autoSwitch", 1, "Pickup upgrades: 0 off, 1 safe, 2 any"),
+        (
+            "cg_screenShake",
+            2,
+            "EternalJK: camera shakes: 0 none, 1 all but the weapons', 2 all",
+        ),
     ] {
         cvars.register(CvarDefinition::new(
             name,
@@ -112,10 +117,11 @@ pub(crate) fn scalar(console: Option<&ViewerConsole>, name: &str, default: f64) 
 /// Stock bob scalars affect only the rendered camera, never usercmd angles.
 pub(crate) fn bob(console: Option<&ViewerConsole>) -> jkr_client::LegacyViewBobConfig {
     jkr_client::LegacyViewBobConfig {
-        bob_up: scalar(console, "cg_bobup", 0.005),
-        bob_pitch: scalar(console, "cg_bobpitch", 0.002),
-        bob_roll: scalar(console, "cg_bobroll", 0.002),
-        ..Default::default()
+        bob_up: scalar(console, "cg_bobUp", 0.005),
+        bob_pitch: scalar(console, "cg_bobPitch", 0.002),
+        bob_roll: scalar(console, "cg_bobRoll", 0.002),
+        run_pitch: scalar(console, "cg_runPitch", 0.002),
+        run_roll: scalar(console, "cg_runRoll", 0.005),
     }
 }
 

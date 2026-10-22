@@ -19,8 +19,6 @@ use crate::npc_world::NpcWorld;
 use crate::player_death::Rng;
 use crate::pmove::MovementTrace;
 
-/// `g_forceRegenTime`'s default: a point every 200 ms.
-const FORCE_REGEN_TIME: i32 = 200;
 /// `ps.genericEnemyIndex`; `EF_SEEKERDRONE` (`ps.eFlags`).
 const PS_GENERIC_ENEMY: usize = 26;
 const PS_EFLAGS: usize = 17;
@@ -124,6 +122,8 @@ pub fn npc_as_other(npc: &mut NpcActor) -> OtherPlayer<'_> {
         npc_class: Some(npc.definition.client_class),
         absmin: npc.link.0,
         absmax: npc.link.1,
+        jetpack: None,
+        typing: Default::default(),
     }
 }
 
@@ -281,25 +281,31 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         );
         let mut invulnerable = 0;
         let saber_off_sounds = crate::npc_jedi_glue::saber_off_sounds(npc);
+        let rules = self.host.force_rules();
+        let mut stats = crate::japro_stats::Stats::default();
         self.host.player_force()?.force_begin();
         let out = {
             let mut others = NpcOthers::new(&mut *self, number);
             let mut frame = ForceFrame {
                 level_time,
                 gametype,
-                regen_time: FORCE_REGEN_TIME,
+                regen_time: rules.regen_time,
                 since_last_frame,
                 client: number,
                 npc: true,
                 team,
                 saber_style: 1,
                 saber_only: false,
-                lone_regen: None,
+                regen_pace: None,
+                holocron_regen: false,
                 health: &mut health,
                 hand_extend_time: &mut hand_extend_time,
                 invulnerable_until: &mut invulnerable,
                 others: &mut others,
                 saber_off_sounds,
+                typing: Default::default(),
+                rules,
+                stats: &mut stats,
             };
             let out = run(&mut state, &mut force, &mut frame);
             others.credit(&mut state);

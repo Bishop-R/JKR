@@ -38,6 +38,32 @@ pub enum HitLocation {
     Head,
 }
 
+impl HitLocation {
+    /// `hitLocName` (`g_combat.c:3072-3097`): the part as the game log names it, the
+    /// reference's own spelling kept ("front right shouler").
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::FootRight => "right foot",
+            Self::FootLeft => "left foot",
+            Self::LegRight => "right leg",
+            Self::LegLeft => "left leg",
+            Self::Waist => "waist",
+            Self::BackRight => "back right shoulder",
+            Self::BackLeft => "back left shoulder",
+            Self::Back => "back",
+            Self::ChestRight => "front right shouler",
+            Self::ChestLeft => "front left shoulder",
+            Self::Chest => "chest",
+            Self::ArmRight => "right arm",
+            Self::ArmLeft => "left arm",
+            Self::HandRight => "right hand",
+            Self::HandLeft => "left hand",
+            Self::Head => "head",
+        }
+    }
+}
+
 /// `DAMAGE_*` flags (`g_local.h:1165-1185`).
 pub const DAMAGE_NO_ARMOR: u32 = 0x2;
 pub const DAMAGE_NO_KNOCKBACK: u32 = 0x4;
@@ -51,8 +77,6 @@ pub const DAMAGE_NO_PROTECTION: u32 = 0x8;
 pub const DAMAGE_HALF_ABSORB: u32 = 0x400;
 pub const DAMAGE_NO_HIT_LOC: u32 = 0x2000;
 pub const DAMAGE_NO_SELF_PROTECTION: u32 = 0x4000;
-/// `g_knockback`'s default.
-const KNOCKBACK: f32 = 1_000.0;
 /// `ARMOR_PROTECTION`.
 const ARMOR_PROTECTION: f64 = 0.5;
 /// `EV_PAIN`, `EV_SHIELD_HIT`.
@@ -200,6 +224,9 @@ pub struct Wounds {
     /// `ps.otherKiller`, `otherKillerTime`, `otherKillerDebounceTime`: who last pushed the
     /// player, credited with a fall that follows.
     pub other_killer: OtherKiller,
+    /// `locationDamage`: what blows the model's surface placed have taken at each place
+    /// ([`HitLocation`]) since the spawn.
+    pub location_damage: [i32; 17],
 }
 
 /// `ps.otherKiller`, `otherKillerTime`, `otherKillerDebounceTime`: who last pushed, shoved,
@@ -294,6 +321,118 @@ pub struct Target<'a> {
     /// `G_Damage`'s Jedi Master rule holds between this target and the attacker
     /// ([`crate::jedi_master::spares`]): the blow's push lands, nothing more.
     pub spared_by_master: bool,
+    /// `ent->flags & FL_GODMODE`: the push lands, unprotected damage still kills.
+    pub god_mode: bool,
+    /// A player's jetpack (`jetPackOn`, `jetPackToggleTime`), which a DEMP2 blow puts out
+    /// for three to ten seconds; `None` for a target without one.
+    pub jetpack: Option<&'a mut crate::holdables::Packs>,
+    /// The share of its own blows it takes ([`self_damage`]).
+    pub self_damage: f32,
+    /// How the blow pushes it and where it lands counts.
+    pub rules: DamageRules,
+}
+
+/// How blows push and where they land count (`g_knockback`, `g_saberDmgVelocityScale`,
+/// `g_locationBasedDamage`); the defaults are stock's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DamageRules {
+    /// `g_knockback`: the speed a blow of 200 gives a body of mass 200.
+    pub strength: f32,
+    /// `g_saberDmgVelocityScale`: the share of a saber blow's push that lands. At 0 a
+    /// saber pushes nobody unless the blow asks for its saber's own `knockbackScale`.
+    pub saber_scale: f32,
+    /// The same setting's whole part is not 0: every saber blow's push holds the target's
+    /// movement for a while, as other blows' do.
+    pub saber_push_holds: bool,
+    /// `g_locationBasedDamage`: where a blow lands scales it ([`location_modified`]).
+    pub location_based: bool,
+    /// `g_armBreakage`: 80 taken on an arm and its hand break it ([`arm_to_break`]).
+    pub arm_breakage: bool,
+    /// `g_debugDamage`: every blow that gets past the armour is printed
+    /// ([`debug_damage_line`]).
+    pub debug_print: bool,
+}
+
+impl Default for DamageRules {
+    fn default() -> Self {
+        Self {
+            strength: 1_000.0,
+            saber_scale: 0.0,
+            saber_push_holds: false,
+            location_based: true,
+            arm_breakage: false,
+            debug_print: false,
+        }
+    }
+}
+
+impl DamageRules {
+    /// `G_Damage`'s push (`g_combat.c:4651-4741`) of `knockback` points on a body of mass
+    /// 200: the speed added along the blow, and whether it holds the target's movement
+    /// (`PMF_TIME_KNOCKBACK`). A saber's push is scaled by `saber_scale`, or — the blow
+    /// asking for it (`DAMAGE_SABER_KNOCKBACK1`/`2`) — by its saber's own scales, read
+    /// off a client attacker (`saber_knockback`).
+    pub fn push(
+        &self,
+        knockback: i32,
+        flags: u32,
+        saber: bool,
+        saber_knockback: Option<[f32; 4]>,
+    ) -> (f32, bool) {
+        let speed = self.strength * knockback as f32 / 200.0;
+        if !saber {
+            return (speed, true);
+        }
+        let mut scale = self.saber_scale;
+        if flags & (DAMAGE_SABER_KNOCKBACK1 | DAMAGE_SABER_KNOCKBACK2) != 0 {
+            if scale == 0.0 {
+                scale = 1.0;
+            }
+            let bits = [
+                DAMAGE_SABER_KNOCKBACK1,
+                DAMAGE_SABER_KNOCKBACK1_B2,
+                DAMAGE_SABER_KNOCKBACK2,
+                DAMAGE_SABER_KNOCKBACK2_B2,
+            ];
+            for (bit, factor) in bits.into_iter().zip(saber_knockback.unwrap_or([1.0; 4])) {
+                if flags & bit != 0 {
+                    scale *= factor;
+                }
+            }
+        }
+        let asked = DAMAGE_SABER_KNOCKBACK1
+            | DAMAGE_SABER_KNOCKBACK2
+            | DAMAGE_SABER_KNOCKBACK1_B2
+            | DAMAGE_SABER_KNOCKBACK2_B2;
+        (speed * scale, self.saber_push_holds || flags & asked != 0)
+    }
+}
+
+/// `G_ScaleNetHealth` (`g_utils.c:1116-1146`): the `s.maxhealth` and `s.health` a health
+/// bar is drawn from — as they are under 1000, else a hundredth of each, never below
+/// nothing, nor nothing while alive.
+pub fn net_health(health: i32, max_health: i32) -> (u32, u32) {
+    let (max, shown) = if max_health < 1_000 {
+        (max_health, health.max(0))
+    } else {
+        let shown = (health / 100).max(0);
+        (
+            max_health / 100,
+            if health > 0 && shown <= 0 { 1 } else { shown },
+        )
+    };
+    (max as u32, shown as u32)
+}
+
+/// The share of a blow on oneself that lands (`g_combat.c:4934-4945`): half, or half as
+/// much again in siege — or, outside siege, jaPRO's `g_selfDamageScale` (`scale`, 0.5
+/// by default).
+pub fn self_damage(gametype: i32, scale: f32) -> f32 {
+    if gametype == crate::match_end::GT_SIEGE {
+        1.5
+    } else {
+        scale
+    }
 }
 
 /// What `G_Damage` came to.
@@ -314,6 +453,96 @@ pub struct Damaged {
     pub landed: bool,
     /// The target died: the caller runs `player_die` with this damage and point.
     pub died: Option<Death>,
+    /// `g_armBreakage` broke an arm: the caller holds the pose and plays the sounds.
+    pub broke_arm: Option<ArmBroken>,
+    /// `g_debugDamage`'s line, for the caller to print.
+    pub debug_line: Option<String>,
+}
+
+/// `g_debugDamage`'s print (`g_combat.c:5199-5202`): the time, the one struck, its health
+/// before the blow, what the blow takes and what the armour saved.
+pub fn debug_damage_line(
+    level_time: i32,
+    number: u16,
+    health: i32,
+    take: i32,
+    armor: i32,
+) -> String {
+    format!("{level_time}: client:{number} health:{health} damage:{take} armor:{armor}\n")
+}
+
+/// `BROKENLIMB_LARM`, `BROKENLIMB_RARM` (`bg_public.h:224-229`): a bit each in
+/// `brokenLimbs`.
+pub const BROKENLIMB_LARM: u8 = 1;
+pub const BROKENLIMB_RARM: u8 = 2;
+/// `Q3_INFINITE`: a place's damage stops counting there.
+const Q3_INFINITE: i32 = 16_777_216;
+/// `EF_DEAD`.
+const EF_DEAD: u32 = 1 << 1;
+/// `PS_BROKEN_LIMBS` (netfield 93), `SS_STAFF`, `BOTH_PAIN2`, `BOTH_PAIN3`.
+const PS_BROKEN_LIMBS: usize = 93;
+const SS_STAFF: u8 = 7;
+const BOTH_PAIN2: u16 = 96;
+const BOTH_PAIN3: u16 = 97;
+
+/// `G_BreakArm`'s cry, on the voice channel (`G_EntitySound`).
+pub const ARM_BREAK_CRY: &[u8] = b"*pain25.wav";
+
+/// What `G_BreakArm` leaves its caller to do once the arm is marked broken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ArmBroken {
+    /// [`BROKENLIMB_LARM`] or [`BROKENLIMB_RARM`]: the left arm's saber goes out too.
+    pub arm: u8,
+    /// The pain pose held on the whole body: `BOTH_PAIN2` for the left, `BOTH_PAIN3`.
+    pub pose: u16,
+    /// Which `sound/player/bodyfall_human%i.wav` stands in for the bone, drawn 1 to 3.
+    pub bodyfall: i32,
+}
+
+impl ArmBroken {
+    /// The bone's sound ("A nice bone snapping sound instead if possible").
+    pub fn bodyfall_sound(&self) -> String {
+        format!("sound/player/bodyfall_human{}.wav", self.bodyfall)
+    }
+}
+
+/// `g_armBreakage` (`g_combat.c:5439-5450`): the arm whose arm and hand have taken 80 or
+/// more between them, the right one first.
+pub fn arm_to_break(location_damage: &[i32]) -> Option<u8> {
+    let on = |arm: HitLocation, hand: HitLocation| {
+        location_damage[arm as usize] + location_damage[hand as usize]
+    };
+    if on(HitLocation::ArmRight, HitLocation::HandRight) >= 80 {
+        Some(BROKENLIMB_RARM)
+    } else if on(HitLocation::ArmLeft, HitLocation::HandLeft) >= 80 {
+        Some(BROKENLIMB_LARM)
+    } else {
+        None
+    }
+}
+
+/// `G_BreakArm(ent, arm)` (`g_client.c:2770-2826`) for a humanoid: nothing in the staff
+/// style ("too lazy to deal with this"); else that arm alone marked broken, and the pose
+/// and the bone's sound — its draw made here, in the reference's order — for the caller.
+pub fn break_arm(
+    state: &mut PlayerState,
+    arm: u8,
+    rng: &mut crate::player_death::Rng,
+) -> Option<ArmBroken> {
+    if state.saber_style() == SS_STAFF {
+        return None;
+    }
+    state.set_raw_field(PS_BROKEN_LIMBS, 1 << arm);
+    let pose = if arm == BROKENLIMB_LARM {
+        BOTH_PAIN2
+    } else {
+        BOTH_PAIN3
+    };
+    Some(ArmBroken {
+        arm,
+        pose,
+        bodyfall: rng.irand(1, 3),
+    })
 }
 
 /// A killing blow.
@@ -401,8 +630,9 @@ pub fn damage_at(
     {
         damage = damage * attacker.max_health / 100;
     }
-    // The hit's location, for a player hit by a player.
-    if flags & DAMAGE_NO_HIT_LOC == 0
+    // The hit's location, for a player hit by a player, unless `g_locationBasedDamage` is 0.
+    if target.rules.location_based
+        && flags & DAMAGE_NO_HIT_LOC == 0
         && by_a_client
         && !(saber && damage <= 1)
         && let Some(point) = request.point
@@ -430,36 +660,8 @@ pub fn damage_at(
     }
     // The momentum, even where the damage will not be taken.
     if knockback != 0 {
-        // A saber's is scaled by `g_saberDmgVelocityScale`, 0: no push at all — unless the
-        // blow asks for its saber's `knockbackScale` (`g_combat.c:4659-4700`; the second
-        // blade style's scales count only beside a first one's flag).
-        let pushed_by_saber =
-            saber && flags & (DAMAGE_SABER_KNOCKBACK1 | DAMAGE_SABER_KNOCKBACK2) != 0;
-        let scale = if saber {
-            let mut saber_scale = 0.0;
-            if pushed_by_saber {
-                saber_scale = 1.0;
-                let scales = request
-                    .attacker
-                    .map_or([0.0; 4], |attacker| attacker.saber_knockback);
-                for (bit, factor) in [
-                    DAMAGE_SABER_KNOCKBACK1,
-                    DAMAGE_SABER_KNOCKBACK1_B2,
-                    DAMAGE_SABER_KNOCKBACK2,
-                    DAMAGE_SABER_KNOCKBACK2_B2,
-                ]
-                .into_iter()
-                .zip(scales)
-                {
-                    if flags & bit != 0 {
-                        saber_scale *= factor;
-                    }
-                }
-            }
-            (KNOCKBACK * knockback as f32 / 200.0) * saber_scale
-        } else {
-            KNOCKBACK * knockback as f32 / 200.0
-        };
+        let saber_knockback = request.attacker.map(|attacker| attacker.saber_knockback);
+        let (scale, holds) = target.rules.push(knockback, flags, saber, saber_knockback);
         let velocity = target.state.velocity();
         target.state.set_velocity(std::array::from_fn(|axis| {
             velocity[axis] + direction[axis] * scale
@@ -467,9 +669,8 @@ pub fn damage_at(
         if by_another && by_a_client {
             target.wounds.other_killer = OtherKiller::credit(attacker_number, level_time);
         }
-        // The other client cannot cancel the push out at once — unless it was a saber's,
-        // which pushes nobody.
-        if target.state.movement_time() == 0 && (!saber || pushed_by_saber) {
+        // "so that the other client can't cancel out the movement immediately".
+        if target.state.movement_time() == 0 && holds {
             let lock = (knockback * 2).clamp(50, 200);
             target.state.set_movement_time(lock as i16);
             target
@@ -485,6 +686,10 @@ pub fn damage_at(
         (by_a_player || !by_a_client) && attacker.team != 0 && attacker.team == target.team
     });
     if flags & DAMAGE_NO_PROTECTION == 0 && by_another && (teammate || target.spared_by_master) {
+        return damaged;
+    }
+    // "check for godmode" (`g_combat.c:4854-4857`): any blow, one's own too.
+    if flags & DAMAGE_NO_PROTECTION == 0 && target.god_mode {
         return damaged;
     }
     // Complete protection: the spawn's, while it lasts.
@@ -518,12 +723,13 @@ pub fn damage_at(
         damaged.attackee_armor =
             Some(((*target.health as u32) << 8) | target.state.stats[STAT_ARMOR]);
     }
-    // Half damage hurting oneself.
+    // Hurting oneself, unless the blow says not ([`self_damage`]).
     if request
         .attacker
         .is_some_and(|attacker| attacker.client == target.client)
+        && flags & DAMAGE_NO_SELF_PROTECTION == 0
     {
-        damage = (f64::from(damage) * 0.5) as i32;
+        damage = (damage as f32 * target.self_damage) as i32;
     }
     let damage = damage.max(1);
     let mut take = damage;
@@ -546,10 +752,25 @@ pub fn damage_at(
         damaged.absorbed = save;
     }
     take -= save;
-    // `MOD_DEMP2` on a player (`g_combat.c:5150-5195`): a third of what is left, one at
-    // least (droids take more, fighters none; a jetpack goes off — none of them here yet).
-    if matches!(request.means, MOD_DEMP2 | MOD_DEMP2_ALT) && take > 0 {
-        take = (take / 3).max(1);
+    // `MOD_DEMP2` on a player (`g_combat.c:5150-5195`): a lit jetpack goes out for three
+    // to ten seconds, and a third of what is left lands, one at least (droids take more,
+    // fighters none — none of them here yet).
+    if matches!(request.means, MOD_DEMP2 | MOD_DEMP2_ALT) {
+        if let Some(packs) = target
+            .jetpack
+            .as_deref_mut()
+            .filter(|packs| packs.jetpack_on)
+        {
+            packs.jetpack_on = false;
+            packs.jetpack_toggle_time = request.level_time + rng.irand(3_000, 10_000);
+        }
+        if take > 0 {
+            take = (take / 3).max(1);
+        }
+    }
+    if target.rules.debug_print {
+        let line = debug_damage_line(level_time, target.client, *target.health, take, save);
+        damaged.debug_line = Some(line);
     }
     // The frame's totals, for the feedback at its end.
     target.state.persistent[PERS_ATTACKER] = u32::from(attacker_number);
@@ -631,6 +852,24 @@ pub fn damage_at(
             *target.health = (*target.health).max(1);
             target.state.stats[STAT_HEALTH] =
                 (target.state.stats[STAT_HEALTH] as i32).max(1) as u32;
+        }
+        // `g_combat.c:5416-5450`: a blow the model's surface placed this frame counts
+        // against that place; with `g_armBreakage` an arm may break.
+        if let Some(location) = surface_location {
+            let counted = &mut target.wounds.location_damage[location as usize];
+            if *counted < Q3_INFINITE {
+                *counted += take;
+                let alive = target.state.stats[STAT_HEALTH] as i32 > 0
+                    && *target.health > 0
+                    && target.state.raw_field(PS_EFLAGS).unwrap_or(0) & EF_DEAD == 0;
+                if target.rules.arm_breakage
+                    && alive
+                    && target.state.broken_limbs() == 0
+                    && let Some(arm) = arm_to_break(&target.wounds.location_damage)
+                {
+                    damaged.broke_arm = break_arm(target.state, arm, rng);
+                }
+            }
         }
         if *target.health <= 0 {
             target.wounds.no_knockback = true;
@@ -743,22 +982,55 @@ const PS_ELECTRIFY_TIME: usize = 73;
 pub const DF_NO_FALLING: u32 = 8;
 
 /// `ClientEvents`' `EV_FALL`/`EV_ROLL` (`g_active.c:949-1010`): what a landing of `delta`
-/// costs — nothing up to 44, else `delta * 0.16` truncated; a player landing while
+/// costs — nothing with `dmflags`' `DF_NO_FALLING` or up to 44, else `delta * 0.16`
+/// truncated, or in siege (`siege`) the whole delta above 60; a player landing while
 /// knocked down (`BG_InKnockDownOnly` on its legs, `knocked_down`) suffers the whole
-/// delta above 14. The caller then damages the player from the world with
-/// `DAMAGE_NO_ARMOR` and `MOD_FALLING`, after setting its `pain_debounce_time` 200 ms on
-/// (no ordinary pain sound), and plays the splat where the fall killed.
-pub fn fall_damage(delta: i32, dmflags: u32, knocked_down: bool) -> Option<i32> {
+/// delta above 14. jaPRO's `g_maxFallDmg` (`cap`, 0 for none) caps a knocked-down
+/// landing and an ordinary one, not siege's long falls. The caller then damages the
+/// player from the world with `DAMAGE_NO_ARMOR` and `MOD_FALLING`, after setting its
+/// `pain_debounce_time` 200 ms on (no ordinary pain sound), and plays the splat where the
+/// fall killed.
+pub fn fall_damage(
+    delta: i32,
+    dmflags: u32,
+    knocked_down: bool,
+    siege: bool,
+    cap: i32,
+) -> Option<i32> {
     if dmflags & DF_NO_FALLING != 0 {
         return None;
     }
     if knocked_down {
-        return (delta > 14).then_some(delta);
+        if delta <= 14 {
+            return None;
+        }
+        return Some(if cap != 0 && delta >= cap { cap } else { delta });
     }
     if delta <= 44 {
         return None;
     }
-    Some((f64::from(delta) * 0.16) as i32)
+    if siege && delta > 60 {
+        return Some(delta);
+    }
+    let damage = f64::from(delta) * 0.16;
+    Some(if cap != 0 && damage >= f64::from(cap) {
+        cap
+    } else {
+        damage as i32
+    })
+}
+
+/// The pain a frame's damage shows ([`damage_feedback`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pain {
+    /// None this frame.
+    None,
+    /// `EV_PAIN` was raised: the player's entity must be told
+    /// (`PlayerEntity::event_raised`).
+    Event,
+    /// jaPRO's `g_stopHealthESP` 2 and up: no event, but this pain sound on the player's
+    /// voice channel (`G_EntitySound`), which the caller plays.
+    Sound(&'static [u8]),
 }
 
 /// `P_DamageFeedback` (`g_active.c:53-135`), at the end of every frame for a living
@@ -766,25 +1038,28 @@ pub fn fall_damage(delta: i32, dmflags: u32, knocked_down: bool) -> Option<i32> 
 /// (`EV_PAIN` as the player's external event, `G_AddEvent`) at most every 700 ms, for
 /// ten points or more — none for a player whose entity is dead (`s.eFlags & EF_DEAD`,
 /// which the conversion sets from the health: a disintegrated player floats in
-/// `PM_NOCLIP`, dead all the same). `health` is the entity's. Returns whether the pain
-/// event was raised: the player's entity must then be told
-/// (`PlayerEntity::event_raised`).
+/// `PM_NOCLIP`, dead all the same) or in god mode. `health` is the entity's. Under jaPRO's
+/// `g_stopHealthESP` (`hide_health`, `g_active.c:830-850` of jaPRO) the event carries 50
+/// instead of the health (1), or gives way to the pain sound the health picks (2 and up).
+#[allow(clippy::too_many_arguments)]
 pub fn damage_feedback(
     state: &mut PlayerState,
     wounds: &mut Wounds,
     health: i32,
+    god_mode: bool,
     level_time: i32,
     pain_time: &mut i32,
     pain_direction: &mut bool,
-) -> bool {
+    hide_health: i32,
+) -> Pain {
     if state.movement_type() == PM_DEAD {
-        return false;
+        return Pain::None;
     }
     let count = (wounds.blood + wounds.armor).min(255);
     if count == 0 {
-        return false;
+        return Pain::None;
     }
-    let mut pain = false;
+    let mut pain = Pain::None;
     if wounds.from_world {
         state.set_raw_field(PS_DAMAGE_PITCH, 255);
         state.set_raw_field(PS_DAMAGE_YAW, 255);
@@ -798,22 +1073,32 @@ pub fn damage_feedback(
         state.set_raw_field(PS_DAMAGE_YAW, yaw.max(0) as u32);
     }
     let dead = health <= 0;
-    if level_time > wounds.pain_debounce_time && !dead {
+    if level_time > wounds.pain_debounce_time && !god_mode && !dead {
         // Not more than two pain sounds a second, none for a nick.
         if level_time - *pain_time < 500 || count < 10 {
-            return false;
+            return Pain::None;
         }
-        pain = true;
         // `P_SetTwitchInfo`.
         *pain_time = level_time;
         *pain_direction = !*pain_direction;
         wounds.pain_debounce_time = level_time + 700;
-        // `G_AddEvent` on a player: its external event, with the stepped bits.
-        let bits = (state.raw_field(PS_EXTERNAL_EVENT).unwrap_or(0) & EVENT_BITS)
-            .wrapping_add(EVENT_BIT1)
-            & EVENT_BITS;
-        state.set_raw_field(PS_EXTERNAL_EVENT, EV_PAIN | bits);
-        state.set_raw_field(PS_EXTERNAL_EVENT_PARM, health as u32);
+        if hide_health > 1 {
+            pain = Pain::Sound(match health {
+                ..=25 => b"*pain25.wav",
+                ..=50 => b"*pain50.wav",
+                ..=75 => b"*pain75.wav",
+                _ => b"*pain100.wav",
+            });
+        } else {
+            pain = Pain::Event;
+            // `G_AddEvent` on a player: its external event, with the stepped bits.
+            let bits = (state.raw_field(PS_EXTERNAL_EVENT).unwrap_or(0) & EVENT_BITS)
+                .wrapping_add(EVENT_BIT1)
+                & EVENT_BITS;
+            state.set_raw_field(PS_EXTERNAL_EVENT, EV_PAIN | bits);
+            let shown = if hide_health == 1 { 50 } else { health };
+            state.set_raw_field(PS_EXTERNAL_EVENT_PARM, shown as u32);
+        }
         state.set_raw_field(
             PS_DAMAGE_EVENT,
             state
@@ -837,7 +1122,7 @@ pub fn damage_feedback(
 }
 
 /// `vectoangles` (`q_math.c:616-653`): pitch and yaw, in degrees, of a direction.
-pub(crate) fn vector_to_angles(value: [f32; 3]) -> (f32, f32) {
+pub fn vector_to_angles(value: [f32; 3]) -> (f32, f32) {
     let (pitch, yaw);
     if value[1] == 0.0 && value[0] == 0.0 {
         yaw = 0.0;
@@ -907,6 +1192,35 @@ pub fn can_damage(
         })
 }
 
+/// `G_RadiusDamage`'s reach on one target: within `radius` (already at least 1) of
+/// `origin` (`EntitiesInBox`, then the distance from its box), the `damage` it takes
+/// there, scaled by the distance — before `CanDamage` looks for a line.
+pub fn splash_points(
+    target: &SplashTarget,
+    origin: [f32; 3],
+    damage: f32,
+    radius: f32,
+) -> Option<f32> {
+    let inside = (0..3).all(|axis| {
+        target.bounds.0[axis] <= origin[axis] + radius
+            && target.bounds.1[axis] >= origin[axis] - radius
+    });
+    if !inside {
+        return None;
+    }
+    let v: [f32; 3] = std::array::from_fn(|axis| {
+        if origin[axis] < target.bounds.0[axis] {
+            target.bounds.0[axis] - origin[axis]
+        } else if origin[axis] > target.bounds.1[axis] {
+            origin[axis] - target.bounds.1[axis]
+        } else {
+            0.0
+        }
+    });
+    let distance = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    (distance < radius).then(|| damage * (1.0 - distance / radius))
+}
+
 /// `G_RadiusDamage` (`g_combat.c:5613-5730`): everything within `radius` of `origin`
 /// (`EntitiesInBox`, then the distance from the box) but `ignore` takes `damage` scaled by
 /// the distance, truncated, as `DAMAGE_RADIUS` from `attacker` with the direction from
@@ -930,27 +1244,9 @@ pub fn radius_damage(
         if Some(target.number) == ignore || !target.takes_damage {
             continue;
         }
-        let inside = (0..3).all(|axis| {
-            target.bounds.0[axis] <= origin[axis] + radius
-                && target.bounds.1[axis] >= origin[axis] - radius
-        });
-        if !inside {
+        let Some(points) = splash_points(target, origin, damage, radius) else {
             continue;
-        }
-        let v: [f32; 3] = std::array::from_fn(|axis| {
-            if origin[axis] < target.bounds.0[axis] {
-                target.bounds.0[axis] - origin[axis]
-            } else if origin[axis] > target.bounds.1[axis] {
-                origin[axis] - target.bounds.1[axis]
-            } else {
-                0.0
-            }
-        });
-        let distance = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-        if distance >= radius {
-            continue;
-        }
-        let points = damage * (1.0 - distance / radius);
+        };
         if !can_damage(target, origin, world) {
             continue;
         }
@@ -969,4 +1265,57 @@ pub fn radius_damage(
         hit_client |= hurt(target.number, request);
     }
     hit_client
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `g_armBreakage`: 80 between an arm and its hand breaks it, the right one first; the
+    /// arm alone is marked, the pose by the side; the staff style breaks nothing.
+    #[test]
+    fn an_arm_breaks_at_eighty() {
+        let mut damage = [0; 17];
+        damage[HitLocation::ArmLeft as usize] = 50;
+        assert_eq!(arm_to_break(&damage), None);
+        damage[HitLocation::HandLeft as usize] = 30;
+        assert_eq!(arm_to_break(&damage), Some(BROKENLIMB_LARM));
+        damage[HitLocation::HandRight as usize] = 80;
+        assert_eq!(arm_to_break(&damage), Some(BROKENLIMB_RARM));
+        let mut state = PlayerState::zero();
+        let mut rng = crate::player_death::Rng(1);
+        let broken = break_arm(&mut state, BROKENLIMB_RARM, &mut rng).unwrap();
+        assert_eq!(state.broken_limbs(), 1 << BROKENLIMB_RARM);
+        assert_eq!(broken.pose, BOTH_PAIN3);
+        assert!((1..=3).contains(&broken.bodyfall));
+        let mut staff = PlayerState::zero();
+        staff.set_raw_field(23, u32::from(SS_STAFF));
+        assert_eq!(break_arm(&mut staff, BROKENLIMB_LARM, &mut rng), None);
+        assert_eq!(staff.broken_limbs(), 0);
+    }
+
+    /// `g_combat.c:4934-4945`: half outside siege (or jaPRO's scale), half as much again in
+    /// siege whatever the scale.
+    /// `g_active.c:949-1010`, with jaPRO's cap.
+    #[test]
+    fn landings_cost_by_the_rules() {
+        assert_eq!(fall_damage(44, 0, false, false, 0), None);
+        assert_eq!(fall_damage(100, 0, false, false, 0), Some(16));
+        assert_eq!(fall_damage(100, DF_NO_FALLING, false, false, 0), None);
+        assert_eq!(fall_damage(100, 0, false, true, 0), Some(100));
+        assert_eq!(fall_damage(60, 0, false, true, 0), Some(9));
+        assert_eq!(fall_damage(20, 0, true, false, 0), Some(20));
+        assert_eq!(fall_damage(100, 0, false, false, 10), Some(10));
+        assert_eq!(fall_damage(100, 0, true, false, 30), Some(30));
+        assert_eq!(fall_damage(100, 0, false, true, 10), Some(100));
+    }
+
+    #[test]
+    fn a_blow_on_oneself_lands_by_the_gametype() {
+        assert_eq!(self_damage(0, 0.5), 0.5);
+        assert_eq!(self_damage(0, 0.25), 0.25);
+        assert_eq!(self_damage(crate::match_end::GT_SIEGE, 0.25), 1.5);
+        assert_eq!((75_i32 as f32 * self_damage(0, 0.5)) as i32, 37);
+        assert_eq!((75_i32 as f32 * self_damage(7, 0.5)) as i32, 112);
+    }
 }

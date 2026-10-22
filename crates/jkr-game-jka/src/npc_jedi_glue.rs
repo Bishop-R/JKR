@@ -487,6 +487,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     /// `WP_ForcePowerUsable(NPC, power)`.
     pub fn force_power_usable(&mut self, me: usize, power: usize) -> bool {
         let (level_time, gametype) = (self.level_time, self.host.gametype());
+        let rules = self.host.force_rules();
         let npc = &self.actors[me];
         crate::force_powers::usable(
             &npc.player,
@@ -495,6 +496,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             power,
             level_time,
             gametype,
+            rules,
         )
     }
 

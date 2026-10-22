@@ -125,7 +125,7 @@ pub(super) fn finish_spawning(
         turret.maxs = [64.0, 64.0, 30.0];
         turret.mins = [-64.0, -64.0, -30.0];
         // "start in "off" anim"
-        bone_anim(turret, me, 4, 5, host);
+        bone_anim(&mut turret.state, me, 4, 5, host);
         if gametype == GT_SIEGE {
             let flags = turret.state.raw_field(es::EFLAGS2).unwrap_or(0);
             turret.set(es::EFLAGS2, flags | EF2_BRACKET_ENTITY);
@@ -249,53 +249,53 @@ pub(super) fn set_models(turret: &mut TurretG2, me: u16, dying: bool, host: &mut
     turret.set(es::MODEL_GHOUL2, 1);
     turret.set(es::G2_RADIUS, if turbo { 128 } else { 80 });
     if turbo {
-        set_bone_angles(turret, me, b"pitch", [0.0; 3], host);
+        set_bone_angles(&mut turret.state, me, b"pitch", [0.0; 3], host);
         turret.bolts = [
             host.add_bolt(me, b"*muzzle1"),
             host.add_bolt(me, b"*muzzle2"),
         ];
     } else {
-        set_bone_angles(turret, me, b"Bone_body", [0.0; 3], host);
+        set_bone_angles(&mut turret.state, me, b"Bone_body", [0.0; 3], host);
         turret.bolts[0] = host.add_bolt(me, b"*flash03");
     }
 }
 
-/// `G2Tur_SetBoneAngles` (`g_turret_G2.c:46-140`): the bone's slot among the entity's four,
-/// its angles there for the clients, and the bone turned on the server's instance.
-pub(super) fn set_bone_angles(
-    turret: &mut TurretG2,
+/// `G2Tur_SetBoneAngles` (`g_turret_G2.c:46-140`) and `EWeb_SetBoneAngles`
+/// (`g_items.c:1534-1629`): the bone's slot among the entity's four, its angles there for the
+/// clients, and the bone turned on the server's instance.
+pub(crate) fn set_bone_angles(
+    state: &mut jkr_protocol::EntityState,
     me: u16,
     bone: &[u8],
     angles: [f32; 3],
     host: &mut dyn TurretHost,
 ) {
     let index = u32::from(host.bone_index(bone));
-    if !crate::npc_droid::write_bone_angles(&mut turret.state, index, angles, BONE_ORIENT) {
+    if !crate::npc_droid::write_bone_angles(state, index, angles, BONE_ORIENT) {
         return;
     }
     host.set_bone_angles(me, bone, angles);
 }
 
-/// `TurboLaser_SetBoneAnim` (`g_turret_G2.c:330-349`): the clients told to play frames
-/// `start` to `end` (again, by the flip, when already playing them), and the server's
-/// instance with them.
-pub(super) fn bone_anim(
-    turret: &mut TurretG2,
+/// `TurboLaser_SetBoneAnim` (`g_turret_G2.c:330-349`) and `EWeb_SetBoneAnim`
+/// (`g_items.c:1631-1652`): the clients told to play frames `start` to `end` (again, by the
+/// flip, when already playing them), and the server's instance with them.
+pub(crate) fn bone_anim(
+    state: &mut jkr_protocol::EntityState,
     me: u16,
     start: u32,
     end: u32,
     host: &mut dyn TurretHost,
 ) {
-    let eflags = turret.eflags() | EF_G2ANIMATING;
-    turret.set(es::EFLAGS, eflags);
-    if turret.state.raw_field(es::TORSO_ANIM) == Some(start)
-        && turret.state.raw_field(es::LEGS_ANIM) == Some(end)
+    let eflags = state.raw_field(es::EFLAGS).unwrap_or(0) | EF_G2ANIMATING;
+    state.set_raw_field(es::EFLAGS, eflags);
+    if state.raw_field(es::TORSO_ANIM) == Some(start) && state.raw_field(es::LEGS_ANIM) == Some(end)
     {
-        let flip = turret.state.raw_field(es::TORSO_FLIP).unwrap_or(0);
-        turret.set(es::TORSO_FLIP, u32::from(flip == 0));
+        let flip = state.raw_field(es::TORSO_FLIP).unwrap_or(0);
+        state.set_raw_field(es::TORSO_FLIP, u32::from(flip == 0));
     } else {
-        turret.set(es::TORSO_ANIM, start);
-        turret.set(es::LEGS_ANIM, end);
+        state.set_raw_field(es::TORSO_ANIM, start);
+        state.set_raw_field(es::LEGS_ANIM, end);
     }
     host.set_bone_anim(me, start as i32, end as i32);
 }

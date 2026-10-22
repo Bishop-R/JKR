@@ -21,6 +21,17 @@ impl Localization {
             let text = String::from_utf8_lossy(&asset.bytes);
             jkr_client::string_table::parse_into(&mut localization.strings, &text);
         }
+        // cps and map-authored messages address FILE_REFERENCE rather than
+        // the MP_SVGAME shorthand used in ordinary server prints.
+        let paths: Vec<String> = vfs
+            .list_files("strings/english", ".str")
+            .into_iter()
+            .map(|name| format!("strings/english/{name}"))
+            .collect();
+        let references: Vec<&str> = paths.iter().map(String::as_str).collect();
+        localization
+            .strings
+            .extend(jkr_client::string_table::load_referenced(vfs, &references));
         localization
     }
 

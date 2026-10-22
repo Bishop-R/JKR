@@ -429,6 +429,8 @@ pub(crate) fn left_the_ground(
             SETANIM_FLAG_OVERRIDE,
             lengths,
         );
+    } else if crate::pmove::jetpack::active(state) {
+        // Jetpacking: the flight itself keeps the legs in the air.
     } else if state.ground_entity_number != ENTITY_NUMBER_NONE || state.legs_anim == BOTH_CHOKE3 {
         // Without the trace a player would back-flip down staircases.
         if floor_is_far(state) {

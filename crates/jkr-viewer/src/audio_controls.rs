@@ -18,6 +18,21 @@ impl crate::GpuState {
                 glam::Vec3::ZERO,
             );
             audio.sync_gains(self.console.as_ref());
+            // The rocket lock's tick or lock, at its target (`S_StartSound(org, 0, CHAN_AUTO)`).
+            if let Some((path, origin)) = self.hud.take_lock_sound()
+                && let Some(vfs) = self.vfs.as_deref()
+            {
+                audio.play(vfs, path, 1.0, origin, jkr_audio::SourceId(1_022));
+            }
+            // The Force readout's no-Force sound (`S_StartSound(NULL, 0, CHAN_LOCAL)`).
+            if self.hud.force_flash.take_sound() {
+                audio.play_local(
+                    crate::hud::force_flash::SOUND,
+                    1.0,
+                    jkr_audio::SourceId(1_022),
+                    jkr_audio::ChannelId(2),
+                );
+            }
             if self.live_session.is_none() {
                 audio.idle_frame();
             }
@@ -70,11 +85,20 @@ impl GameAudio {
                     .unwrap_or(0)
                     != 0,
             );
+            let flag = |name| console.and_then(|c| c.bool_cvar(name)).unwrap_or(false);
+            adapter.set_team_chats_only(flag("cg_teamChatsOnly"));
+            adapter.set_no_taunt(flag("cg_noTaunt"));
+            adapter.set_no_teleport(flag("cg_noTeleFX"));
+            adapter
+                .set_no_speakers(console.and_then(|c| c.integer_cvar("cg_noFX")).unwrap_or(0) == 2);
         }
         self.chat_beeps = ["cg_chatBeep", "cg_teamChatBeep"].map(|name| {
             crate::cgame_options::chat_sounds(console)
                 && console.and_then(|c| c.bool_cvar(name)).unwrap_or(true)
         });
+        self.ambient = console
+            .and_then(|c| c.bool_cvar("cg_ambientSounds"))
+            .unwrap_or(true);
         self.duel_enabled = console
             .and_then(|c| c.bool_cvar("cg_duelMusic"))
             .unwrap_or(true);
@@ -93,10 +117,15 @@ impl GameAudio {
         let music = console
             .and_then(|console| console.float_cvar("s_musicVolume"))
             .unwrap_or(0.25) as f32;
-        self.set_gains(effects, music);
+        // `s_musicMult`: held down under a stinger (`CG_SE_UpdateMusic`).
+        let held = self
+            .music_duck
+            .update(self.clock.elapsed().as_millis() as i64);
+        self.set_gains(effects, music * held);
         self.footsteps = console
-            .and_then(|console| console.bool_cvar("cg_footsteps"))
-            .unwrap_or(true);
+            .and_then(|console| console.integer_cvar("cg_footsteps"))
+            .unwrap_or(3)
+            != 0;
         self.output.send(AudioCommand::Doppler(
             console
                 .and_then(|console| console.bool_cvar("s_doppler"))

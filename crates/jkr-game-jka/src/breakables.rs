@@ -106,6 +106,14 @@ pub struct Breakable {
     /// `nextthink` and `think`.
     pub next_think: i32,
     pub thinking: Thinking,
+    /// `enemy`: what broke it (`funcBBrushDie`) — its targets fire for it and its debris
+    /// flies away from it when it comes apart (`funcBBrushDieGo`).
+    pub enemy: Option<u16>,
+    /// `teamnodmg`: in Siege, the team whose blows it does not take (a side's own
+    /// objective), unless `g_ff_objectives`.
+    pub team_no_damage: i32,
+    /// `healingclass`, `healingrate`, `healingsound`: the Siege class that mends it.
+    pub healing: crate::try_heal::Healable,
 }
 
 /// `SP_func_breakable` (`g_mover.c:2751-2849`) with `InitBBrush` (`:2619-2680`): ten
@@ -186,6 +194,9 @@ pub fn spawn(entity: &Entity, bounds: ([f32; 3], [f32; 3])) -> Option<Breakable>
         effect: entity.get("playfx").unwrap_or_default().to_owned(),
         next_think: 0,
         thinking: Thinking::None,
+        enemy: None,
+        team_no_damage: integer("teamnodmg").unwrap_or(0),
+        healing: crate::try_heal::Healable::from_entity(entity),
     })
 }
 
@@ -502,9 +513,9 @@ pub fn break_apart(
     }
 }
 
-/// `funcBBrushUse` (`:2536-2550`): the use key breaks it, unless the map said using it
-/// only fires its targets. Returns what to fire when it is the latter.
-pub fn used(brush: &mut Breakable, level_time: i32) -> Option<String> {
+/// `funcBBrushUse` (`:2536-2550`): using it breaks it, for `activator`, unless the map
+/// said using it only fires its targets. Returns what to fire when it is the latter.
+pub fn used(brush: &mut Breakable, level_time: i32, activator: Option<u16>) -> Option<String> {
     if brush.spawnflags & USE_NOT_BREAK != 0 {
         return (!brush.target.is_empty()).then(|| brush.target.clone());
     }
@@ -512,11 +523,17 @@ pub fn used(brush: &mut Breakable, level_time: i32) -> Option<String> {
     // as the damage, so it always dies.
     brush.takes_damage = false;
     brush.health = 0;
+    brush.enemy = activator;
     if brush.delay != 0 {
         brush.thinking = Thinking::Breaking;
         brush.next_think = level_time + brush.delay * 1_000;
     }
     None
+}
+
+/// Whether its delayed break is due (`G_RunThink` reaching `funcBBrushDieGo`).
+pub fn breaking_due(brush: &Breakable, level_time: i32) -> bool {
+    brush.thinking == Thinking::Breaking && brush.next_think <= level_time
 }
 
 /// `VectorNormalize`, which the reference does with `sqrtf` and one reciprocal.
@@ -571,5 +588,58 @@ pub fn explosion_fields(explosion: &Explosion) -> Vec<(usize, u32)> {
 fn place(fields: &mut Vec<(usize, u32)>, indices: [usize; 3], vector: [f32; 3]) {
     for axis in 0..3 {
         fields.push((indices[axis], vector[axis].to_bits()));
+    }
+}
+
+#[cfg(test)]
+mod use_tests {
+    use super::*;
+
+    fn brush(fields: &[(&str, &str)]) -> Breakable {
+        let mut all = vec![
+            ("classname".to_owned(), "func_breakable".to_owned()),
+            ("model".to_owned(), "*68".to_owned()),
+        ];
+        all.extend(fields.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+        spawn(&Entity::from_fields(all), ([0.0; 3], [8.0; 3])).unwrap()
+    }
+
+    #[test]
+    fn a_used_brush_breaks_for_its_user_after_its_delay_or_only_fires_its_targets() {
+        // `siege_korriban`'s `cyrstalsinplace`: INVINCIBLE, five seconds' delay.
+        let mut crystals = brush(&[("spawnflags", "1"), ("delay", "5"), ("target", "valley")]);
+        assert_eq!(used(&mut crystals, 1_000, Some(3)), None);
+        assert_eq!((crystals.enemy, crystals.health), (Some(3), 0));
+        assert!(!breaking_due(&crystals, 5_999) && breaking_due(&crystals, 6_000));
+        // Without a delay nothing waits: the caller breaks it at once.
+        let mut now = brush(&[("target", "door")]);
+        assert_eq!(used(&mut now, 1_000, None), None);
+        assert!(!breaking_due(&now, 1_000) && now.thinking == Thinking::None);
+        // USE_NOT_BREAK: its targets, and it stands.
+        let mut lever = brush(&[("spawnflags", "64"), ("target", "door")]);
+        assert_eq!(used(&mut lever, 1_000, Some(3)), Some("door".to_owned()));
+        assert!(lever.health > 0 && lever.enemy.is_none());
+    }
+
+    /// `siege_hoth`'s shield generator: the defenders' own (`teamnodmg` 2), mended by the
+    /// Rebel Light Tech every quarter second with its sound.
+    #[test]
+    fn a_siege_objective_knows_its_side_and_its_mender() {
+        let generator = brush(&[
+            ("health", "3000"),
+            ("showhealth", "1"),
+            ("teamnodmg", "2"),
+            ("healingclass", "Rebel Light Tech"),
+            ("healingrate", "250"),
+            ("healingsound", "sound/ambience/doomgiver/doom_bridge.wav"),
+        ]);
+        assert_eq!((generator.team_no_damage, generator.max_health), (2, 3000));
+        assert_eq!(
+            generator.healing.class.as_deref(),
+            Some(&b"Rebel Light Tech"[..])
+        );
+        assert_eq!(generator.healing.rate, 250);
+        assert!(generator.healing.sound.is_some());
+        assert_eq!(brush(&[]).team_no_damage, 0);
     }
 }

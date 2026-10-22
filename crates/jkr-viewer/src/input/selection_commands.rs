@@ -13,6 +13,10 @@ pub(super) fn register(shell: &mut jkr_shell::Shell) -> Result<(), jkr_shell::Co
         ),
         ("invnext", "Select next inventory item"),
         ("invprev", "Select previous inventory item"),
+        (
+            "weaponclean",
+            "Select a weapon by its own number (1: saber or melee), as stock's weaponclean",
+        ),
     ] {
         shell.commands.register(name, help, |_| {
             Err(jkr_shell::CommandError::Handler(

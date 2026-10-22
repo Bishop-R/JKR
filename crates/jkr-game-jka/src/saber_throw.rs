@@ -187,6 +187,8 @@ pub struct SaberOwner<'a> {
     pub storage: crate::saber_clash::SaberStorage,
     /// `level.gametype`, for `BG_CanUseFPNow`.
     pub gametype: i32,
+    /// In jaPRO's Force duel, which lets a duellist's saber fly.
+    pub force_duel: bool,
     /// `sess.sessionTeam`, for the damage it does.
     pub team: i32,
     pub memory: &'a mut ThrowMemory,
@@ -644,8 +646,12 @@ fn first_thrown(
     };
     let out_for = level_time - owner.memory.did_throw_time;
     let movement = crate::pmove::MovementState::from_player_state(owner.state);
-    let usable =
-        crate::pmove_saber_attack::can_use_power_now(&movement, level_time, owner.gametype);
+    let usable = crate::pmove_saber_attack::can_use_power_now(
+        &movement,
+        level_time,
+        owner.gametype,
+        owner.force_duel,
+    );
     let (origin, view, view_height, level, number) = (
         owner.state.origin(),
         owner.state.view_angles(),

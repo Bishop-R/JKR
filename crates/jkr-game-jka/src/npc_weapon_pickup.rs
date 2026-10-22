@@ -26,19 +26,15 @@ const BS_DEFAULT: i32 = 0;
 const SCF_FORCED_MARCH: u32 = crate::npc_world::SCF_FORCED_MARCH;
 /// `EF_NODRAW`, `EF_ITEMPLACEHOLDER`.
 const EF_NODRAW: u32 = 0x100;
-const EF_ITEMPLACEHOLDER: u32 = 1 << 26;
+const EF_ITEMPLACEHOLDER: u32 = 1 << 23;
 /// `CONTENTS_TRIGGER`.
 const CONTENTS_TRIGGER: u32 = 0x400;
 /// The classes that pick nothing up (`Touch_Item`, `g_items.c:2456-2475`): the AT-ST, the
 /// gonk, the two Marks, the mouse, the probe, the protocol droid, R2 and R5, the seeker,
 /// the remote, the rancor, the wampa, the ugnaught and the sentry.
 const NEVER_PICK_UP: [i32; 15] = [1, 11, 23, 24, 29, 32, 33, 34, 35, 41, 39, 54, 55, 49, 42];
-/// `fd.forceSide`; `FORCE_LIGHTSIDE`, `FORCE_DARKSIDE`; the enlightenments' tags.
+/// `fd.forceSide`, which [`crate::items::wrong_side`] weighs.
 const PS_FORCE_SIDE: usize = 61;
-const FORCE_LIGHTSIDE: u32 = 1;
-const FORCE_DARKSIDE: u32 = 2;
-const PW_FORCE_ENLIGHTENED_LIGHT: i32 = 12;
-const PW_FORCE_ENLIGHTENED_DARK: i32 = 13;
 /// `AMMO_THERMAL`, `AMMO_TRIPMINE`, `AMMO_DETPACK` and the weapons they give.
 const THROWN_AMMO: [(i32, u32); 3] = [(7, 12), (8, 13), (9, 14)];
 /// `STAT_WEAPONS`.
@@ -283,13 +279,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             return;
         }
         let row = ITEMS[item.item];
-        if row.kind == Kind::Powerup {
-            let side = npc.player.raw_field(PS_FORCE_SIDE).unwrap_or(0);
-            if (row.tag == PW_FORCE_ENLIGHTENED_LIGHT && side != FORCE_LIGHTSIDE)
-                || (row.tag == PW_FORCE_ENLIGHTENED_DARK && side != FORCE_DARKSIDE)
-            {
-                return;
-            }
+        if crate::items::wrong_side(item.item, npc.player.raw_field(PS_FORCE_SIDE).unwrap_or(0)) {
+            return;
         }
         if row.kind == Kind::Team
             || !crate::items::can_be_grabbed(item.item, &npc.player, item.dropped)
@@ -313,13 +304,15 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         self.host
             .log(&format!("Item: {number} {}\n", row.classname));
+        let respawns = self.host.item_respawns();
         let npc = &mut self.actors[me];
         let taken = crate::items::pick_up(
             item.item,
             &mut npc.player,
             &mut npc.health,
-            item.count,
-            item.dropped,
+            (item.count, item.dropped),
+            level_time,
+            respawns,
         );
         if row.kind == Kind::Ammo
             && let Some(&(_, weapon)) = THROWN_AMMO.iter().find(|(ammo, _)| *ammo == row.tag)

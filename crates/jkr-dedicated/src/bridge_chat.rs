@@ -40,8 +40,80 @@ impl NativeGame {
         for line in spoken.console {
             println!("{}", String::from_utf8_lossy(&line));
         }
+        for line in spoken.security {
+            self.security_log(&line);
+        }
         for (to, text) in spoken.told {
-            self.told.push(Told::One(to, text));
+            if !self.ignores(to, client) {
+                self.told.push(Told::One(to, text));
+            }
+        }
+        true
+    }
+
+    /// jaPRO's `ClientIsIgnored`: `listener` ignores `speaker`'s chat.
+    pub(super) fn ignores(&self, listener: usize, speaker: usize) -> bool {
+        self.peer(listener)
+            .is_some_and(|peer| peer.session.ignore.ignores(listener, speaker))
+    }
+
+    /// jaPRO's `ignore` (`Cmd_Ignore_f`, no gates): alone, the players `client` ignores;
+    /// `-1`, everyone (or nobody, if everyone already is); a player, named as the admin
+    /// commands name one, that player (or no longer). Whether `text` was the command.
+    pub(super) fn ignore_command(&mut self, client: usize, text: &[u8]) -> bool {
+        let words: Vec<&[u8]> = LegacyTokens::new(text).collect();
+        if !words
+            .first()
+            .is_some_and(|word| word.eq_ignore_ascii_case(b"ignore"))
+        {
+            return false;
+        }
+        let reply = match words[..] {
+            [_] => {
+                let mut lines = vec![b"print \"Ignored client(s):\n\"".to_vec()];
+                for other in 0..self.players.places() {
+                    if let Some(peer) = self.peer(other)
+                        && peer.begun
+                        && self.ignores(client, other)
+                    {
+                        lines.push([b"print \" ".as_slice(), &peer.name, b"\n\""].concat());
+                    }
+                }
+                lines
+            }
+            [_, b"-1"] => {
+                let all = self
+                    .peer_mut(client)
+                    .is_some_and(|peer| peer.session.ignore.toggle_all());
+                let text: &[u8] = if all {
+                    b"print \"Ignored all\n\""
+                } else {
+                    b"print \"Unignored all\n\""
+                };
+                vec![text.to_vec()]
+            }
+            [_, name] => {
+                let Some(target) = self.admin_target(client, name) else {
+                    return true;
+                };
+                if target == client {
+                    vec![b"print \"Cannot ignore self\n\"".to_vec()]
+                } else {
+                    let name = self
+                        .peer(target)
+                        .map(|peer| peer.name.clone())
+                        .unwrap_or_default();
+                    let ignored = self
+                        .peer_mut(client)
+                        .is_some_and(|peer| peer.session.ignore.toggle(target));
+                    let verb: &[u8] = if ignored { b"Ignored " } else { b"Unignored " };
+                    vec![[b"print \"".as_slice(), verb, &name, b"\n\""].concat()]
+                }
+            }
+            _ => vec![b"print \"Invalid usage\n\"".to_vec()],
+        };
+        for line in reply {
+            self.told.push(Told::One(client, line));
         }
         true
     }
@@ -49,7 +121,7 @@ impl NativeGame {
     /// `Team_GetLocationMsg` for a client: the nearest of the map's locations its
     /// position can see, measured and seen from `r.currentOrigin` itself. Only a team game
     /// ever names one, so a free-for-all looks nothing up.
-    fn location_of(&self, client: usize) -> Option<Vec<u8>> {
+    pub(super) fn location_of(&self, client: usize) -> Option<Vec<u8>> {
         if self.gametype < jkr_game_jka::match_end::GT_TEAM {
             return None;
         }

@@ -171,13 +171,19 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
         // fragments still under way are flushed first, then the scheduler takes over.
         let slot = &mut view.slots[client];
         if slot.gamestate_due {
+            slot.ping_clock = view.settings.ping_fix.then_some(clock.wall_time);
             let mut datagram = [0; transmit::DATAGRAM_BYTES];
             while let Ok(Some(length)) = slot.wire.channel.next_datagram(&mut datagram) {
                 send(from, &datagram[..length]);
             }
             // One that cannot be built leaves the client waiting; it asks again with
             // its next packet, and a drop is the map loader's decision.
-            if let Ok((bytes, _)) = slot.queue_gamestate(client, &*view.game, clock.server_time) {
+            if let Ok((bytes, _)) = slot.queue_gamestate(
+                client,
+                &*view.game,
+                clock.server_time,
+                view.settings.demo_extras,
+            ) {
                 slot.schedule_message(clock.server_time, bytes, &mut view.settings.rates);
                 if let Ok(Some(length)) = slot.wire.channel.next_datagram(&mut datagram) {
                     send(from, &datagram[..length]);
@@ -251,13 +257,14 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
                 super::auto_demo::begin(&mut view);
             }
             let slot = &mut view.slots[client];
+            slot.ping_clock = view.settings.ping_fix.then_some(clock.wall_time);
             slot.transmit(
                 client,
                 &*view.game,
                 clock.server_time,
                 *view.server_bit,
                 &mut view.settings.rates,
-                downloads,
+                (downloads, view.settings.demo_extras),
                 message,
                 send,
             );

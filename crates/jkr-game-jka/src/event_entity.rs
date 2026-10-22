@@ -35,6 +35,69 @@ pub struct EventEntity {
 }
 
 impl EventEntity {
+    /// `G_ScreenShake(origin, target, intensity, duration, global)` (`g_utils.c:1295-1319`):
+    /// the event at `origin` (its precise origin kept beside the snapped one), the
+    /// intensity in `angles[0]`, the length in `time`, and in `modelindex` the one client
+    /// whose view shakes (`target + 1`, or 0 for anyone near); everyone is sent a global
+    /// one (`SVF_BROADCAST`).
+    pub fn screen_shake(
+        origin: [f32; 3],
+        target: Option<u16>,
+        intensity: f32,
+        duration: i32,
+        global: bool,
+    ) -> Self {
+        const EV_SCREENSHAKE: u32 = 42;
+        const ES_ORIGIN: [usize; 3] = [11, 12, 13];
+        const ES_ANGLES_PITCH: usize = 25;
+        const ES_TIME: usize = 65;
+        const ES_MODELINDEX: usize = 46;
+        let mut extra = [(0, 0); 12];
+        for axis in 0..3 {
+            extra[axis] = (ES_ORIGIN[axis], origin[axis].to_bits());
+        }
+        extra[3] = (ES_ANGLES_PITCH, intensity.to_bits());
+        extra[4] = (ES_TIME, duration as u32);
+        if let Some(target) = target {
+            extra[5] = (ES_MODELINDEX, u32::from(target) + 1);
+        }
+        Self {
+            event: EV_SCREENSHAKE,
+            parameter: 0,
+            origin,
+            client: None,
+            broadcast: global,
+            extra,
+        }
+    }
+
+    /// `G_TestLine(start, end, color, time)` (`ai_wpnav.c:231-241`): `EV_TESTLINE` from
+    /// `start` (kept precise in `origin` beside the snapped one) to `end` in `origin2`,
+    /// shown `time` ms in `color` (`weapon`, whose low byte alone reaches a client), sent
+    /// to everyone.
+    pub fn test_line(start: [f32; 3], end: [f32; 3], color: u32, time: i32) -> Self {
+        const EV_TESTLINE: u32 = 112;
+        const ES_ORIGIN: [usize; 3] = [11, 12, 13];
+        const ES_ORIGIN2: [usize; 3] = [56, 60, 53];
+        const ES_TIME2: usize = 61;
+        const ES_WEAPON: usize = 14;
+        let mut extra = [(0, 0); 12];
+        for axis in 0..3 {
+            extra[axis] = (ES_ORIGIN[axis], start[axis].to_bits());
+            extra[3 + axis] = (ES_ORIGIN2[axis], end[axis].to_bits());
+        }
+        extra[6] = (ES_TIME2, time as u32);
+        extra[7] = (ES_WEAPON, color & 0xff);
+        Self {
+            event: EV_TESTLINE,
+            parameter: 0,
+            origin: start,
+            client: None,
+            broadcast: true,
+            extra,
+        }
+    }
+
     /// `ClientConnect` (`g_client.c:2577-2579`): everyone learns that `client` joined.
     pub fn client_join(client: u16) -> Self {
         Self {

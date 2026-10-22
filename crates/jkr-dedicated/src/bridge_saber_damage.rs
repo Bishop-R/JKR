@@ -63,7 +63,7 @@ pub(crate) struct SaberCut {
     trails: [[Trail; MAX_BLADES]; 2],
     /// `ps.saberAttackWound`, `ps.saberIdleWound`: server-only, cleared at a spawn.
     pub(super) attack_wound: i32,
-    idle_wound: i32,
+    pub(super) idle_wound: i32,
     /// `g2LastSurfaceHit`, `g2LastSurfaceTime`: the surface a blade last struck on this
     /// player, and when.
     last_surface: (usize, i32),
@@ -216,7 +216,7 @@ impl NativeGame {
     /// this frame and box its saber entity, then sweep every lit blade of its sabers
     /// (`w_saber.c:8786-9092`), their blows dealt once all are swept.
     pub(super) fn swing_saber(&mut self, client: usize, level_time: i32) {
-        let gametype = self.gametype;
+        let (gametype, settings) = (self.gametype, self.saber_settings);
         let more_saber_damage = self.siege_class_flags(client) & MORE_SABER_DAMAGE != 0;
         let Some(peer) = self.peer_mut(client) else {
             return;
@@ -383,6 +383,7 @@ impl NativeGame {
                     more_saber_damage,
                     // A player's `saberEventFlags` are read by nothing on this server.
                     enemy: None,
+                    settings,
                 };
                 let trail = peer.saber_cut.trails[saber][blade];
                 self.gather_obstacles(client);
@@ -508,6 +509,7 @@ impl NativeGame {
                     bounds: (mins, maxs),
                     contents: CONTENTS_LIGHTSABER,
                     model: None,
+                    linked_box: None,
                 });
             }
         }
@@ -526,6 +528,7 @@ impl NativeGame {
                 bounds: (saber.mins, saber.maxs),
                 contents: CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
     }
@@ -533,7 +536,7 @@ impl NativeGame {
     /// `WP_SaberApplyDamage`: each victim's total as one `G_Damage`, a player's placed
     /// by the surface the blade struck on it.
     fn deal_saber_blows(&mut self, client: usize, hits: &SaberHits, level_time: i32) {
-        let peers = self.players.places();
+        let (peers, wall_scale) = (self.players.places(), self.saber_settings.wall_scale);
         let Some(swinger) = self.peer(client) else {
             return;
         };
@@ -546,27 +549,14 @@ impl NativeGame {
         };
         // The NPCs among the victims are clients too: no wall's share of the damage.
         let mut npcs = [u16::MAX; 16];
-        for (slot, blow) in npcs.iter_mut().zip(hits.blows(&|_| true)) {
+        for (slot, blow) in npcs.iter_mut().zip(hits.blows(&|_| true, wall_scale)) {
             if self.npcs.roster.is_npc(blow.victim) {
                 *slot = blow.victim;
             }
         }
-        for blow in hits.blows(&|number| usize::from(number) < peers || npcs.contains(&number)) {
+        let is_client = |number| usize::from(number) < peers || npcs.contains(&number);
+        for blow in hits.blows(&is_client, wall_scale) {
             let target = usize::from(blow.victim);
-            let location = if target < peers {
-                self.surface_location(target, blow.flags, blow.spot, level_time)
-            } else if self.npcs.roster.is_npc(blow.victim) {
-                self.npc_surface_location(blow.victim, blow.flags, blow.spot, level_time)
-            } else {
-                let _ = self.hurt_brush(
-                    blow.victim,
-                    blow.damage,
-                    MOD_SABER,
-                    client as u16,
-                    level_time,
-                );
-                continue;
-            };
             let request = DamageRequest {
                 level_time,
                 attacker: Some(attacker),
@@ -575,6 +565,23 @@ impl NativeGame {
                 damage: blow.damage,
                 flags: blow.flags,
                 means: MOD_SABER,
+            };
+            let location = if target < peers {
+                self.surface_location(target, blow.flags, blow.spot, level_time)
+            } else if self.npcs.roster.is_npc(blow.victim) {
+                self.npc_surface_location(blow.victim, blow.flags, blow.spot, level_time)
+            } else {
+                // A body through `G_Damage`, a breakable brush through its own damage.
+                if !self.strike_body(blow.victim, request) {
+                    let _ = self.hurt_brush(
+                        blow.victim,
+                        blow.damage,
+                        MOD_SABER,
+                        client as u16,
+                        level_time,
+                    );
+                }
+                continue;
             };
             let _ = self.strike_at(client, target, request, location, false);
         }
@@ -777,6 +784,15 @@ impl SaberTargets for BladeTargets<'_> {
             if let Some(npc) = game.npc_saber_victim(number, self.swinger) {
                 return Some(npc);
             }
+            // A body (`takedamage` until it fades, cut until it burns away).
+            if let Some(slot) = game.corpse_slot(number) {
+                return Some(SaberVictim {
+                    takes_damage: game.corpses.takes_damage(slot, self.level_time),
+                    health: game.corpses.health(slot),
+                    disintegrated: game.corpses.burnt(slot),
+                    ..SaberVictim::default()
+                });
+            }
             // A breakable brush; a saber entity is not a victim but a saber owner.
             return game
                 .breakables
@@ -806,7 +822,7 @@ impl SaberTargets for BladeTargets<'_> {
             health: peer.health,
             disintegrated: state.entity_flags() & EF_DISINTEGRATION != 0,
             // `OnSameTeam` with `g_friendlySaber 0`.
-            spared_by_idle: team != 0 && team == peer.session.team,
+            spared_by_idle: !game.saber_settings.friendly && team != 0 && team == peer.session.team,
             duel_elsewhere: duelling(state, self.swinger)
                 || duelling(&swinger.state, usize::from(number)),
             knocked_down_on_ground: jkr_game_jka::saber_rules::knocked_down_on_ground(
@@ -866,6 +882,10 @@ impl SaberTargets for BladeTargets<'_> {
 impl ClashWorld for BladeTargets<'_> {
     fn debug_saber_locks(&self) -> bool {
         self.game.debug_saber_locks()
+    }
+
+    fn saber_settings(&self) -> jkr_game_jka::saber_damage::SaberSettings {
+        self.game.saber_settings
     }
 
     fn rng(&mut self) -> &mut Rng {

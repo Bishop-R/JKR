@@ -112,12 +112,10 @@ impl NativeGame {
         rng: &mut Rng,
         level_time: i32,
     ) -> bool {
-        // `g_saberLocking`, on by default.
-        const LOCKING: bool = true;
         if second >= self.players.places() {
             return self.check_lock_with_npc(first, second as u16, rng, level_time);
         }
-        let forced = self.debug_saber_locks();
+        let (forced, locking) = (self.debug_saber_locks(), self.saber_settings.locking);
         let Self {
             server,
             world,
@@ -181,7 +179,7 @@ impl NativeGame {
                 &mut first_fighter,
                 &mut second_fighter,
                 *gametype,
-                LOCKING,
+                locking,
                 rng,
                 lengths,
                 &mut traces,
@@ -205,7 +203,7 @@ impl NativeGame {
         rng: &mut Rng,
         level_time: i32,
     ) -> bool {
-        let forced = self.debug_saber_locks();
+        let (forced, locking) = (self.debug_saber_locks(), self.saber_settings.locking);
         let Self {
             server,
             world,
@@ -278,7 +276,7 @@ impl NativeGame {
                 &mut player,
                 &mut npc_fighter,
                 *gametype,
-                true,
+                locking,
                 rng,
                 lengths.as_ref(),
                 &mut traces,
@@ -311,6 +309,7 @@ impl NativeGame {
             .then(|| self.peer(enemy))
             .flatten()
             .map(|other| other.state.origin());
+        let randomness = self.saber_settings.lock_randomness;
         let Self {
             server,
             world,
@@ -336,7 +335,7 @@ impl NativeGame {
             command.angles,
             rage,
             recovery,
-            bonus,
+            (bonus, randomness),
             level_time,
             &mut deaths.rng,
         );
@@ -433,6 +432,7 @@ impl NativeGame {
     /// `pmove.checkDuelLoss` for NPC `loser`, beaten by player `client`'s lock: finished or
     /// disarmed through the roster ([`jkr_game_jka::npc_roster::NpcRoster::lost_lock_to_player`]).
     fn npc_lost_lock(&mut self, client: usize, loser: u16, level_time: i32) {
+        let disarm_bonus_fix = self.saber_settings.disarm_bonus_fix;
         let Some(winner) = self.peer(client) else {
             return;
         };
@@ -443,7 +443,9 @@ impl NativeGame {
         );
         let (storage, chance) = (
             winner.saber_cut.storage,
-            winner.sabers.disarm_chance(winner.state.saber_holstered()),
+            winner
+                .sabers
+                .disarm_chance(winner.state.saber_holstered(), disarm_bonus_fix),
         );
         let attacker = Attacker {
             npc: false,

@@ -206,6 +206,7 @@ impl SplashWorld for Splash<'_> {
     }
 
     fn throw(&mut self, number: u16, direction: [f32; 3], push: f32) {
+        let strength = self.game.damage_rules.strength;
         // An NPC restarts its movement from its state at its next move.
         if let Some(npc) = self
             .game
@@ -215,11 +216,11 @@ impl SplashWorld for Splash<'_> {
             .iter_mut()
             .find(|npc| npc.number == number)
         {
-            saber_splash::throw(&mut npc.player, direction, push);
+            saber_splash::throw(&mut npc.player, direction, push, strength);
             return;
         }
         if let Some(peer) = self.game.peer_mut(usize::from(number)) {
-            saber_splash::throw(&mut peer.state, direction, push);
+            saber_splash::throw(&mut peer.state, direction, push, strength);
             peer.movement = peer.movement.reseeded(&peer.state);
         }
     }

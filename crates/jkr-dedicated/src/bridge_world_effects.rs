@@ -12,7 +12,7 @@ use jkr_game_jka::world_effects::{
 
 /// `EV_GENERAL_SOUND`, and the wire field its channel goes in (`saberEntityNum`).
 const EV_GENERAL_SOUND: u32 = 76;
-const ES_SABER_ENTITY: usize = 50;
+const ES_SABER_ENTITY: usize = 37;
 
 impl NativeGame {
     /// `ClientEndFrame` for every client, in slot order, after `G_RunFrame`'s entities.
@@ -33,6 +33,8 @@ impl NativeGame {
                 }
             }
         }
+        self.send_motd();
+        self.show_player_health();
         // `ClientEndFrame` returns before any of this at an intermission
         // (`g_active.c:3742-3749`), which is what leaves `MoveClientToIntermission`'s
         // work standing: a player at the scoreboard is not drawn, sounded or moved.
@@ -66,6 +68,10 @@ impl NativeGame {
     /// `ClientEndFrame` from `P_WorldEffects` on, for a playing `client`.
     fn end_player_frame(&mut self, client: usize, level_time: i32) {
         self.world_effects(client, level_time);
+        let lag_icon = self.lag_icon;
+        let hide_health = self
+            .cvars
+            .integer(super::bridge_hit_feedback::STOP_HEALTH_ESP);
         let Self {
             server,
             world,
@@ -73,11 +79,12 @@ impl NativeGame {
             pool,
             ..
         } = self;
-        if let Some(peer) = players
+        let pain = players
             .at(client)
             .and_then(|handle| server.world_mut(*world)?.entity_mut(handle))
-        {
-            peer.end_frame(pool, level_time);
+            .and_then(|peer| peer.end_frame(pool, level_time, (lag_icon, hide_health)));
+        if let Some(name) = pain {
+            self.pain_sound(client, name, level_time);
         }
     }
 

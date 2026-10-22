@@ -5,7 +5,7 @@ use jkr_protocol::{EntityState, GameState, Snapshot};
 const ET_EVENTS: u8 = 18;
 const EVENT_MASK: u16 = 0xff;
 const MAX_ENTITIES: usize = 1_024;
-const MAX_CLIENTS: u16 = 64;
+const MAX_CLIENTS: u16 = 32;
 const CS_PLAYERS: usize = 1_131;
 
 /// `EV_OBITUARY` in `codemp/game/bg_public.h:927`.
@@ -41,6 +41,8 @@ pub struct ObituaryEvent {
     pub local_fragged: bool,
     /// Whether another player killed the current client.
     pub local_was_killed: bool,
+    /// Whether the victim was the Jedi Master (the event's `isJediMaster`).
+    pub victim_was_master: bool,
     /// Snapshot server time at which the event was accepted.
     pub server_time: i32,
 }
@@ -188,6 +190,7 @@ pub fn legacy_obituary(
         attacker_message,
         local_fragged: attacker == local_client && target != attacker,
         local_was_killed: target == local_client && attacker != target,
+        victim_was_master: entity.is_jedi_master(),
         server_time,
     }
 }

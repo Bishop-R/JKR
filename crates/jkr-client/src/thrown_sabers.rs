@@ -1,7 +1,7 @@
 //! Snapshot-indexed thrown saber ownership; no renderer or predicted state.
 
 use crate::player_identity::saber_names_from_config;
-use crate::presentation_equipment::saber_color_from_config;
+use crate::presentation_equipment::{saber_color_from_config, saber_index_rgb, team_saber_color};
 use jkr_protocol::{EntityState, GameState, Snapshot};
 
 /// Owner-authored presentation of the primary saber detached from the hand.
@@ -41,6 +41,8 @@ pub struct LegacyThrownSabers<'a> {
     states: [Option<&'a EntityState>; 1_024],
     snapshot: &'a Snapshot,
     game: &'a GameState,
+    policy: crate::TeamColorPolicy,
+    looks: Option<&'a crate::SiegeClassLooks>,
 }
 
 impl<'a> LegacyThrownSabers<'a> {
@@ -56,7 +58,22 @@ impl<'a> LegacyThrownSabers<'a> {
             states,
             snapshot,
             game,
+            policy: crate::TeamColorPolicy::from_game_state(game),
+            looks: None,
         }
+    }
+
+    /// The siege classes' looks: a class's own blade colour goes with its thrown saber.
+    pub fn with_siege_looks(mut self, looks: &'a crate::SiegeClassLooks) -> Self {
+        self.looks = Some(looks);
+        self
+    }
+
+    /// EternalJK's `cg_saberTeamColors` and `cg_noRGBSabers` for the thrown blades' colours.
+    pub fn with_saber_options(mut self, team_colors: bool, rgb: bool) -> Self {
+        self.policy.saber_team_colors = team_colors;
+        self.policy.rgb_sabers = rgb;
+        self
     }
 
     /// Resolve the primary hilt and blade policy for one network entity number.
@@ -80,7 +97,14 @@ impl<'a> LegacyThrownSabers<'a> {
         Some(LegacyThrownSaber {
             owner,
             name: saber_names_from_config(config)[0]?,
-            color: saber_color_from_config(config, 0),
+            color: match self
+                .looks
+                .and_then(|looks| looks.saber_color(self.game, owner, 0))
+            {
+                Some(color) => saber_index_rgb(color),
+                None => team_saber_color(self.policy, config, 0)
+                    .unwrap_or_else(|| saber_color_from_config(config, 0, self.policy.rgb_sabers)),
+            },
             in_flight,
             extra_blades: holstered != 1,
             returning: !state.saber_in_flight(),

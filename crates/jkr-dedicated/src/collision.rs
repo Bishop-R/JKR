@@ -1,7 +1,8 @@
 //! The loaded map as the movement code collides with it.
 use jkr_bsp::{Aabb, Bsp, TraceScratch};
+use jkr_game_jka::client_impact::{self, Brittle, Strikes};
 use jkr_game_jka::entity_clip::{BoxObstacle, Move, clip_move_to_entities};
-use jkr_game_jka::pmove::{ENTITY_NUMBER_WORLD, MovementCollision, MovementTrace};
+use jkr_game_jka::pmove::{ENTITY_NUMBER_WORLD, LockTarget, MovementCollision, MovementTrace};
 use jkr_game_jka::saber_block::MissilePaths;
 use std::cell::RefCell;
 
@@ -163,6 +164,7 @@ pub fn brush_obstacles<'a>(
             bounds: brush.bounds,
             contents: brush.contents,
             model: Some(brush.model),
+            linked_box: None,
         });
     let doors = doors
         .iter()
@@ -173,6 +175,7 @@ pub fn brush_obstacles<'a>(
             bounds: door.bounds,
             contents: door.contents,
             model: Some(door.model),
+            linked_box: None,
         });
     breakables.chain(doors)
 }
@@ -264,6 +267,77 @@ impl<W: MovementCollision + BrushSweep> MovementCollision for WithPlayers<'_, W>
             end,
             mask,
         )
+    }
+}
+
+/// What a player's blows may break during its move (`PM_ClientImpact`): the brittle brush
+/// an entity number is before the move, where the player was last linked, the level's
+/// time, and the blows dealt so far.
+#[derive(Clone, Copy)]
+pub(crate) struct Blows<'a> {
+    pub(crate) brittle: &'a dyn Fn(u16) -> Option<Brittle>,
+    pub(crate) origin: [f32; 3],
+    pub(crate) level_time: i32,
+    pub(crate) strikes: &'a RefCell<Strikes>,
+}
+
+/// A player's own move ([`WithPlayers`]) and its [`Blows`]: a brush a blow broke out of the
+/// world is out of every later trace of the move, as `G_FreeEntity` or `funcBBrushDieGo`
+/// takes it out of the reference's. `lock_targets` tells its rocket lock what an entity is.
+pub(crate) struct Striking<'a, W: MovementCollision + BrushSweep> {
+    pub(crate) world: WithPlayers<'a, W>,
+    pub(crate) blows: Blows<'a>,
+    pub(crate) lock_targets: &'a dyn Fn(u16) -> LockTarget,
+}
+
+impl<W: MovementCollision + BrushSweep> MovementCollision for Striking<'_, W> {
+    fn point_contents(&self, point: [f32; 3]) -> u32 {
+        self.world.point_contents(point)
+    }
+
+    fn lock_target(&self, number: u16) -> LockTarget {
+        (self.lock_targets)(number)
+    }
+
+    fn trace(
+        &self,
+        start: [f32; 3],
+        minimums: [f32; 3],
+        maximums: [f32; 3],
+        end: [f32; 3],
+        mask: u32,
+    ) -> MovementTrace {
+        let strikes = self.blows.strikes.borrow();
+        if !strikes.any_gone() {
+            return self.world.trace(start, minimums, maximums, end, mask);
+        }
+        let standing = self
+            .world
+            .players
+            .iter()
+            .copied()
+            .filter(|obstacle| !strikes.gone(obstacle.entity));
+        self.world
+            .trace_through(standing, start, minimums, maximums, end, mask)
+    }
+
+    fn client_impact(&self, entity: u16, velocity: [f32; 3], last_on_ground: i32) -> bool {
+        let Blows {
+            brittle,
+            origin,
+            level_time,
+            strikes,
+        } = self.blows;
+        if !client_impact::strikes(velocity, last_on_ground, level_time) {
+            return false;
+        }
+        let Some(brush) = brittle(entity) else {
+            return false;
+        };
+        let in_water = || self.world.point_contents(brush.top) & client_impact::CONTENTS_WATER != 0;
+        strikes
+            .borrow_mut()
+            .strike(entity, &brush, velocity, origin, in_water)
     }
 }
 

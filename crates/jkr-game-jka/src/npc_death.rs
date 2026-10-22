@@ -10,8 +10,7 @@
 //!
 //! Not here: vehicles and their riders (step 10), AI groups and combat points (step 5),
 //! the rancor dropping what it holds (step 7), dismemberment
-//! (the models'), scripts (`BSET_DEATH`, `BSET_FFDEATH`), and `Team_FragBonuses` (an NPC
-//! carries no flag).
+//! (the models'), and `Team_FragBonuses` (an NPC carries no flag).
 //!
 //! Held to `tools/game-oracle/npccombat.c` (`game-npccombat.txt`).
 
@@ -19,6 +18,7 @@ use crate::event_entity::EventEntity;
 use crate::npc_spawn::{NpcHost, es};
 use crate::npc_world::NpcWorld;
 use crate::player_death::DeathRequest;
+use crate::script_entity::{BSET_DEATH, BSET_FFDEATH};
 
 /// `PM_NORMAL`, `PM_DEAD`; `PMF_STUCK_TO_WALL`.
 const PM_NORMAL: u8 = 0;
@@ -174,6 +174,9 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             npc.player.raw_field(PS_PM_FLAGS).unwrap_or(0) & !PMF_STUCK_TO_WALL,
         );
         self.log_death(me, attacker, means);
+        if attacker < MAX_CLIENTS && self.body(attacker).is_some() {
+            self.host.tally_kill(attacker, means);
+        }
         let npc = &mut self.actors[me];
         npc.mind.enemy = Some(attacker);
         npc.player.persistent[PERS_KILLED] = npc.player.persistent[PERS_KILLED].wrapping_add(1);
@@ -207,12 +210,19 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         let counter = self.host.death_counter();
         *counter = (*counter + 1) % 3;
-        let npc = &mut self.actors[me];
-        npc.mind.next_bstate_think = level_time;
-        if npc.script_flags & SCF_FFDEATH != 0
-            && let Some(target) = npc.target4.clone().filter(|target| !target.is_empty())
-        {
-            self.fired.push(target);
+        self.actors[me].mind.next_bstate_think = level_time;
+        // Its death script, and — killed by an ally (`SCF_FFDEATH`) — its friendly-fire death
+        // script and `target4` (`g_combat.c:2839-2850`).
+        let _ = self.activate_behavior(me, BSET_DEATH);
+        if self.actors[me].script_flags & SCF_FFDEATH != 0 {
+            let _ = self.activate_behavior(me, BSET_FFDEATH);
+            if let Some(target) = self.actors[me]
+                .target4
+                .clone()
+                .filter(|target| !target.is_empty())
+            {
+                self.fired.push(target);
+            }
         }
         let npc = &mut self.actors[me];
         // `TIMER_Clear2`.
@@ -297,7 +307,15 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.add_score(number, -1);
             return;
         };
-        self.victory(killer);
+        // jaPRO's `g_scoreNPCs`, for a player's kill: nothing at 0, no victory at 1.
+        let by_player = self.actor_at(attacker).is_none();
+        let counted = if by_player { self.host.score_npcs() } else { 2 };
+        if counted == 0 {
+            return;
+        }
+        if counted > 1 {
+            self.victory(killer);
+        }
         if attacker == number || self.on_same_team(me, &killer) {
             self.add_score(attacker, -1);
             return;
@@ -372,12 +390,16 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
     }
 
-    /// `G_CheckVictoryScript` (`g_combat.c:2000-2028`) for a killer NPC: a Jedi gets ready
-    /// to taunt, Galak's mech to gloat, anyone else says something in a while.
+    /// `G_CheckVictoryScript` (`g_combat.c:2000-2028`) for a killer NPC: its victory script
+    /// if it has one; else a Jedi gets ready to taunt, Galak's mech to gloat, anyone else
+    /// says something in a while.
     pub(crate) fn victory(&mut self, killer: crate::npc_senses::Body) {
         let Some(at) = self.actor_at(killer.number) else {
             return;
         };
+        if self.activate_behavior(at, crate::script_entity::BSET_VICTORY) {
+            return;
+        }
         let level_time = self.level_time;
         if self.actors[at].player.weapon() == WP_SABER {
             self.actors[at].mind.blocked_speech_until = 0;

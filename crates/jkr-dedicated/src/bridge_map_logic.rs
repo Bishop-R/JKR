@@ -22,6 +22,9 @@ pub(super) enum Held {
     Runner(usize),
     Speaker(usize),
     Door(usize),
+    Station(usize),
+    /// One of the map's own targets (a print, a relay, a delay, an activation).
+    Target(usize),
     /// Kept by the reference, and never used alone here.
     Other,
 }
@@ -55,6 +58,14 @@ pub(super) struct StockEntities {
     pub(super) scenery: bridge_map_scenery::Scenery,
     /// Portable shields deployed during this level.
     pub(super) shields: bridge_holdables::shields::Shields,
+    /// The map's health, armor and ammunition converters.
+    pub(super) stations: super::bridge_stations::Stations,
+    /// The map's model props (`misc_model_breakable`).
+    pub(super) props: super::bridge_props::Props,
+    /// The map's `func_usable` brushes.
+    pub(super) usables: super::bridge_usables::Usables,
+    /// The map's `shooter_blaster`s and `target_laser`s.
+    pub(super) shooters: super::bridge_map_shooters::MapShooters,
 }
 
 impl StockEntities {
@@ -64,6 +75,9 @@ impl StockEntities {
             .obstacles()
             .chain(self.scenery.obstacles())
             .chain(self.shields.obstacles())
+            .chain(self.stations.obstacles())
+            .chain(self.props.obstacles())
+            .chain(self.usables.obstacles())
     }
 }
 
@@ -78,6 +92,9 @@ impl NativeGame {
             return;
         };
         let level_time = self.last_frame_time;
+        self.spawn_stations(&entities, level_time);
+        self.spawn_props(&entities, level_time);
+        self.spawn_map_shooters(&entities, level_time);
         self.spawn_map_logic(&entities, level_time);
         self.spawn_path_movers(&entities, level_time);
         self.spawn_scenery(&entities, level_time);
@@ -89,6 +106,10 @@ impl NativeGame {
         self.run_path_movers(level_time);
         self.run_scenery(level_time);
         self.run_shields(level_time);
+        self.run_stations(level_time);
+        self.run_usables(level_time);
+        self.run_map_shooters(level_time);
+        self.run_lightning(level_time);
     }
 
     /// `G_UseTargets` reaching the logic entities and path movers called `name`.
@@ -96,6 +117,10 @@ impl NativeGame {
         self.use_map_logic(name, client, level_time);
         self.use_path_movers(name, client, level_time);
         self.use_glass(name, client, level_time);
+        self.use_breakables(name, client, level_time);
+        self.use_named_stations(name, client, level_time);
+        self.use_usables(name, client, level_time);
+        self.use_map_shooters(name, client, level_time);
     }
 
     /// Every logic entity the map places in this game type, and the list of named
@@ -104,8 +129,17 @@ impl NativeGame {
     pub(super) fn spawn_map_logic(&mut self, entities: &[jkr_entity::Entity], level_time: i32) {
         self.stock.logic.clear();
         self.stock.named.clear();
-        let (mut runners, mut speakers) = (0, 0);
-        for entity in entities.iter().skip(1) {
+        let (mut runners, mut speakers, mut map_targets) = (0, 0, 0);
+        for (lump_index, entity) in entities.iter().enumerate().skip(1) {
+            // Its place among the map's own targets, whose list is built from the whole
+            // lump (`spawn_multiples`).
+            let map_target = entity
+                .classname()
+                .filter(|class| jkr_game_jka::triggers::is_used_target(class))
+                .map(|_| {
+                    map_targets += 1;
+                    map_targets - 1
+                });
             if !jkr_game_jka::spawn_table::kept_by_reference(entity, self.gametype) {
                 continue;
             }
@@ -120,6 +154,7 @@ impl NativeGame {
                     eprintln!("{classname} not spawned (the reference stops the map): {refused:?}");
                     continue;
                 }
+                None if map_target.is_some() => Held::Target(map_target.unwrap_or_default()),
                 None => match classname.as_str() {
                     "fx_runner" => {
                         runners += 1;
@@ -136,7 +171,11 @@ impl NativeGame {
                             .position(|(_, door)| format!("*{}", door.model) == model)
                             .map_or(Held::Other, Held::Door)
                     }
-                    _ => Held::Other,
+                    _ => self
+                        .stock
+                        .stations
+                        .named(lump_index)
+                        .map_or(Held::Other, Held::Station),
                 },
             };
             let Some(name) = entity.get("targetname").filter(|name| !name.is_empty()) else {
@@ -198,6 +237,8 @@ impl NativeGame {
         {
             logic.inactive = !active;
         }
+        self.set_usables_active(name, active);
+        self.set_map_shooters_active(name, active);
     }
 
     /// `GlobalUse` of logic entity `index` for `activator`.
@@ -234,18 +275,21 @@ impl NativeGame {
                     activator,
                 } => self.use_one_named(index, &name, pick, activator, level_time),
                 Deed::Kill { activator } => {
-                    let client = self.client_of(Some(activator));
-                    if self.peer(client).is_some() {
-                        let request = DamageRequest {
-                            level_time,
-                            attacker: None,
-                            direction: None,
-                            point: None,
-                            damage: 100_000,
-                            flags: DAMAGE_NO_PROTECTION,
-                            means: MOD_TELEFRAG,
-                        };
-                        let _ = self.hurt(client, request);
+                    // `target_kill_use`: `G_Damage` on the activator, a player, an NPC or
+                    // anything else that takes damage.
+                    let request = DamageRequest {
+                        level_time,
+                        attacker: None,
+                        direction: None,
+                        point: None,
+                        damage: 100_000,
+                        flags: DAMAGE_NO_PROTECTION,
+                        means: MOD_TELEFRAG,
+                    };
+                    if self.peer(activator).is_some() {
+                        let _ = self.hurt(activator, request);
+                    } else if activator != usize::MAX {
+                        let _ = self.strike(usize::MAX, activator, request, false);
                     }
                 }
                 Deed::Teleport {
@@ -265,6 +309,7 @@ impl NativeGame {
                         .map(|named| (named.origin, named.angles))
                         .collect();
                     if choices.is_empty() {
+                        pick_target_missing(&destination);
                         println!("Couldn't find teleporter destination");
                         continue;
                     }
@@ -274,12 +319,77 @@ impl NativeGame {
                     };
                     self.teleport_client(client, from, destination, angles, spectating, level_time);
                 }
+                Deed::Action(action, activator) => self.apply_target_action(
+                    action,
+                    self.stock.logic[index].origin,
+                    activator,
+                    level_time,
+                ),
                 Deed::Music(music) => {
                     self.publish_config_string(jkr_game_jka::worldspawn::CS_MUSIC, music.as_bytes())
                 }
+                // `EXEC_NOW` runs the change at once; here it runs as the frame ends.
+                Deed::ChangeLevel(map) => self.commands.add_text(
+                    format!("map {map}\n").as_bytes(),
+                    &mut super::bridge_bots::console,
+                ),
+                Deed::Give { activator, target } => {
+                    let client = self.client_of(Some(activator));
+                    if client != usize::MAX {
+                        self.give_items(client, &target, level_time);
+                    }
+                }
+                Deed::AimPush => {
+                    // `G_PickTarget`: `rand() % num_choices` among everything so named.
+                    let name = self.stock.logic[index].target.clone();
+                    let choices: Vec<[f32; 3]> = self
+                        .stock
+                        .named
+                        .iter()
+                        .filter(|named| named.name.eq_ignore_ascii_case(&name))
+                        .map(|named| named.origin)
+                        .collect();
+                    if choices.is_empty() {
+                        pick_target_missing(&name);
+                        self.stock.logic[index].freed = true;
+                        continue;
+                    }
+                    let target = choices[self.rand.next() as usize % choices.len()];
+                    let gravity = self.gravity();
+                    self.stock.logic[index].aim_push(target, gravity);
+                }
+                Deed::Push {
+                    activator,
+                    velocity,
+                    sound,
+                } => self.push_activator(
+                    self.client_of(Some(activator)),
+                    velocity,
+                    sound,
+                    level_time,
+                ),
                 Deed::Rearm => self.stock.logic[index].rearm(level_time, &mut self.deaths.rng),
             }
         }
+    }
+
+    /// `G_PickTarget(name)` and `GlobalUse` of what it drew, for `client` (a RANDOM
+    /// `target_relay`): one of every entity the level keeps under `name`, `rand() % count`
+    /// in `G_Find`'s order, used alone; the reference's complaint when there is none.
+    pub(super) fn use_random_named(&mut self, name: &str, client: usize, level_time: i32) {
+        let count = self
+            .stock
+            .named
+            .iter()
+            .filter(|named| named.name.eq_ignore_ascii_case(name))
+            .count();
+        if count == 0 {
+            pick_target_missing(name);
+            return;
+        }
+        let pick = self.rand.next() as usize % count;
+        let activator = (client != usize::MAX).then_some(client);
+        self.use_one_named(usize::MAX, name, pick + 1, activator, level_time);
     }
 
     /// `target_random`'s `GlobalUse` of the `pick`-th entity called `name` (not counting
@@ -307,6 +417,8 @@ impl NativeGame {
             Held::Logic(other) => self.use_logic_entity(other, activator, level_time),
             Held::Runner(runner) => self.use_one_runner(runner, client, level_time),
             Held::Speaker(speaker) => self.use_one_speaker(speaker, client, level_time),
+            Held::Station(station) => self.use_station_index(station, client, level_time),
+            Held::Target(target) => self.fire_map_target(target, client, level_time),
             Held::Door(door) => {
                 let fired = jkr_game_jka::mover_team::use_mover(
                     &mut self.doors,
@@ -322,11 +434,39 @@ impl NativeGame {
             Held::Other => {
                 if !self.stock.told_unusable.contains(&chosen.classname) {
                     println!(
-                        "target_random picked a {} ({name}), which this server does not use alone yet",
+                        "a pick of one {name} drew a {}, which this server does not use alone yet",
                         chosen.classname
                     );
                     self.stock.told_unusable.push(chosen.classname);
                 }
+            }
+        }
+    }
+
+    /// `Use_target_push` (`g_trigger.c:1159-1180`) on `client`: thrown with `velocity`
+    /// while it walks or floats, and the bounce pad's sound at most every 1.5 s.
+    fn push_activator(&mut self, client: usize, velocity: [f32; 3], sound: bool, level_time: i32) {
+        const PM_NORMAL: u8 = 0;
+        const PM_FLOAT: u8 = 2;
+        const CHAN_AUTO: u32 = 0;
+        let Some(peer) = self.peer_mut(client) else {
+            return;
+        };
+        if !matches!(peer.state.movement_type(), PM_NORMAL | PM_FLOAT) {
+            return;
+        }
+        peer.state.set_velocity(velocity);
+        peer.movement = peer.movement.reseeded(&peer.state);
+        if peer.fly_sound_until < level_time {
+            peer.fly_sound_until = level_time + 1_500;
+            if sound {
+                let origin = peer.state.origin();
+                self.general_sound(
+                    b"sound/weapons/force/jump.wav",
+                    origin,
+                    CHAN_AUTO,
+                    level_time,
+                );
             }
         }
     }
@@ -338,6 +478,11 @@ impl NativeGame {
             .filter(|&who| who < self.players.places())
             .unwrap_or(usize::MAX)
     }
+}
+
+/// `G_PickTarget`'s complaint for a name no entity has (`g_utils.c:375-404`).
+pub(super) fn pick_target_missing(name: &str) {
+    println!("G_PickTarget: target {name} not found");
 }
 
 #[path = "bridge_map_scenery.rs"]

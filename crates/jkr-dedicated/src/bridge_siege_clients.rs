@@ -8,13 +8,11 @@
 
 use super::*;
 use jkr_game_jka::client_begin::{SPECTATOR_FREE, SPECTATOR_NOT, team_for_word};
-use jkr_game_jka::siege_class::{SiegeClass, loadout};
+use jkr_game_jka::siege_class::{EF_DOUBLE_AMMO, SiegeClass, loadout};
 use std::sync::Arc;
 
 /// `STAT_HOLDABLE_ITEM`: the holdable selected.
 const STAT_HOLDABLE_ITEM: usize = 1;
-/// `EF_DOUBLE_AMMO`.
-const EF_DOUBLE_AMMO: u32 = 0x0100_0000;
 /// `Q3_INFINITE`, a class's powerups' end.
 const Q3_INFINITE: u32 = 16_777_216;
 /// `MOD_TEAM_CHANGE`.
@@ -50,6 +48,22 @@ impl NativeGame {
         let class = index.map(|index| registry.classes[index].clone());
         peer.session.siege_force = class.as_ref().map(|class| class.force_levels);
         class
+    }
+
+    /// `bgSiegeClasses[client->siegeClass].saberStance`: the styles the siege class
+    /// `client` plays allows, one bit each; 0 for a class that leaves them to the sabers,
+    /// for no class, or outside siege.
+    pub(super) fn class_stances(&self, client: usize) -> i32 {
+        if self.gametype != GAMETYPE_SIEGE {
+            return 0;
+        }
+        let Some(siege) = self.siege.as_ref() else {
+            return 0;
+        };
+        self.peer(client)
+            .and_then(|peer| peer.siege_class_index)
+            .and_then(|index| siege.registry.classes.get(index))
+            .map_or(0, |class| class.saber_stance)
     }
 
     /// `ClientUserinfoChanged` with the userinfo the player already has: its string told
@@ -142,6 +156,7 @@ impl NativeGame {
         }
         if !waiting && peer.health > 0 {
             let (origin, sounds) = (peer.state.origin(), peer.saber_off_sounds());
+            peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
             peer.health = 0;
             peer.state.stats[STAT_HEALTH] = 0;
             let mut death = DeathRequest::suicide(level_time, client as u16, origin, sounds, 0);
@@ -268,6 +283,7 @@ impl NativeGame {
         if peer.temp_spectate < server_time {
             if peer.health > 0 && !started_as_spectator {
                 let (origin, sounds) = (peer.state.origin(), peer.saber_off_sounds());
+                peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
                 peer.health = 0;
                 peer.state.stats[STAT_HEALTH] = 0;
                 self.die(
@@ -378,19 +394,27 @@ impl NativeGame {
             }
         }
         if restart {
-            self.match_end.intermission_time = 0;
-            for client in 0..self.players.places() {
-                if let Some(peer) = self.peer_mut(client) {
-                    peer.state.persistent[PERS_SCORE] = 0;
-                }
-            }
-            self.queue_restart(server_time);
+            self.restart_after_exit(server_time);
         }
         restart
     }
 
+    /// `ExitLevel` sending `map_restart 0`: the intermission over, the scores cleared and
+    /// the level restarted as new. For a Siege round's level that is also what a server
+    /// without a rotation runs, `vstr nextmap` being `map_restart 0` unless set
+    /// (`SV_SpawnServer`, `sv_init.cpp:563-565`): only a restart begins the next round.
+    pub(super) fn restart_after_exit(&mut self, server_time: i32) {
+        self.match_end.intermission_time = 0;
+        for client in 0..self.players.places() {
+            if let Some(peer) = self.peer_mut(client) {
+                peer.state.persistent[PERS_SCORE] = 0;
+            }
+        }
+        self.queue_restart(server_time);
+    }
+
     /// `G_SiegeClientExData` (`g_saga.c:1935-1979`), once a second for a player whose class
-    /// is a stat viewer (`CFL_STATVIEWER`): each teammate it can see, with its health, its
+    /// is a stat viewer (`CFL_STATVIEWER`): each teammate in its PVS, with its health, its
     /// maximum and the ammunition of the weapon it holds (`sxd`).
     pub(super) fn siege_ex_data(&mut self, client: usize, level_time: i32) {
         let Some(siege) = self.siege.as_ref() else {
@@ -408,15 +432,25 @@ impl NativeGame {
             return;
         }
         let team = peer.session.team;
+        let eye = self.map.as_ref().map(|map| {
+            let eye = crate::visibility::Eye::new(&map.bsp, &map.areas, peer.state.origin());
+            (map, eye)
+        });
         let mut reports = Vec::new();
         for other in 0..self.players.places() {
             if other == client {
                 continue;
             }
-            let Some(them) = self
-                .peer(other)
-                .filter(|them| them.session.team == team && them.playing())
-            else {
+            // Any other spawned client of its session team whose origin the viewer's PVS
+            // holds (`trap->InPVS`): `G_SiegeClientExData` asks no more, so spectators of
+            // the same side, the dead and those waiting for a wave are reported too.
+            let Some(them) = self.peer(other).filter(|them| {
+                them.session.team == team
+                    && them.begun
+                    && eye
+                        .as_ref()
+                        .is_none_or(|(map, eye)| eye.sees_point(&map.bsp, them.state.origin()))
+            }) else {
                 continue;
             };
             let ammo = jkr_game_jka::weapon_data::legacy_weapon_data(them.state.weapon() as u8)

@@ -1,7 +1,11 @@
+mod actor_dismember;
+mod actor_dissolve;
 mod actor_instance;
 mod actor_load;
+mod actor_marks;
 mod actor_mesh;
 mod actor_pose;
+mod actor_surfaces;
 mod actor_tint;
 mod actor_world_submission;
 mod animation_timing;
@@ -9,6 +13,7 @@ mod app_launch;
 mod assets;
 mod audio;
 mod audio_output;
+mod auto_capture;
 mod auto_switch;
 mod bolt;
 mod camera;
@@ -19,6 +24,7 @@ mod chat;
 mod client_guid;
 mod client_state;
 mod clientinfo_refresh;
+mod corpse_fade;
 
 mod shader_image;
 
@@ -150,6 +156,7 @@ mod snapshot_presentation;
 mod static_models;
 mod text;
 mod ui_renderer;
+mod weapon_select;
 mod weapon_view;
 mod wgsl_source;
 mod world_materials;
@@ -186,8 +193,8 @@ use player_assets::{PlayerPreview, load_player_preview};
 use render_helpers::{angle_to_short, append_instance_group, mesh_center, texture_layout_entry};
 
 use scene_flatten::{
-    ActorDraw, DrawBatch, FlattenedScene, ViewerMaterial, append_actor_mesh, append_md3_mesh,
-    append_static_glm_mesh, preview_gpu_vertex,
+    ActorDraw, DrawBatch, FlattenedScene, ViewerMaterial, append_actor_caps, append_actor_mesh,
+    append_md3_mesh, append_static_glm_mesh, preview_gpu_vertex,
 };
 use shared_geometry::SharedGeometry;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -265,6 +272,7 @@ struct GpuState {
     force_overlays_last: usize,
     actor_groups: Vec<Vec<ActorInstance>>,
     object_groups: Vec<Vec<ActorInstance>>,
+    posed_objects: object_meshes::posed::Poses,
     static_models: static_models::StaticModels,
     pickup_override_instances: Vec<entity_materials::OverrideInstance>,
     mover_groups: Vec<Vec<ActorInstance>>,
@@ -358,9 +366,7 @@ struct GpuState {
     /// its entity transform instead of pinning it under the camera.
     detached_camera: bool,
 
-    selected_weapon: Option<u8>,
-    weapon_selected_at: Option<Instant>,
-    weapon_selection_label: String,
+    weapon_select: weapon_select::WeaponSelect,
     pending_generic_command: u8,
     vfs: Option<Arc<VirtualFileSystem>>,
     pending_map_reload: bool,
@@ -400,6 +406,7 @@ struct GpuState {
     live_map_installed: bool,
 
     quit_requested: bool,
+    auto_capture: auto_capture::AutoCapture,
     /// The boot world the standalone menu lives in (see `menu_world`).
     is_menu_world: bool,
     /// The map being joined, seen through the menu's gate.
@@ -575,7 +582,7 @@ impl GpuState {
         } else {
             None
         };
-        let pickup_catalog = pickups::Catalog::build(&object_meshes);
+        let pickup_catalog = pickups::Catalog::build(&object_meshes, &vfs);
         let first_person_weapon = first_person_weapon::Catalog::build(
             &vfs,
             &object_meshes,
@@ -1008,6 +1015,7 @@ impl GpuState {
             force_overlays_last: 0,
             actor_groups,
             object_groups,
+            posed_objects: object_meshes::posed::Poses::default(),
             static_models,
             pickup_override_instances: Vec::with_capacity(force_overlay_submission::CAPACITY),
             mover_groups,
@@ -1099,9 +1107,7 @@ impl GpuState {
             third_person,
             detached_camera: false,
 
-            selected_weapon: None,
-            weapon_selected_at: None,
-            weapon_selection_label: String::with_capacity(40),
+            weapon_select: Default::default(),
             pending_generic_command: 0,
             effects,
             sound_prefetch,
@@ -1138,6 +1144,7 @@ impl GpuState {
             live_map_installed,
 
             quit_requested: false,
+            auto_capture: Default::default(),
             is_menu_world: false,
             portal: portal::Destination::new(),
             resident,
@@ -1203,12 +1210,7 @@ impl GpuState {
         // The backdrop keeps the view while a joined map loads behind it.
         let backdrop_view = menu_backdrop::standalone_menu_visible(self);
         self.update_menu_stage(visual_now);
-        let local_view = self
-            .demo_session
-            .as_ref()
-            .is_none_or(|session| !matches!(session.camera(), demo_playback::Camera::Spectate(_)));
-        self.effect_aux
-            .resolve_shakes(self.camera_position, visual_now, local_view);
+        first_person_view::weapon_feedback::resolve_shakes(self, visual_now);
         let intermission_view = self
             .live_session
             .as_ref()
@@ -1230,6 +1232,8 @@ impl GpuState {
         self.advance_resident_movement(delta_seconds);
         net_timing::frame(self, presentation_time);
         clock_trace::tick(self, presentation_time, visual_now);
+        camera::choose_third_person(self, presentation_time);
+        first_person_view::weapon_feedback::frame(self, presentation_time as i32, visual_now);
         let first_person = (!backdrop_view)
             .then(|| first_person_view::camera(self, presentation_time as i32))
             .flatten();
@@ -1252,7 +1256,7 @@ impl GpuState {
         {
             (
                 "third-person",
-                camera::damped_third_person(self, delta_seconds, presentation_time),
+                camera::third_person_view(self, delta_seconds, presentation_time),
             )
         } else if let Some(camera) = first_person {
             self.third_person_camera = camera::State::default();
@@ -1275,8 +1279,7 @@ impl GpuState {
         );
         self.update_fog_setting();
         let view = look_at_mat4(view_position, view_target, view_up);
-        let aspect = self.configuration.width as f32 / self.configuration.height as f32;
-        let fov = self.scope_fov(presentation_time as i32, game_audio);
+        let (fov, aspect) = self.scope_fov(presentation_time as i32, game_audio, view_position);
         let projection = perspective(fov.to_radians(), aspect, 2.0, self.far_plane);
         // rd-vanilla `tr_shade.cpp:367` derives tess.shaderTime from the
         // frame/refdef time; materials apply their own remap time offsets.
@@ -1398,13 +1401,8 @@ impl GpuState {
                 viewport,
             );
         }
-        let scoreboard_visible = information_visible
-            && scoreboard::requested(self, intermission_view.is_some())
-            && self
-                .console
-                .as_ref()
-                .and_then(|c| c.bool_cvar("cg_drawScores"))
-                .unwrap_or(true);
+        let scoreboard_visible =
+            information_visible && scoreboard::requested(self, intermission_view.is_some());
         let chat_visible = !self.console_covers_frame()
             && scoreboard::chat_visible(
                 information_visible,
@@ -1414,19 +1412,17 @@ impl GpuState {
             self.append_configured_chat(viewport, text_scale, scoreboard_visible);
         }
         if self
-            .weapon_selected_at
+            .weapon_select
+            .selected_at
             .is_some_and(|selected| selected.elapsed() < Duration::from_secs(2))
-            && !self.weapon_selection_label.is_empty()
+            && !self.weapon_select.label.is_empty()
         {
-            let width = visible_text_width(
-                &self.ui_font,
-                &self.weapon_selection_label,
-                text_scale * 1.1,
-            );
+            let width =
+                visible_text_width(&self.ui_font, &self.weapon_select.label, text_scale * 1.1);
             append_text(
                 &mut self.text_vertices,
                 &self.ui_font,
-                &self.weapon_selection_label,
+                &self.weapon_select.label,
                 [(viewport[0] - width) * 0.5, viewport[1] * 0.78],
                 text_scale * 1.1,
                 viewport,
@@ -1462,20 +1458,11 @@ impl GpuState {
             menu.append_overlay(&mut self.text_vertices, &self.ui_font, viewport, text_scale);
         }
         self.append_console_overlay(viewport, text_scale);
-        let layers = [
-            information_visible.then(|| &self.hud.identification.list),
-            information_visible.then(|| self.hud.draw_list()),
-            chat_visible.then(|| self.chat.draw_list()),
-            scoreboard_visible.then(|| self.scoreboard.draw_list()),
-            (self.game_menu && !console_covers_frame).then(|| self.in_game_menu.draw_list()),
-            self.client_menu
-                .as_ref()
-                .filter(|_| !console_covers_frame)
-                .and_then(|menu| menu.draw_list()),
-            self.console.as_ref().map(|console| console.draw_list()),
-        ];
-        self.ui_shapes
-            .prepare_layers(&self.queue, layers.into_iter().flatten(), viewport);
+        self.prepare_ui_shapes(
+            viewport,
+            [information_visible, chat_visible, scoreboard_visible],
+            console_covers_frame,
+        );
         let text_vertex_count = u32::try_from(self.text_vertices.len()).unwrap_or(0);
         if !self.text_vertices.is_empty() {
             self.queue.write_buffer(
@@ -1613,10 +1600,10 @@ impl GpuState {
             presentation_time,
         );
         if let Some(inputs) = view_weapon {
-            first_person_weapon::submit(&self.first_person_weapon, inputs, &mut self.object_groups);
-            // `CG_AddPlayerWeapon` records the view gun's `tag_flash` for
-            // trace-weapon beams (`cg_weapons.c:579`) and plays the
-            // first-person muzzle effect there (`cg_weapons.c:704-762`).
+            let groups = (&mut self.object_groups, &mut self.pickup_override_instances);
+            first_person_weapon::submit(&self.first_person_weapon, inputs, groups);
+            // `CG_AddPlayerWeapon` records the view gun's `tag_flash` for trace-weapon beams
+            // (`cg_weapons.c:579`) and plays the first-person muzzle effect there (`:704-762`).
             let socket = first_person_weapon::flash_socket(&self.first_person_weapon, inputs);
             self.last_first_person_flash = socket.map(|socket| socket.origin);
             if let Some(request) = active_snapshot
@@ -1716,11 +1703,12 @@ impl GpuState {
                 .expect("particle effects retain their VFS"),
             game_audio,
             particle_now,
+            forward,
             &self.bsp,
             &mut self.trace_scratch,
         );
         effect_emitter::append_model_instances(
-            &mut self.effect_aux.emitters,
+            &mut self.effect_aux,
             &self.emitter_model_catalog,
             object_groups,
         );
@@ -1731,6 +1719,7 @@ impl GpuState {
             actor_groups,
             object_groups,
             &mut self.pickup_override_instances,
+            &self.posed_objects,
             self.world_materials.fogs(),
         );
         let global_particle_seconds = presentation_time as f32 * 0.001;
@@ -1783,7 +1772,6 @@ impl GpuState {
                 field_of_view: self.field_of_view,
                 bsp: &self.bsp,
                 trace_scratch: &mut self.trace_scratch,
-
                 entity_instances,
                 blended: particle_groups,
             },

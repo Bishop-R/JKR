@@ -1,6 +1,7 @@
 //! Actor, held-weapon, saber, and force-overlay frame submission.
 
 use super::*;
+use jkr_client::trick_fade::BodyDraw;
 
 #[path = "flag_carrier.rs"]
 pub(crate) mod flags;
@@ -8,8 +9,10 @@ pub(crate) mod flags;
 #[path = "force_power_submission.rs"]
 mod force_powers;
 
+#[path = "jedi_master_saber.rs"]
+mod jedi_master_saber;
 #[path = "thrown_saber.rs"]
-mod thrown_saber;
+pub(crate) mod thrown_saber;
 
 #[path = "actor_model_scale.rs"]
 pub(crate) mod model_scale;
@@ -20,14 +23,50 @@ pub(crate) mod monster_hold;
 #[path = "player_sprites.rs"]
 mod player_sprites;
 
+#[path = "seeker_drone.rs"]
+pub(crate) mod seeker_drone;
+
+#[path = "jetpack_carrier.rs"]
+pub(crate) mod jetpack;
+
+#[path = "actor_body_draw.rs"]
+mod body_draw;
+pub(crate) use body_draw::CLOAK_SHADER;
+
+#[path = "bolted_items.rs"]
+mod bolted;
+
+#[path = "actor_limbs.rs"]
+mod limbs;
+
+#[path = "actor_speed_trail.rs"]
+mod speed_trail;
+
+#[path = "actor_spheres.rs"]
+mod spheres;
+
+#[path = "special_entities.rs"]
+mod special_entities;
+
+/// `bg_itemlist`'s `item_seeker`.
+const ITEM_SEEKER: usize = 4;
+/// `WP_SABER`, which keeps the viewer's own body in view from its eyes.
+const WP_SABER: u8 = 3;
+
 struct Sinks<'a> {
     flag_meshes: [Option<usize>; 2],
     shield_mesh: Option<usize>,
+    /// `models/items/remote.md3`, the seeker drone's (`item_seeker`'s pickup model).
+    seeker_mesh: Option<usize>,
+    /// The jetpack a carrier wears.
+    jetpack: Option<jetpack::JetpackModel>,
     world: &'a jkr_runtime::World,
     actor_meshes: &'a [ActorMesh],
     object_meshes: &'a [StaticModelMesh],
     actor_groups: &'a mut [Vec<ActorInstance>],
     object_groups: &'a mut [Vec<ActorInstance>],
+    /// The skeletons of general Ghoul2 entities drawn posed.
+    poses: &'a mut object_meshes::posed::Poses,
     overrides: &'a mut Vec<entity_materials::OverrideInstance>,
     entity_instances: &'a mut Vec<EntityInstance>,
     saber_hilts: Option<&'a saber::HiltCatalog>,
@@ -46,15 +85,41 @@ struct Sinks<'a> {
     material_overrides: model_materials::Overrides,
     camera_position: Vec3,
     camera_yaw: f32,
+    /// Radians up (the opposite of a Quake pitch).
+    camera_pitch: f32,
     view_height: f32,
     predicted_force_powers_active: Option<u32>,
     predicted_local_state: Option<&'a jkr_client::pmove::MovementState>,
     predicted_vehicle: Option<crate::vehicle_pose::Predicted>,
     authoritative_local_saber_move: Option<u32>,
     third_person: bool,
+    /// The viewer's own body is drawn in the main view: from behind, or holding a saber.
+    /// Stock marks it mirror-only (`RF_THIRD_PERSON`) only while it sees from its eyes with
+    /// any other weapon (`cg_players.c:8900-8911`); a saber is seen so with `cg_fpls`.
+    own_body_shown: bool,
     portal_view: bool,
     entity_view_flags: u32,
     detached_camera: bool,
+    /// How the viewer's own player is drawn (`cg_thirdPersonAlpha`).
+    own_body: BodyDraw,
+    /// EternalJK's `cg_thirdPersonFlagAlpha`: a flag the viewer carries, see-through.
+    own_flag_alpha: Option<u8>,
+    /// How the actor being submitted is drawn, its bolted parts with it.
+    body: BodyDraw,
+    /// What its cloak changes in that (`body_draw::cloak`).
+    cloak: Option<body_draw::Cloak>,
+    /// Its `RF_RGB_TINT` colour (duel colouring, `cg_stylePlayer` fullbright), which its
+    /// bolted parts share.
+    tint: Option<[f32; 4]>,
+    /// jaPRO's `cg_stylePlayer`, and the mod the server runs.
+    style: u32,
+    server_mod: jkr_client::ServerMod,
+    /// `cg_speedTrail`: Force Speed's afterimages.
+    speed_trails: bool,
+    /// Where this frame's view is seen from (`cg.refdef.vieworg`).
+    view_origin: Vec3,
+    /// `g_gametype`.
+    gametype: i64,
 }
 
 /// Submit all presented actor-like entities without allocating frame storage.
@@ -84,34 +149,73 @@ pub(crate) fn submit(
                 .as_ref()
                 .map(demo_playback::Session::game_state)
         });
-    let aura_shell = gpu
+    let overlays = crate::force_overlay_submission::Options {
+        aura_shell: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_auraShell"))
+            .unwrap_or(1)
+            != 0,
+        always_show_absorb: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.bool_cvar("cg_alwaysShowAbsorb"))
+            .unwrap_or(false),
+        style: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_stylePlayer"))
+            .map_or(jkr_client::style_player::DEFAULT, |style| style as u32),
+    };
+    let trails = crate::saber_submission::Options {
+        trails: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_saberTrail"))
+            .unwrap_or(1)
+            != 0,
+        staff_colors: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.bool_cvar("cg_saberStaffMultiColor"))
+            .unwrap_or(false),
+    };
+    let speed_trails = gpu
         .console
         .as_ref()
-        .and_then(|console| console.integer_cvar("cg_auraShell"))
+        .and_then(|console| console.integer_cvar("cg_speedTrail"))
         .unwrap_or(1)
         != 0;
-    let trails = gpu
-        .console
-        .as_ref()
-        .and_then(|console| console.integer_cvar("cg_saberTrail"))
-        .unwrap_or(1)
-        != 0;
+    let own_body = body_draw::own(
+        gpu.third_person,
+        gpu.local_prediction.predicted_state().map_or_else(
+            || snapshot.map_or(0, |snapshot| snapshot.player.vehicle_entity_num()),
+            |state| state.vehicle_entity_num,
+        ),
+        gpu.console
+            .as_ref()
+            .and_then(|console| console.float_cvar("cg_thirdPersonAlpha"))
+            .unwrap_or(1.0) as f32,
+    );
+    let gametype = game_state
+        .and_then(|game| game.config_string(0))
+        .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("g_gametype"))
+        .unwrap_or(0);
+    gpu.posed_objects.begin_frame();
     let mut sinks = Sinks {
-        flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(
-            game_state
-                .and_then(|game| game.config_string(0))
-                .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("g_gametype"))
-                .unwrap_or(0),
-        )],
+        flag_meshes: gpu.pickup_catalog.carrier_meshes[flags::model_set(gametype)],
         shield_mesh: gpu
             .object_meshes
             .iter()
             .position(|mesh| mesh.appearance.model == "models/weaphits/testboom.md3"),
+        seeker_mesh: gpu.pickup_catalog.mesh(ITEM_SEEKER),
+        jetpack: gpu.pickup_catalog.jetpack,
         world: active_world,
         actor_meshes: &gpu.actor_meshes,
         object_meshes: &gpu.object_meshes,
         actor_groups: &mut gpu.actor_groups,
         object_groups: &mut gpu.object_groups,
+        poses: &mut gpu.posed_objects,
         overrides: &mut gpu.pickup_override_instances,
         entity_instances: &mut gpu.entity_instances,
         saber_hilts: gpu.saber_hilts.as_ref(),
@@ -133,6 +237,7 @@ pub(crate) fn submit(
         material_overrides: gpu.model_material_overrides,
         camera_position: gpu.camera_position,
         camera_yaw: gpu.camera_yaw,
+        camera_pitch: gpu.camera_pitch,
         view_height: gpu.local_prediction.view_height(),
         predicted_force_powers_active: gpu
             .local_prediction
@@ -145,13 +250,54 @@ pub(crate) fn submit(
             .and_then(|_| gpu.local_prediction.vehicle_pose()),
         authoritative_local_saber_move: snapshot.map(|value| value.player.saber_move()),
         third_person: gpu.third_person,
+        own_body_shown: gpu.third_person
+            || gpu.local_prediction.predicted_state().map_or_else(
+                || snapshot.is_some_and(|snapshot| snapshot.player.weapon() == WP_SABER),
+                |state| state.weapon == WP_SABER,
+            ),
         portal_view: gpu.scene_views.has_portal_view(),
         entity_view_flags: 0,
         detached_camera: gpu.detached_camera,
+        own_body,
+        own_flag_alpha: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.own_flag_alpha()),
+        body: BodyDraw::Opaque,
+        cloak: None,
+        tint: None,
+        style: overlays.style,
+        server_mod: game_state.map_or(jkr_client::ServerMod::BaseJka, |game| {
+            jkr_client::ServerMod::from_serverinfo(game.config_string(0).unwrap_or_default())
+        }),
+        speed_trails,
+        view_origin: gpu.ground_hud.view_origin(),
+        gametype: gametype.into(),
     };
-    let thrown = snapshot
-        .zip(game_state)
-        .map(|(snapshot, game)| jkr_client::LegacyThrownSabers::new(snapshot, game));
+    if let Some(snapshot) = snapshot {
+        special_entities::submit(&mut sinks, snapshot, visual_now);
+    }
+    if let Some((snapshot, game)) = snapshot.zip(game_state) {
+        jedi_master_saber::submit(&mut sinks, snapshot, game, visual_now);
+    }
+    spheres::submit_demp2_shells(&mut sinks, visual_now);
+    // A siege class's blade colour goes with its thrown saber (the presented level's looks).
+    let siege_looks = std::sync::Arc::clone(gpu.clientinfo_watch.siege_looks.current());
+    let thrown = snapshot.zip(game_state).map(|(snapshot, game)| {
+        jkr_client::LegacyThrownSabers::new(snapshot, game)
+            .with_siege_looks(&siege_looks)
+            .with_saber_options(
+                gpu.console
+                    .as_ref()
+                    .and_then(|console| console.bool_cvar("cg_saberTeamColors"))
+                    .unwrap_or(true),
+                gpu.console
+                    .as_ref()
+                    .and_then(|console| console.integer_cvar("cg_noRGBSabers"))
+                    .unwrap_or(0)
+                    == 0,
+            )
+    });
     let mut overlay_count = 0;
     for entity in active_world
         .entities()
@@ -180,24 +326,152 @@ pub(crate) fn submit(
                 fallback_mesh,
                 presentation_time,
                 visual_now,
-                aura_shell,
+                overlays,
                 trails,
             );
-        } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform) {
+        } else if thrown_saber::submit(&mut sinks, thrown.as_ref(), entity, transform, visual_now) {
             // The flying hilt is owned by this branch, including its blades.
+        } else if limbs::submit(&mut sinks, entity, transform) {
+            // A cut limb, drawn from its copy of the owner.
         } else if let Some(mesh) = entity.appearance().and_then(|appearance| {
             sinks
                 .object_meshes
                 .iter()
                 .position(|mesh| &mesh.appearance == appearance)
         }) {
-            let mut instance =
-                ActorInstance::new(transform.translation, transform.rotation, transform.scale);
-            instance.view_flags = sinks.entity_view_flags;
-            sinks.object_groups[mesh].push(instance);
+            match bolted::place(
+                &sinks,
+                snapshot,
+                entity,
+                transform,
+                local_entity_id,
+                presentation_time,
+            ) {
+                bolted::Placement::Free => {}
+                bolted::Placement::Hidden => continue,
+                bolted::Placement::Held(held) => transform = held,
+            }
+            let posed = submit_posed(
+                &mut sinks,
+                mesh,
+                entity.id.get(),
+                transform,
+                (snapshot, game_state),
+                visual_now,
+            );
+            if !posed {
+                let rotation = if sinks.object_meshes[mesh].ghoul2 {
+                    weapon_view::actor_world_rotation(transform.rotation).to_array()
+                } else {
+                    transform.rotation
+                };
+                let mut instance =
+                    ActorInstance::new(transform.translation, rotation, transform.scale);
+                instance.view_flags = sinks.entity_view_flags;
+                sinks.object_groups[mesh].push(instance);
+            }
         }
     }
     overlay_count
+}
+
+/// The Ghoul2 model of `entity` (object mesh `mesh`) drawn posed, part by part
+/// (`CG_General`'s skeleton), and a sentry's muzzle flash played; `false` when the model is
+/// not posed or no skeleton is free for it.
+fn submit_posed(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    entity: u64,
+    transform: jkr_runtime::Transform,
+    (snapshot, game_state): (Option<&Snapshot>, Option<&GameState>),
+    now: Instant,
+) -> bool {
+    let Some(model) = sinks.object_meshes[mesh].posed.as_deref() else {
+        return false;
+    };
+    let time = sinks.presentation_time;
+    let state = object_meshes::posed::entity_state(snapshot, entity);
+    let gunner_view = state
+        .and_then(object_meshes::posed::gunner)
+        .and_then(|gunner| gunner_view(sinks, snapshot, gunner, time));
+    let sentry_enemy = state
+        .filter(|state| state.bolt1())
+        .and_then(|state| enemy_origin(sinks, snapshot, state.bolt2(), time));
+    let draw = object_meshes::posed::Draw {
+        mesh,
+        model,
+        entity,
+        state,
+        game_state,
+        transform,
+        view_flags: sinks.entity_view_flags,
+        time,
+        gunner_view,
+        sentry_enemy,
+    };
+    let Some(drawn) = sinks.poses.submit(draw, sinks.object_groups) else {
+        return false;
+    };
+    if let Some(flash) = drawn.flash {
+        // `cgs.effects.mTurretMuzzleFlash`.
+        effect_runtime::spawn_effect(
+            sinks.particles,
+            sinks.effect_aux,
+            sinks.effects,
+            sinks.vfs,
+            "turret/muzzle_flash",
+            Vec3::from_array(flash.origin),
+            now,
+            (entity as u32) | (time as u32).rotate_left(11),
+            0,
+            sinks.game_audio,
+            combat_effects::rotation_from_direction(flash.direction),
+        );
+    }
+    true
+}
+
+/// Where an emplaced gun's `gunner` looks (`cg_ents.c:1323-1334`): this client's own view
+/// when it is the gunner in first person, otherwise the gunner's presented angles.
+fn gunner_view(
+    sinks: &Sinks<'_>,
+    snapshot: Option<&Snapshot>,
+    gunner: u16,
+    time: i64,
+) -> Option<[f32; 3]> {
+    let local = snapshot.is_some_and(|snapshot| snapshot.player.client_num() == gunner);
+    if local && !sinks.third_person {
+        let pitch = -sinks.camera_pitch.to_degrees();
+        return Some([pitch, sinks.camera_yaw.to_degrees(), 0.0]);
+    }
+    let entity = sinks.world.entity(EntityId::new(u64::from(gunner) + 1))?;
+    Some(entity.sample_pose(time)?.view_angles_degrees)
+}
+
+/// Where a sentry's enemy `number` stands (`cg_turret.c:213-215` reads its `pos.trBase`):
+/// its state in this snapshot, else where this client last placed it; `None` for no enemy
+/// (`ENTITYNUM_NONE`) or one it never saw.
+fn enemy_origin(
+    sinks: &Sinks<'_>,
+    snapshot: Option<&Snapshot>,
+    number: u16,
+    time: i64,
+) -> Option<[f32; 3]> {
+    let entity = u64::from(number) + 1;
+    if number >= 1_023 {
+        return None;
+    }
+    object_meshes::posed::entity_state(snapshot, entity)
+        .map(jkr_protocol::EntityState::trajectory_base)
+        .or_else(|| {
+            Some(
+                sinks
+                    .world
+                    .entity(EntityId::new(entity))?
+                    .sample(time)
+                    .translation,
+            )
+        })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -211,10 +485,10 @@ fn submit_actor(
     fallback_mesh: Option<usize>,
     presentation_time: i64,
     visual_now: Instant,
-    aura_shell: bool,
-    trails: bool,
+    overlays: crate::force_overlay_submission::Options,
+    trails: crate::saber_submission::Options,
 ) -> usize {
-    let draw_actor = sinks.third_person || Some(entity.id.get()) != local_entity_id;
+    let draw_actor = sinks.own_body_shown || Some(entity.id.get()) != local_entity_id;
     if Some(entity.id.get()) == local_entity_id && !sinks.detached_camera {
         let (translation, rotation) =
             camera::local_actor_root(sinks.camera_position, sinks.view_height, sinks.camera_yaw);
@@ -230,16 +504,56 @@ fn submit_actor(
                 .then_some(fallback_mesh)
                 .flatten()
         });
+    // jaPRO's `cg_stylePlayer` no-bodies bit: no cut-off limbs either (EternalJK
+    // `cg_ents.c:1122-1125`).
+    if mesh.is_some_and(|index| sinks.actor_meshes[index].limb_pool)
+        && sinks.style & jkr_client::style_player::NO_BODIES != 0
+    {
+        return 0;
+    }
     transform.rotation = actor_pose::world_rotation(
         mesh.and_then(|index| sinks.actor_meshes.get(index)),
         transform.rotation,
     );
+    sinks.body = match mesh {
+        Some(_) if Some(entity.id.get()) == local_entity_id => sinks.own_body,
+        Some(index) if entity.kind == EntityKind::Actor => sinks.actor_meshes[index].body,
+        _ => BodyDraw::Opaque,
+    };
+    // `FP_SEE` in the snapshot's player state sees through cloaks.
+    let sight =
+        snapshot.is_some_and(|snapshot| snapshot.player.force_powers_active() & (1 << 14) != 0);
+    sinks.cloak = mesh
+        .and_then(|index| sinks.actor_meshes[index].cloak)
+        .and_then(|draw| {
+            body_draw::cloak(
+                draw,
+                (
+                    Some(entity.id.get()) == local_entity_id,
+                    sinks.third_person,
+                    sight,
+                ),
+                sinks.material_overrides.force(body_draw::CLOAK_SHADER),
+            )
+        });
     let state = snapshot.and_then(|snapshot| {
         snapshot
             .entities
             .iter()
             .find(|state| u64::from(state.number()) + 1 == entity.id.get())
     });
+    style_player(sinks, entity, state, snapshot, local_entity_id);
+    sinks.tint = match (snapshot, game_state, mesh) {
+        (Some(snapshot), Some(game_state), Some(_)) => force_overlay_submission::duel_tint(
+            entity.id,
+            snapshot,
+            game_state,
+            entity.color(),
+            presentation_time as i32,
+            (sinks.predicted_force_powers_active, sinks.style),
+        ),
+        _ => None,
+    };
     crate::vehicle_pose::place(
         sinks.world,
         sinks.actor_meshes,
@@ -252,6 +566,8 @@ fn submit_actor(
         presentation_time,
         sinks.predicted_vehicle,
     );
+    // `cent->lerpOrigin`, before a scaled model is raised to stand on its feet.
+    let lerp_origin = transform.translation;
     if let Some(state) = state {
         model_scale::apply(transform, state.model_scale_percent(), state.npc_class());
     }
@@ -278,17 +594,29 @@ fn submit_actor(
             draw_actor,
             visual_now,
         );
+        seeker_drone::submit(
+            sinks,
+            entity.kind,
+            transform.translation,
+            snapshot,
+            state,
+            local,
+            presentation_time,
+        );
     }
     if let (Some(mesh), Some(snapshot)) = (mesh, snapshot) {
-        flags::submit(
-            sinks,
-            mesh,
-            entity,
-            *transform,
-            snapshot,
-            presentation_time,
-            draw_actor,
-        );
+        // The carried flag goes with a player hidden by a trick (`CG_PlayerPowerups`).
+        if sinks.body != BodyDraw::Hidden {
+            flags::submit(
+                sinks,
+                mesh,
+                entity,
+                *transform,
+                snapshot,
+                presentation_time,
+                draw_actor,
+            );
+        }
         force_powers::submit(
             sinks,
             mesh,
@@ -298,7 +626,28 @@ fn submit_actor(
             presentation_time as i32,
             visual_now,
         );
+        // A cut takes the jetpack along (`CG_General` removes its model).
+        if !sinks.actor_meshes[mesh].cuts.stripped {
+            jetpack::submit(
+                sinks, mesh, *transform, snapshot, state, local, draw_actor, visual_now,
+            );
+        }
     }
+    // `EF_DISINTEGRATION`: smoke at the waist for the first second, no weapon or Force
+    // shells while it burns, and nothing at all once a player is gone.
+    let dissolving = mesh.and_then(|index| {
+        sinks.actor_meshes[index]
+            .dissolve
+            .phase(presentation_time, entity.kind == EntityKind::Corpse)
+    });
+    if let (Some(index), Some(_), true) = (mesh, dissolving, actor_dissolve::DEATH_SMOKE) {
+        dissolve_smoke(sinks, index, *transform, entity.id.get(), visual_now);
+    }
+    if dissolving == Some(actor_dissolve::Phase::Gone) {
+        return 0;
+    }
+    // `EV_BODYFADE`: a fading corpse is drawn only through the fade's passes.
+    let fading = mesh.and_then(|index| sinks.actor_meshes[index].fade.current());
     let mut equipment = if Some(entity.id.get()) == local_entity_id {
         local_actor_state::equipment(
             entity.equipment(),
@@ -325,7 +674,16 @@ fn submit_actor(
                 held
             });
     }
-    if let Some((equipment, held_mesh)) = equipment.zip(mesh) {
+    // A player hidden by a trick keeps only the blade of a second saber while the first
+    // is thrown (`cg_players.c:10027-10041`).
+    let hidden = sinks.body == BodyDraw::Hidden;
+    // A cut through the sword arm, hand or waist takes the weapon (`cg_ents.c:1238-1245`).
+    let disarmed = mesh.is_some_and(|index| sinks.actor_meshes[index].cuts.disarmed);
+    if let Some((equipment, held_mesh)) = equipment
+        .zip(mesh)
+        .filter(|_| dissolving.is_none() && fading.is_none() && !disarmed)
+        .filter(|(equipment, _)| !hidden || equipment.primary_in_flight)
+    {
         submit_equipment(
             sinks,
             entity,
@@ -338,6 +696,23 @@ fn submit_actor(
             trails,
         );
     }
+    if hidden {
+        return 0;
+    }
+    if entity.kind == EntityKind::Actor {
+        let bits = spheres::player_bits(state, snapshot.filter(|_| local));
+        let team = u16::try_from(entity.id.get().saturating_sub(1))
+            .ok()
+            .and_then(|number| game_state?.config_string(1_131 + usize::from(number)))
+            .and_then(|info| jkr_client::LegacyClientInfo::new(info).integer("t"))
+            .unwrap_or(0);
+        spheres::submit(
+            sinks,
+            lerp_origin,
+            bits,
+            (sinks.gametype, local, team.into()),
+        );
+    }
     if (draw_actor || sinks.portal_view)
         && let Some(mesh) = mesh
     {
@@ -348,11 +723,74 @@ fn submit_actor(
         )
         .with_entity_color(entity.color());
         instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
-        sinks.actor_groups[mesh].push(instance);
+        if let Some(actor_dissolve::Phase::Burning { since }) = dissolving {
+            instance = burning(
+                sinks,
+                mesh,
+                instance,
+                entity,
+                *transform,
+                (
+                    state,
+                    snapshot.filter(|_| local).map(|snapshot| &snapshot.player),
+                ),
+                since,
+                presentation_time,
+            );
+        }
+        if let Some(passes) = fading {
+            let light_side = sinks.actor_meshes[mesh]
+                .body_identity
+                .as_ref()
+                .is_some_and(|body| body.light_side);
+            fade_passes(
+                sinks,
+                mesh,
+                instance,
+                (light_side, transform.translation, entity.id.get()),
+                passes,
+                presentation_time,
+            );
+            return 0;
+        }
+        if dissolving.is_none() {
+            sinks.actor_meshes[mesh]
+                .marks
+                .place(crate::actor_marks::Placement::of(
+                    entity,
+                    (state, local),
+                    lerp_origin,
+                    &instance,
+                    draw_actor,
+                    presentation_time,
+                ));
+        }
+        // Stock's duel colouring of the model itself (`RF_RGB_TINT`); the overlays below
+        // start from the untinted instance, as stock clears the tint for each shell.
+        let body = sinks
+            .tint
+            .map_or(instance, |tint| instance.with_rgb_tint(tint));
+        if body_draw::passes(
+            sinks.overrides,
+            (sinks.body, sinks.cloak),
+            entity_materials::OverrideMesh::Actor(mesh),
+            body,
+        ) {
+            sinks.actor_groups[mesh].push(body);
+        }
+        let tricking = !local && matches!(sinks.body, BodyDraw::Faded(_));
+        speed_trail::submit(
+            sinks,
+            mesh,
+            instance,
+            (state, snapshot),
+            tricking,
+            presentation_time,
+        );
         sinks.actor_meshes[mesh]
             .retained_pose
             .mark_drawn(entity.id, presentation_time);
-        if let (Some(snapshot), Some(game_state)) = (snapshot, game_state) {
+        if let (Some(snapshot), Some(game_state), None) = (snapshot, game_state, dissolving) {
             return force_overlay_submission::submit(
                 sinks.overrides,
                 mesh,
@@ -364,7 +802,7 @@ fn submit_actor(
                 sinks.material_overrides,
                 presentation_time as i32,
                 sinks.third_person,
-                aura_shell,
+                overlays,
                 sinks.predicted_force_powers_active,
                 sinks.shield_mesh,
             );
@@ -385,6 +823,188 @@ fn submit_actor(
     0
 }
 
+/// jaPRO's `cg_stylePlayer` for another player (`jkr_client::style_player`): hidden as a
+/// duellist or a bystander, or drawn as the duel stand-in; a cloak wins over the stand-in.
+fn style_player(
+    sinks: &mut Sinks<'_>,
+    entity: &jkr_runtime::SceneEntity,
+    state: Option<&jkr_protocol::EntityState>,
+    snapshot: Option<&jkr_protocol::Snapshot>,
+    local_entity_id: Option<u64>,
+) {
+    use jkr_client::style_player::{DUEL_SHADER, LocalView, duellist_stand_in, hides};
+    let (Some(snapshot), Some(state)) = (snapshot, state) else {
+        return;
+    };
+    if entity.kind != EntityKind::Actor || Some(entity.id.get()) == local_entity_id {
+        return;
+    }
+    // One's own vehicle is never hidden.
+    if state.entity_type() == 13
+        && state.npc_class() == 53
+        && state.owner() == snapshot.player.client_num()
+    {
+        return;
+    }
+    const PMF_FOLLOW: u16 = 4096;
+    let view = LocalView {
+        duelling: snapshot.player.duel_in_progress(),
+        partner: snapshot.player.duel_index(),
+        free_spectator: snapshot.player.team() == 3
+            && snapshot.player.movement_flags() & PMF_FOLLOW == 0,
+    };
+    let bolt1 = state.raw_field(91).unwrap_or(0);
+    if hides(sinks.style, sinks.server_mod, view, state.number(), bolt1) {
+        sinks.body = BodyDraw::Hidden;
+    } else if sinks.cloak.is_none()
+        && duellist_stand_in(sinks.style, view, bolt1)
+        && let Some(material) = sinks.material_overrides.force(DUEL_SHADER)
+    {
+        sinks.cloak = Some(body_draw::Cloak::stand_in(material));
+    }
+}
+
+/// A burning actor's two passes (`CG_Disintegration`): `instance` returned as the body
+/// (`RF_DISINTEGRATE1`), and the glow of `gfx/effects/burn` queued over it
+/// (`RF_DISINTEGRATE2`). `hit` holds the entity's state and, for the local player, its own.
+#[allow(clippy::too_many_arguments)]
+fn burning(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    instance: ActorInstance,
+    entity: &jkr_runtime::SceneEntity,
+    transform: jkr_runtime::Transform,
+    hit: (
+        Option<&jkr_protocol::EntityState>,
+        Option<&jkr_protocol::PlayerState>,
+    ),
+    since: i64,
+    now: i64,
+) -> ActorInstance {
+    let view_yaw = entity
+        .sample_pose(now)
+        .map_or(0.0, |pose| pose.view_angles_degrees[1]);
+    let origin = transform.translation;
+    let hit = actor_dissolve::hit_point(hit.0, hit.1).unwrap_or(origin);
+    let (center, radius) = actor_dissolve::burn(hit, origin, view_yaw, since, now);
+    if let Some(material) = sinks.material_overrides.force("gfx/effects/burn") {
+        sinks.overrides.push(entity_materials::OverrideInstance {
+            mesh: entity_materials::OverrideMesh::Actor(mesh),
+            material: Some(material),
+            instance: instance.with_dissolve(2, center, radius),
+            no_depth: false,
+            forced_alpha: false,
+            switched_off: None,
+        });
+    }
+    instance.with_dissolve(1, center, radius)
+}
+
+/// A fading corpse's passes ([`corpse_fade`], `cg_ents.c:1500-1631`): the body blended
+/// by its own alpha, the shield's or the red glow tinted over it (burning away from its
+/// origin once it holds), a dark-sided body's electric shell tinted red, and the fade's
+/// sounds. `owner` is the body's side, origin and entity.
+fn fade_passes(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    instance: ActorInstance,
+    (light_side, origin, entity): (bool, [f32; 3], u64),
+    passes: corpse_fade::Passes,
+    now: i64,
+) {
+    let actor = entity_materials::OverrideMesh::Actor(mesh);
+    // The fade switches the inside of the face off for every pass (`cg_event.c:2785-2789`).
+    let mouth = sinks.actor_meshes[mesh].mouth_draw;
+    let push = |sinks: &mut Sinks<'_>, material, instance, forced_alpha| {
+        sinks.overrides.push(entity_materials::OverrideInstance {
+            mesh: actor,
+            material,
+            instance,
+            no_depth: false,
+            forced_alpha,
+            switched_off: mouth,
+        });
+    };
+    if let Some(alpha) = passes.body_alpha {
+        push(sinks, None, instance.with_forced_alpha(alpha), true);
+    }
+    let glow = if light_side {
+        "gfx/misc/personalshield"
+    } else {
+        "gfx/effects/sabers/red_glow"
+    };
+    if passes.glow != 0
+        && let Some(material) = sinks.material_overrides.force(glow)
+    {
+        let grey = f32::from(passes.glow) / 255.0;
+        let mut tinted = instance.with_rgb_tint([grey; 4]);
+        if let Some(since) = passes.burning_since {
+            tinted = tinted.with_dissolve(2, [0.0; 3], (now - since) as f32 * 0.045);
+        }
+        push(sinks, Some(material), tinted, false);
+    }
+    let electric = passes.electric.map(|second| {
+        if second {
+            "gfx/misc/fullbodyelectric2"
+        } else {
+            "gfx/misc/electric"
+        }
+    });
+    if let Some(material) = electric.and_then(|shader| sinks.material_overrides.force(shader)) {
+        push(
+            sinks,
+            Some(material),
+            instance.with_rgb_tint([1.0, 0.0, 0.0, 1.0]),
+            false,
+        );
+    }
+    if let Some(audio) = sinks.game_audio.as_mut() {
+        for (path, _) in corpse_fade::SOUNDS
+            .iter()
+            .zip(passes.sounds)
+            .filter(|(_, starts)| *starts)
+        {
+            let source = jkr_audio::SourceId(entity.saturating_sub(1) as u32);
+            audio.play(sinks.vfs, path, 1.0, origin, source);
+        }
+    }
+}
+
+/// The disruptor's death smoke this frame for the actor drawn with `mesh`
+/// (`cgs.effects.mDisruptorDeathSmoke`, [`actor_dissolve`]).
+fn dissolve_smoke(
+    sinks: &mut Sinks<'_>,
+    mesh: usize,
+    transform: jkr_runtime::Transform,
+    entity: u64,
+    now: Instant,
+) {
+    let meshes = sinks.actor_meshes;
+    let puffs = meshes[mesh].dissolve.puffs();
+    let Some(waist) = actor_dissolve::waist(&meshes[mesh], transform).filter(|_| puffs > 0) else {
+        return;
+    };
+    let forward = actor_dissolve::camera_forward(sinks.camera_yaw, sinks.camera_pitch);
+    for puff in 0..puffs {
+        let seed = (entity as u32) ^ (sinks.presentation_time as u32).rotate_left(7) ^ puff;
+        // `Q_flrand(-1, 1)` for the height, from the puff's own seed.
+        let height = ((seed.wrapping_mul(2_654_435_761) >> 8) as f32 / (1 << 23) as f32) - 1.0;
+        effect_runtime::spawn_effect(
+            sinks.particles,
+            sinks.effect_aux,
+            sinks.effects,
+            sinks.vfs,
+            "disruptor/death_smoke",
+            actor_dissolve::smoke_origin(waist, forward, height),
+            now,
+            seed,
+            0,
+            sinks.game_audio,
+            combat_effects::rotation_from_direction([0.0, 1.0, 0.0]),
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn submit_equipment(
     sinks: &mut Sinks<'_>,
@@ -395,16 +1015,30 @@ fn submit_equipment(
     draw_actor: bool,
     presentation_time: i64,
     visual_now: Instant,
-    trails: bool,
+    trails: crate::saber_submission::Options,
 ) {
     let rotation = weapon_view::actor_world_rotation(transform.rotation);
     let origin = Vec3::from_array(transform.translation);
+    if equipment.primary_in_flight
+        && let Some(attachment) = sinks.actor_meshes[actor_mesh].weapon_attachments[0]
+    {
+        let (hand, _) = saber::world_attachment(origin, rotation, attachment);
+        thrown_saber::hand_glow(sinks, hand, visual_now);
+    }
+    let draw = (sinks.body, sinks.cloak, sinks.tint);
+    let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
+    let mut hilt = |mesh: usize, instance: ActorInstance| {
+        body_draw::push_part((&mut *parts.0, &mut *parts.1), draw, mesh, instance);
+    };
     if saber_submission::submit(
         entity.id.get(),
         std::array::from_fn(|hand| {
             let mesh = &sinks.actor_meshes[actor_mesh];
+            // A cut takes the second saber along.
+            let kept = hand == 0 || !mesh.cuts.stripped;
             mesh.saber_names[hand]
                 .as_deref()
+                .filter(|_| kept)
                 .zip(mesh.weapon_attachments[hand])
         }),
         equipment,
@@ -413,7 +1047,7 @@ fn submit_equipment(
         sinks.saber_hilts,
         sinks.saber_states,
         sinks.saber_segments,
-        sinks.object_groups,
+        &mut hilt,
         sinks.saber_instances,
         presentation_time,
         trails,
@@ -444,7 +1078,13 @@ fn submit_equipment(
     };
     let mut instance = ActorInstance::new(grip.to_array(), weapon_rotation.to_array(), [1.0; 3]);
     instance.view_flags = sinks.entity_view_flags | u32::from(!draw_actor);
-    sinks.object_groups[weapon_mesh].push(instance);
+    let parts = (&mut *sinks.object_groups, &mut *sinks.overrides);
+    body_draw::push_part(
+        parts,
+        (sinks.body, sinks.cloak, sinks.tint),
+        weapon_mesh,
+        instance,
+    );
     // The main first-person flash already owns event/audio spawning. A
     // second view must never advance effects or play a second sound.
     if !draw_actor {

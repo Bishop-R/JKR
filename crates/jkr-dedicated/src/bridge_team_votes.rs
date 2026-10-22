@@ -127,7 +127,8 @@ impl NativeGame {
         let Some(after) = self.peer(client).map(|peer| peer.session.team) else {
             return;
         };
-        let mut said = if after == TEAM_SPECTATOR {
+        // jaPRO's `TV_CLEAR_SPEC_VOTES` keeps the spectator's ballot.
+        let mut said = if after == TEAM_SPECTATOR && !self.spectators_keep_votes() {
             self.vote.clear(client)
         } else {
             Vec::new()

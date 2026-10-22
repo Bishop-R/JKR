@@ -12,19 +12,28 @@ use jkr_game_jka::game_log;
 /// `pers.netnameTime`'s wait between two names.
 const RENAME_INTERVAL: i32 = 5_000;
 
+/// What the server's settings ask of a userinfo.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct UserinfoRules {
+    /// `g_userinfoValidate`: the checks a userinfo must pass, a bit each.
+    pub(super) validate: u32,
+    /// `g_charRestrictRGB`: a tint too dark to see is replaced with white.
+    pub(super) restrict_dark_tints: bool,
+}
+
 /// `ClientUserinfoChanged` on `team`: the reason a userinfo is refused, or what the game
 /// keeps of it. A team game names the player's leadership (`tl`); a siege game its class
 /// and the side it wants (`siegeclass`, `sdt`), and a `class` it plays forces its model
 /// and replaces the handicap with its own maximum health.
 pub(super) fn judge(
     userinfo: &[u8],
-    rules: u32,
+    rules: UserinfoRules,
     session: &PlayerSession,
     gametype: i32,
     sabers: &jkr_game_jka::saber_definition::SaberParms,
     class: Option<&jkr_game_jka::siege_class::SiegeClass>,
 ) -> Result<AcceptedUserinfo, String> {
-    validate_userinfo(userinfo, rules)?;
+    validate_userinfo(userinfo, rules.validate)?;
     // A duel's scoreboard shows every client's wins and losses (`w`, `l`).
     let duel_record = matches!(gametype, GAMETYPE_DUEL | GAMETYPE_POWERDUEL)
         .then_some((session.wins, session.losses));
@@ -45,6 +54,9 @@ pub(super) fn judge(
     });
     let session = ClientSession {
         team: session.team,
+        // `SVF_BOT`: a bot's `skill` goes into its string, which is how clients tell bots
+        // from players (`CG_NewClientInfo`).
+        bot: session.bot_force.is_some(),
         duel_record,
         duel_team,
         team_leader,
@@ -53,7 +65,12 @@ pub(super) fn judge(
         class_max_health,
         ..Default::default()
     };
-    Ok(accept_userinfo(userinfo, session, sabers, true))
+    Ok(accept_userinfo(
+        userinfo,
+        session,
+        sabers,
+        rules.restrict_dark_tints,
+    ))
 }
 
 impl NativeGame {
@@ -74,6 +91,16 @@ impl NativeGame {
         );
         let class = self.siege_class_of(client);
         let log_client_info = self.cvars.integer(b"g_logClientInfo") != 0;
+        // jaPRO's `g_allowSamePlayerNames 0`: the names the others go by.
+        let others: Vec<Vec<u8>> = if self.cvars.integer(b"g_allowSamePlayerNames") == 0 {
+            (0..self.players.places())
+                .filter(|&other| other != client)
+                .filter_map(|other| self.peer(other).map(|peer| peer.name.clone()))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let slots = self.players.places();
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -86,6 +113,20 @@ impl NativeGame {
             &parms,
             class.as_ref(),
         );
+        // jaPRO's `CheckDuplicateName`: a name another player goes by is numbered.
+        if let Ok(accepted) = &judged
+            && let Some(unique) = unique_name(&accepted.name, &others, slots)
+        {
+            userinfo = jkr_protocol::info_set_value(&userinfo, b"name", &unique);
+            judged = judge(
+                &bridge_sabers::with_saber_names(&userinfo, &peer.sabers),
+                rules,
+                &peer.session,
+                gametype,
+                &parms,
+                class.as_ref(),
+            );
+        }
         // A connected player's new name: refused within five seconds of the last one (the
         // old name written back into its userinfo), otherwise announced.
         let mut renamed = None;
@@ -112,12 +153,26 @@ impl NativeGame {
         }
         let accepted = match judged {
             Ok(accepted) => accepted,
-            // `ClientUserinfoChanged` drops the client, with the reason.
+            // `ClientUserinfoChanged` drops the client, with the reason, noted in the
+            // security log and the userinfo in the game's (`g_client.c:2121-2128`).
             Err(reason) => {
+                let (name, ip) = self.peer(client).map_or_else(Default::default, |peer| {
+                    (
+                        String::from_utf8_lossy(&peer.name).into_owned(),
+                        String::from_utf8_lossy(&peer.address).into_owned(),
+                    )
+                });
+                self.security_log(&format!(
+                    "Client {client} ({name}) failed userinfo validation: {reason} [IP: {ip}]\n"
+                ));
                 self.told.push(Told::Drop {
                     client,
                     reason: format!("Failed userinfo validation: {reason}").into_bytes(),
                 });
+                self.log(&format!(
+                    "Userinfo: {}\n",
+                    String::from_utf8_lossy(&userinfo)
+                ));
                 return;
             }
         };
@@ -141,6 +196,7 @@ impl NativeGame {
             self.log_about(client, |who| {
                 game_log::client_rename(game_log::Who { name: &old, ..who }, &new)
             });
+            self.note_player(client);
         }
         self.told.push(Told::PlayerString {
             client,
@@ -153,5 +209,55 @@ impl NativeGame {
                 changed.then_some(&client_info),
             ));
         }
+    }
+}
+
+/// jaPRO's `ClientNameEquals`: colours, unprintables and spaces aside, case aside.
+fn same_name(one: &[u8], other: &[u8]) -> bool {
+    let plain = |name: &[u8]| -> Vec<u8> {
+        crate::bridge::bridge_bots::bridge_minplayers::clean_str(name)
+            .into_iter()
+            .filter(|&byte| byte != b' ')
+            .collect()
+    };
+    plain(one).eq_ignore_ascii_case(&plain(other))
+}
+
+/// jaPRO's `CheckDuplicateName`: for `name` that one of `others` goes by, the first of
+/// `name^7[0]`, `name^7[1]`, … nobody does (the name cut to 28 bytes first, the number
+/// at most the slots); `None` for a name nobody else has.
+fn unique_name(name: &[u8], others: &[Vec<u8>], slots: usize) -> Option<Vec<u8>> {
+    let taken = |name: &[u8]| others.iter().any(|other| same_name(other, name));
+    if !taken(name) {
+        return None;
+    }
+    let base = &name[..name.len().min(28)];
+    let mut candidate = Vec::new();
+    for number in 0..=slots {
+        candidate = [base, format!("^7[{number}]").as_bytes()].concat();
+        candidate.truncate(35);
+        if !taken(&candidate) {
+            break;
+        }
+    }
+    Some(candidate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_name_in_use_is_numbered() {
+        let others = vec![b"^1Ky^7le".to_vec(), b"Kyle^7[0]".to_vec()];
+        assert_eq!(unique_name(b"Jan", &others, 32), None);
+        assert_eq!(
+            unique_name(b"kyle", &others, 32),
+            Some(b"kyle^7[1]".to_vec())
+        );
+        assert_eq!(
+            unique_name(b"K yle", &others, 32),
+            Some(b"K yle^7[1]".to_vec())
+        );
     }
 }

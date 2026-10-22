@@ -1,7 +1,8 @@
 //! Spectators following players on the native server (`jkr_game_jka::follow`): the
 //! `follow`, `follownext` and `followprev` commands, `SpectatorThink`'s buttons,
 //! `StopFollowing`, and `SpectatorClientEndFrame` showing a follower the followed
-//! player's own state.
+//! player's own state (without a duellist's health and armour under jaPRO's
+//! `g_blockDuelHealthSpec`).
 
 use super::{GAMETYPE_DUEL, NativeGame, TEAM_SPECTATOR, Told};
 use jkr_game_jka::client_begin::{SPECTATOR_FOLLOW, SPECTATOR_FREE, SPECTATOR_NOT};
@@ -9,6 +10,9 @@ use jkr_game_jka::client_view::client_number_from_string;
 use jkr_game_jka::follow;
 use jkr_protocol::UserCommand;
 
+/// `STAT_HEALTH`, `STAT_ARMOR`.
+const STAT_HEALTH: usize = 0;
+const STAT_ARMOR: usize = 1;
 /// `BUTTON_ATTACK`, `BUTTON_ALT_ATTACK`.
 const BUTTON_ATTACK: u16 = 1;
 const BUTTON_ALT_ATTACK: u16 = 128;
@@ -218,10 +222,19 @@ impl NativeGame {
             number => usize::try_from(number).ok(),
         };
         let Some(target) = target else { return };
+        // jaPRO's `g_blockDuelHealthSpec`: a duellist's health and armour are not shown.
+        let hide_duellists = self.integer_cvar(b"g_blockDuelHealthSpec", 0) != 0;
         let followed = self
             .peer(target)
             .filter(|peer| peer.begun && peer.playing())
-            .map(|peer| follow::followed_state(&peer.state));
+            .map(|peer| {
+                let mut state = follow::followed_state(&peer.state);
+                if hide_duellists && state.duel_in_progress() {
+                    state.stats[STAT_HEALTH] = 0;
+                    state.stats[STAT_ARMOR] = 0;
+                }
+                state
+            });
         match followed {
             Some(state) => {
                 if let Some(peer) = self.peer_mut(client) {

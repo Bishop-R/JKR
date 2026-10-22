@@ -296,7 +296,12 @@ pub(super) fn begin<G: LegacyGameHost>(view: &mut View<'_, G>) {
             .console_log(format!("recording to {path}.\n").as_bytes());
         super::demo::flush_demo(&mut view.slots[client], client, &mut *view.game);
         if view.game.demo_open(client, &path) {
-            view.slots[client].start_demo(client, &name, &*view.game);
+            view.slots[client].start_demo(
+                client,
+                &name,
+                &*view.game,
+                (view.settings.demo_extras, view.clock.server_time),
+            );
         } else {
             view.game.console_log(b"ERROR: couldn't open.\n");
         }

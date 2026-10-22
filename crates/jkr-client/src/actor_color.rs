@@ -36,6 +36,12 @@ const TEAM_BLUE: i32 = 2;
 pub struct TeamColorPolicy {
     /// `cgs.gametype >= GT_TEAM && !cgs.jediVmerc && cgs.gametype != GT_SIEGE`.
     pub team_override_active: bool,
+    /// EternalJK's `cg_saberTeamColors` (on, stock's rule, unless the player turns it off):
+    /// off, a blade keeps its own colour unless it is the other team's or a custom tint.
+    pub saber_team_colors: bool,
+    /// EternalJK's `cg_noRGBSabers` off (the default): custom blade tints show; on, a
+    /// custom blade rolls over to the stock colour its number names.
+    pub rgb_sabers: bool,
 }
 
 impl TeamColorPolicy {
@@ -50,6 +56,8 @@ impl TeamColorPolicy {
         let jedi_vs_merc = info_int(serverinfo, "g_jediVmerc") != 0;
         Self {
             team_override_active: gametype >= GT_TEAM && !jedi_vs_merc && gametype != GT_SIEGE,
+            saber_team_colors: true,
+            rgb_sabers: true,
         }
     }
 }

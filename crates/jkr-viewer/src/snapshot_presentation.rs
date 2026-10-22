@@ -149,6 +149,18 @@ fn client_name(game: &GameState, client: u16) -> &str {
 }
 
 impl GpuState {
+    /// The live server's `timescale` (its systeminfo's) for both clocks that pace
+    /// against the wall: the commands' and the presentation's.
+    pub(crate) fn apply_system_time_scale(&mut self) {
+        let Some(session) = &self.live_session else {
+            return;
+        };
+        let scale = presentation_clock::system_time_scale(session.game_state());
+        let now = Instant::now();
+        self.presentation_clock.set_time_scale(scale, now);
+        self.server_clock.set_time_scale(scale, now);
+    }
+
     /// A prepared world or local authority cannot contribute samples to a new
     /// remote timeline, even when the numeric timestamps happen to increase.
     pub(crate) fn reset_live_presentation(&mut self) {
@@ -164,7 +176,9 @@ impl GpuState {
             session.latest_snapshot().server_time,
             Instant::now(),
         );
+        self.apply_system_time_scale();
         self.local_actor_state = Default::default();
+        self.effect_aux.feedback = Default::default();
         for mesh in &mut self.actor_meshes {
             mesh.angle_controller = jkr_client::LegacyPlayerAngleController::new();
         }
@@ -178,14 +192,17 @@ impl GpuState {
         let Some(mut session) = self.demo_session.take() else {
             return;
         };
-        let relative = session.paced_relative_millis(self.ui_epoch.elapsed());
-        let relative = self.console.as_ref().map_or(relative, |console| {
-            console.demo_time(
-                relative,
-                (session.current_server_time() - i64::from(session.first_server_time())).max(0)
-                    as u64,
-            )
-        });
+        // The demo's clock holds while its map loads, as stock reads no demo then.
+        let loading = self.pending_map_reload
+            || self.world_load_task.is_some()
+            || self.world_install_task.is_some();
+        let scale = match &self.console {
+            _ if loading => 0.0,
+            Some(console) => console.demo_time_scale(),
+            None => 1.0,
+        };
+        let before = session.current_server_time();
+        let relative = session.clock_millis(self.ui_epoch.elapsed(), scale);
         let advance = session.advance_with_config(relative, |snapshot, game_state, changes| {
             if let (Some(audio), Some(vfs)) = (game_audio.as_mut(), &self.vfs) {
                 audio.prepare_config_strings(changes, game_state, vfs);
@@ -227,15 +244,32 @@ impl GpuState {
         });
         if let Err(error) = advance {
             eprintln!("demo playback stopped: {error}");
-            self.quit_requested = true;
-            self.demo_session = Some(session);
+            if let Some(console) = &mut self.console {
+                console.push_log(format!("^1Demo playback stopped: {error}"));
+            }
+            self.end_demo(session);
             return;
         }
         if session.ended() {
-            self.quit_requested = true;
+            self.end_demo(session);
+            return;
+        }
+        if let Some(console) = &mut self.console {
+            console.glide_timescale((session.current_server_time() - before) as f64);
         }
         update_demo_camera(self, &session);
         self.demo_session = Some(session);
+    }
+
+    /// A demo has ended (`CL_DemoCompleted`): one played from the command line quits,
+    /// one played from the console goes back to the menu.
+    fn end_demo(&mut self, session: demo_playback::Session) {
+        if session.quits_at_end() {
+            self.quit_requested = true;
+            self.demo_session = Some(session);
+        } else {
+            self.disconnect_to_menu();
+        }
     }
 }
 
@@ -259,6 +293,18 @@ impl GpuState {
             return;
         };
         let intermission = jkr_client::IntermissionView::from_player_state(&snapshot.player);
+        let no_predict = self
+            .console
+            .as_ref()
+            .is_some_and(|console| console.no_predict());
+        if let Some(console) = &mut self.console {
+            let falling = snapshot.player.falling_to_death() != 0;
+            console.auto_kill_when_falling(falling && !snapshot.player.is_spectator(), visual_now);
+            console.anti_am_kiss(&snapshot.player, || {
+                let info = session.game_state().config_string(0).unwrap_or_default();
+                jkr_client::ServerMod::from_serverinfo(info) == jkr_client::ServerMod::JaPlus
+            });
+        }
         if self.live_presentation_ready() {
             self.world_materials.areas.update(&snapshot.area_mask);
         }
@@ -283,7 +329,11 @@ impl GpuState {
                     third_person: self.third_person,
                     flash_point: self.last_first_person_flash,
                 },
-                !snapshot.player.is_spectator(),
+                !snapshot.player.is_spectator()
+                    && !crate::prediction_preview::interpolated::unpredicted_steps(
+                        session.game_state(),
+                        no_predict,
+                    ),
                 visual_now,
                 &mut Sinks {
                     audio: game_audio,
@@ -324,6 +374,12 @@ impl GpuState {
                     mesh.angle_controller = jkr_client::LegacyPlayerAngleController::new();
                 }
             }
+            // `CG_NewClientInfo`'s siege classes: each player dressed in its class's looks.
+            let looks = self
+                .clientinfo_watch
+                .siege_looks
+                .for_level(session.game_state(), self.vfs.as_deref());
+            adapter.set_siege_class_looks(looks);
             adapter.apply_snapshot(snapshot, session.game_state(), &mut self.live_world);
             if session.is_local() {
                 self.presentation_clock
@@ -344,10 +400,12 @@ impl GpuState {
             self.camera_position = Vec3::from_array(view.origin);
             self.camera_pitch = -view.angles[0].to_radians();
             self.camera_yaw = view.angles[1].to_radians();
-        } else if !crate::local_prediction::predicts_local_view(snapshot.player.movement_flags())
-            || crate::prediction_preview::interpolated::server_synchronous(session.game_state())
-        {
-            // Follow and synchronous movement are interpolated each rendered frame.
+        } else if crate::prediction_preview::interpolated::interpolates_local_view(
+            snapshot,
+            session.game_state(),
+            no_predict,
+        ) {
+            // Follow, synchronous and E-Web movement are interpolated each rendered frame.
             let view_height = snapshot.player.view_height() as f32;
             self.local_prediction.stop(view_height);
             self.camera_position =

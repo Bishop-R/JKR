@@ -2,7 +2,7 @@
 
 use jkr_shell::{CvarDefinition, CvarFlags, CvarRegistry};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU32, Ordering};
 
 /// Change-callback cache for integer values; frame reads never look up a name.
 pub(super) struct IntegerSetting(Arc<AtomicI64>);
@@ -32,6 +32,35 @@ impl IntegerSetting {
     /// Read the integer value without allocation or locking.
     pub(super) fn value(&self) -> i64 {
         self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// Change-callback cache for a number read as a float; frame reads never look up a name.
+pub(super) struct FloatSetting(Arc<AtomicU32>);
+
+impl FloatSetting {
+    /// Bind before config loading so archived values apply.
+    pub(super) fn bind(
+        cvars: &mut CvarRegistry,
+        name: &str,
+        default: f32,
+    ) -> Result<Self, jkr_shell::CvarError> {
+        let value = Arc::new(AtomicU32::new(default.to_bits()));
+        let changed = Arc::clone(&value);
+        cvars.on_change(name, move |change| {
+            let number = match change.current {
+                jkr_shell::CvarValue::Float(value) => value as f32,
+                jkr_shell::CvarValue::Integer(value) => value as f32,
+                _ => return,
+            };
+            changed.store(number.to_bits(), Ordering::Relaxed);
+        })?;
+        Ok(Self(value))
+    }
+
+    /// Read the value without allocation or locking.
+    pub(super) fn value(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
     }
 }
 
@@ -176,6 +205,24 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
         ),
         CvarDefinition::new("cg_fov", 90.0_f64, archive, "Horizontal field of view"),
         CvarDefinition::new(
+            "cg_zoomFov",
+            30.0_f64,
+            archive,
+            "EternalJK: the field of view +zoom narrows to (1 to 176)",
+        ),
+        CvarDefinition::new(
+            "cg_zoomSensitivity",
+            0.0_f64,
+            archive,
+            "EternalJK: mouse sensitivity while +zoom is held; 0 slows it with the view",
+        ),
+        CvarDefinition::new(
+            "cg_scopeSensitivity",
+            1.0_f64,
+            archive,
+            "EternalJK: multiplies a weapon zoom's mouse sensitivity; 0 keeps stock's",
+        ),
+        CvarDefinition::new(
             "cg_fovAspectAdjust",
             true,
             archive,
@@ -196,6 +243,54 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Extrapolate remote players and NPCs from snapshot velocity",
         ),
+        // EternalJK's (`cg_xcvar.h`): solid by default.
+        CvarDefinition::new(
+            "cg_gunAlpha",
+            1.0_f64,
+            archive,
+            "EternalJK: see-through amount of the first-person weapon (1 is solid)",
+        ),
+        CvarDefinition::new(
+            "cg_thirdPersonFlagAlpha",
+            1.0_f64,
+            archive,
+            "EternalJK: see-through amount of a flag you carry, seen in third person (1 is solid)",
+        ),
+        // TaystJK's (`cg_xcvar.h`), none by default.
+        CvarDefinition::new(
+            "cg_vehicleRange",
+            0.0_f64,
+            archive,
+            "TaystJK: extra camera distance on vehicles that set their own",
+        ),
+        // EternalJK's (`cg_xcvar.h`), off by default.
+        CvarDefinition::new(
+            "cg_autoKillWhenFalling",
+            0_i64,
+            archive,
+            "EternalJK: falling to your death, ask to die at once and respawn",
+        ),
+        // TaystJK `cg_xcvar.h:97`.
+        CvarDefinition::new(
+            "cg_antiAmKiss",
+            0_i64,
+            archive,
+            "TaystJK: on a JA+ server, push free at once when another player's amkiss holds you",
+        ),
+        // TaystJK `cg_xcvar.h:60`.
+        CvarDefinition::new(
+            "cg_weaponCycleAmmo",
+            0_i64,
+            archive,
+            "TaystJK: show the ammunition of the weapon chosen while cycling weapons",
+        ),
+        // `cg_xcvar.h:105`.
+        CvarDefinition::new(
+            "cg_noPredict",
+            0_i64,
+            archive,
+            "Show your own player from the server's snapshots alone, without predicting it",
+        ),
         CvarDefinition::new(
             "cg_errorDecay",
             100.0_f64,
@@ -207,6 +302,14 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             0.7_f64,
             archive,
             "Size multiplier for the modern HUD widgets (0.25 to 2)",
+        ),
+        // `cg_xcvar.h:135`: first person unless asked; a saber, fists, a turret, a vehicle
+        // or death put the camera behind the player whatever this says.
+        CvarDefinition::new(
+            "cg_thirdPerson",
+            false,
+            archive,
+            "Draw the view from behind the player",
         ),
         CvarDefinition::new(
             "cg_thirdPersonRange",
@@ -250,6 +353,102 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Third-person look-target easing per 50 ms; 1 or more snaps",
         ),
+        // `cg_xcvar.h:85,112-113,148`: the view's lean when running, and the weapon's sway
+        // and its dip on landing.
+        CvarDefinition::new(
+            "cg_runPitch",
+            0.002_f64,
+            archive,
+            "View pitch per unit of forward speed",
+        ),
+        CvarDefinition::new(
+            "cg_runRoll",
+            0.005_f64,
+            archive,
+            "View roll per unit of sideways speed",
+        ),
+        CvarDefinition::new(
+            "cg_weaponBob",
+            1.0_f64,
+            archive,
+            "Sway the first-person weapon",
+        ),
+        CvarDefinition::new(
+            "cg_fallingBob",
+            1.0_f64,
+            archive,
+            "Dip the first-person weapon on landing",
+        ),
+        // `cg_xcvar.h:131`.
+        CvarDefinition::new(
+            "cg_speedTrail",
+            1_i64,
+            archive,
+            "Draw afterimages behind players running with Force Speed",
+        ),
+        // `cg_xcvar.h:82`: no cut limbs by default; 1 shows arms, hands and legs, 2 heads
+        // and trunks too.
+        CvarDefinition::new(
+            "cg_dismember",
+            0_i64,
+            archive,
+            "Show limbs cut off: 0 none, 1 arms and legs, 2 heads and trunks too",
+        ),
+        // `cg_xcvar.h:136,142`: stock marks the alpha a cheat.
+        CvarDefinition::new(
+            "cg_thirdPersonAlpha",
+            1.0_f64,
+            CvarFlags::NONE,
+            "See-through amount of your own player in third person (1 is solid)",
+        ),
+        CvarDefinition::new(
+            "cg_thirdPersonSpecialCam",
+            false,
+            CvarFlags::NONE,
+            "Swing the camera round to watch saber special moves",
+        ),
+        CvarDefinition::new(
+            "cg_teamChatsOnly",
+            false,
+            CvarFlags::ARCHIVE,
+            "Show and print only team chat",
+        ),
+        CvarDefinition::new(
+            "cg_noTaunt",
+            false,
+            CvarFlags::ARCHIVE,
+            "Silence other players' taunts, gloats, flourishes and bows",
+        ),
+        CvarDefinition::new(
+            "cg_scoreboardBots",
+            true,
+            CvarFlags::ARCHIVE,
+            "Show BOT instead of a bot's ping on the scoreboard",
+        ),
+        CvarDefinition::new(
+            "cg_fovViewmodel",
+            0_i64,
+            CvarFlags::ARCHIVE,
+            "Field of view the first-person weapon is drawn at (0: cg_fov)",
+        ),
+        CvarDefinition::new(
+            "cg_fovViewmodelAdjust",
+            true,
+            CvarFlags::ARCHIVE,
+            "Lower the first-person weapon at fields of view over 90",
+        ),
+        CvarDefinition::new(
+            "cg_smoothCamera",
+            true,
+            CvarFlags::ARCHIVE,
+            "Third-person camera damping by elapsed time (0: per frame, as stock)",
+        ),
+        CvarDefinition::new(
+            "cg_fpls",
+            false,
+            CvarFlags::NONE,
+            "First-person saber: keep the view in the eyes with a saber, the body drawn",
+        ),
         CvarDefinition::new(
             "com_maxfps",
             1000_i64,
@@ -287,7 +486,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Retail sample-rate preset (11/22/44); JKR always mixes at 44.1 kHz",
         ),
         CvarDefinition::new("s_doppler", true, archive, "Legacy looping-sound Doppler"),
-        CvarDefinition::new("cg_footsteps", true, archive, "Play footstep sounds"),
+        CvarDefinition::new(
+            "cg_footsteps",
+            3_i64,
+            archive,
+            "Footsteps: 0 off, 1 sounds, 2 and dust, 3 and prints, 4 prints everywhere",
+        ),
         // Stock defaults and units: `sensitivity` 5 scaling `m_yaw`/`m_pitch`
         // degrees per mouse count (`cl_main.cpp:2774,2802-2803`, applied in
         // `cl_input.cpp:1161-1180`). Matching them is what lets a player carry
@@ -321,7 +525,107 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             archive,
             "Saber contact marks and sparks",
         ),
-        CvarDefinition::new("cg_marks", true, archive, "Leave impact marks on the world"),
+        CvarDefinition::new(
+            "cg_marks",
+            1_i64,
+            archive,
+            "Marks on the world: 0 none, 1 stock's, 2 footprints as decals",
+        ),
+        // EternalJK's effect options, stock's behaviour at their defaults.
+        CvarDefinition::new("cg_saberClash", true, archive, "Flare where sabers clash"),
+        CvarDefinition::new(
+            "cg_fleshSparks",
+            7_i64,
+            archive,
+            "Saber hits on flesh: 0 no sparks to 7 all of stock's",
+        ),
+        CvarDefinition::new(
+            "cg_leadIndicator",
+            0.0_f64,
+            archive,
+            "Where to aim at moving players with projectile weapons: 1 allows for your ping, other values are a ping in milliseconds",
+        ),
+        CvarDefinition::new(
+            "cg_drainFX",
+            2_i64,
+            archive,
+            "Wide Force Drain arc: 0 none, 1 jaPRO's, 2 stock's",
+        ),
+        CvarDefinition::new(
+            "cg_noFX",
+            0_i64,
+            archive,
+            "Effects left out: 1 the map's, 2 and its speakers, 3 general models drawn as blocks, 4 hidden, 5 every effect",
+        ),
+        CvarDefinition::new(
+            "cg_noTeleFX",
+            false,
+            archive,
+            "No effect or sound when players teleport",
+        ),
+        CvarDefinition::new(
+            "cg_alwaysShowAbsorb",
+            false,
+            archive,
+            "Show every running absorb, not only your own",
+        ),
+        CvarDefinition::new(
+            "cg_stylePlayer",
+            i64::from(jkr_client::style_player::DEFAULT),
+            archive,
+            "jaPRO player style bits: 1 fullbright, 2 duel shell, 4 hide duellists, 256 duellists as a stand-in, 1024 hide non-duellists, 2048 hide own ysalamiri, 8192 no bodies, 16384 no body fade effects, 32768 team spawn bubbles",
+        ),
+        CvarDefinition::new(
+            "cg_instantDuck",
+            false,
+            archive,
+            "Crouching moves the view at once",
+        ),
+        // TaystJK's options, stock's behaviour at their defaults.
+        CvarDefinition::new(
+            "cg_ambientSounds",
+            true,
+            archive,
+            "Map speakers, entity loops and ambient sound sets",
+        ),
+        CvarDefinition::new(
+            "cg_saberStaffMultiColor",
+            false,
+            archive,
+            "A staff's second blade in your second saber colour",
+        ),
+        CvarDefinition::new(
+            "cg_headTurn",
+            1_i64,
+            archive,
+            "Heads turn toward what players look at: 0 never, else for that many seconds",
+        ),
+        CvarDefinition::new(
+            "cg_noRGBSabers",
+            0_i64,
+            archive,
+            "Custom blade colours show as the stock colour their number names",
+        ),
+        CvarDefinition::new(
+            "cg_saberTeamColors",
+            true,
+            archive,
+            "Team games: every blade in its team's colour; 0 keeps yours unless it is the other team's",
+        ),
+        // `cg_xcvar.h:114`: not archived.
+        CvarDefinition::new(
+            "cg_saberClientVisualCompensation",
+            true,
+            CvarFlags::NONE,
+            "Keep showing a saber's hit between the server's reports",
+        ),
+        // `cg_xcvar.h:96`: not archived.
+        CvarDefinition::new(
+            "cg_ghoul2Marks",
+            16_i64,
+            CvarFlags::NONE,
+            "Marks a model may carry before it takes no more (0: none)",
+        ),
         CvarDefinition::new("cg_shadows", true, archive, "Draw player shadows"),
         CvarDefinition::new("cg_drawGun", true, archive, "Draw the first-person weapon"),
         CvarDefinition::new("cg_drawCrosshair", true, archive, "Display crosshair"),
@@ -397,6 +701,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "Team status: 0 off, 1 on",
         ),
         CvarDefinition::new(
+            "cg_drawRadar",
+            1_i64,
+            archive,
+            "Radar in team games and vehicles: 0 off, 1 on",
+        ),
+        CvarDefinition::new(
             "cg_speedometer",
             0_i64,
             archive,
@@ -426,7 +736,7 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             "cg_drawScores",
             true,
             archive,
-            "Display the bound scoreboard",
+            "Show the red and blue scores at the upper right in team games",
         ),
         CvarDefinition::new(
             "cg_drawChat",
@@ -445,6 +755,12 @@ pub(super) fn register_daily_cvars(cvars: &mut CvarRegistry) -> Result<(), jkr_s
             0_i64,
             archive,
             "Internal stock-bind migration version",
+        ),
+        CvarDefinition::new(
+            "jkr_footstepLevelsVersion",
+            0_i64,
+            archive,
+            "Internal migration marker for cg_footsteps becoming stock's levels",
         ),
     ];
     for definition in definitions {

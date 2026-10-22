@@ -1,6 +1,10 @@
 //! Map-lifetime cache for parsed EFX graphs and their shader names.
 
-use jkr_effect::{EffectDefinition, load_effect};
+#[path = "effect_embedded.rs"]
+pub(crate) mod embedded;
+
+use embedded::load_effect;
+use jkr_effect::EffectDefinition;
 use jkr_vfs::VirtualFileSystem;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -41,6 +45,16 @@ impl EffectLibrary {
                 );
             }
         }
+    }
+
+    /// Rigid models referenced by the already loaded recursive graph closure.
+    pub(crate) fn model_paths(&self) -> impl Iterator<Item = &str> {
+        self.definitions.values().flat_map(|definition| {
+            definition
+                .components
+                .iter()
+                .flat_map(|component| component.models.iter().map(String::as_str))
+        })
     }
 
     pub(crate) fn append_sound_paths(&self, output: &mut Vec<String>) {
@@ -114,11 +128,19 @@ impl EffectLibrary {
         value
     }
 
-    pub(crate) fn preload<I, S>(&mut self, vfs: &VirtualFileSystem, names: I)
+    /// Load `names` and every effect, shader and model they name. Returns whether the
+    /// library gained anything: only then must the assets built from it (the effect atlas,
+    /// models, sounds) be built again.
+    pub(crate) fn preload<I, S>(&mut self, vfs: &VirtualFileSystem, names: I) -> bool
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        let before = (
+            self.definitions.len(),
+            self.shaders.len(),
+            self.asset_names.len(),
+        );
         let mut pending = names
             .into_iter()
             .map(|name| name.as_ref().to_owned())
@@ -144,5 +166,11 @@ impl EffectLibrary {
                 }
             }
         }
+        before
+            != (
+                self.definitions.len(),
+                self.shaders.len(),
+                self.asset_names.len(),
+            )
     }
 }

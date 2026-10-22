@@ -40,7 +40,9 @@ impl NativeGame {
             .iter()
             .find(|npc| npc.number == number)
         else {
-            return self.turret_attacker(number);
+            return self
+                .turret_attacker(number)
+                .or_else(|| self.stock.shooters.attacker(number));
         };
         Some(Attacker {
             npc: true,
@@ -86,6 +88,88 @@ impl NativeGame {
         counted
     }
 
+    /// NPC `number` as the concussion rifle's beam reads what it struck: whether it counts
+    /// for `shooter`'s accuracy (`LogAccuracyHit`: alive, not on the shooter's team), its
+    /// `FL_NO_KNOCKBACK`, whether it holds a saber. `None` for anything but a begun NPC.
+    pub(crate) fn npc_beam_target(
+        &self,
+        number: u16,
+        shooter: usize,
+    ) -> Option<jkr_game_jka::concussion::StruckPlayer> {
+        const FL_NO_KNOCKBACK: u32 = 0x800;
+        let npc = self.npcs.roster.begun().find(|npc| npc.number == number)?;
+        let team = self.peer(shooter).map_or(0, |peer| peer.session.team);
+        Some(jkr_game_jka::concussion::StruckPlayer {
+            counts: npc.health > 0 && !(team == npc.session_team && team != 0),
+            no_knockback: npc.flags & FL_NO_KNOCKBACK != 0,
+            wields_saber: npc.player.weapon() == WP_SABER,
+        })
+    }
+
+    /// The concussion rifle's alternate shove and knockdown on NPC `number`
+    /// (`g_weapon.c:3220-3259`, [`jkr_game_jka::knockdown::concussion_shove`]): only a
+    /// humanoid one is knocked about (`!localAnimIndex`). `shot` is the beam's direction,
+    /// the shooter and where it stood.
+    pub(crate) fn concussion_shove_npc(
+        &mut self,
+        number: u16,
+        no_knockback: bool,
+        (forward, shooter, shooter_origin): ([f32; 3], u16, [f32; 3]),
+        level_time: i32,
+    ) {
+        let actors = &mut self.npcs.roster.actors;
+        let Some(npc) = actors.iter_mut().find(|npc| npc.number == number) else {
+            return;
+        };
+        if !npc.humanoid {
+            return;
+        }
+        let _ = jkr_game_jka::knockdown::concussion_shove(
+            &mut npc.player,
+            &mut npc.mind.knockdown,
+            &mut npc.mind.fight.other_killer,
+            npc.health,
+            no_knockback,
+            forward,
+            shooter,
+            shooter_origin,
+            level_time,
+        );
+    }
+
+    /// `legsAnim` and `torsoAnim` of NPC `number` now, kept for a disintegration.
+    pub(crate) fn npc_poses(&self, number: u16) -> Option<(u32, u32)> {
+        let npc = self
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == number)?;
+        let field = |index: usize| npc.player.raw_field(index).unwrap_or(0);
+        Some((field(13), field(15)))
+    }
+
+    /// The disintegration of an NPC a full disruptor charge killed (`g_weapon.c:936-949`):
+    /// a player's marks on its player state ([`jkr_game_jka::disruptor::disintegrated`])
+    /// and its body made passable (`r.contents = 0`) — unless it is a vehicle other than
+    /// an animal, which `G_CanDisruptify` spares.
+    pub(crate) fn disintegrate_npc(&mut self, number: u16, point: [f32; 3], poses: (u32, u32)) {
+        use jkr_game_jka::vehicle_fields::kind::ANIMAL;
+        let actors = &mut self.npcs.roster.actors;
+        let Some(npc) = actors.iter_mut().find(|npc| npc.number == number) else {
+            return;
+        };
+        if npc
+            .vehicle
+            .as_ref()
+            .is_some_and(|vehicle| vehicle.info.kind != ANIMAL)
+        {
+            return;
+        }
+        jkr_game_jka::disruptor::disintegrated(&mut npc.player, point, poses);
+        npc.contents = 0;
+    }
+
     /// A blow by `owner` on `target`: `LogAccuracyHit` (a living foe — teammates only
     /// exist in team games), `G_Damage`, and the shooter's hit counters. Returns what the
     /// damage came to.
@@ -113,7 +197,10 @@ impl NativeGame {
         if self.hurt_gun(
             target as u16,
             request.damage,
-            request.attacker.map(|attacker| attacker.client),
+            (
+                request.attacker.map(|attacker| attacker.client),
+                request.means,
+            ),
             request.level_time,
         ) {
             return (Damaged::default(), false);
@@ -124,8 +211,16 @@ impl NativeGame {
         if self.turret_spares(target, owner)
             || u16::try_from(target).is_ok_and(|target| {
                 self.strike_turret(target, request)
+                    || self.hurt_brush(
+                        target,
+                        request.damage,
+                        request.means,
+                        owner as u16,
+                        request.level_time,
+                    )
                     || self.strike_siege_item(target, request)
                     || self.strike_shield(target, request)
+                    || self.strike_body(target, request)
             })
         {
             return (Damaged::default(), false);
@@ -139,7 +234,17 @@ impl NativeGame {
             && owner != target
             && !(team == victim.session.team && team != 0 && !by_npc);
         let damaged = self.hurt_at(target, request, location);
-        self.count_hit(owner, counts && count, &damaged);
+        // A player's hit `hurt_at` counted itself; an NPC shooter's is the roster's.
+        let counted_hit = if self.peer(owner).is_some() {
+            Damaged::default()
+        } else {
+            Damaged {
+                attacker_hits: damaged.attacker_hits,
+                attackee_armor: damaged.attackee_armor,
+                ..Damaged::default()
+            }
+        };
+        self.count_hit(owner, counts && count, &counted_hit);
         (damaged, counts)
     }
 
@@ -148,9 +253,7 @@ impl NativeGame {
         if let Some(shooter) = self.peer_mut(owner) {
             shooter.accuracy.0 += i32::from(counted);
             if damaged.attacker_hits != 0 {
-                shooter.state.persistent[PERS_HITS] =
-                    (shooter.state.persistent[PERS_HITS] as i32 + damaged.attacker_hits) as u32;
-                shooter.state.persistent[PERS_ATTACKEE_ARMOR] = damaged.attackee_armor.unwrap_or(0);
+                self.record_hit(owner, damaged.attacker_hits, damaged.attackee_armor);
             }
         } else {
             self.npcs.roster.record_hit(
@@ -199,6 +302,7 @@ impl NativeGame {
             let _ = self.hurt_npc(owner, target, request, None, counted);
         }
         self.flush_turret_blows();
+        self.flush_brush_blows();
     }
 
     /// `G_Damage` on NPC `target` through the roster, placed by the surface a blade struck
@@ -211,12 +315,35 @@ impl NativeGame {
         surface: Option<HitLocation>,
         counted: bool,
     ) -> Damaged {
+        // jaPRO's god chat: a typing player's blow deals nothing (here not even a DEMP2's
+        // shock).
+        if self.typing_attacker(request.attacker) {
+            return Damaged::default();
+        }
         // The Jedi Master's rule for a player's blow (an NPC is never the master).
         let spared_by_master = self.jedi_master_spares(
             request.attacker.map(|attacker| attacker.client),
             usize::from(target),
         );
         let level_time = request.level_time;
+        let attacker = request.attacker;
+        let means = request.means;
+        // Alive before the blow, for jaPRO's damage numbers; what it had, for its
+        // statistics.
+        let before = self
+            .npcs
+            .roster
+            .actors
+            .iter()
+            .find(|npc| npc.number == target)
+            .map(|npc| {
+                (
+                    npc.health,
+                    npc.player.stats[0] as i32,
+                    npc.player.stats[5] as i32,
+                )
+            });
+        let alive_before = before.is_some_and(|(health, stat, _)| health > 0 && stat > 0);
         let blow = NpcBlow {
             request,
             spared_by_master,
@@ -229,6 +356,17 @@ impl NativeGame {
             return Damaged::default();
         };
         self.fire_targets_from_npcs(fired, level_time);
+        if alive_before && let Some(attacker) = attacker {
+            let dealer = super::bridge_damage_numbers::Party::attacker(attacker);
+            let taker = super::bridge_damage_numbers::Party::Npc(target);
+            self.tell_damage(dealer, taker, hurt.take + hurt.absorbed, level_time);
+        }
+        if let Some((health, _, armor)) = before {
+            self.count_npc_damage(attacker, hurt.take + hurt.absorbed, (health, armor));
+        }
+        if !hurt.died {
+            self.tally_damage(attacker, means, hurt.take);
+        }
         let damaged = Damaged {
             take: hurt.take,
             attacker_hits: hurt.attacker_hits,
@@ -280,6 +418,8 @@ impl NativeGame {
         for outcome in outcomes {
             match outcome {
                 NpcOutcome::Log(line) => self.log(&line),
+                NpcOutcome::RunBehavior(number, bset) => self.npcs.behaviors.push((number, bset)),
+                NpcOutcome::TallyKill(player, means) => self.tally_kill(Some(player), means),
                 // `AddScore` is held off during the warmup.
                 NpcOutcome::PlayerScore(..) | NpcOutcome::NpcScored(..) if !self.scoring() => {}
                 NpcOutcome::PlayerScore(player, points) => {
@@ -309,10 +449,17 @@ impl NativeGame {
                             peer.state.persistent[PERS_EXCELLENT].wrapping_add(1);
                     }
                     peer.mortality.last_kill_time = level_time;
+                    // jaPRO's gun game counts an NPC as any kill.
+                    self.gun_game_kill(usize::from(player));
                 }
                 NpcOutcome::PlayerEnemy(player, enemy) => {
                     if let Some(peer) = self.peer_mut(usize::from(player)) {
                         peer.npc_enemy = enemy;
+                    }
+                }
+                NpcOutcome::ClearPlayerNotarget(player) => {
+                    if let Some(peer) = self.peer_mut(usize::from(player)) {
+                        peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_NOTARGET;
                     }
                 }
                 NpcOutcome::KillPlayer(player) => {
@@ -388,7 +535,7 @@ impl NativeGame {
                 request.level_time,
             );
             let _ = self.strike_at(owner, usize::from(target), request, location, false);
-        } else {
+        } else if !self.strike_body(target, request) {
             let _ = self.hurt_brush(
                 target,
                 request.damage,

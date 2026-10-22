@@ -16,17 +16,13 @@
 
 use crate::damage::{
     Attacker, DAMAGE_HALF_ABSORB, DAMAGE_NO_ARMOR, DAMAGE_NO_HIT_LOC, DAMAGE_NO_KNOCKBACK,
-    DAMAGE_NO_PROTECTION, DAMAGE_SABER_KNOCKBACK1, DAMAGE_SABER_KNOCKBACK1_B2,
-    DAMAGE_SABER_KNOCKBACK2, DAMAGE_SABER_KNOCKBACK2_B2, DamageRequest, HitLocation, OtherKiller,
-    hit_location, location_modified,
+    DAMAGE_NO_PROTECTION, DamageRequest, HitLocation, OtherKiller, hit_location, location_modified,
 };
 use crate::event_entity::EventEntity;
 use crate::means_of_death::{MOD_DEMP2, MOD_DEMP2_ALT, MOD_SABER};
 use crate::npc_spawn::NpcHost;
 use crate::npc_world::NpcWorld;
 
-/// `g_knockback`'s default.
-const KNOCKBACK: f32 = 1_000.0;
 /// `ARMOR_PROTECTION`.
 const ARMOR_PROTECTION: f64 = 0.5;
 /// `EV_SHIELD_HIT`.
@@ -93,6 +89,8 @@ pub struct NpcBlow {
 pub struct NpcDamaged {
     /// The health taken, after the armour.
     pub take: i32,
+    /// What the armour took (`asave`), which jaPRO's damage numbers add.
+    pub absorbed: i32,
     /// What the attacker's persistants gain (`PERS_HITS`, `PERS_ATTACKEE_ARMOR`), for an
     /// attacker with a client; the caller applies it to a player, the roster to an NPC.
     pub attacker_hits: i32,
@@ -114,7 +112,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         let attacker_number = attacker.map_or(ENTITY_WORLD, |attacker| attacker.client);
         let by_another = attacker_number != self.actors[me].number;
         let attacker_body = attacker.and_then(|attacker| self.body(attacker.client));
-        let gametype = self.host.gametype();
+        let (gametype, rules) = (self.host.gametype(), self.host.damage_rules());
         // The DEMP2's electrocution, the first thing it does to a client.
         if request.means == MOD_DEMP2
             && (self.actors[me]
@@ -163,6 +161,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
         }
         // Where it landed, for a blow by a client or an NPC (`g_combat.c:4602-4610`).
         let placed = attacker_body.is_some()
+            && rules.location_based
             && flags & DAMAGE_NO_HIT_LOC == 0
             && !(request.means == MOD_SABER && damage <= 1)
             && crate::vehicle_damage::located(npc);
@@ -214,10 +213,9 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 attacker,
                 attacker_body.is_some() && by_another,
                 direction,
-                knockback,
-                flags,
-                request.means,
+                (knockback, flags, request.means),
                 level_time,
+                &rules,
             );
         }
         // A vehicle remembers who shot it for longer, pushed or not.
@@ -285,6 +283,12 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 take = (take / 3).max(1);
             }
         }
+        if rules.debug_print {
+            let line =
+                crate::damage::debug_damage_line(level_time, npc.number, npc.health, take, save);
+            self.host.print(&line);
+        }
+        let npc = &mut self.actors[me];
         // The frame's totals, which no frame's end reads for an NPC.
         npc.player.persistent[PERS_ATTACKER] = u32::from(attacker_number);
         npc.mind.fight.last_hurt = Some((attacker_number, request.means));
@@ -329,6 +333,7 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.host.raise(flash);
         }
         damaged.take = take;
+        damaged.absorbed = save.max(0);
         if take != 0 {
             damaged.died = self.take_health(me, take, rage && attacker_body.is_some(), request);
         }
@@ -393,6 +398,13 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.die(me, attacker.unwrap_or(ENTITY_WORLD), take, request.means);
             return true;
         }
+        // `g_debugMelee`: hurt, a held wall is let go (`g_combat.c:5519-5525`).
+        if self.host.force_rules().debug_melee
+            && crate::debug_melee::stuck_to_wall(&self.actors[me].player)
+        {
+            crate::debug_melee::let_go_of_wall(&mut self.actors[me].player);
+        }
+        let npc = &self.actors[me];
         // No pain for a saber's idle touch; pain from where it landed, else where the NPC is.
         if request.means != MOD_SABER || take > 1 {
             let point = request.point.unwrap_or(npc.current_origin);
@@ -425,46 +437,21 @@ impl<H: NpcHost> NpcWorld<'_, H> {
     }
 }
 
-/// The knockback's push (`g_combat.c:4630-4738`): the velocity along the blow — a saber's
-/// scaled by `g_saberDmgVelocityScale`, 0, unless the blow asks for its sabers' own
-/// scales — the attacker (a client) remembered as the one who pushed, and the movement
-/// locked while the push lasts.
+/// The knockback's push (`g_combat.c:4630-4738`): the velocity along the blow
+/// ([`crate::damage::DamageRules::push`]), the attacker (a client) remembered as the
+/// one who pushed, and the movement held while the push lasts.
 #[allow(clippy::too_many_arguments)]
 fn push(
     npc: &mut crate::npc_spawn::NpcActor,
     attacker: Option<Attacker>,
     credited: bool,
     direction: [f32; 3],
-    knockback: i32,
-    flags: u32,
-    means: u32,
+    (knockback, flags, means): (i32, u32, u32),
     level_time: i32,
+    rules: &crate::damage::DamageRules,
 ) {
-    let saber = means == MOD_SABER;
-    let pushed_by_saber = saber && flags & (DAMAGE_SABER_KNOCKBACK1 | DAMAGE_SABER_KNOCKBACK2) != 0;
-    let scale = if saber {
-        let mut saber_scale = 0.0;
-        if pushed_by_saber {
-            saber_scale = 1.0;
-            let scales = attacker.map_or([0.0; 4], |attacker| attacker.saber_knockback);
-            for (bit, factor) in [
-                DAMAGE_SABER_KNOCKBACK1,
-                DAMAGE_SABER_KNOCKBACK1_B2,
-                DAMAGE_SABER_KNOCKBACK2,
-                DAMAGE_SABER_KNOCKBACK2_B2,
-            ]
-            .into_iter()
-            .zip(scales)
-            {
-                if flags & bit != 0 {
-                    saber_scale *= factor;
-                }
-            }
-        }
-        (KNOCKBACK * knockback as f32 / 200.0) * saber_scale
-    } else {
-        KNOCKBACK * knockback as f32 / 200.0
-    };
+    let saber_knockback = attacker.map(|attacker| attacker.saber_knockback);
+    let (scale, holds) = rules.push(knockback, flags, means == MOD_SABER, saber_knockback);
     let velocity = npc.player.velocity();
     npc.player.set_velocity(std::array::from_fn(|axis| {
         velocity[axis] + direction[axis] * scale
@@ -472,7 +459,7 @@ fn push(
     if credited && let Some(attacker) = attacker {
         npc.mind.fight.other_killer = OtherKiller::credit(attacker.client, level_time);
     }
-    if npc.player.movement_time() == 0 && (!saber || pushed_by_saber) {
+    if npc.player.movement_time() == 0 && holds {
         let lock = (knockback * 2).clamp(50, 200);
         npc.player.set_movement_time(lock as i16);
         npc.player

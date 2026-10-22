@@ -69,6 +69,9 @@ pub struct NpcRoster {
     /// The level's space-ship triggers and the points they name
     /// ([`crate::vehicle_triggers`]).
     pub ship_triggers: crate::vehicle_triggers::ShipTriggers,
+    /// The NPC whose begin the last [`Self::run_pending`] stopped at its spawn script
+    /// ([`Self::take_script_turn`]).
+    script_turn: Option<u16>,
 }
 
 impl Default for NpcRoster {
@@ -90,6 +93,7 @@ impl Default for NpcRoster {
             left_timers: Vec::new(),
             level: crate::npc_groups::NpcLevel::default(),
             scratch: Scratch::default(),
+            script_turn: None,
         }
     }
 }
@@ -107,6 +111,8 @@ enum Due {
     Boundary,
     /// A limb's run (`G_RunItem`, `LimbThink`: [`crate::npc_dismember`]).
     Limb,
+    /// The rest of an NPC's begin once its spawn script ran: its first think.
+    BeginTail,
 }
 
 /// What the thinks reuse, so that a frame allocates nothing once warmed up.
@@ -361,7 +367,8 @@ impl NpcRoster {
 
     /// `G_RunThink` for the next spawner or NPC due this frame ([`Self::pending`]): a spawn,
     /// a begin, a think or a freeing — if its think is still due (another's think may have
-    /// put it off). Returns what it fired.
+    /// put it off). Returns what it fired. A begin that reaches a spawn script stops there
+    /// ([`Self::take_script_turn`]) and is finished by the next call.
     pub fn run_pending(
         &mut self,
         level_time: i32,
@@ -369,10 +376,16 @@ impl NpcRoster {
         host: &mut impl NpcHost,
     ) -> Fired {
         let mut fired = Fired::new();
+        self.script_turn = None;
         let Some((number, due)) = self.scratch.due.pop() else {
             return fired;
         };
         match due {
+            Due::BeginTail => {
+                if let Some(at) = self.actors.iter().position(|npc| npc.number == number) {
+                    self.finish_begin(at, level_time, files, host, &mut fired);
+                }
+            }
             Due::Spawner => {
                 let Some(at) = self.spawners.iter().position(|(known, _)| *known == number) else {
                     return fired;
@@ -513,38 +526,120 @@ impl NpcRoster {
                 }
                 match begun {
                     Begun::GaveUp(Some(target3)) => fired.push(target3),
-                    // The begin's own think: an empty command, which drops the NPC to the
-                    // floor and sets its animations going (`NPC_spawn.c:1172-1183`).
-                    Begun::Begun => {
-                        self.world(level_time, host, fired)
-                            .client_think(at, jkr_protocol::UserCommand::default());
-                        let npc = &self.actors[at];
-                        host.publish(npc.number, &npc.state, npc.bounds(), npc.contents);
-                        // A vehicle's droid unit last (`NPC_spawn.c:1201-1266`).
-                        self.spawn_droid_unit(at, level_time, files, host, fired);
+                    // Its spawn script runs before its first think (`NPC_spawn.c:1161-1165`):
+                    // the begin stops for the caller to run it, and its rest is due next.
+                    Begun::Begun
+                        if self.actors[at].behavior_sets[crate::script_entity::BSET_SPAWN]
+                            .as_deref()
+                            .is_some_and(|script| !script.is_empty()) =>
+                    {
+                        let number = self.actors[at].number;
+                        self.script_turn = Some(number);
+                        self.scratch.due.push((number, Due::BeginTail));
                     }
+                    Begun::Begun => self.finish_begin(at, level_time, files, host, fired),
                     _ => {}
                 }
             }
             NpcThink::Think(_) if self.skip_thinks => {}
             NpcThink::Think(_) | NpcThink::RemoveBody(_) => {
                 let removing = matches!(self.actors[at].think, NpcThink::RemoveBody(_));
-                let thought = {
-                    let mut world = self.world(level_time, host, fired);
-                    if removing {
-                        world.remove_body(at)
-                    } else {
-                        world.think(at)
-                    }
-                };
-                if thought == crate::npc_dead::DeadThought::Gone {
-                    self.remove(at, host);
-                } else {
-                    let npc = &self.actors[at];
-                    host.publish(npc.number, &npc.state, npc.bounds(), npc.contents);
-                }
+                self.think_or_remove_body(at, removing, level_time, host, fired);
             }
         }
+    }
+
+    /// The think of the NPC at `at`, or its `NPC_RemoveBody`: it goes if that was the end
+    /// of it, else its entity is published.
+    fn think_or_remove_body(
+        &mut self,
+        at: usize,
+        removing: bool,
+        level_time: i32,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) {
+        let thought = {
+            let mut world = self.world(level_time, host, fired);
+            if removing {
+                world.remove_body(at)
+            } else {
+                world.think(at)
+            }
+        };
+        if thought == crate::npc_dead::DeadThought::Gone {
+            self.remove(at, host);
+        } else {
+            let npc = &self.actors[at];
+            host.publish(npc.number, &npc.state, npc.bounds(), npc.contents);
+        }
+    }
+
+    /// `NPC_RemoveBody` for the dead NPC `number` out of its turn: what `G_MoverPush` does
+    /// with a body a mover cannot move (`g_mover.c:404-409`).
+    pub fn remove_body_now(
+        &mut self,
+        number: u16,
+        level_time: i32,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) {
+        if let Some(at) = self.actors.iter().position(|npc| npc.number == number) {
+            self.think_or_remove_body(at, true, level_time, host, fired);
+        }
+    }
+
+    /// `Jedi_DodgeEvasion` for NPC `number` struck by an instant-hit shot at `hit_loc`
+    /// (`g_weapon.c:614`, `:832`, `:3189`): whether it dodged, the dodge taken on it.
+    pub fn dodge_shot(
+        &mut self,
+        number: u16,
+        hit_loc: i32,
+        level_time: i32,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) -> bool {
+        let Some(at) = self.actors.iter().position(|npc| npc.number == number) else {
+            return false;
+        };
+        self.world(level_time, host, fired)
+            .jedi_dodge_evasion(at, None, None, hit_loc)
+    }
+
+    /// `G_FreeEntity` on NPC `number` out of its turn: a scripted mover's `Blocked_Mover`
+    /// on a corpse in its way (`g_ICARUScb.c:663-671`).
+    pub fn free_now(&mut self, number: u16, host: &mut impl NpcHost) {
+        if let Some(at) = self.actors.iter().position(|npc| npc.number == number) {
+            self.remove(at, host);
+        }
+    }
+
+    /// The rest of the begin of the NPC at `at` (`NPC_spawn.c:1172-1266`): its own think,
+    /// an empty command, which drops it to the floor and sets its animations going; its
+    /// waypoint and home waypoint forgotten (`:1199`), a spawn script's search start among
+    /// them; and a vehicle's droid unit last.
+    fn finish_begin(
+        &mut self,
+        at: usize,
+        level_time: i32,
+        files: NpcFiles<'_>,
+        host: &mut impl NpcHost,
+        fired: &mut Fired,
+    ) {
+        self.world(level_time, host, fired)
+            .client_think(at, jkr_protocol::UserCommand::default());
+        let npc = &mut self.actors[at];
+        npc.mind.tactics.waypoint = crate::npc_mind::WAYPOINT_NONE;
+        npc.mind.tactics.home_waypoint = crate::npc_mind::WAYPOINT_NONE;
+        host.publish(npc.number, &npc.state, npc.bounds(), npc.contents);
+        self.spawn_droid_unit(at, level_time, files, host, fired);
+    }
+
+    /// The NPC whose begin the last [`Self::run_pending`] stopped at its spawn script, for
+    /// the caller to run it now (`G_ActivateBehavior(ent, BSET_SPAWN)` and a turn of its
+    /// scripts) before the next call finishes the begin.
+    pub fn take_script_turn(&mut self) -> Option<u16> {
+        self.script_turn.take()
     }
 
     /// `G_KillBox`'s blows on the NPCs where the NPC at `at` began (`g_utils.c:1192-1194`):

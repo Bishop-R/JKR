@@ -31,11 +31,16 @@ pub struct LegacySaberClashFlare {
     flash_time: i32,
     position: [f32; 3],
     latched: bool,
+    /// EternalJK's `cg_saberClash 0`: no flare at all.
+    pub disabled: bool,
 }
 
 impl LegacySaberClashFlare {
     /// Latch one decoded clash event at the cgame time at which it was read.
     pub fn observe(&mut self, position: [f32; 3], cg_time: i32) {
+        if self.disabled {
+            return;
+        }
         self.flash_time = cg_time.wrapping_sub(50);
         self.position = position;
         self.latched = true;

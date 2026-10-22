@@ -79,6 +79,11 @@ impl Director {
             .sample(fallback, self.epoch.elapsed().as_secs_f64())
     }
 
+    /// Whether a shot camera is set or on its way: the view is the director's then.
+    pub(crate) fn camera_active(&self) -> bool {
+        self.camera.active() || self.camera.pending.is_some()
+    }
+
     /// True only while a manual sun control needs sampling.
     pub(crate) fn sun_active(&self) -> bool {
         self.sun.active()

@@ -158,6 +158,30 @@ pub trait FlagWorld {
     fn in_pvs(&mut self, from: [f32; 3], to: [f32; 3]) -> bool;
     /// `CS_FLAGSTATUS` changed to `value`.
     fn flag_status(&mut self, value: Vec<u8>);
+    /// jaPRO's `g_allowFlagThrow` is on: taking the enemy flag scores nothing
+    /// ([`crate::flag_throw`]). Off, as in stock, unless the server says so.
+    fn flag_throw(&self) -> bool {
+        false
+    }
+    /// jaPRO's `g_fixCTFScores` is on: its points and announcements
+    /// ([`crate::japro_ctf`]). Off, as in stock, unless the server says so.
+    fn fixed_scores(&self) -> bool {
+        false
+    }
+    /// Player `number`'s name (`pers.netname`), for jaPRO's announcements.
+    fn name(&mut self, _number: u16) -> Vec<u8> {
+        Vec::new()
+    }
+    /// A command for every client (`trap->SendServerCommand(-1, ...)`).
+    fn tell_all(&mut self, _command: Vec<u8>) {}
+    /// Player `number`'s flag timer (jaPRO's `pers.stats`).
+    fn flag_timer(&mut self, _number: u16) -> Option<&mut crate::japro_ctf::FlagTimer> {
+        None
+    }
+    /// `sv_fps`.
+    fn frames_per_second(&self) -> f32 {
+        20.0
+    }
 }
 
 /// A flag touched: whose it is, whether it lies dropped, and where it stands.
@@ -203,6 +227,20 @@ pub fn touch(
         touch_our_flag(flags, world, flag, other, level_time, intermission_queued)
     } else {
         touch_enemy_flag(flags, world, flag, other, level_time, intermission_queued)
+    }
+}
+
+/// A score of jaPRO's when its CTF scores are on, else stock's.
+fn bonus(world: &dyn FlagWorld, stock: i32, japro: i32) -> i32 {
+    if world.fixed_scores() { japro } else { stock }
+}
+
+/// The other of the two teams.
+fn other_team(team: i32) -> i32 {
+    if team == TEAM_RED {
+        TEAM_BLUE
+    } else {
+        TEAM_RED
     }
 }
 
@@ -257,12 +295,24 @@ fn touch_our_flag(
         PW_REDFLAG
     };
     if flag.dropped {
-        print_ctf_message(
-            world,
-            i32::from(other),
-            team,
-            CTFMESSAGE_PLAYER_RETURNED_FLAG,
-        );
+        if world.fixed_scores() {
+            // How far the flag got: from its base and from the other's.
+            let away = |world: &mut dyn FlagWorld, team: i32| {
+                world
+                    .base_flag(team)
+                    .map_or(0.0, |base| distance(base, flag.base))
+            };
+            let (own, enemy) = (away(world, team), away(world, other_team(team)));
+            let name = world.name(other);
+            world.tell_all(crate::japro_ctf::returned(&name, team, own, enemy));
+        } else {
+            print_ctf_message(
+                world,
+                i32::from(other),
+                team,
+                CTFMESSAGE_PLAYER_RETURNED_FLAG,
+            );
+        }
         world.add_score(other, CTF_RECOVERY_BONUS);
         if let Some(player) = world.player(other) {
             player.team_state.flag_recovery += 1;
@@ -303,12 +353,24 @@ fn touch_our_flag(
             return touch_enemy_flag(flags, world, flag, number, level_time, intermission_queued);
         }
     }
-    print_ctf_message(
-        world,
-        i32::from(other),
-        team,
-        CTFMESSAGE_PLAYER_CAPTURED_FLAG,
-    );
+    if world.fixed_scores() {
+        let (name, fps) = (world.name(other), world.frames_per_second());
+        let captured = other_team(team);
+        let text = match world.flag_timer(other) {
+            Some(timer) => timer.captured(&name, captured, level_time, fps),
+            None => {
+                crate::japro_ctf::FlagTimer::default().captured(&name, captured, level_time, fps)
+            }
+        };
+        world.tell_all(text);
+    } else {
+        print_ctf_message(
+            world,
+            i32::from(other),
+            team,
+            CTFMESSAGE_PLAYER_CAPTURED_FLAG,
+        );
+    }
     if let Some(player) = world.player(other) {
         player.state.powerups[enemy_flag] = 0;
     }
@@ -320,7 +382,8 @@ fn touch_our_flag(
         player.state.persistent[PERS_CAPTURES] =
             player.state.persistent[PERS_CAPTURES].wrapping_add(1);
     }
-    world.add_score(other, CTF_CAPTURE_BONUS);
+    let points = bonus(world, CTF_CAPTURE_BONUS, crate::japro_ctf::CAPTURE);
+    world.add_score(other, points);
     capture_flag_sound(world, flag.base, team);
     // The bonuses: the capture's team, and its assists.
     let mut assists = 0;
@@ -405,7 +468,31 @@ fn touch_enemy_flag(
             return touch_our_flag(flags, world, flag, number, level_time, intermission_queued);
         }
     }
-    print_ctf_message(world, i32::from(other), team, CTFMESSAGE_PLAYER_GOT_FLAG);
+    // The flags as they stood before this grab.
+    let status = |team: i32| {
+        if team == TEAM_RED {
+            flags.red
+        } else {
+            flags.blue
+        }
+    };
+    let (at_base, own_at_base) = (
+        status(team) == FLAG_ATBASE,
+        status(other_team(team)) == FLAG_ATBASE,
+    );
+    let fixed = world.fixed_scores();
+    let mut points = 0;
+    if fixed {
+        let name = world.name(other);
+        let speed = world
+            .player(other)
+            .map_or(0.0, |player| length(player.state.velocity()));
+        let text;
+        (points, text) = crate::japro_ctf::grab(&name, team, speed, at_base, own_at_base);
+        world.tell_all(text);
+    } else {
+        print_ctf_message(world, i32::from(other), team, CTFMESSAGE_PLAYER_GOT_FLAG);
+    }
     if let Some(player) = world.player(other) {
         player.state.powerups[if team == TEAM_RED {
             PW_REDFLAG
@@ -413,8 +500,17 @@ fn touch_enemy_flag(
             PW_BLUEFLAG
         }] = i32::MAX as u32;
     }
+    if fixed && let Some(timer) = world.flag_timer(other) {
+        timer.grabbed(at_base, level_time);
+    }
     set_flag_status(flags, world, team, FLAG_TAKEN);
-    world.add_score(other, CTF_FLAG_BONUS);
+    if fixed {
+        if points != 0 {
+            world.add_score(other, points);
+        }
+    } else if !world.flag_throw() {
+        world.add_score(other, CTF_FLAG_BONUS);
+    }
     if let Some(player) = world.player(other) {
         player.team_state.flag_since = level_time;
     }
@@ -674,11 +770,21 @@ pub fn frag_bonuses(world: &mut dyn FlagWorld, target: u16, attacker: u16, level
         TEAM_RED
     };
     if carries_enemy_flag {
+        let fixed = world.fixed_scores();
         if let Some(player) = world.player(attacker) {
             player.team_state.last_fragged_carrier = level_time;
             player.team_state.frag_carrier += 1;
+            if fixed {
+                player.state.persistent[PERS_DEFEND_COUNT] =
+                    player.state.persistent[PERS_DEFEND_COUNT].wrapping_add(1);
+            }
         }
-        world.add_score(attacker, CTF_FRAG_CARRIER_BONUS);
+        let points = bonus(
+            world,
+            CTF_FRAG_CARRIER_BONUS,
+            crate::japro_ctf::FRAG_CARRIER,
+        );
+        world.add_score(attacker, points);
         print_ctf_message(
             world,
             i32::from(attacker),
@@ -697,7 +803,12 @@ pub fn frag_bonuses(world: &mut dyn FlagWorld, target: u16, attacker: u16, level
     // One who hurt the killer's carrier lately (the game tests it twice, with and without
     // the killer carrying a flag, to the same end).
     if hurt != 0 && level_time - hurt < CTF_CARRIER_DANGER_PROTECT_TIMEOUT {
-        world.add_score(attacker, CTF_CARRIER_DANGER_PROTECT_BONUS);
+        let points = bonus(
+            world,
+            CTF_CARRIER_DANGER_PROTECT_BONUS,
+            crate::japro_ctf::DEFENCE,
+        );
+        world.add_score(attacker, points);
         if let Some(player) = world.player(attacker) {
             player.team_state.carrier_defense += 1;
             player.state.persistent[PERS_DEFEND_COUNT] =
@@ -729,7 +840,8 @@ pub fn frag_bonuses(world: &mut dyn FlagWorld, target: u16, attacker: u16, level
     let near_flag = (length(v1) < CTF_TARGET_PROTECT_RADIUS && world.in_pvs(flag, targ_origin))
         || (length(v2) < CTF_TARGET_PROTECT_RADIUS && world.in_pvs(flag, attacker_origin));
     if near_flag && attacker_team != team {
-        world.add_score(attacker, CTF_FLAG_DEFENSE_BONUS);
+        let points = bonus(world, CTF_FLAG_DEFENSE_BONUS, crate::japro_ctf::DEFENCE);
+        world.add_score(attacker, points);
         if let Some(player) = world.player(attacker) {
             player.team_state.base_defense += 1;
             player.state.persistent[PERS_DEFEND_COUNT] =
@@ -748,7 +860,8 @@ pub fn frag_bonuses(world: &mut dyn FlagWorld, target: u16, attacker: u16, level
             || (length(v2) < CTF_ATTACKER_PROTECT_RADIUS
                 && world.in_pvs(carrier_origin, attacker_origin));
         if near_carrier && attacker_team != team {
-            world.add_score(attacker, CTF_CARRIER_PROTECT_BONUS);
+            let points = bonus(world, CTF_CARRIER_PROTECT_BONUS, crate::japro_ctf::DEFENCE);
+            world.add_score(attacker, points);
             if let Some(player) = world.player(attacker) {
                 player.team_state.carrier_defense += 1;
                 player.state.persistent[PERS_DEFEND_COUNT] =

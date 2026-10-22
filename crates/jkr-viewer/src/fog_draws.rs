@@ -219,7 +219,7 @@ impl Runtime {
             let Some(material) = self.material(draw.material) else {
                 continue;
             };
-            if draw.no_depth || material.fog_pass != FogPass::Equal {
+            if draw.no_depth || draw.forced_alpha || material.fog_pass != FogPass::Equal {
                 continue;
             }
             let Some(pipeline) = material.fog_pipeline else {

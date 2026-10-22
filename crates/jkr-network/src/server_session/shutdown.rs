@@ -115,13 +115,14 @@ impl<G: LegacyGameHost> LegacyServerSession<G> {
                     view.command(Some(client), b"disconnect");
                 }
                 let slot = &mut view.slots[client];
+                slot.ping_clock = view.settings.ping_fix.then_some(clock.wall_time);
                 slot.send_now(
                     client,
                     &*view.game,
                     clock.server_time,
                     *view.server_bit,
                     &mut view.settings.rates,
-                    downloads,
+                    (downloads, view.settings.demo_extras),
                     writer,
                     send,
                 );

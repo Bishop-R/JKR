@@ -94,6 +94,24 @@ impl Selection {
         }
     }
 
+    /// The local player picked up the holocron of `power` (`EV_ITEM_PICKUP`,
+    /// `cg_event.c:1875-1894`): unless it is a saber power or Jump, and when it is the power
+    /// selected or the selected power is not in use, it becomes the selection and the
+    /// Force selector shows.
+    pub fn holocron(&mut self, power: u8, player: &PlayerState, time: i32) {
+        const FP_LEVITATION: u8 = 1;
+        let selected = player.selected_force_power();
+        let unchanging = matches!(power, FP_LEVITATION | 15..=17)
+            || (power != selected && player.force_powers_active() & (1 << selected) != 0);
+        if unchanging || self.force.unwrap_or(selected) == power {
+            return;
+        }
+        self.force = Some(power);
+        if self.force_time.is_none_or(|at| at < time) {
+            self.force_time = Some(time);
+        }
+    }
+
     /// Reset expired Force overrides and consumed items to authoritative selection.
     pub fn sync(&mut self, player: &PlayerState, time: i32) {
         if self
@@ -155,5 +173,25 @@ fn item_tag(player: &PlayerState) -> u8 {
         (player.stats[1] - 3) as u8
     } else {
         0
+    }
+}
+
+#[cfg(test)]
+mod holocron_tests {
+    use super::*;
+
+    #[test]
+    fn a_holocron_moves_the_force_selection_unless_a_power_is_in_use() {
+        let player = PlayerState::default();
+        let mut selection = Selection::default();
+        // Push (3) picked up while nothing is in use: selected and shown.
+        selection.holocron(3, &player, 1_000);
+        assert_eq!(selection.force, Some(3));
+        assert_eq!(selection.force_time, Some(1_000));
+        // Jump and the saber powers never move it.
+        let mut untouched = Selection::default();
+        untouched.holocron(1, &player, 1_000);
+        untouched.holocron(16, &player, 1_000);
+        assert_eq!(untouched.force, None);
     }
 }

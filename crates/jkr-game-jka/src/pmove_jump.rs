@@ -3,12 +3,8 @@
 //! ([`super::force_jump`]), the special jumps off walls
 //! ([`super::wall_moves`]) and the ordinary jump.
 //!
-//! Not ported: the `PMF_RESPAWNED` gate (`:1785-1788`), because this port clears that latch only where
-//! it predicts the weapon (`pmove_weapon::adjust_attack_flags`), not unconditionally as
-//! `PmoveSingle` does (`:10517-10522`); and the zero-gravity push (`:2070-2085`) — in the
-//! air a player at gravity 0 or less is pushed twice a jump's speed along its view on
-//! *every* command it does not hold jump — which would set adrift the players the
-//! server's synthetic tests float at gravity 0 in an empty world.
+//! Includes the respawn input gate and stock's zero-gravity push-off, including
+//! its `fraction <= 1` test even when the backwards trace hits nothing.
 
 use super::wall_moves::JumpRules;
 use super::{
@@ -30,6 +26,7 @@ const WP_SABER: u8 = 3;
 const WP_MELEE: u8 = 2;
 /// `EV_JUMP`.
 const EV_JUMP: u16 = 16;
+const PMF_RESPAWNED: u16 = 512;
 
 impl Predictor {
     /// `PM_SetForceJumpZStart` (`bg_pmove.c:1728-1735`): where a jump began, nudged off
@@ -64,6 +61,7 @@ impl Predictor {
                 HANDEXTEND_KNOCKDOWN | HANDEXTEND_PRETHROWN | HANDEXTEND_POSTTHROWN
             )
             || state.movement_type == PM_JETPACK
+            || state.movement_flags & PMF_RESPAWNED != 0
         {
             return false;
         }
@@ -93,10 +91,31 @@ impl Predictor {
             command.up_move = 0;
             return false;
         }
-        // Zero gravity pushes off in the direction faced instead (`bg_pmove.c:2070-2085`),
-        // which is not ported (see the module's notes): no special jump either way.
-        if self.state.gravity > 0.0
-            && command.up_move > 0
+        if self.state.gravity <= 0.0 {
+            let (forward, _) = super::flight::flight_axes(self.state.view_angles);
+            let back = std::array::from_fn(|i| self.state.origin[i] - 8.0 * forward[i]);
+            let trace = collision.trace(
+                self.state.origin,
+                bounds.minimums,
+                bounds.maximums,
+                back,
+                super::PLAYER_CONTENT_MASK,
+            );
+            if trace.fraction <= 1.0 {
+                for i in 0..3 {
+                    self.state.velocity[i] += JUMP_VELOCITY * 2.0 * forward[i];
+                }
+                use crate::pmove_anim::{
+                    SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE, SETANIM_FLAG_RESTART, SETANIM_LEGS,
+                };
+                self.set_animation_parts(
+                    SETANIM_LEGS,
+                    super::wall_moves::BOTH_FORCEJUMP1,
+                    SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD | SETANIM_FLAG_RESTART,
+                );
+            }
+            command.up_move = 0;
+        } else if command.up_move > 0
             && self.state.water_level < 2
             && self.state.levitation_level > 0
             && matches!(self.state.weapon, WP_SABER | WP_MELEE)

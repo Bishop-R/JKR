@@ -16,6 +16,8 @@ const PMF_FOLLOW: u16 = 4096;
 const EV_STEP_4: u16 = 7;
 const EV_STEP_16: u16 = 10;
 const EV_FALL: u16 = 11;
+const EV_FIRE_WEAPON: u16 = 27;
+const EV_ALT_FIRE: u16 = 28;
 const MAX_XY_SPEED: f32 = 270.0;
 const DUCK_TIME: i32 = 100;
 const LAND_DEFLECT_TIME: i32 = 150;
@@ -81,6 +83,10 @@ pub struct LegacyFirstPersonView {
     step: Option<(i32, f32)>,
     previous_view_height: Option<i32>,
     event_sequence: i32,
+    /// The last shot not yet taken: weapon, alternate fire, time (`CG_FireWeapon`).
+    fired: Option<(u8, bool, i32)>,
+    /// EternalJK's `cg_instantDuck`: a crouch moves the view at once, unblended.
+    pub instant_duck: bool,
 }
 
 impl LegacyFirstPersonView {
@@ -95,7 +101,12 @@ impl LegacyFirstPersonView {
         if let Some(previous) = self.previous_view_height
             && previous != view_height
         {
-            self.duck = Some((time, (view_height - previous) as f32));
+            let start = if self.instant_duck {
+                time - DUCK_TIME
+            } else {
+                time
+            };
+            self.duck = Some((start, (view_height - previous) as f32));
         }
         self.previous_view_height = Some(view_height);
         let sequence = player.event_sequence();
@@ -114,7 +125,8 @@ impl LegacyFirstPersonView {
                 .predicted_events
                 .accept(event_sequence as u16, event & 0xff, parameter)
             {
-                self.apply_event(event & 0xff, parameter, time, predicting, player);
+                let weapon = player.weapon();
+                self.apply_event(event & 0xff, parameter, time, predicting, (player, weapon));
             }
         }
         self.event_sequence = sequence;
@@ -133,8 +145,19 @@ impl LegacyFirstPersonView {
             .predicted_events
             .accept(event.sequence, event.event, event.parameter)
         {
-            self.apply_event(event.event, event.parameter, time, true, player);
+            self.apply_event(
+                event.event,
+                event.parameter,
+                time,
+                true,
+                (player, event.weapon),
+            );
         }
+    }
+
+    /// The last shot fired since the last call: weapon, alternate fire, time.
+    pub fn take_fired(&mut self) -> Option<(u8, bool, i32)> {
+        self.fired.take()
     }
 
     fn apply_event(
@@ -143,9 +166,12 @@ impl LegacyFirstPersonView {
         parameter: u16,
         time: i32,
         predicting: bool,
-        player: &PlayerState,
+        (player, weapon): (&PlayerState, u8),
     ) {
         match event {
+            EV_FIRE_WEAPON | EV_ALT_FIRE => {
+                self.fired = Some((weapon, event == EV_ALT_FIRE, time));
+            }
             EV_FALL => {
                 let change = -(f32::from(parameter)).clamp(-32.0, 32.0);
                 self.land = Some((time, change));

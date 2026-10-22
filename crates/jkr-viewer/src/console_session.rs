@@ -112,6 +112,8 @@ impl ViewerConsole {
         crate::world_materials::shadows::settings::register(&mut cvars)?;
         let window_options = window_options::Options::register(&mut cvars)?;
         chat_log::register(&mut cvars)?;
+        crate::auto_capture::register(&mut cvars)?;
+        auto_login::register(&mut cvars)?;
         let qcommon = qcommon::Settings::register(&mut cvars)?;
         crate::hud::targeting::register(&mut cvars)?;
         crate::input::settings::register(&mut cvars)?;
@@ -121,6 +123,12 @@ impl ViewerConsole {
         let time_nudge = crate::presentation_clock::CvarSetting::bind(&mut cvars)?;
         let smooth_clients =
             console_cvars::IntegerSetting::bind(&mut cvars, "cg_smoothClients", 0)?;
+        let no_predict = console_cvars::IntegerSetting::bind(&mut cvars, "cg_noPredict", 0)?;
+        let cycle_ammo = console_cvars::IntegerSetting::bind(&mut cvars, "cg_weaponCycleAmmo", 0)?;
+        let gun_alpha = console_cvars::FloatSetting::bind(&mut cvars, "cg_gunAlpha", 1.0)?;
+        let flag_alpha =
+            console_cvars::FloatSetting::bind(&mut cvars, "cg_thirdPersonFlagAlpha", 1.0)?;
+        let vehicle_range = console_cvars::FloatSetting::bind(&mut cvars, "cg_vehicleRange", 0.0)?;
         let remaps = console_cvars::IntegerSetting::bind(&mut cvars, "cg_remaps", 1)?;
         let draw_fog = console_cvars::IntegerSetting::bind(&mut cvars, "r_drawfog", 2)?;
         let packet_dup = console_cvars::IntegerSetting::bind(&mut cvars, "cl_packetdup", 1)?;
@@ -243,6 +251,23 @@ impl ViewerConsole {
             keybind_editor::migrate_missing_defaults(&mut shell.binds);
             let _ = shell.cvars.set_text("jkr_bindDefaultsVersion", "1");
         }
+        // `cg_footsteps` was a switch, saved on as 1, which stock's levels read as
+        // sounds only; an old "on" becomes stock's default, 3.
+        if matches!(
+            shell
+                .cvars
+                .get("jkr_footstepLevelsVersion")
+                .map(|cvar| &cvar.value),
+            Some(CvarValue::Integer(0))
+        ) {
+            if matches!(
+                shell.cvars.get("cg_footsteps").map(|cvar| &cvar.value),
+                Some(CvarValue::Integer(1))
+            ) {
+                let _ = shell.cvars.set_text("cg_footsteps", "3");
+            }
+            let _ = shell.cvars.set_text("jkr_footstepLevelsVersion", "1");
+        }
         shell.push_log("^5JKR console ready. ^7Type cmdlist for commands.");
         Ok(Self {
             shell,
@@ -259,6 +284,13 @@ impl ViewerConsole {
             show_timedelta,
             time_nudge,
             smooth_clients,
+            no_predict,
+            cycle_ammo,
+            gun_alpha,
+            flag_alpha,
+            vehicle_range,
+            last_auto_kill: None,
+            deferred: None,
             draw_fog,
             remaps,
             packet_dup,
@@ -283,6 +315,7 @@ impl ViewerConsole {
             script_vfs: None,
             config_directory,
             force_profile: ForceProfileNegotiator::default(),
+            server_force_rules: None,
             movement_policy_log: None,
             window_options,
             chat_log: chat_log::ChatLog::default(),
@@ -421,6 +454,8 @@ impl ViewerConsole {
         self.refresh_movement_cvars(game);
         let raw = String::from_utf8_lossy(game.config_string(0).unwrap_or_default());
         self.force_profile.reset();
+        let rank = self.integer_cvar("ui_rankChange").unwrap_or(0) as i32;
+        self.server_force_rules = Some(force_rules_from_serverinfo(game, rank, 0));
         let value = format!("profile={profile} server={server} CS_SERVERINFO={raw}");
         if let Ok(mut status) = self.server_status.write() {
             *status = value.clone();
@@ -461,10 +496,11 @@ impl ViewerConsole {
                 ""
             }
         ));
+        let rules = force_rules_from_serverinfo(game_state, update.rank, update.team);
+        self.server_force_rules = Some(rules);
         if !update.open_profile {
             return;
         }
-        let rules = force_rules_from_serverinfo(game_state, update.rank, update.team);
         let current = self
             .force_profile
             .server_forcepowers()
@@ -489,5 +525,19 @@ impl ViewerConsole {
         let _ = self.shell.cvars.set_text("ui_myteam", "3");
         self.shell
             .push_log("^5Server moved you to spectator mode pending the Force profile check");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every cvar the viewer defines registers once: a second definition of a name (in
+    /// any spelling) stops the viewer at start-up.
+    #[test]
+    fn the_console_builds_with_every_cvar_registered_once() {
+        let directory = std::env::temp_dir().join(format!("jkr-console-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let console = super::ViewerConsole::new(directory.join("config.cfg"));
+        let _ = std::fs::remove_dir_all(&directory);
+        assert!(console.is_ok(), "{}", console.err().unwrap());
     }
 }

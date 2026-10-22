@@ -55,6 +55,7 @@ impl SaberFlight for ServerFlight<'_> {
                 bounds: peer.movement.box_bounds(),
                 contents: CONTENTS_BODY,
                 model: None,
+                linked_box: None,
             });
         let NativeGame {
             map,
@@ -108,6 +109,7 @@ impl SaberFlight for ServerFlight<'_> {
             command_buttons: peer.last_command.buttons,
             storage: peer.saber_cut.storage,
             gametype,
+            force_duel: peer.force.duel_kind == jkr_game_jka::duel::DuelKind::Force,
             team: peer.session.team,
             memory: &mut peer.throw_memory,
             throw_delay: &mut peer.saber.throw_delay,
@@ -581,10 +583,12 @@ impl NativeGame {
         other: usize,
         level_time: i32,
     ) -> bool {
+        let fixed = self.saber_settings.disarm_bonus_fix;
         let (storage, chance) = self.peer(other).map_or((Default::default(), 1), |peer| {
             (
                 peer.saber_cut.storage,
-                peer.sabers.disarm_chance(peer.state.saber_holstered()),
+                peer.sabers
+                    .disarm_chance(peer.state.saber_holstered(), fixed),
             )
         });
         self.with_saber(client, |saber, world| {

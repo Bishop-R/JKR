@@ -15,6 +15,11 @@ pub(super) struct Frame<'a> {
     pub snapshot: Option<&'a Snapshot>,
     pub game_state: Option<&'a GameState>,
     pub presentation_time: i64,
+    /// EternalJK's `cg_headTurn`: 0 never turns heads toward look targets, else the
+    /// seconds a look holds (stock's 1).
+    pub head_turn: i64,
+    /// jaPRO's `cg_stylePlayer`, for its body bits.
+    pub style: u32,
 }
 
 /// Prepare one actor without allowing a bad attachment or angle query to stop its peers.
@@ -27,24 +32,69 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         snapshot,
         game_state,
         presentation_time,
+        head_turn,
+        style,
     } = *frame;
     let frame_millis = mesh.angle_controller.begin_frame(presentation_time);
-    let requested = mesh
-        .entity_id
-        .and_then(|entity_id| world.entity(entity_id))
-        .map(|entity| {
-            let pose = entity.sample_pose(presentation_time);
-            if mesh.entity_id == local_entity {
-                let animation = local_animation.or_else(|| entity.animation());
-                (animation, crate::local_actor_state::pose(pose, predicted))
-            } else {
-                (entity.animation(), pose)
-            }
-        });
+    // A limb's copy plays on the animation its owner had when it was cut, with none of
+    // the owner's turning (`CG_General` resets those bones before copying the model).
+    let limb = mesh
+        .cuts
+        .limb
+        .as_ref()
+        .map(|limb| (Some(limb.animation), None));
+    let requested = limb.or_else(|| {
+        mesh.entity_id
+            .and_then(|entity_id| world.entity(entity_id))
+            .map(|entity| {
+                let pose = entity.sample_pose(presentation_time);
+                if mesh.entity_id == local_entity {
+                    let animation = local_animation.or_else(|| entity.animation());
+                    (animation, crate::local_actor_state::pose(pose, predicted))
+                } else {
+                    (entity.animation(), pose)
+                }
+            })
+    });
     let Some((Some(state), pose)) = requested else {
         return Ok(());
     };
     let mut state = state;
+    // `EF_DISINTEGRATION`: the pose holds the legs frame it had when the flag was first seen.
+    let flags =
+        crate::actor_dissolve::entity_flags(mesh.entity_id, local_entity, predicted, snapshot);
+    crate::actor_dissolve::hold_pose(mesh, flags, presentation_time, &mut state);
+    if mesh.corpse_pool {
+        use jkr_client::style_player::{NO_BODIES, NO_FADE_EFFECTS};
+        let event = crate::corpse_fade::entity_event(mesh.entity_id, snapshot);
+        let no_bodies = style & NO_BODIES != 0;
+        mesh.fade
+            .observe(mesh.entity_id, event, presentation_time, no_bodies);
+        let light_side = mesh
+            .body_identity
+            .as_ref()
+            .is_some_and(|body| body.light_side);
+        let mut seed =
+            (mesh.entity_id.map_or(1, |id| id.get() as u32) ^ (presentation_time as u32)) | 1;
+        let quiet = style & NO_FADE_EFFECTS != 0;
+        mesh.fade
+            .update(presentation_time, (light_side, quiet), move || {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                (seed >> 8) as f32 / (1 << 24) as f32
+            });
+    }
+    // `PW_CLOAKED`'s two-second turn (`cloak_fade`).
+    mesh.cloak = (!mesh.corpse_pool)
+        .then(|| cloaked(mesh.entity_id, local_entity, snapshot))
+        .flatten()
+        .map(|cloaked| mesh.cloak_fade.advance(cloaked, presentation_time as i32));
+    // `CG_IsMindTricked`: a player who mind-tricks the viewer fades out of its sight.
+    if !mesh.corpse_pool && mesh.entity_id != local_entity {
+        let tricked = mind_tricked(mesh.entity_id, snapshot);
+        mesh.body = mesh.trick.advance(tricked, presentation_time as i32);
+    }
     if mesh.corpse_pool {
         state.lower.forced_frame =
             jkr_client::legacy_body_frame(&mesh.preview.config, state.lower.clip);
@@ -80,6 +130,11 @@ pub(super) fn prepare(mesh: &mut ActorMesh, frame: &Frame<'_>) -> Result<(), Box
         let mut inputs =
             jkr_client::LegacyPlayerAngleInputs::from_world(pose, origin, world, presentation_time);
         inputs.frame_millis = Some(frame_millis);
+        if head_turn <= 0 {
+            inputs.look_target_angles = None;
+        } else if head_turn != 1 {
+            inputs.look_hold_millis = Some(head_turn.saturating_mul(1_000));
+        }
         if pose.angle.correct_animation_motion {
             inputs.motion_angles = mesh
                 .animator
@@ -133,31 +188,24 @@ pub(super) fn apply(
     mesh.force_bones.update(&mesh.preview.animation, matrices);
     mesh.weapon_attachments = crate::saber::attachments_from_matrices(&mesh.preview, matrices);
     mesh.driver_seat = crate::vehicle_pose::driver_seat(&mesh.preview, matrices);
-    for range in &mesh.vertex_ranges {
-        if mesh.gpu_palette.is_some() {
-            break;
+    if mesh.gpu_palette.is_none() {
+        for range in &mesh.vertex_ranges {
+            let surface = surfaces
+                .get(range.surface_index)
+                .ok_or("animated actor surface disappeared")?;
+            let scratch = (&mesh.preview, &mut mesh.pose_vertices);
+            upload_range(scratch, range, surface, (queue, vertex_buffer))?;
         }
-        let surface = surfaces
-            .get(range.surface_index)
-            .ok_or("animated actor surface disappeared")?;
-        if surface.vertices.len() != range.vertices.len() {
-            return Err("animated actor vertex count changed".into());
+        if !mesh.surfaces.caps.is_empty() {
+            let caps = mesh
+                .preview
+                .mesh
+                .skin_switched_off(&mesh.preview.skin, 0, matrices)?;
+            for (range, (_, surface)) in mesh.surfaces.caps.iter().zip(&caps) {
+                let scratch = (&mesh.preview, &mut mesh.pose_vertices);
+                upload_range(scratch, range, surface, (queue, vertex_buffer))?;
+            }
         }
-        mesh.pose_vertices.clear();
-        mesh.pose_vertices.extend(
-            surface
-                .vertices
-                .iter()
-                .map(|vertex| preview_gpu_vertex(&mesh.preview, vertex)),
-        );
-        let byte_offset = u64::try_from(range.vertices.start)?
-            .checked_mul(u64::try_from(std::mem::size_of::<GpuVertex>())?)
-            .ok_or("animated actor buffer offset overflow")?;
-        queue.write_buffer(
-            vertex_buffer,
-            byte_offset,
-            bytemuck::cast_slice(&mesh.pose_vertices),
-        );
     }
     mesh.current_frames = (
         state.lower.forced_frame.unwrap_or(state.lower.clip),
@@ -202,4 +250,63 @@ pub(super) fn failed(mesh: &mut ActorMesh, error: &dyn Error) {
             mesh.appearance.variant,
         ));
     }
+}
+
+/// Whether the actor's entity mind-tricks the client whose view the snapshot holds
+/// (`CG_IsMindTricked(…, cg.snap->ps.clientNum)`).
+/// Whether the player `entity` is cloaked (`PW_CLOAKED`), the viewer's own from its player
+/// state; `None` when the snapshot does not hold it.
+fn cloaked(
+    entity: Option<EntityId>,
+    local: Option<EntityId>,
+    snapshot: Option<&Snapshot>,
+) -> Option<bool> {
+    const PW_CLOAKED: usize = 11;
+    let (entity, snapshot) = (entity?, snapshot?);
+    if Some(entity) == local {
+        return Some(snapshot.player.powerups[PW_CLOAKED] != 0);
+    }
+    let number = u16::try_from(entity.get().wrapping_sub(1)).ok()?;
+    let index = snapshot
+        .entities
+        .binary_search_by_key(&number, |state| state.number())
+        .ok()?;
+    Some(snapshot.entities[index].powerups() & (1 << PW_CLOAKED) != 0)
+}
+
+fn mind_tricked(entity: Option<EntityId>, snapshot: Option<&Snapshot>) -> bool {
+    let (Some(entity), Some(snapshot)) = (entity, snapshot) else {
+        return false;
+    };
+    let Ok(number) = u16::try_from(entity.get().wrapping_sub(1)) else {
+        return false;
+    };
+    snapshot
+        .entities
+        .binary_search_by_key(&number, |state| state.number())
+        .is_ok_and(|index| snapshot.entities[index].client_bitflag(snapshot.player.client_num()))
+}
+
+/// One range's vertices skinned on the CPU, written over its share of the vertex buffer.
+fn upload_range(
+    (preview, scratch): (&crate::PlayerPreview, &mut Vec<GpuVertex>),
+    range: &crate::player_animation::PreviewVertexRange,
+    surface: &jkr_model::SkinnedSurface,
+    (queue, vertex_buffer): (&crate::frame_queue::FrameQueue, &wgpu::Buffer),
+) -> Result<(), Box<dyn Error>> {
+    if surface.vertices.len() != range.vertices.len() {
+        return Err("animated actor vertex count changed".into());
+    }
+    scratch.clear();
+    scratch.extend(
+        surface
+            .vertices
+            .iter()
+            .map(|vertex| preview_gpu_vertex(preview, vertex)),
+    );
+    let byte_offset = u64::try_from(range.vertices.start)?
+        .checked_mul(u64::try_from(std::mem::size_of::<GpuVertex>())?)
+        .ok_or("animated actor buffer offset overflow")?;
+    queue.write_buffer(vertex_buffer, byte_offset, bytemuck::cast_slice(scratch));
+    Ok(())
 }

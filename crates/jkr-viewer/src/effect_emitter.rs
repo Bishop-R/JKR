@@ -68,6 +68,7 @@ impl ModelCatalog {
         let by_path = meshes
             .iter()
             .enumerate()
+            .filter(|(_, mesh)| !crate::object_meshes::posed::is_part(mesh))
             .map(|(index, mesh)| (mesh.appearance.model.to_ascii_lowercase(), index))
             .collect();
         Self { by_path }
@@ -78,7 +79,7 @@ impl ModelCatalog {
         self.by_path.insert(path.to_ascii_lowercase(), index);
     }
 
-    fn mesh(&self, path: &str) -> Option<usize> {
+    pub(crate) fn mesh(&self, path: &str) -> Option<usize> {
         self.by_path.get(&path.to_ascii_lowercase()).copied()
     }
 }
@@ -191,11 +192,14 @@ impl Runtime {
     }
 }
 
+/// Append emitter models and breakable debris to the shared rigid-model groups.
 pub(crate) fn append_model_instances(
-    runtime: &mut Runtime,
+    auxiliary: &mut crate::effect_aux::Runtime,
     catalog: &ModelCatalog,
     groups: &mut [Vec<ActorInstance>],
 ) {
+    auxiliary.breakage.append_models(catalog, groups);
+    let runtime = &mut auxiliary.emitters;
     for instance in &runtime.models {
         let Some(mesh_index) = catalog.mesh(&instance.model) else {
             continue;

@@ -6,6 +6,8 @@
 //! primitives are ignored explicitly instead of substituted with invented art.
 
 use super::*;
+#[path = "concussion_effects.rs"]
+mod concussion;
 pub(crate) use crate::effect_library::EffectLibrary;
 pub(crate) use crate::particle_types::{
     MAX_PARTICLES, Particle, ParticleLayerSamples, blend_for_stage as particle_blend_for_stage,
@@ -38,6 +40,7 @@ pub(crate) fn spawn_snapshot_particles(
     now: Instant,
 ) {
     for entity in &snapshot.entities {
+        auxiliary.breakage.observe(entity);
         if entity.entity_type() == 17 {
             // ET_FX, bg_public.h:1262
             // Persistent map runners are scheduled by jkr-client's fixed
@@ -58,9 +61,65 @@ pub(crate) fn spawn_snapshot_particles(
             continue;
         }
         previous_events.insert(entity.number(), latch);
+        // `EV_ITEM_RESPAWN` times the item's rez-in (`cg_event.c:2757-2760`).
+        if raw_event == 62 {
+            auxiliary.item_respawns.mark(entity.number(), now);
+        }
+        if crate::effect_aux::breakage::handles(raw_event) {
+            crate::effect_aux::breakage::present(
+                auxiliary,
+                raw_event,
+                entity,
+                game_state,
+                vfs,
+                audio,
+                now,
+                |auxiliary, name, origin, rotation, audio| {
+                    let seed = u32::from(entity.number()) ^ origin.x.to_bits();
+                    spawn_effect(
+                        particles, auxiliary, effects, vfs, name, origin, now, seed, 0, audio,
+                        rotation,
+                    );
+                },
+            );
+            continue;
+        }
+        if raw_event == 84 {
+            concussion::spawn(
+                entity,
+                &mut crate::impact_spawn::Sinks {
+                    particles,
+                    auxiliary,
+                    effects,
+                    vfs,
+                    audio,
+                },
+                now,
+            );
+            continue;
+        }
+        auxiliary.feedback.observe(
+            raw_event,
+            entity,
+            game_state,
+            snapshot.player.client_num(),
+            snapshot.server_time,
+        );
+        if let Some((intensity, duration)) = jkr_client::event_feedback::screen_shake(
+            raw_event,
+            entity,
+            snapshot.player.client_num(),
+        ) {
+            auxiliary.screen_shake(intensity, duration, now, u32::from(entity.number()));
+        }
+        if matches!(raw_event, 64 | 65) && auxiliary.options.no_teleport {
+            continue;
+        }
         let Some(effect_name) = combat_effects::for_event(raw_event, entity, game_state) else {
             continue;
         };
+        // `EFFECT_EXPLOSION_DEMP2ALT` bursts a shell too (`cg_event.c:2988-2990`).
+        let demp2_shell = raw_event == 68 && entity.event_parameter() == 9;
         let origin = if matches!(raw_event, 69 | 70) {
             Vec3::from_array(jkr_client::legacy_evaluate_trajectory(
                 entity.trajectory_base(),
@@ -83,6 +142,9 @@ pub(crate) fn spawn_snapshot_particles(
         } else {
             Vec3::from_array(entity.trajectory_base())
         };
+        if demp2_shell {
+            auxiliary.demp2_shells.start(origin, entity.weapon(), now);
+        }
         spawn_effect(
             particles,
             auxiliary,
@@ -118,6 +180,10 @@ pub(crate) fn spawn_map_effect_requests(
     audio: &mut Option<GameAudio>,
     now: Instant,
 ) {
+    // EternalJK's `cg_noFX`: no map effects at all (`cg_ents.c:3690-3692`).
+    if auxiliary.options.no_fx != 0 {
+        return;
+    }
     for request in map_effects.requests() {
         spawn_effect(
             particles,
@@ -149,7 +215,8 @@ pub(crate) fn spawn_effect(
     audio: &mut Option<GameAudio>,
     rotation: Quat,
 ) {
-    if depth >= 4 || particles.len() >= MAX_PARTICLES {
+    // EternalJK's `cg_noFX 5`: no scheduled effect is drawn (`cg_view.c:3011`).
+    if depth >= 4 || particles.len() >= MAX_PARTICLES || auxiliary.options.no_fx == 5 {
         return;
     }
 
@@ -313,15 +380,23 @@ pub(crate) fn spawn_effect(
             } else {
                 particle_rotation * sampled_acceleration
             };
+            // A traced Line reaches out this far until its first update traces it
+            // (`particle_physics`), as `CreateEffect` does at once.
+            let traced_line =
+                component.kind == ComponentKind::Line && component.spawn_flags.origin2_from_trace;
             let streak = match component.kind {
-                ComponentKind::Line => Some(
-                    particle_rotation
-                        * Vec3::from_array(component.origin2.sample([
-                            random_unit(particle_seed.wrapping_add(20)),
-                            random_unit(particle_seed.wrapping_add(21)),
-                            random_unit(particle_seed.wrapping_add(22)),
-                        ])),
-                ),
+                ComponentKind::Line => {
+                    let origin2 = Vec3::from_array(component.origin2.sample([
+                        random_unit(particle_seed.wrapping_add(20)),
+                        random_unit(particle_seed.wrapping_add(21)),
+                        random_unit(particle_seed.wrapping_add(22)),
+                    ]));
+                    Some(if traced_line {
+                        crate::effect_shapes::trace_reach(component, particle_rotation, origin2)
+                    } else {
+                        particle_rotation * origin2
+                    })
+                }
                 ComponentKind::Tail => Some(-velocity),
                 _ => None,
             };
@@ -420,7 +495,8 @@ pub(crate) fn spawn_effect(
                         .elasticity
                         .sample(random_unit(particle_seed.wrapping_add(30))),
                     component.flags,
-                ),
+                )
+                .with_line_trace(traced_line.then_some(component.spawn_flags.trace_impact_effect)),
                 shape,
             });
         }

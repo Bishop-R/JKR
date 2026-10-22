@@ -205,12 +205,39 @@ pub(crate) struct Session {
     fps: u32,
     ended: bool,
     initial_observation_pending: bool,
+    /// The playback clock: the wall time it last read and the demo time it stands at.
+    clock: Option<(Duration, Duration)>,
+    /// Whether the viewer quits at the end (a demo played from the command line).
+    quits_at_end: bool,
 }
 
 impl Session {
     /// Apply the viewer's cached `cg_smoothClients` to subsequent snapshot endpoints.
     pub(crate) fn set_smooth_clients(&mut self, enabled: bool) {
         self.adapter.set_smooth_clients(enabled);
+    }
+
+    /// EternalJK's `cg_saberTeamColors`, as the live session's adapter has it.
+    pub(crate) fn set_saber_team_colors(&mut self, on: bool) {
+        self.adapter.set_saber_team_colors(on);
+    }
+
+    /// EternalJK's `cg_noFX`, as the live session's adapter has it.
+    pub(crate) fn set_no_fx(&mut self, level: i64) {
+        self.adapter.set_no_fx(level);
+    }
+
+    /// EternalJK's `cg_noRGBSabers`, as the live session's adapter has it.
+    pub(crate) fn set_rgb_sabers(&mut self, on: bool) {
+        self.adapter.set_rgb_sabers(on);
+    }
+
+    /// The siege classes' looks for the demo's level.
+    pub(crate) fn set_siege_class_looks(
+        &mut self,
+        looks: &std::sync::Arc<jkr_client::SiegeClassLooks>,
+    ) {
+        self.adapter.set_siege_class_looks(looks);
     }
 
     /// Open and prime a demo at its first authoritative snapshot.
@@ -237,7 +264,20 @@ impl Session {
             fps: fps.max(1),
             ended: false,
             initial_observation_pending: true,
+            clock: None,
+            quits_at_end: true,
         })
+    }
+
+    /// Go back to the menu at the end instead of quitting (a demo played from the console).
+    pub(crate) fn returning_to_menu(mut self) -> Self {
+        self.quits_at_end = false;
+        self
+    }
+
+    /// Whether the viewer quits when this demo ends.
+    pub(crate) fn quits_at_end(&self) -> bool {
+        self.quits_at_end
     }
 
     /// Advance until the stream brackets `relative_millis`, exposing every
@@ -330,17 +370,21 @@ impl Session {
         self.current_server_time
     }
 
-    pub(crate) fn first_server_time(&self) -> i32 {
-        self.first_server_time
-    }
-
     pub(crate) fn camera(&self) -> Camera {
         self.camera
     }
 
-    /// Quantize a wall-clock duration onto the deterministic playback clock.
-    pub(crate) fn paced_relative_millis(&self, elapsed: Duration) -> u64 {
-        fixed_relative_millis(elapsed, self.fps)
+    /// Run the playback clock to wall time `wall` at `scale` times real time (0 holds it),
+    /// from where the stream stood at the first call, and quantize it onto the playback
+    /// frames.
+    pub(crate) fn clock_millis(&mut self, wall: Duration, scale: f64) -> u64 {
+        let start = (self.current_server_time - i64::from(self.first_server_time)).max(0);
+        let (last, demo) = self
+            .clock
+            .get_or_insert((wall, Duration::from_millis(start as u64)));
+        *demo += wall.saturating_sub(*last).mul_f64(scale);
+        *last = wall;
+        fixed_relative_millis(*demo, self.fps)
     }
 
     pub(crate) fn ended(&self) -> bool {

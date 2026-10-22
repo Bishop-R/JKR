@@ -1,6 +1,11 @@
 //! Modern data-driven in-game HUD over authoritative snapshot values.
 
+mod action_timer;
+mod brackets;
+pub(crate) use brackets::{BracketInputs, Fighter};
 mod data_source;
+mod duel_panel;
+pub(crate) mod force_flash;
 use data_source::*;
 pub(crate) mod enemy_info;
 pub(crate) mod family;
@@ -8,9 +13,27 @@ pub(crate) mod icons;
 pub(crate) mod identification;
 mod info;
 pub(crate) mod movement;
+mod movement_keys;
 pub(crate) mod options;
 mod portrait;
+mod radar;
+pub(crate) use radar::{RadarAssets, RadarInputs};
+mod lead_indicator;
+pub(crate) use lead_indicator::LeadInputs;
+mod rocket_lock;
+pub(crate) use rocket_lock::RocketLockInputs;
+mod crosshair_bars;
+pub(crate) use crosshair_bars::CrosshairBarInputs;
+mod meters;
+mod pickup;
 mod selection;
+mod siege;
+mod simple;
+mod spectator;
+mod vehicle;
+mod vehicle_damage;
+pub(crate) use siege::SiegeInputs;
+pub(crate) use vehicle_damage::{Panel as DamagePanel, recovered as vehicle_damage_recovered};
 pub(crate) mod targeting;
 mod text_values;
 pub(crate) mod tints;
@@ -33,7 +56,10 @@ use jkr_ui::{
 use std::path::Path;
 
 const WIDGET_LIMIT: usize = 64;
-const DRAW_LIMIT: usize = 320;
+/// Room for every widget plus the radar: its two-stage background and ~75 marks.
+const DRAW_LIMIT: usize = 480;
+/// Commands of the part under a zoom mask: tints, two passes of the rocket lock, meters.
+const UNDER_SCOPE_LIMIT: usize = 128;
 const DEFAULT_LAYOUT: &str = include_str!("../assets/hud/default.json");
 /// The weapon name stays fully visible this long after a switch, then fades.
 const WEAPON_HOLD_MS: u64 = 2_000;
@@ -110,8 +136,22 @@ impl HudVisibility {
 
 /// Allocation-free-per-frame widget state for the local player's HUD.
 pub(crate) struct HudOverlay {
+    pub(crate) action_remaining: Option<f32>,
     /// Map-lifetime textures and sampled icon presentation policy.
     pub(crate) icons: icons::Icons,
+    /// The last item picked up: its icon and the crosshair's swell.
+    pub(crate) pickup: pickup::Pickup,
+    /// The piloted vehicle's HUD.
+    pub(crate) vehicle: vehicle::Panel,
+    /// The duel spectator's panel.
+    /// `ps.fallingToDeath`: when the player began falling to death, 0 when not.
+    falling_since: i32,
+    pub(crate) vehicle_damage: vehicle_damage::DamageHud,
+    pub(crate) brackets: brackets::Brackets,
+    pub(crate) movement_keys: movement_keys::MovementKeys,
+    pub(crate) force_flash: force_flash::ForceFlash,
+    simple: simple::SimpleHud,
+    pub(crate) duel_panel: duel_panel::DuelPanel,
     pub(crate) tints: tints::State,
     /// World-projected labels, sharing the chat roster's retained names.
     pub(crate) identification: identification::State,
@@ -120,6 +160,8 @@ pub(crate) struct HudOverlay {
     pub(crate) targeting: targeting::State,
     pub(crate) enemy_info: enemy_info::State,
     score_text: String,
+    /// `CG_DrawMiniScoreboard`'s "Red: x Blue: y", empty when it does not show.
+    mini_scores: String,
     snapshot_text: String,
 
     inventory_bits: u32,
@@ -166,6 +208,19 @@ pub(crate) struct HudOverlay {
     crosshair_teammate: bool,
     match_timer: String,
     warmup_text: String,
+    /// What a spectator, or a follower, is told.
+    spectator: spectator::Lines,
+    /// The Siege round clock and respawn wave.
+    siege: siege::State,
+    /// The radar of team games and vehicles.
+    radar: radar::State,
+    rocket_lock: rocket_lock::State,
+    /// jaPRO's `cg_leadIndicator`.
+    lead_indicator: lead_indicator::State,
+    /// The health, ammunition and hack bars under the crosshair.
+    crosshair_bars: crosshair_bars::State,
+    /// The jetpack, cloak and E-Web meters at the right edge.
+    meters: meters::State,
     interrupted: bool,
     lagometer: jkr_client::LagometerSamples,
     default_document: HudLayoutDocument,
@@ -174,6 +229,9 @@ pub(crate) struct HudOverlay {
     tree: WidgetTree,
     scratch: LayoutScratch,
     draw_list: DrawList,
+    /// What stock draws before a zoom mask covers it: the screen tints, the rocket lock and the
+    /// fuel and E-Web meters.
+    under_scope: DrawList,
     theme: Theme,
     ratios: [Tween; 3],
     displayed_ratios: [f32; 3],
@@ -187,6 +245,15 @@ pub(crate) struct HudLayout {
     pub(crate) force_bar: [f32; 4],
 }
 
+/// The status widgets' bindings (`CG_DrawStats`), which a fall to death's fade covers.
+fn status_binding(binding: Option<&str>) -> bool {
+    binding.is_some_and(|binding| {
+        ["health", "armor", "force", "weapon", "ammo", "style"]
+            .iter()
+            .any(|status| binding.starts_with(status))
+    })
+}
+
 impl HudOverlay {
     pub(crate) fn new() -> Self {
         let override_document = crate::platform::user_config_file()
@@ -194,7 +261,17 @@ impl HudOverlay {
             .and_then(|path| path.parent().map(|parent| parent.join("hud.json")))
             .and_then(|path| load_override(&path));
         Self {
+            action_remaining: None,
             icons: icons::Icons::default(),
+            pickup: pickup::Pickup::default(),
+            vehicle: vehicle::Panel::default(),
+            falling_since: 0,
+            vehicle_damage: Default::default(),
+            brackets: Default::default(),
+            movement_keys: Default::default(),
+            force_flash: Default::default(),
+            simple: Default::default(),
+            duel_panel: duel_panel::DuelPanel::default(),
             tints: tints::State::default(),
             guides: movement::Guides::default(),
             family: family::Policy::default(),
@@ -202,6 +279,7 @@ impl HudOverlay {
             enemy_info: enemy_info::State::default(),
             identification: identification::State::default(),
             score_text: String::with_capacity(80),
+            mini_scores: String::with_capacity(48),
             snapshot_text: String::with_capacity(96),
 
             inventory_bits: 0,
@@ -247,6 +325,13 @@ impl HudOverlay {
             crosshair_teammate: false,
             match_timer: String::with_capacity(16),
             warmup_text: String::with_capacity(48),
+            spectator: spectator::Lines::new(),
+            siege: siege::State::default(),
+            radar: radar::State::default(),
+            rocket_lock: rocket_lock::State::default(),
+            lead_indicator: lead_indicator::State::default(),
+            crosshair_bars: crosshair_bars::State::default(),
+            meters: meters::State::default(),
             interrupted: false,
             lagometer: jkr_client::LagometerSamples::new(),
             default_document: HudLayoutDocument::from_json(DEFAULT_LAYOUT)
@@ -257,6 +342,7 @@ impl HudOverlay {
             tree: WidgetTree::new(WIDGET_LIMIT),
             scratch: LayoutScratch::new(WIDGET_LIMIT),
             draw_list: DrawList::new(DRAW_LIMIT),
+            under_scope: DrawList::new(UNDER_SCOPE_LIMIT),
             theme: Theme::default(),
             ratios: [
                 Tween::settled(1.0),
@@ -293,8 +379,31 @@ impl HudOverlay {
         } else {
             &self.classic_document
         };
+        // `CG_Draw2D`: a free spectator sees no status, weapon or ammo, only what it is
+        // told and the crosshair; nor does a dead player, nor a vehicle's pilot whose
+        // vehicle hides its rider (its own HUD stands in).
+        let status_allowed = visibility.status && !self.spectator.hides_status();
+        let visibility = if self.spectator.hides_status() || self.vehicle.hides_status() {
+            HudVisibility {
+                status: false,
+                weapon: false,
+                ..visibility
+            }
+        } else {
+            visibility
+        };
+        // Stock's simple HUD stands in for the status widgets only (`cg_hudFiles`).
+        let simple = self.family.simple && visibility.status;
         let data = WidgetData {
-            visibility,
+            visibility: if simple {
+                HudVisibility {
+                    status: false,
+                    weapon: false,
+                    ..visibility
+                }
+            } else {
+                visibility
+            },
             ratios: self.displayed_ratios,
             health: &self.health,
             armor: &self.armor,
@@ -315,6 +424,10 @@ impl HudOverlay {
             crosshair_name: !self.crosshair_name.is_empty(),
             timer: !self.match_timer.is_empty(),
             warmup: !self.warmup_text.is_empty(),
+            spectator: self.spectator.spectating(),
+            follow: self.spectator.following(),
+            siege_clock: (!self.siege.clock.is_empty()).then_some(self.siege.clock_own),
+            siege_respawn: !self.siege.respawn.is_empty(),
             interrupted: self.interrupted,
         };
         let mut visible = [false; WIDGET_LIMIT];
@@ -354,16 +467,35 @@ impl HudOverlay {
             &mut self.scratch,
         );
         self.draw_list.clear();
-        self.tints.emit(&mut self.draw_list, viewport);
+        self.under_scope.clear();
+        self.tints.emit(&mut self.under_scope, viewport);
+        // Stock draws the rocket lock straight after its screen tints, under the rest.
+        self.rocket_lock.emit(&mut self.under_scope, &self.radar);
+        self.lead_indicator.emit(&mut self.draw_list);
         let mut output = HudLayout::default();
         let low_health = self.values.is_some_and(|value| value.health <= 25);
         let low_ammo = self
             .values
             .is_some_and(|value| value.ammo.is_some_and(|ammo| ammo <= 5));
         let pulse = Tween::pulse(0.68, 1.0, time_ms, self.theme.motion.slow);
+        self.force_flash.update(time_ms, visibility.status);
+        let force_flash = self.force_flash.red(time_ms);
+        // `CG_Draw2D`: falling to death, the screen goes black over half `FALL_FADE_TIME`,
+        // over the status. Text is drawn above every shape here, so what the black covers in
+        // stock fades with it instead.
+        let fall_fade = if visibility.hud && self.falling_since != 0 {
+            ((time_ms as f32 - self.falling_since as f32) / 1_500.0).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let covered = jkr_ui::DrawCommand::PushOpacity(1.0 - fall_fade);
         for (index, (widget, rect)) in document.widgets.iter().zip(rectangles).enumerate() {
             if !visible[index] {
                 continue;
+            }
+            let fading = fall_fade > 0.0 && status_binding(widget.binding.as_deref());
+            if fading {
+                let _ = self.draw_list.push(covered.clone());
             }
             widgets::emit(
                 &mut self.draw_list,
@@ -389,6 +521,7 @@ impl HudOverlay {
                         * user_scale.clamp(0.25, 2.0),
                     low_health,
                     low_ammo,
+                    force_flash,
                     pulse,
                     team_side: self.team_side,
                     team_len: self.team_len,
@@ -400,8 +533,52 @@ impl HudOverlay {
                 },
                 &mut output,
             );
+            if fading {
+                let _ = self.draw_list.push(jkr_ui::DrawCommand::PopOpacity);
+            }
+        }
+        let _ = self.draw_list.push(covered);
+        if status_allowed {
+            self.vehicle
+                .emit(&self.icons, &mut self.draw_list, viewport);
+            self.vehicle_damage.emit(&mut self.draw_list, viewport);
         }
         if visibility.hud {
+            self.duel_panel.emit(&mut self.draw_list, viewport);
+        }
+        if simple {
+            self.simple.emit(&mut self.draw_list, viewport, force_flash);
+        }
+        self.pickup.update(time_ms);
+        self.targeting.swell = self.pickup.crosshair_scale(time_ms);
+        // `CG_DrawPickupItem`, with the status: for the living, in the game.
+        if visibility.status
+            && let Some((item, alpha)) = self.pickup.icon(time_ms)
+        {
+            self.icons
+                .pickup(&mut self.draw_list, viewport, item, alpha);
+        }
+        let _ = self.draw_list.push(jkr_ui::DrawCommand::PopOpacity);
+        if fall_fade > 0.0 {
+            let _ = self.draw_list.push(jkr_ui::DrawCommand::SolidRect {
+                rect: jkr_ui::Rect::new(0.0, 0.0, viewport[0], viewport[1]),
+                color: jkr_ui::Color::new(0.0, 0.0, 0.0, fall_fade),
+            });
+        }
+        if visibility.crosshair {
+            let crosshair = self.targeting.parameters(viewport);
+            self.crosshair_bars
+                .emit(&mut self.draw_list, viewport, crosshair, self.icons.hacker);
+        }
+        if visibility.hud {
+            action_timer::emit(
+                &mut self.draw_list,
+                self.action_remaining,
+                viewport,
+                user_scale,
+            );
+            // Stock draws these before the zoom mask too (`cg_draw.c:8008-8025`).
+            self.meters.emit(&mut self.under_scope, viewport);
             self.speed.emit(&mut self.draw_list, self.theme, viewport);
             selection::emit(
                 &mut self.draw_list,
@@ -415,6 +592,9 @@ impl HudOverlay {
             self.icons
                 .emit(&mut self.draw_list, viewport, visibility, self.family.upper);
             self.guides.emit(&mut self.draw_list, viewport);
+            self.movement_keys
+                .emit(&mut self.draw_list, viewport, self.theme.accent);
+            self.brackets.emit(&mut self.draw_list, viewport);
         }
         output
     }
@@ -443,5 +623,10 @@ impl HudOverlay {
 
     pub(crate) fn draw_list(&self) -> &DrawList {
         &self.draw_list
+    }
+
+    /// The part of the HUD a zoom mask covers, drawn before it.
+    pub(crate) fn under_scope_list(&self) -> &DrawList {
+        &self.under_scope
     }
 }

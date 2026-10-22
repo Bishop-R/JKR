@@ -88,6 +88,17 @@ pub(crate) struct HudUniform {
     pub(crate) crosshair_parameters: [f32; 4],
 }
 
+/// The height of the walker numbered `number`, from the vehicle its model was loaded for.
+fn walker_height(gpu: &GpuState, number: u16) -> Option<f32> {
+    let id = jkr_runtime::EntityId::new(u64::from(number) + 1);
+    gpu.actor_meshes
+        .iter()
+        .find(|mesh| mesh.entity_id == Some(id))
+        .map(|mesh| &mesh.preview)
+        .filter(|preview| preview.vehicle == Some(crate::vehicle_assets::VehicleKind::Walker))
+        .map(|preview| preview.vehicle_height)
+}
+
 /// Refresh retained HUD data and project movement guides through this frame's camera.
 pub(crate) fn update(
     gpu: &mut GpuState,
@@ -97,6 +108,11 @@ pub(crate) fn update(
     intermission: bool,
 ) {
     let (view_target, view_up, vertical_fov) = view;
+    gpu.hud.action_remaining = if intermission {
+        None
+    } else {
+        gpu.effect_aux.feedback.timer_remaining(presentation_time)
+    };
     hud::tints::update(gpu, view_position, presentation_time, intermission);
     let scoreboard = gpu.gameplay_input.held(input::GameButton::Scores);
     let labels_hidden = scoreboard
@@ -115,6 +131,7 @@ pub(crate) fn update(
             gpu.configuration.height as f32,
         ],
     };
+    update_vehicle_damage(gpu, presentation_time);
     if let Some(session) = &gpu.live_session {
         let snapshot = session.latest_snapshot();
         gpu.scoreboard.observe_deaths(
@@ -142,14 +159,22 @@ pub(crate) fn update(
         );
         gpu.lagometer
             .add_frame(presentation_time - snapshot.server_time);
+        let vehicle = crosshair_scan::dynamic::inside(
+            &snapshot.player,
+            &snapshot.entities,
+            gpu.local_prediction.vehicle_pose(),
+            |number| walker_height(gpu, number),
+        );
         let mut ray = crosshair_scan::dynamic::ray(
             gpu.console.as_ref(),
             &snapshot.player,
             gpu.local_prediction.predicted_state(),
             session.game_state(),
+            &snapshot.entities,
             camera,
             gpu.third_person,
             snapshot.player.weapon(),
+            vehicle,
         );
         if ray.projected {
             ray.distance = gpu.crosshair_scan.distance_cull.unwrap_or(6000.0);
@@ -190,6 +215,23 @@ pub(crate) fn update(
             !session.is_local()
                 && jkr_client::connection_interrupted(presentation_time, snapshot.server_time),
             &gpu.localization,
+            &snapshot.player,
+        );
+        gpu.hud.vehicle.update(
+            gpu.local_prediction.piloted_vehicle(),
+            snapshot.vehicle_player.as_ref(),
+            presentation_time,
+        );
+        gpu.hud.update_siege(
+            hud::SiegeInputs {
+                game: session.game_state(),
+                time: presentation_time,
+                team: snapshot.player.team(),
+                notices: gpu.chat.siege_notices(),
+                respawn: gpu.effect_aux.feedback.respawn_remaining(presentation_time),
+                intermission,
+            },
+            &gpu.localization,
         );
     } else if let Some(session) = &gpu.demo_session {
         let snapshot = session.snapshot_at_or_before(presentation_time);
@@ -218,14 +260,20 @@ pub(crate) fn update(
         );
         gpu.lagometer
             .add_frame(presentation_time - snapshot.server_time);
+        let vehicle =
+            crosshair_scan::dynamic::inside(&snapshot.player, &snapshot.entities, None, |number| {
+                walker_height(gpu, number)
+            });
         let mut ray = crosshair_scan::dynamic::ray(
             gpu.console.as_ref(),
             &snapshot.player,
             None,
             session.game_state(),
+            &snapshot.entities,
             camera,
             gpu.third_person,
             snapshot.player.weapon(),
+            vehicle,
         );
         if ray.projected {
             ray.distance = gpu.crosshair_scan.distance_cull.unwrap_or(6000.0);
@@ -266,7 +314,184 @@ pub(crate) fn update(
             crosshair,
             false,
             &gpu.localization,
+            &snapshot.player,
         );
+        gpu.hud.vehicle.update(None, None, presentation_time);
+        gpu.hud.update_siege(
+            hud::SiegeInputs {
+                game: session.game_state(),
+                time: presentation_time,
+                team: snapshot.player.team(),
+                notices: gpu.chat.siege_notices(),
+                respawn: gpu.effect_aux.feedback.respawn_remaining(presentation_time),
+                intermission,
+            },
+            &gpu.localization,
+        );
+    }
+    // The bars under the crosshair and the radar read the latest snapshot and the predicted
+    // player, or in a demo the presented snapshot and its own player, as
+    // `cg.predictedPlayerState` is there.
+    let source = gpu
+        .live_session
+        .as_ref()
+        .map(|session| {
+            let predicted = gpu.local_prediction.predicted_state();
+            let extended = Some(session.siege_extended());
+            (
+                session.latest_snapshot(),
+                session.game_state(),
+                predicted,
+                extended,
+            )
+        })
+        .or_else(|| {
+            gpu.demo_session.as_ref().map(|session| {
+                let snapshot = session.snapshot_at_or_before(presentation_time);
+                (snapshot, session.game_state(), None, None)
+            })
+        });
+    if let Some((snapshot, game, _, extended)) = source {
+        gpu.hud.update_meters(&snapshot.player, &snapshot.entities);
+        let console = gpu.console.as_ref();
+        let identifies = gpu.hud.targeting.identifies(snapshot.player.weapon());
+        gpu.hud.update_crosshair_bars(hud::CrosshairBarInputs {
+            snapshot,
+            game,
+            // `crossEnt` exists only while the crosshair takes the target's colour.
+            target: gpu.crosshair_scan.target.filter(|_| identifies),
+            extended,
+            time: presentation_time,
+            entity_health: console
+                .and_then(|console| console.integer_cvar("cg_drawPlayerNames"))
+                .unwrap_or(0)
+                < 2,
+            size: hud::options::crosshair_size(console, true),
+            vfs: gpu.vfs.as_deref(),
+        });
+    }
+    if let (Some((snapshot, game, predicted, _)), Some(vfs)) = (source, gpu.vfs.as_deref()) {
+        gpu.hud.update_radar(
+            hud::RadarInputs {
+                snapshot,
+                game,
+                predicted,
+                time: presentation_time,
+                // `cg_drawRadar`; no radar during an intermission.
+                enabled: !intermission
+                    && gpu
+                        .console
+                        .as_ref()
+                        .and_then(|console| console.bool_cvar("cg_drawRadar"))
+                        .unwrap_or(true),
+                feedback: &gpu.effect_aux.feedback,
+            },
+            hud::RadarAssets {
+                vfs,
+                shaders: &gpu.shaders,
+                renderer: &gpu.ui_shapes,
+                queue: &gpu.queue,
+            },
+        );
+    }
+    if let Some((snapshot, game, _, _)) = source {
+        // The locked entity where it is drawn (`cent->lerpOrigin`).
+        let locked = snapshot.player.raw_field(24).unwrap_or(1_023);
+        let world = match (&gpu.live_session, &gpu.demo_session) {
+            (Some(_), _) => Some(&gpu.live_world),
+            (None, Some(session)) => Some(session.world()),
+            (None, None) => None,
+        };
+        let target = world
+            .and_then(|world| world.entity(jkr_runtime::EntityId::new(u64::from(locked) + 1)))
+            .map(|entity| {
+                Vec3::from_array(entity.sample(i64::from(presentation_time)).translation)
+            });
+        gpu.hud.update_rocket_lock(hud::RocketLockInputs {
+            snapshot,
+            game,
+            target,
+            camera,
+            time: presentation_time,
+        });
+        let console = gpu.console.as_ref();
+        gpu.hud.update_lead_indicator(hud::LeadInputs {
+            snapshot,
+            game,
+            world,
+            camera,
+            time: i64::from(presentation_time),
+            bsp: &gpu.bsp,
+            scratch: &mut gpu.trace_scratch,
+            setting: console
+                .and_then(|console| console.float_cvar("cg_leadIndicator"))
+                .unwrap_or(0.0) as f32,
+            ping: gpu.lagometer.snapshot_newest(0).ping,
+            buttons: (
+                gpu.gameplay_input.held(input::GameButton::Button(0)),
+                gpu.gameplay_input.held(input::GameButton::Button(7)),
+            ),
+            origin: Vec3::from_array(
+                gpu.local_prediction
+                    .predicted_state()
+                    .map_or(snapshot.player.origin(), |state| state.origin),
+            ),
+            hidden: intermission
+                || gpu.gameplay_input.held(input::GameButton::Scores)
+                || console.is_some_and(|c| !c.bool_cvar("cg_draw2d").unwrap_or(true)),
+        });
+        // `CG_DrawBracketedEntities`, for the fighter this client pilots.
+        let fighter = gpu
+            .local_prediction
+            .piloted_vehicle()
+            .and_then(|(info, state, _)| {
+                (info.kind == jkr_game_jka::vehicle_fields::kind::FIGHTER).then(|| hud::Fighter {
+                    number: snapshot.player.vehicle_entity_num(),
+                    origin: Vec3::from_array(state.origin),
+                    shot_speed: gpu
+                        .local_prediction
+                        .piloted_weapon()
+                        .filter(|weapon| {
+                            weapon.is_projectile && !weapon.has_gravity && weapon.homing == 0.0
+                        })
+                        .map(|weapon| weapon.speed)
+                        .filter(|speed| *speed > 0.0),
+                })
+            });
+        let inputs = hud::BracketInputs {
+            snapshot,
+            game,
+            camera,
+            fighter,
+            crosshair: gpu.crosshair_scan.chat_client(presentation_time),
+            lead: gpu
+                .console
+                .as_ref()
+                .and_then(|console| console.integer_cvar("cg_drawVehLeadIndicator"))
+                .unwrap_or(1)
+                != 0,
+        };
+        let origin = |number: u16| {
+            world
+                .and_then(|world| world.entity(jkr_runtime::EntityId::new(u64::from(number) + 1)))
+                .map(|entity| {
+                    Vec3::from_array(entity.sample(i64::from(presentation_time)).translation)
+                })
+        };
+        let (bsp, scratch) = (&gpu.bsp, &mut gpu.trace_scratch);
+        // `CG_Trace` with `CONTENTS_OPAQUE`.
+        let mut clear = |from: Vec3, to: Vec3| {
+            bsp.trace_box_with(
+                scratch,
+                from.to_array(),
+                to.to_array(),
+                jkr_bsp::Aabb::POINT,
+                0x8000,
+            )
+            .fraction
+                >= 1.0
+        };
+        gpu.hud.brackets.update(inputs, &origin, &mut clear);
     }
     let game = gpu
         .live_session
@@ -308,6 +533,11 @@ pub(crate) fn update(
                 labels_hidden,
                 gpu.live_session.as_ref().map_or(&[], |s| s.scores()),
             );
+            gpu.hud.duel_panel.update(
+                game,
+                &snapshot.player,
+                gpu.live_session.as_ref().map_or(&[], |s| s.scores()),
+            );
             if let Some(vfs) = &gpu.vfs {
                 gpu.hud.enemy_info.update_portrait(
                     game,
@@ -316,12 +546,21 @@ pub(crate) fn update(
                     &gpu.ui_shapes,
                     &gpu.queue,
                 );
+                gpu.hud.duel_panel.update_portraits(
+                    game,
+                    vfs,
+                    &gpu.shaders,
+                    &gpu.ui_shapes,
+                    &gpu.queue,
+                );
+                gpu.chat.refresh_siege(vfs, game);
             }
             gpu.chat.observe_combat(
                 snapshot,
                 game,
+                &gpu.localization,
                 &gpu.obituaries,
-                gpu.console.as_ref(),
+                gpu.console.as_mut(),
                 camera,
                 presentation_time,
             );
@@ -335,6 +574,24 @@ pub(crate) fn update(
         .as_ref()
         .and_then(|_| gpu.local_prediction.guide_input());
     gpu.hud.restrict_guides(!gpu.third_person && !japro, keys);
+    if let Some(snapshot) = gpu
+        .live_session
+        .as_ref()
+        .map(|s| s.latest_snapshot())
+        .or_else(|| {
+            gpu.demo_session
+                .as_ref()
+                .map(|s| s.snapshot_at_or_before(presentation_time))
+        })
+    {
+        let command = gpu
+            .live_session
+            .as_ref()
+            .and_then(|_| gpu.local_prediction.latest_command());
+        gpu.hud
+            .movement_keys
+            .update(gpu.console.as_ref(), &snapshot.player, command);
+    }
     gpu.hud.guide_camera(
         view_target - view_position,
         view_up,
@@ -411,5 +668,92 @@ impl HudUniform {
             damage = None;
         }
         Some([crosshair, damage])
+    }
+}
+
+/// The damage HUDs of a vehicle that hides its pilot (`CG_DrawVehicleHud`'s `hideRider`
+/// branch): its own, and the targeted fighter's.
+fn update_vehicle_damage(gpu: &mut GpuState, time: i32) {
+    use jkr_game_jka::vehicle_fields::kind::FIGHTER;
+    /// `STAT_ARMOR`, `ps.rocketLockIndex`.
+    const STAT_ARMOR: usize = 5;
+    let GpuState {
+        live_session,
+        hud,
+        local_prediction: prediction,
+        force_overlays,
+        crosshair_scan,
+        vfs,
+        shaders,
+        ui_shapes,
+        queue,
+        ..
+    } = gpu;
+    let Some(session) = live_session.as_ref() else {
+        hud.vehicle_damage.set(None, None);
+        return;
+    };
+    let (snapshot, game) = (session.latest_snapshot(), session.game_state());
+    let own = hud
+        .vehicle
+        .hides_status()
+        .then(|| {
+            let template = prediction.piloted_template()?;
+            let info = prediction.vehicle_template_info(template)?;
+            let vehicle = snapshot.vehicle_player.as_ref()?;
+            let number = snapshot.player.vehicle_entity_num();
+            Some(hud::DamagePanel {
+                template,
+                broken: vehicle.broken_limbs(),
+                shields: vehicle.stats[STAT_ARMOR] as f32 / info.shields.max(1) as f32,
+                recovered: hud::vehicle_damage_recovered(force_overlays.shield(number).until, time),
+                alpha: 1.0,
+            })
+        })
+        .flatten();
+    let enemy = own.and_then(|_| {
+        let entity = |number: u16| snapshot.entities.iter().find(|e| e.number() == number);
+        let lock = snapshot.player.raw_field(24).map(|lock| lock as u16);
+        let player_vehicle = crosshair_scan
+            .chat_client(time)
+            .and_then(entity)
+            .map(|player| player.vehicle_entity_num())
+            .filter(|vehicle| *vehicle >= 32);
+        let crosshair_vehicle = crosshair_scan.target.and_then(|target| target.vehicle);
+        let mut is_fighter = |number: u16| {
+            entity(number)
+                .and_then(|state| prediction.vehicle_template(state, game))
+                .and_then(|template| prediction.vehicle_template_info(template))
+                .is_some_and(|info| info.kind == FIGHTER)
+        };
+        let (number, alpha) = hud.vehicle_damage.target(
+            time,
+            lock,
+            crosshair_vehicle,
+            player_vehicle,
+            &mut is_fighter,
+        )?;
+        let state = entity(number)?;
+        Some(hud::DamagePanel {
+            template: prediction.vehicle_template(state, game)?,
+            broken: state.broken_limbs(),
+            shields: f32::from(state.active_force_pass()) / 10.0,
+            recovered: hud::vehicle_damage_recovered(force_overlays.shield(number).until, time),
+            alpha,
+        })
+    });
+    hud.vehicle_damage.set(own, enemy);
+    let Some(vfs) = vfs.as_deref() else {
+        return;
+    };
+    for (panel, template) in hud.vehicle_damage.wanted().into_iter().enumerate() {
+        let Some(template) = template else {
+            continue;
+        };
+        if let Some(info) = prediction.vehicle_template_info(template) {
+            let pictures = info.damage_pictures.clone();
+            hud.vehicle_damage
+                .load(panel, template, &pictures, vfs, shaders, ui_shapes, queue);
+        }
     }
 }

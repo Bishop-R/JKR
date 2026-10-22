@@ -342,6 +342,75 @@ impl NativeGame {
         }
     }
 
+    /// One `trap->Trace` from `pass`'s place, as a shot or a kick asks it: through the map
+    /// and the boxes `gather_obstacles` collects, and with `ghoul2`
+    /// (`G2TRFLAG_DOGHOULTRACE | G2TRFLAG_GETSURFINDEX | G2TRFLAG_THICK | G2TRFLAG_HITCORPSES`)
+    /// through the players' and NPCs' models posed at `level_time`.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn shot_sweep(
+        &mut self,
+        pass: usize,
+        start: [f32; 3],
+        (mins, maxs): ([f32; 3], [f32; 3]),
+        end: [f32; 3],
+        mask: u32,
+        ghoul2: bool,
+        level_time: i32,
+    ) -> MovementTrace {
+        self.gather_obstacles(pass);
+        let Self {
+            server,
+            world,
+            players,
+            map,
+            obstacles,
+            rand,
+            saber_work,
+            npcs,
+            ..
+        } = self;
+        let players = Players {
+            server: RefCell::new(server),
+            world: *world,
+            roster: players,
+            work: RefCell::new(saber_work),
+            rand: RefCell::new(rand),
+            npcs: RefCell::new(npcs),
+            shooter_origin: [0.0; 3],
+            level_time,
+        };
+        match (map, ghoul2) {
+            (Some(map), true) => WithModels {
+                world: WorldCollision {
+                    bsp: &map.bsp,
+                    scratch: &map.scratch,
+                },
+                obstacles,
+                players: &players,
+            }
+            .trace(start, mins, maxs, end, mask),
+            (Some(map), false) => WithPlayers {
+                world: WorldCollision {
+                    bsp: &map.bsp,
+                    scratch: &map.scratch,
+                },
+                players: obstacles,
+            }
+            .trace(start, mins, maxs, end, mask),
+            (None, true) => WithModels {
+                world: Void,
+                obstacles,
+                players: &players,
+            }
+            .trace(start, mins, maxs, end, mask),
+            (None, false) => WithPlayers {
+                world: Void,
+                players: obstacles,
+            }
+            .trace(start, mins, maxs, end, mask),
+        }
+    }
+
     /// `G_RunMissile` for one missile at `server_time`, through the map, the boxes, the
     /// saber entities and the players' models; a player it strikes may block it with the
     /// saber (`WP_SaberCanBlock`), a blade it meets turns it aside.

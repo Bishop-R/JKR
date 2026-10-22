@@ -11,8 +11,9 @@
 
 mod commands;
 mod numbers;
+pub(crate) use numbers::is_a_number;
 mod registry;
-use numbers::{atof, atoi, c_int, format_value, is_a_number};
+use numbers::{atof, atoi, c_int, format_value};
 
 /// `CVAR_ARCHIVE`: saved to the configuration file.
 pub const CVAR_ARCHIVE: u32 = 0x1;
@@ -121,12 +122,32 @@ impl Cvars {
     /// values stay, except that a read-only one is forced back to the code's value.
     pub fn register_server(&mut self) {
         let cvars = self;
+        // `FS_Startup`'s mod directory (`files.cpp:3581`), which every client is sent; this
+        // server serves the base game alone.
+        cvars.get(
+            b"fs_game",
+            b"",
+            CVAR_INIT | CVAR_SYSTEMINFO,
+            Some(b"Mod directory"),
+        );
         // `Com_Init`'s `dedicated` (`common.cpp:1224`): 1 for a LAN server, 2 for one that
         // announces itself to the master servers. The reference's dedicated server starts
         // at 2; this one starts at 1, so that no server lists itself publicly unless its
         // operator asks (`--set dedicated 2`).
         cvars.get(b"dedicated", b"1", CVAR_INIT, None);
         cvars.check_range(b"dedicated", 1.0, 2.0, true, &mut |_| {});
+        // `Com_Init`'s `timescale` (`common.cpp:1248`): how fast the server's time runs, which
+        // every client is sent and runs at too.
+        cvars.get(b"timescale", b"1", CVAR_CHEAT | CVAR_SYSTEMINFO, None);
+        // TaystJK's `SV_SpawnServer` (`sv_init.cpp:760-761`): its HTTP downloads
+        // (`bridge_http_downloads`), in the server's information.
+        cvars.get(
+            b"sv_httpDownloads",
+            b"0",
+            CVAR_SERVERINFO | CVAR_ARCHIVE | CVAR_LATCH,
+            None,
+        );
+        cvars.get(b"sv_httpServerPort", b"0", CVAR_ARCHIVE | CVAR_LATCH, None);
         for &(name, value, flags, description, range) in registry::ENGINE {
             cvars.get(name, value, flags, description);
             if let Some((min, max, integral)) = range {
@@ -140,6 +161,26 @@ impl Cvars {
             let index = cvars.get(name, value, flags | CVAR_VM_CREATED, None);
             cvars.vars[index].announced = announced;
         }
+        // JKR lifts the reference's read-only `sv_cheats`, which only `map` and `devmap`
+        // set there: the operator may turn the cheats on and off from the console or
+        // rcon, and every client is told through the systeminfo.
+        if let Some(index) = cvars.find(b"sv_cheats") {
+            cvars.vars[index].flags &= !CVAR_ROM;
+        }
+    }
+
+    /// [`Self::get`] for a game variable whose changes everyone is told about
+    /// (`G_UpdateCvars`' announce flag), as [`Self::register_server`]'s are.
+    pub fn get_announced(
+        &mut self,
+        name: &[u8],
+        value: &[u8],
+        flags: u32,
+        description: Option<&[u8]>,
+    ) -> usize {
+        let index = self.get(name, value, flags, description);
+        self.vars[index].announced = true;
+        index
     }
 
     fn find(&self, name: &[u8]) -> Option<usize> {
@@ -463,6 +504,29 @@ impl Cvars {
             .fold(Vec::new(), |info, var| {
                 jkr_protocol::info_set_value(&info, &var.name, &var.string)
             })
+    }
+
+    /// `Cvar_InfoString_Big`: every variable with `bit` (and not `CVAR_INTERNAL`) in the
+    /// table's order, as `Info_SetValueForKey_Big` appends them — an empty value kept, a
+    /// pair with a backslash, `;` or `"` in it left out, and nothing past `BIG_INFO_STRING`.
+    pub fn info_string_big(&self, bit: u32) -> Vec<u8> {
+        /// `BIG_INFO_STRING`.
+        const BIG_INFO_STRING: usize = 8192;
+        let mut info = Vec::new();
+        for var in self
+            .iter()
+            .filter(|var| var.flags & CVAR_INTERNAL == 0 && var.flags & bit != 0)
+        {
+            let banned = |text: &[u8]| text.iter().any(|byte| matches!(byte, b'\\' | b';' | b'"'));
+            if banned(&var.name) || banned(&var.string) {
+                continue;
+            }
+            if info.len() + var.name.len() + var.string.len() + 2 >= BIG_INFO_STRING {
+                continue;
+            }
+            info.extend_from_slice(&[&b"\\"[..], &var.name, b"\\", &var.string].concat());
+        }
+        info
     }
 
     /// The variables whose `modificationCount` differs from `seen`'s record, which is

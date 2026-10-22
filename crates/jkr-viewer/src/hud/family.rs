@@ -31,6 +31,21 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             "Obituaries: 0 right, 1 left, 2 center",
         ),
         ("cg_killfeedReverse", 0, "Show attacker before victim"),
+        (
+            "cg_movementKeys",
+            0,
+            "Movement keys: 1 keys, 2 with attacks, 3 small at the crosshair, 4 held below it",
+        ),
+        (
+            "cg_movementKeysWalk",
+            0,
+            "Movement keys include the walk key",
+        ),
+        (
+            "cg_drawVehLeadIndicator",
+            1,
+            "In a fighter, show where to aim at a moving enemy vehicle",
+        ),
     ] {
         cvars.register(CvarDefinition::new(
             name,
@@ -39,8 +54,17 @@ pub(crate) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
             help,
         ))?;
     }
+    cvars.register(CvarDefinition::new(
+        "cg_hudFiles",
+        "ui/jahud.txt",
+        CvarFlags::ARCHIVE,
+        "Stock's simple HUD for any number but 0; a HUD file or 0, this client's HUD",
+    ))?;
     for (name, value, help) in [
         ("cg_drawScoreX", 0.0, "Personal score horizontal offset"),
+        ("cg_movementKeysX", 0.0, "Movement keys horizontal offset"),
+        ("cg_movementKeysY", 0.0, "Movement keys vertical offset"),
+        ("cg_movementKeysSize", 1.0, "Movement keys scale"),
         ("cg_drawScoreY", 0.0, "Personal score upward offset"),
         ("cg_drawCrosshairNamesOpacity", 1.0, "Target name opacity"),
         (
@@ -98,10 +122,14 @@ pub(crate) fn fps(console: Option<&ViewerConsole>) -> bool {
 pub(super) struct Policy {
     /// Personal/team score mode.
     pub(super) score: i64,
+    /// `cg_hudFiles` a number but 0: stock's simple HUD.
+    pub(super) simple: bool,
     /// Virtual-coordinate score offsets.
     pub(super) score_offset: [f32; 2],
     /// Upper-right group visibility.
     pub(super) upper: bool,
+    /// `cg_drawScores`: the team mini scoreboard (`CG_DrawMiniScoreboard`).
+    pub(super) mini_scores: bool,
     /// Snapshot diagnostic visibility.
     pub(super) snapshot: bool,
     /// Vote visibility.
@@ -141,8 +169,14 @@ impl Policy {
         let f = |name, fallback| crate::cgame_options::scalar(console, name, fallback);
         Self {
             score: i("cg_drawscore", 2),
+            simple: console
+                .and_then(|c| c.text_cvar("cg_hudfiles").ok())
+                .is_some_and(|files| jkr_game_jka::userinfo::atoi(files.as_bytes()) != 0),
             score_offset: [f("cg_drawscorex", 0.0), f("cg_drawscorey", 0.0)],
             upper: i("cg_drawupperright", 1) != 0,
+            mini_scores: console
+                .and_then(|c| c.bool_cvar("cg_drawscores"))
+                .unwrap_or(true),
             snapshot: i("cg_drawsnapshot", 0) != 0,
             vote: i("cg_drawvote", 1) != 0,
             inventory: i("cg_drawinventory", 1) != 0,
@@ -217,11 +251,7 @@ impl HudOverlay {
             0
         };
         self.score_text.clear();
-        let _ = write!(
-            self.score_text,
-            "SCORE {}",
-            snapshot.player.persistent[0] as i32
-        );
+        let _ = write!(self.score_text, "SCORE {}", snapshot.player.score());
         if self.family.score > 1 && matches!(snapshot.player.team(), 1 | 2) {
             for index in [6, 7] {
                 let value = config_number(game, index);
@@ -238,24 +268,34 @@ impl HudOverlay {
 
     /// Optional right-side readouts follow the leader block; explicit team
     /// overlay coordinates remain the player's choice.
-    pub(super) fn upper_right_stack(&self) -> [f32; 3] {
+    pub(super) fn upper_right_stack(&self) -> [f32; 5] {
         let bottom = self.enemy_info.bottom();
         let snapshot = if bottom > 0.0 { bottom + 16.0 } else { 50.0 };
         let after_snapshot = snapshot + if self.family.snapshot { 28.0 } else { 0.0 };
-        let inventory = 100.0_f32.max(after_snapshot);
+        // The radar follows, as `CG_DrawUpperRight` draws it after the snapshot line,
+        // then the mini scoreboard.
+        let radar = after_snapshot;
+        let mini = radar + self.radar.height();
+        let after_radar = mini
+            + if self.mini_scores.is_empty() {
+                0.0
+            } else {
+                28.0
+            };
+        let inventory = 100.0_f32.max(after_radar);
         let items = if self.family.upper && self.family.inventory {
             (self.inventory_bits & 0x0ffe).count_ones()
         } else {
             0
         };
-        let team = if bottom == 0.0 {
+        let team = if bottom == 0.0 && after_radar == after_snapshot {
             0.0
         } else if items > 0 {
             inventory + items as f32 * 26.0 + 12.0
         } else {
-            after_snapshot
+            after_radar
         };
-        [snapshot, inventory, team]
+        [snapshot, inventory, team, radar, mini]
     }
 
     /// Append independent score and diagnostic text without a backplate.
@@ -265,7 +305,8 @@ impl HudOverlay {
         self.enemy_info
             .emit(&mut self.draw_list, viewport, self.theme);
         let s = (viewport[1] / 1080.0).clamp(0.6, 2.5);
-        let [snapshot_top, inventory_top, _] = self.upper_right_stack();
+        let [snapshot_top, inventory_top, _, radar_top, mini_top] = self.upper_right_stack();
+        self.radar.emit(&mut self.draw_list, viewport, radar_top);
         if self.family.upper && self.family.inventory {
             let mut row = 0;
             for tag in 1..12 {
@@ -290,9 +331,11 @@ impl HudOverlay {
                 row += 1;
             }
         }
+        // The score is part of `CG_DrawHUD`, drawn with the status (see `layout`).
+        let status = !self.spectator.hides_status() && !self.vehicle.hides_status();
         for (enabled, id, y, offset) in [
             (
-                self.family.score != 0,
+                self.family.score != 0 && status,
                 315,
                 viewport[1] - 160.0 * s,
                 self.family.score_offset,
@@ -303,6 +346,7 @@ impl HudOverlay {
                 snapshot_top * s,
                 [0.0; 2],
             ),
+            (!self.mini_scores.is_empty(), 322, mini_top * s, [0.0; 2]),
         ] {
             if !enabled {
                 continue;

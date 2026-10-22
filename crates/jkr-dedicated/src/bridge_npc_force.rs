@@ -221,6 +221,8 @@ impl PlayerForce for ServerHost<'_> {
             team: peer.session.team,
             absmin,
             absmax,
+            jetpack: Some(&mut peer.gear.packs),
+            typing: peer.typing,
         })
     }
 
@@ -238,6 +240,7 @@ impl PlayerForce for ServerHost<'_> {
             team: peer.session.team,
             push_effect_until: &mut peer.push_effect_until,
             lock_hits: &mut peer.lock.hits,
+            typing: peer.typing,
         })
     }
 
@@ -296,6 +299,10 @@ impl PlayerForce for ServerHost<'_> {
     /// The weapon out of the player's hand at once; its pickup spawned as the use ends.
     fn force_toss_weapon(&mut self, victim: u16, direction: [f32; 3], speed: f32) {
         let (level_time, gametype) = (self.level_time, self.gametype);
+        // jaPRO's gun game: nobody is disarmed (`TossClientWeapon` returns at once).
+        if self.gun_game {
+            return;
+        }
         let Some(peer) = self.reach(victim) else {
             return;
         };

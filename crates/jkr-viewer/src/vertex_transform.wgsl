@@ -26,8 +26,10 @@ struct InstanceInput {
     @location(9) shader_tex_coord: vec2<f32>,
     @location(10) entity_control: vec2<f32>,
     @location(11) light_ambient: vec3<f32>,
-    @location(12) light_directed: vec3<f32>,
-    @location(13) light_direction: vec3<f32>,
+    // xyz the entity light; w a disintegration's burn radius.
+    @location(12) light_directed: vec4<f32>,
+    // xyz the entity light's direction; w a disintegration's centre, packed.
+    @location(13) light_direction: vec4<f32>,
     @location(14) fog_index: u32,
     @location(15) view_flags: u32,
 };
@@ -39,6 +41,19 @@ fn instance_visible(instance: InstanceInput) -> bool {
     if (view & 4u) != 0u { return (instance.view_flags & 2u) != 0u; }
     if (view & 1u) != 0u { return instance.position.w < 0.5; }
     return (instance.view_flags & 1u) == 0u;
+}
+
+// A disintegration pass (`view_flags` bits 4-5): 1 the body (`RF_DISINTEGRATE1`), 2 the
+// glow (`RF_DISINTEGRATE2`); 0 none.
+fn dissolve_mode(instance: InstanceInput) -> u32 {
+    return (instance.view_flags >> 4u) & 3u;
+}
+
+// `pack_dissolve_center` (actor_instance.rs): three signed ten-bit counts of quarter units.
+fn unpack_dissolve_center(packed: u32) -> vec3<f32> {
+    let fields = vec3<u32>(packed & 1023u, (packed >> 10u) & 1023u, (packed >> 20u) & 1023u);
+    let signed = vec3<i32>(fields) - select(vec3<i32>(0), vec3<i32>(1024), fields >= vec3<u32>(512u));
+    return vec3<f32>(signed) * 0.25;
 }
 
 fn rotate_vector(rotation: vec4<f32>, value: vec3<f32>) -> vec3<f32> {

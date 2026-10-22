@@ -100,6 +100,18 @@ impl LegacySnapshotFrame<'_> {
         Ok(())
     }
 
+    /// [`Self::push`], the listed copy made not solid (`solid` 0): what a client is sent of
+    /// an entity its prediction must pass through, as TaystJK's duel isolation sends it
+    /// (`sv_snapshot.cpp:733-735`).
+    pub fn push_not_solid(&mut self, entity: &EntityState) -> Result<(), LegacySnapshotRefusal> {
+        /// The `solid` field of the protocol-26 entity state.
+        const SOLID: usize = 26;
+        self.push(entity)?;
+        let ring = self.ring.len() as u64;
+        self.ring[((*self.next_entity - 1) % ring) as usize].set_raw_field(SOLID, 0);
+        Ok(())
+    }
+
     /// Portal-area visibility bits; bytes beyond 32 are ignored.
     pub fn set_area_mask(&mut self, mask: &[u8]) {
         let length = mask.len().min(MAX_AREA_BYTES);

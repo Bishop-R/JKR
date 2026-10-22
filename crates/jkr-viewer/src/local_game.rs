@@ -57,7 +57,7 @@ impl crate::GpuState {
                 }
                 if let Some(menu) = &mut self.client_menu {
                     menu.local_server_started(server, &settings.map);
-                    menu.state_loading(&settings.map);
+                    menu.state_loading(&settings.map, Vec::new());
                 }
             }
             Err(error) => {

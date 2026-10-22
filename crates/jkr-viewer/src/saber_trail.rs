@@ -97,6 +97,11 @@ impl Trail {
         self.initialized = true;
         quad
     }
+    /// Where the blade's base was when the trail last took a slice, and when
+    /// (`trail.base`, `trail.lastTime`).
+    pub(crate) fn last(&self) -> Option<([f32; 3], i64)> {
+        self.initialized.then_some((self.base, self.last_time))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -126,18 +131,27 @@ impl Default for StateSlab {
 }
 
 impl StateSlab {
+    /// Where blade `blade` of saber `saber` of entity id `entity` is kept.
+    fn index(entity: u64, saber: usize, blade: usize) -> Option<usize> {
+        let entity = usize::try_from(entity.checked_sub(1)?).ok()?;
+        entity
+            .checked_mul(SABERS_PER_ENTITY * BLADES_PER_SABER)?
+            .checked_add(saber.checked_mul(BLADES_PER_SABER)?)?
+            .checked_add(blade)
+    }
+
     pub(crate) fn blade_mut(
         &mut self,
         entity: u64,
         saber: usize,
         blade: usize,
     ) -> Option<&mut BladeState> {
-        let entity = usize::try_from(entity.checked_sub(1)?).ok()?;
-        let index = entity
-            .checked_mul(SABERS_PER_ENTITY * BLADES_PER_SABER)?
-            .checked_add(saber.checked_mul(BLADES_PER_SABER)?)?
-            .checked_add(blade)?;
-        self.states.get_mut(index)
+        self.states.get_mut(Self::index(entity, saber, blade)?)
+    }
+
+    /// One blade's state, as [`Self::blade_mut`] finds it.
+    pub(crate) fn blade(&self, entity: u64, saber: usize, blade: usize) -> Option<&BladeState> {
+        self.states.get(Self::index(entity, saber, blade)?)
     }
 
     /// The thrown-saber tilt kept on the owner's entity (`centity_t::bolt3`).

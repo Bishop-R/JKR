@@ -153,7 +153,7 @@ pub(super) fn atoi(text: &[u8]) -> i32 {
 
 /// `Q_isanumber`: the whole text is one number, neither an overflow (`HUGE_VAL`) nor
 /// out of range.
-pub(super) fn is_a_number(text: &[u8]) -> bool {
+pub(crate) fn is_a_number(text: &[u8]) -> bool {
     if text.is_empty() {
         return false;
     }

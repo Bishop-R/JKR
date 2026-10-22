@@ -2,7 +2,7 @@
 //! spawns, its wire state, its movement, the entity the others are shown and the clusters
 //! that entity touches — and the two things that happen to it over and over: a command
 //! (`ClientThink_real`) and the end of a server frame (`ClientEndFrame`).
-use crate::collision::{Void, WithPlayers, WorldCollision};
+use crate::collision::{Blows, Striking, Void, WithPlayers, WorldCollision};
 use crate::map::LoadedMap;
 use crate::visibility::ClusterLink;
 use jkr_game_jka::pmove::{MoveContext, MovementCollision};
@@ -20,6 +20,8 @@ pub(crate) const TEAM_SPECTATOR: u8 = 3;
 pub(crate) const EFLAGS: usize = 17;
 /// `EF_CONNECTION`: draw the connection-trouble sprite over this player.
 pub(crate) const EF_CONNECTION: u32 = 1 << 14;
+/// `ps.loopSound`.
+const PS_LOOP_SOUND: usize = 75;
 /// Wire field `eventSequence`.
 const EVENT_SEQUENCE: usize = 19;
 
@@ -83,6 +85,8 @@ pub struct Peer {
     pub(crate) state: PlayerState,
     /// Server time at which spawn protection ends (`invulnerableTimer`).
     pub(crate) invulnerable_until: i32,
+    /// `fly_sound_debounce_time`: when a `target_push` may play its sound again.
+    pub(crate) fly_sound_until: i32,
     /// What the other clients are shown of the player, and whether they are: a
     /// spectator's entity is not linked into the world, so no snapshot lists it.
     pub(crate) entity: PlayerEntity,
@@ -141,10 +145,53 @@ pub struct Peer {
     pub(crate) pain: (i32, bool),
     /// `timeResidual`: the living player's seconds, for the once-a-second actions.
     pub(crate) time_residual: i32,
+    /// jaPRO's centre message of the day, counted down by the once-a-second actions.
+    pub(crate) motd: crate::motd::Countdown,
+    /// jaPRO's held emote (`emote_freeze`), which a spawn clears.
+    pub(crate) emote: jkr_game_jka::japro_emotes::Hold,
+    /// jaPRO's running total of damage given, for `g_damageNumbers`.
+    pub(crate) damage_total: crate::damage_numbers::Total,
+    /// jaPRO's `pers.amfreeze`: an admin froze this player (`amfreeze`); a map clears it.
+    pub(crate) admin_frozen: bool,
+    /// jaPRO's teleport marker (`pers.telemarkOrigin`, `telemarkAngle`,
+    /// `telemarkPitchAngle`): where `amtele` alone goes; zero for none; a map clears it.
+    pub(crate) telemark: ([f32; 3], [f32; 2]),
+    /// jaPRO's `lastThrowTime`: when this player last threw a flag (`throwflag`).
+    pub(crate) last_flag_throw: i32,
+    /// jaPRO's flag timer (`pers.stats`), run under `g_fixCTFScores`.
+    pub(crate) flag_timer: jkr_game_jka::japro_ctf::FlagTimer,
+    /// jaPRO's `pers.respawnLocation` and `respawnAngle` (`g_duelRespawn`): where the
+    /// next spawn is, after a death in a duel.
+    pub(crate) duel_respawn: Option<([f32; 3], f32)>,
+    /// jaPRO's `lastSpotTime` (the next `spot` taken) and `lastSpottedTime` (when this
+    /// player was last spotted).
+    pub(crate) last_spot_time: i32,
+    pub(crate) last_spotted_time: i32,
+    /// jaPRO's `pmoveMsec`: the last move's milliseconds (1 to 200), for `showNet`.
+    pub(crate) command_msec: i32,
+    /// jaPRO's god chat: since when the player has been typing (`pers.lastChatTime`).
+    pub(crate) typing: jkr_game_jka::god_chat::Typing,
+    /// `g_inactivity`'s clock (`inactivityTime`, `inactivityWarning`).
+    pub(crate) inactivity: jkr_game_jka::inactivity::Inactivity,
+    /// jaPRO's statistics for the match (`pers.stats`), which its gun game climbs by.
+    pub(crate) stats: jkr_game_jka::japro_stats::Stats,
+    /// jaPRO's duel statistics (`duelDamageGiven`, `lowestHP`), for a Force duel's end.
+    pub(crate) duel_record: jkr_game_jka::duel::DuelRecord,
+    /// jaPRO's `lastTargetLaserTime`: no laser again before this.
+    pub(crate) target_laser_until: i32,
+    /// jaPRO's gun game: the fire mode the player's rung allows.
+    pub(crate) gun_fire: jkr_game_jka::gun_game::FireMode,
     /// `G_CheckClientIdle`'s memory.
     pub(crate) idle: jkr_game_jka::client_idle::Idle,
     /// The knockdown's memory (`forceHandExtendTime`, `quickerGetup`, `otherKiller`).
     pub(crate) knockdown: jkr_game_jka::knockdown::Knockdown,
+    /// `jediKickIndex`, `jediKickTime`: what this player's kick last hit, till the kick ends.
+    pub(crate) kick: jkr_game_jka::saber_kick::KickMemory,
+    /// `grappleIndex`, `grappleState`: the `g_debugMelee` grapple it is in.
+    pub(crate) grapple: jkr_game_jka::debug_melee::Grapple,
+    /// The dispensers' marks on this player (`isMedHealed`, `isMedSupplied`) and its own
+    /// pace as their user (`medSupplyDebounce`).
+    pub(crate) service: jkr_game_jka::dispensers::Service,
     /// The Force no client is sent (`forcedata_t`'s levels, timers and sound trackers).
     pub(crate) force: jkr_game_jka::force_powers::ForcePowers,
     /// `pushEffectTime`: until when a Force push's full-body effect shows.
@@ -202,6 +249,11 @@ pub(crate) struct Others<'a> {
     pub(crate) gametype: i32,
     /// The Ghoul2 clock the player's own model is read at (`PM_FootSlopeTrace`'s feet).
     pub(crate) ghoul2_time: i32,
+    /// What the player's blows may break (`PM_ClientImpact`); `None` for one that breaks
+    /// nothing, such as a spectator.
+    pub(crate) blows: Option<Blows<'a>>,
+    /// What its rocket lock makes of an entity (`PM_RocketLock`'s `PM_BGEntForNum`).
+    pub(crate) lock_targets: &'a dyn Fn(u16) -> jkr_game_jka::pmove::LockTarget,
 }
 
 /// `FP_SABER_OFFENSE`; defense and throw follow it.
@@ -241,6 +293,7 @@ impl Peer {
             session,
             state,
             invulnerable_until: 0,
+            fly_sound_until: 0,
             entity: PlayerEntity::new(client as u16),
             link: ClusterLink::default(),
             begun: false,
@@ -266,8 +319,28 @@ impl Peer {
             lock: Default::default(),
             pain: (0, false),
             time_residual: 0,
+            motd: Default::default(),
+            emote: Default::default(),
+            damage_total: Default::default(),
+            admin_frozen: false,
+            telemark: ([0.0; 3], [0.0; 2]),
+            last_flag_throw: 0,
+            flag_timer: Default::default(),
+            duel_respawn: None,
+            last_spot_time: 0,
+            last_spotted_time: 0,
+            command_msec: 0,
+            typing: Default::default(),
+            inactivity: Default::default(),
+            stats: Default::default(),
+            duel_record: Default::default(),
+            target_laser_until: 0,
+            gun_fire: Default::default(),
             idle: jkr_game_jka::client_idle::Idle::default(),
             knockdown: jkr_game_jka::knockdown::Knockdown::default(),
+            kick: jkr_game_jka::saber_kick::KickMemory::default(),
+            grapple: jkr_game_jka::debug_melee::Grapple::default(),
+            service: jkr_game_jka::dispensers::Service::default(),
             force: jkr_game_jka::force_powers::ForcePowers::with_levels(
                 [0; jkr_game_jka::force_powers::NUM_FORCE_POWERS],
             ),
@@ -352,6 +425,8 @@ impl Peer {
             legs,
             gametype,
             ghoul2_time,
+            blows,
+            lock_targets,
         } = others;
         let bodies = |number: u16| legs.get(usize::from(number)).copied().flatten();
         // The NPCs are the bodies past the clients' numbers.
@@ -359,6 +434,14 @@ impl Peer {
         // `BG_MySaber`'s speed scales, as the sabers stand now.
         let (animation, movement) = self.sabers.speed_scales();
         self.movement.set_saber_scales(animation, movement);
+        // jaPRO's gun duel holds its own weapon, not the saber (`bg_pmove.c:10611-10645` of
+        // jaPRO); a Jedi Master or a true Jedi keeps theirs.
+        if self.state.duel_in_progress()
+            && matches!(self.force.duel_kind, jkr_game_jka::duel::DuelKind::Gun(_))
+        {
+            self.movement.state_mut().forced_saber =
+                self.state.is_jedi_master() || self.state.is_true_jedi();
+        }
         let levels = &self.force.levels;
         let context = MoveContext {
             saber_offense: levels[FP_SABER_OFFENSE],
@@ -367,6 +450,7 @@ impl Peer {
             sabers: self.sabers.movement(),
             gametype,
             saber_throws: true,
+            duel_kind: self.force.duel_kind,
             bodies: &bodies,
             npcs: &npcs,
             foot_bolts: &jkr_game_jka::pmove::no_foot_bolts,
@@ -391,7 +475,17 @@ impl Peer {
                         },
                         players,
                     };
-                    self.run_move(command, &world, &context, lock)
+                    match blows {
+                        Some(blows) => {
+                            let world = Striking {
+                                world,
+                                blows,
+                                lock_targets,
+                            };
+                            self.run_move(command, &world, &context, lock)
+                        }
+                        None => self.run_move(command, &world, &context, lock),
+                    }
                 }
                 (None, lock) => self.run_move(
                     command,
@@ -462,12 +556,13 @@ impl Peer {
             // entity at the next think.
             if self.playing() && self.health > 0 {
                 let msec = (command.server_time - time_before).min(200);
-                jkr_game_jka::client_timer::timer_actions(
+                let seconds = jkr_game_jka::client_timer::timer_actions(
                     &mut self.state,
                     &mut self.health,
                     &mut self.time_residual,
                     msec,
                 );
+                self.motd.tick(seconds);
                 let (armor, spectating) = (self.state.stats[5] as i32, !self.playing());
                 if jkr_game_jka::client_idle::check_idle(
                     &mut self.idle,
@@ -485,9 +580,15 @@ impl Peer {
         }
         // `ClientThink_real` links the entity with the move's box; a spectator's is not
         // linked at all, and a corpse is `CONTENTS_CORPSE`, which no client clips against.
+        // Script `nodraw` or a vehicle can clear `r.contents`; such a body blocks nothing.
+        const CONTENTS_SOLID_OR_BODY: u32 = 0x1 | jkr_game_jka::vehicle_rider::CONTENTS_BODY;
         let bounds = self.movement.box_bounds();
-        self.entity
-            .linked(bounds, self.playing() && self.corpse.is_none());
+        self.entity.linked(
+            bounds,
+            self.playing()
+                && self.corpse.is_none()
+                && self.riding.contents & CONTENTS_SOLID_OR_BODY != 0,
+        );
         // `client->oldbuttons`, `client->buttons` at the think's end (`g_active.c:3395`).
         self.lock.latch(command.buttons);
         if let Some(map) = map {
@@ -549,14 +650,21 @@ impl Peer {
         self.playing()
     }
 
-    /// `ClientEndFrame`: connection trouble is flagged after a second without commands,
-    /// and the entity is converted again.
-    pub(crate) fn end_frame(&mut self, pool: &mut EntityPool, server_time: i32) {
+    /// `ClientEndFrame`: connection trouble is flagged after a second without commands
+    /// (unless jaPRO's `g_lagIcon` is off, `lag_icon`), the frame's damage felt (with
+    /// jaPRO's `g_stopHealthESP`, `hide_health`), and the entity is converted again.
+    /// Returns the pain sound the caller plays on the player's voice, if any.
+    pub(crate) fn end_frame(
+        &mut self,
+        pool: &mut EntityPool,
+        server_time: i32,
+        (lag_icon, hide_health): (bool, i32),
+    ) -> Option<&'static [u8]> {
         if !self.playing() {
-            return;
+            return None;
         }
         let flags = self.state.raw_field(EFLAGS).unwrap_or(0);
-        let silent = server_time - self.last_command_time > 1_000;
+        let silent = lag_icon && server_time - self.last_command_time > 1_000;
         self.state.set_raw_field(
             EFLAGS,
             if silent {
@@ -566,22 +674,40 @@ impl Peer {
             },
         );
         // `P_DamageFeedback`: what the frame's damage tells the player, the pain sound.
-        if jkr_game_jka::damage::damage_feedback(
+        let pain = jkr_game_jka::damage::damage_feedback(
             &mut self.state,
             &mut self.wounds,
             self.health,
+            self.riding.flags & jkr_game_jka::cheat_flags::FL_GODMODE != 0,
             server_time,
             &mut self.pain.0,
             &mut self.pain.1,
-        ) {
+            hide_health,
+        );
+        if pain == jkr_game_jka::damage::Pain::Event {
             self.entity.event_raised(server_time);
         }
         // `ent->client->ps.stats[STAT_HEALTH] = ent->health`.
         self.state.stats[0] = self.health as u32;
         self.movement.set_health(self.health);
+        // `G_SetClientSound`: hacking, being served by a dispenser, or frying.
+        let movement = self.movement.state();
+        let loop_sound = jkr_game_jka::dispensers::loop_sound(
+            self.siege_hands.hack.trigger != 0,
+            &self.service,
+            movement.water_level,
+            movement.water_type,
+            server_time,
+        );
+        self.state
+            .set_raw_field(PS_LOOP_SOUND, u32::from(loop_sound));
         let client = self.entity.state().number();
         if let Some(overflow) = self.entity.frame_ended(&self.state, false) {
             let _ = pool.spawn_temporary(overflow.clone(), server_time, Some(client));
+        }
+        match pain {
+            jkr_game_jka::damage::Pain::Sound(name) => Some(name),
+            _ => None,
         }
     }
 }

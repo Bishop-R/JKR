@@ -10,6 +10,21 @@ use super::*;
 /// point taken, on the first, whoever stands there. A spectator starts at the map's
 /// intermission point; a map without one puts it where a player avoiding the origin
 /// would spawn (`FindIntermissionPoint`).
+/// jaPRO's `SpotWouldTelefrag3`: a living player's (or NPC's) box meets a player's box at
+/// `spot`.
+pub(super) fn living_player_at(obstacles: &[BoxObstacle], spot: [f32; 3]) -> bool {
+    obstacles
+        .iter()
+        .filter(|other| other.contents & CONTENTS_BODY != 0)
+        .any(|other| {
+            let (absmin, absmax) = other.absolute_box();
+            (0..3).all(|axis| {
+                spot[axis] + PLAYER_BOX.0[axis] <= absmax[axis]
+                    && spot[axis] + PLAYER_BOX.1[axis] >= absmin[axis]
+            })
+        })
+}
+
 pub(super) fn spawn_place(
     order: SpawnOrder,
     gametype: i32,
@@ -26,11 +41,10 @@ pub(super) fn spawn_place(
     let points = map.map_or(&[][..], |map| &map.spawn_points);
     let occupied = |point: &jkr_game_jka::map::SpawnPoint| {
         obstacles.iter().any(|other| {
+            let (absmin, absmax) = other.absolute_box();
             (0..3).all(|axis| {
-                point.origin[axis] + PLAYER_BOX.0[axis]
-                    <= other.origin[axis] + other.bounds.1[axis] + 1.0
-                    && point.origin[axis] + PLAYER_BOX.1[axis]
-                        >= other.origin[axis] + other.bounds.0[axis] - 1.0
+                point.origin[axis] + PLAYER_BOX.0[axis] <= absmax[axis]
+                    && point.origin[axis] + PLAYER_BOX.1[axis] >= absmin[axis]
             })
         })
     };
@@ -38,8 +52,8 @@ pub(super) fn spawn_place(
         .iter()
         .find(|point| point.kind == SpawnKind::Intermission(None));
     // Siege maps place `info_player_siegeteam1`/`2` and (almost) no deathmatch points, so
-    // a siege server puts a player on a team's own; anything else uses the free points.
-    // A siege map that somehow has neither falls back to whatever it does have.
+    // a siege server puts a player on a team's own; anything else uses the deathmatch
+    // points, which outside Siege the siege teams' points are too.
     let siege = gametype == GAMETYPE_SIEGE
         && points
             .iter()
@@ -49,7 +63,7 @@ pub(super) fn spawn_place(
             if siege {
                 matches!(point.kind, SpawnKind::Siege(_))
             } else {
-                point.kind == SpawnKind::Deathmatch
+                point.deathmatch_in(gametype)
             }
         })
     };
@@ -96,7 +110,7 @@ pub(super) fn spawn_place(
                 (_, jkr_game_jka::power_duel::DUELTEAM_DOUBLE) => SpawnKind::Duel(2),
                 _ => SpawnKind::Deathmatch,
             };
-            jkr_game_jka::map::select_duel_spawn_point(rng, points, kind, occupied, avoid)
+            jkr_game_jka::map::select_duel_spawn_point(rng, points, kind, occupied, avoid, gametype)
                 .unwrap_or(([0.0; 3], [0.0; 3]))
         }
         (playing, _, _) => select_spawn_point(
@@ -104,6 +118,7 @@ pub(super) fn spawn_place(
             points,
             occupied,
             if playing { avoid } else { [0.0; 3] },
+            gametype,
         )
         .unwrap_or(([0.0; 3], [0.0; 3])),
     };

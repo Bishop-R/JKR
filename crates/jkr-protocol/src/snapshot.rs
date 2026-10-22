@@ -359,6 +359,11 @@ impl PlayerState {
         self.fields[37] = speed as u32;
     }
 
+    /// Server side: `basespeed` ([`Self::set_base_speed`]).
+    pub fn base_speed(&self) -> i32 {
+        self.fields[37] as i32
+    }
+
     /// Server side: gravity.
     pub fn set_gravity(&mut self, gravity: i32) {
         self.fields[46] = gravity as u32;
@@ -700,14 +705,14 @@ impl PlayerState {
         self.fields[108] as u16
     }
 
-    /// Protocol-26 `playerState_t::forceRestricted` (netfield 128).
+    /// Protocol-26 `playerState_t::forceRestricted` (netfield 115).
     pub fn force_restricted(&self) -> bool {
-        self.fields[128] != 0
+        self.fields[115] != 0
     }
 
-    /// Protocol-26 `playerState_t::trueNonJedi` (netfield 130).
+    /// Protocol-26 `playerState_t::trueNonJedi` (netfield 117).
     pub fn true_non_jedi(&self) -> bool {
-        self.fields[130] != 0
+        self.fields[117] != 0
     }
 
     /// Protocol-26 `playerState_t::fallingToDeath` (netfield 97 — `msg.cpp`'s
@@ -758,6 +763,17 @@ impl PlayerState {
 
     pub fn max_health(&self) -> i32 {
         i32::from(self.stats[8] as u16 as i16)
+    }
+
+    /// `persistant[PERS_SCORE]`, a signed short on the wire like the stats: a
+    /// suicide's -1 must not read as 65535.
+    pub fn score(&self) -> i32 {
+        i32::from(self.persistent[0] as u16 as i16)
+    }
+
+    /// `persistant[PERS_HITS]`, signed: hitting a teammate takes one away.
+    pub fn hits(&self) -> i32 {
+        i32::from(self.persistent[1] as u16 as i16)
     }
 
     /// Direction byte written by `P_DamageFeedback` and consumed by codemp's

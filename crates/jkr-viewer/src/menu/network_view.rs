@@ -15,6 +15,8 @@ pub(crate) struct NetworkNotice<'a> {
     pub(crate) status: &'a str,
     /// One sentence of context under the status.
     pub(crate) body: &'a str,
+    /// What the server says of itself, one line each, its name first: drawn above.
+    pub(crate) details: &'a [String],
     /// Label and hint of the single entry.
     pub(crate) action: (&'a str, &'a str),
 }
@@ -58,6 +60,28 @@ pub(crate) fn build(canvas: &mut MenuCanvas, viewport: [f32; 2], notice: &Networ
         FontWeight::Regular,
         0.1 * s,
     );
+    // The server's own lines, as stock's loading screen gives them, above the notice.
+    let mut y = viewport[1] * 0.12;
+    for (index, line) in notice.details.iter().enumerate() {
+        let (size, colour, weight) = if index == 0 {
+            (22.0 * s, theme.foreground, FontWeight::Semibold)
+        } else {
+            (15.0 * s, theme.muted, FontWeight::Regular)
+        };
+        let height = size * 1.4;
+        if y + height > title_y - 40.0 * s {
+            break;
+        }
+        canvas.text(
+            line,
+            Rect::new(x, y, width, height),
+            size,
+            colour,
+            weight,
+            0.0,
+        );
+        y += height;
+    }
     let (label, hint) = notice.action;
     canvas.hero_item(0, label, hint, action_rect(viewport), true, s);
     canvas.finish(0);

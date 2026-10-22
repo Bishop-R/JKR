@@ -18,12 +18,15 @@
 //! server's own; a script's `use` reaches the server's own entities through the same
 //! `fire_targets`.
 //!
+//! An NPC with a spawn script is a script entity from its begin (`bridge_script_npcs`).
+//!
 //! What scripts cannot reach here, with the outcome: an entity of another class that
-//! has a `script_targetname` (a door, a counter, a hurt brush, an NPC) is reported once
-//! per level and is no script target (`affect` fails as for an unknown name); `G_Find`
-//! by name (`kill`, `remove`, `SET_ENEMY`) sees the script entities and the players
-//! only; ROFFs are not played (the reference does nothing without the file); a scripted
-//! mover's turn is not pushed through players (only its travel is).
+//! has a `script_targetname` (a door, a counter, a hurt brush, an NPC spawner) is
+//! reported once per level and is no script target (`affect` fails as for an unknown
+//! name); `G_Find` by name (`kill`, `remove`, `SET_ENEMY`) sees the script entities, the
+//! scripted NPCs and the players only; ROFFs are not played (the reference does nothing
+//! without the file); a scripted mover's turn is not pushed through players (only its
+//! travel is).
 
 use super::*;
 use jkr_game_jka::ref_tags::{Filed, RefTags};
@@ -35,20 +38,21 @@ use std::fmt;
 #[path = "bridge_icarus_world.rs"]
 mod world;
 
-/// Who runs a script: a player by client number, or a script entity by its place in
-/// the level's list.
+/// Who runs a script: a player by client number, a script entity by its place in the
+/// level's list, or an NPC by its entity number.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ScriptOwner {
     Client(u16),
     Entity(u32),
+    Npc(u16),
 }
 
 impl fmt::Display for ScriptOwner {
     /// The number the debug lines print (`%d` of the entity): a player's client number, a
-    /// script entity's place past the clients.
+    /// script entity's place past the clients, an NPC's entity number.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let number = match *self {
-            Self::Client(client) => u32::from(client),
+            Self::Client(client) | Self::Npc(client) => u32::from(client),
             Self::Entity(index) => index + 32,
         };
         fmt::Display::fmt(&number, f)
@@ -65,6 +69,9 @@ pub(super) enum SlotKind {
     Unseen,
     /// A `trigger_multiple` of the triggers module, by its index there.
     Multiple(usize),
+    /// A named `misc_turretG2` of the turrets module, which `Q3_Remove` finds by its
+    /// targetname like any entity (`G_Find`); only its removal reaches the turret.
+    Turret,
 }
 
 /// One script entity of the level.
@@ -112,6 +119,8 @@ pub(super) struct Scripts {
     pub(super) slots: Vec<Option<ScriptSlot>>,
     /// Each client's script entity, by client number.
     pub(super) clients: Vec<Option<ScriptEntity<ScriptOwner>>>,
+    /// Each scripted NPC's script entity, by its entity number, in the order they began.
+    pub(super) npcs: Vec<(u16, ScriptEntity<ScriptOwner>)>,
     pub(super) tags: RefTags,
     /// For each trigger of the triggers module, its script entity if it has one.
     multiple_slots: Vec<Option<u32>>,
@@ -133,6 +142,7 @@ impl Default for Scripts {
             }))),
             slots: Vec::new(),
             clients: Vec::new(),
+            npcs: Vec::new(),
             tags: RefTags::default(),
             multiple_slots: Vec::new(),
             pending: Vec::new(),
@@ -170,6 +180,22 @@ impl Scripts {
         self.slots.get(slot as usize).and_then(Option::as_ref)
     }
 
+    /// The script entity of the NPC numbered `number`, where it is scripted.
+    pub(super) fn npc(&self, number: u16) -> Option<&ScriptEntity<ScriptOwner>> {
+        self.npcs
+            .iter()
+            .find(|(known, _)| *known == number)
+            .map(|(_, ent)| ent)
+    }
+
+    /// [`Self::npc`], to change.
+    pub(super) fn npc_mut(&mut self, number: u16) -> Option<&mut ScriptEntity<ScriptOwner>> {
+        self.npcs
+            .iter_mut()
+            .find(|(known, _)| *known == number)
+            .map(|(_, ent)| ent)
+    }
+
     /// The solid script brushes, where their last frame left them: what a player runs
     /// into (the `func_static`s).
     pub(super) fn brushes(&self) -> impl Iterator<Item = BoxObstacle> + '_ {
@@ -183,6 +209,7 @@ impl Scripts {
                 bounds: (slot.entity.mins, slot.entity.maxs),
                 contents: slot.entity.contents,
                 model: Some(slot.model),
+                linked_box: None,
             })
     }
 
@@ -230,6 +257,7 @@ impl NativeGame {
         for client in self.scripts.clients.iter_mut() {
             *client = None;
         }
+        self.scripts.npcs.clear();
         let Some(map) = self.map.take() else { return };
         let entities = map.entities.clone();
         // `SV_SetBrushModel`: an inline model's bounds and `CM_ModelContents`.
@@ -242,13 +270,19 @@ impl NativeGame {
             if !jkr_game_jka::bot_routes::spawns_in(entity, self.gametype) {
                 continue;
             }
+            // An NPC spawner's behaviour sets are its NPCs' (`bridge_script_npcs`).
+            let spawner = entity
+                .classname()
+                .and_then(|class| class.get(..4))
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("npc_"));
             if let Some(slot) = self.script_slot_of(entity, &bsp_bounds) {
                 spawned.push(self.scripts.slots.len() as u32);
                 self.scripts.slots.push(Some(slot));
             } else if entity.get("script_targetname").is_some()
-                || jkr_game_jka::script_entity::BSET_KEYS
-                    .iter()
-                    .any(|(key, _)| entity.get(key).is_some())
+                || (!spawner
+                    && jkr_game_jka::script_entity::BSET_KEYS
+                        .iter()
+                        .any(|(key, _)| entity.get(key).is_some()))
             {
                 let class = entity.classname().unwrap_or_default().to_owned();
                 let name = entity
@@ -339,6 +373,14 @@ impl NativeGame {
                 ent.uses = jkr_game_jka::script_entity::Uses::Other;
                 self.scripts.multiple_slots[index] = Some(self.scripts.slots.len() as u32);
                 Some(slot(ent, SlotKind::Multiple(index), None, model))
+            }
+            "misc_turretg2"
+                if entity
+                    .get("targetname")
+                    .is_some_and(|name| !name.is_empty()) =>
+            {
+                let ent = ScriptEntity::from_map(entity, EntityKind::Other);
+                Some(slot(ent, SlotKind::Turret, None, 0))
             }
             _ => None,
         }
@@ -502,95 +544,6 @@ impl NativeGame {
         });
         if let Some(slot) = self.scripts.clients.get_mut(client) {
             *slot = None;
-        }
-    }
-
-    /// `G_MoverPush` for a scripted brush travelling from `from` to `to`
-    /// (`bridge_doors`' push, the brush's box and model): the players it takes with it
-    /// are moved; the one it cannot move is answered, and the move is held.
-    pub(super) fn push_scripted_brush(
-        &mut self,
-        bounds: ([f32; 3], [f32; 3]),
-        model: usize,
-        number: u16,
-        from: [f32; 3],
-        to: [f32; 3],
-    ) -> Option<u16> {
-        let candidates: Vec<(u16, [f32; 3], ([f32; 3], [f32; 3]), u16)> =
-            (0..self.players.places())
-                .filter_map(|client| {
-                    let peer = self.peer_mut(client)?;
-                    (peer.playing() && peer.health > 0).then(|| {
-                        (
-                            client as u16,
-                            peer.state.origin(),
-                            peer.movement.box_bounds(),
-                            peer.state.ground_entity_num(),
-                        )
-                    })
-                })
-                .collect();
-        if candidates.is_empty() {
-            return None;
-        }
-        let pushed = match self.map.as_ref() {
-            Some(map) => {
-                let world = WorldCollision {
-                    bsp: &map.bsp,
-                    scratch: &map.scratch,
-                };
-                let mut free = |_client: u16, origin: [f32; 3], bounds: ([f32; 3], [f32; 3])| {
-                    !world
-                        .trace(origin, bounds.0, bounds.1, origin, 0x1)
-                        .start_solid
-                };
-                let mut inside = |_client: u16, origin: [f32; 3], bounds: ([f32; 3], [f32; 3])| {
-                    jkr_bsp::Aabb::new(bounds.0, bounds.1).is_ok_and(|bounds| {
-                        map.bsp
-                            .trace_transformed_model(
-                                model,
-                                to,
-                                None,
-                                origin,
-                                origin,
-                                bounds,
-                                u32::MAX,
-                            )
-                            .start_solid
-                    })
-                };
-                jkr_game_jka::movers::push_box_through(
-                    bounds,
-                    from,
-                    to,
-                    &candidates,
-                    &mut free,
-                    &mut inside,
-                    number,
-                )
-            }
-            None => jkr_game_jka::movers::push_box_through(
-                bounds,
-                from,
-                to,
-                &candidates,
-                &mut |_, _, _| true,
-                &mut |_, _, _| true,
-                number,
-            ),
-        };
-        match pushed {
-            jkr_game_jka::movers::Push::Moved(shoved) => {
-                for jkr_game_jka::movers::Shoved { client, to, .. } in shoved {
-                    let Some(peer) = self.peer_mut(usize::from(client)) else {
-                        continue;
-                    };
-                    peer.state.set_origin(to);
-                    peer.movement = peer.movement.reseeded(&peer.state);
-                }
-                None
-            }
-            jkr_game_jka::movers::Push::Blocked(client) => Some(client),
         }
     }
 

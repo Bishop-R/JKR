@@ -82,7 +82,7 @@ impl Default for Mesh {
             ranges: std::array::from_fn(|_| 0..0),
             decal_ranges: std::array::from_fn(|_| 0..0),
             dropped: 0,
-            slots: Vec::new(),
+            slots: Vec::with_capacity(crate::particle_types::MAX_PARTICLES),
         }
     }
 }
@@ -120,8 +120,8 @@ impl Mesh {
         }
 
         // Which blend slots each particle draws into, found once: the slot loop below visited
-        // every particle seven times and sampled its envelopes and shader layers each time
-        // before discovering that six of the visits had nothing to draw.
+        // every particle for every blend and sampled its envelopes and shader layers
+        // each time before discovering that most visits had nothing to draw.
         let mut slots = std::mem::take(&mut self.slots);
         slots.clear();
 
@@ -171,7 +171,9 @@ impl Mesh {
 
             let decal_start = self.counts().1 as u32;
             decals.emit(now, |draw| {
-                if usize::from(draw.slot) == blend_index {
+                if draw.slot == crate::decal_store::ALL_SLOTS
+                    || usize::from(draw.slot) == blend_index
+                {
                     self.append_decal(draw, atlas, global_seconds, blend_index);
                 }
             });
@@ -237,6 +239,30 @@ impl Mesh {
                 color[3] * layer.alpha,
             ];
             match &mut particle.shape {
+                PrimitiveShape::FrameQuad { points } => {
+                    self.line_quad(
+                        [
+                            (points[0], [0.0, 0.0]),
+                            (points[1], [1.0, 0.0]),
+                            (points[2], [0.0, 1.0]),
+                            (points[3], [1.0, 1.0]),
+                        ],
+                        layer.uv_rect,
+                        layer.uv_transform,
+                        layer_color,
+                        false,
+                    );
+                }
+                PrimitiveShape::Shard(shard) => {
+                    let moving = age.saturating_sub(shard.moves_after()).as_secs_f32();
+                    self.line_quad(
+                        shard.corners(particle.motion.sample().origin, moving),
+                        layer.uv_rect,
+                        layer.uv_transform,
+                        layer_color,
+                        false,
+                    );
+                }
                 PrimitiveShape::Cylinder {
                     axis,
                     size2,

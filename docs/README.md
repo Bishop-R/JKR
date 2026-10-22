@@ -14,6 +14,9 @@ and changed together. Begin with the status page, then the architecture.
 | [Dedicated server](server.md) | Hosting, configuration and local testing |
 | [Rendering](rendering.md) | BSP rendering, lighting, UI and measurement |
 | [Networking and gameplay](networking.md) | Protocol 26, prediction and server authority |
+| [Stock multiplayer parity audit](stock-parity.md) | Missing/partial stock behavior, subsystem coverage and proposed repair order |
+| [Stock parity repair progress](stock-parity-progress.md) | Implemented repairs, reference checks and remaining acceptance work |
+| [Stock map spawn inventory](stock-spawns.md) | All 185 PC reference map spawn entries and JKR routing classifications |
 
 [AGENTS.md](../AGENTS.md) defines the documentation maintenance rules. Update the
 page that owns a fact rather than adding a second account elsewhere. New facts

@@ -63,8 +63,11 @@ pub(crate) struct HostSettings {
     pub(crate) capturelimit: u32,
     /// Bind every interface instead of loopback only.
     pub(crate) allow_lan: bool,
-    /// Enable server-authorized development commands for a devmap launch.
+    /// `sv_cheats`: the cheat commands (`god`, `noclip`, `give`) work.
     pub(crate) cheats: bool,
+    /// `g_teamAutoJoin`: the player plays at once instead of choosing a team,
+    /// as a console devmap wants.
+    pub(crate) team_auto_join: bool,
 }
 
 impl HostSettings {
@@ -104,6 +107,8 @@ impl HostSettings {
         }
         if self.cheats {
             arguments.push("--cheats".into());
+        }
+        if self.team_auto_join {
             arguments.push("--team-auto-join".into());
         }
         arguments.push("--quit-on-eof".into());

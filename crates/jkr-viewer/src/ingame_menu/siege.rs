@@ -23,9 +23,10 @@ impl State {
         self.classes.teams[self.team].len() > PAGE_SIZE
     }
 
-    /// Visible classes plus team switch, optional pagination, spectator and back actions.
+    /// Visible classes plus team switch, optional pagination, objectives, spectator and back
+    /// actions.
     pub fn row_count(&self) -> usize {
-        self.visible().len() + 3 + usize::from(self.paged())
+        self.visible().len() + 4 + usize::from(self.paged())
     }
 
     /// Fill already allocated hero-menu text slots without allocating.
@@ -43,9 +44,10 @@ impl State {
             rows[next].push_str("Next page");
             next += 1;
         }
-        rows[next].push_str("Spectate");
-        rows[next + 1].push_str("Back");
-        next + 2
+        rows[next].push_str("Objectives");
+        rows[next + 1].push_str("Spectate");
+        rows[next + 2].push_str("Back");
+        next + 3
     }
 }
 
@@ -81,6 +83,8 @@ impl InGameMenu {
                 state.first = 0;
             }
         } else if row == state.visible().len() + 1 + usize::from(state.paged()) {
+            return Action::Open(super::Page::Objectives);
+        } else if row == state.visible().len() + 2 + usize::from(state.paged()) {
             return Action::Send("team spectator".into());
         } else {
             return Action::Back;

@@ -22,7 +22,7 @@ pub(crate) use retained::RetainedPose;
 pub(crate) mod gpu_skinning;
 
 #[path = "server_bone_angles.rs"]
-mod server_bone_angles;
+pub(crate) mod server_bone_angles;
 
 #[path = "actor_pose_steps.rs"]
 mod steps;
@@ -108,6 +108,16 @@ pub(crate) fn update(gpu: &mut GpuState, presentation_time: i64) -> Result<(), B
         snapshot,
         game_state,
         presentation_time,
+        head_turn: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_headTurn"))
+            .unwrap_or(1),
+        style: gpu
+            .console
+            .as_ref()
+            .and_then(|console| console.integer_cvar("cg_stylePlayer"))
+            .map_or(jkr_client::style_player::DEFAULT, |style| style as u32),
     };
     for mesh in &mut gpu.actor_meshes {
         if let Err(error) = steps::prepare(mesh, &frame) {
@@ -133,8 +143,11 @@ impl GpuState {
         presentation_time: i64,
         audio: &mut Option<crate::GameAudio>,
     ) -> Result<(), Box<dyn Error>> {
+        crate::actor_dismember::update(self, presentation_time)?;
         update(self, presentation_time)?;
-        sounds::update(self, presentation_time, audio);
+        if sounds::update(self, presentation_time, audio) {
+            self.refresh_effect_assets(audio);
+        }
         Ok(())
     }
 

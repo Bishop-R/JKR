@@ -57,10 +57,14 @@ pub const TR_LINEAR_STOP: u32 = 3;
 /// The wire fields of `entityState_t` a turret writes (`msg.cpp`'s table).
 pub(crate) mod es {
     pub use crate::npc_spawn::es::{
-        ANGLES, APOS_BASE, APOS_TIME, APOS_TYPE, EFLAGS, G2_RADIUS, HEALTH, MAX_HEALTH,
-        MODEL_GHOUL2, MODEL_INDEX, ORIGIN, POS_BASE, POS_TYPE, SHOULD_TARGET, TEAM_OWNER, TYPE,
-        WEAPON,
+        ANGLES, APOS_BASE, APOS_TIME, APOS_TYPE, EFLAGS, G2_RADIUS, GROUND_ENTITY, HEALTH,
+        MAX_HEALTH, MODEL_GHOUL2, MODEL_INDEX, ORIGIN, POS_BASE, POS_TIME, POS_TYPE, SHOULD_TARGET,
+        TEAM_OWNER, TYPE, WEAPON,
     };
+    pub const SOLID: usize = 26;
+    pub const FIREFLAG: usize = 27;
+    pub const BOLT1: usize = 91;
+    pub const BOLT2: usize = 63;
     pub const APOS_DELTA: [usize; 3] = [48, 44, 49];
     pub const APOS_DURATION: usize = 89;
     pub const LEGS_ANIM: usize = 16;
@@ -109,6 +113,8 @@ pub struct Sighted {
     /// which it aims 32 units higher at.
     pub atst: bool,
     pub walker: bool,
+    /// An NPC of class `CLASS_VEHICLE`, which a sentry leaves alone.
+    pub vehicle: bool,
 }
 
 /// Which of a turret's bolts (`genericValue11`, `genericValue12`).
@@ -138,6 +144,19 @@ pub trait TurretHost {
     fn register_weapon(&mut self, weapon: u32);
     /// `trap->Trace(start, NULL, NULL, end, pass, mask)`: a point trace.
     fn trace(&mut self, start: [f32; 3], end: [f32; 3], pass: u16, mask: u32) -> MovementTrace;
+    /// `trap->Trace(start, mins, maxs, end, pass, mask)`: a box's; `ENTITYNUM_NONE` passes
+    /// nothing, not even the entity that moves.
+    fn trace_box(
+        &mut self,
+        start: [f32; 3],
+        bounds: ([f32; 3], [f32; 3]),
+        end: [f32; 3],
+        pass: u16,
+        mask: u32,
+    ) -> MovementTrace;
+    /// `G_SetOrigin` on another entity (an E-Web's user): its box stands at `origin` for the
+    /// traces that follow, still found by the box it was last linked with.
+    fn move_entity(&mut self, number: u16, origin: [f32; 3]);
     /// `trap->InPVS`.
     fn in_pvs(&mut self, from: [f32; 3], to: [f32; 3]) -> bool;
     /// `trap->PointContents(point, pass)`.

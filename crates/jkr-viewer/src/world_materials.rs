@@ -277,6 +277,9 @@ pub(crate) struct Runtime {
     /// distinct program costs the driver about half a second on a cold cache).
     entity_pipelines: Vec<std::cell::OnceCell<wgpu::RenderPipeline>>,
     entity_no_depth_pipelines: Vec<std::cell::OnceCell<wgpu::RenderPipeline>>,
+    /// The entities' variant blended by their own alpha (`RF_FORCE_ENT_ALPHA`), compiled
+    /// on first use: a fading corpse's.
+    entity_alpha_pipelines: Vec<std::cell::OnceCell<wgpu::RenderPipeline>>,
     opaque_order: Vec<PassRef>,
     blended_order: Vec<PassRef>,
     dynamic_light_buffer: wgpu::Buffer,
@@ -448,6 +451,7 @@ fn finish_runtime(
         source_order,
         entity_pipelines: Vec::with_capacity(keys.len()),
         entity_no_depth_pipelines: Vec::with_capacity(keys.len()),
+        entity_alpha_pipelines: Vec::with_capacity(keys.len()),
         opaque_order,
         blended_order,
         dynamic_light_buffer,
@@ -581,4 +585,24 @@ pub(crate) fn visible(
         || clusters
             .iter()
             .any(|&cluster| visibility.is_cluster_visible(source, cluster))
+}
+
+#[cfg(test)]
+mod shader_tests {
+    use super::*;
+    use wgpu::naga;
+
+    /// The stage program parses and validates as WGSL, so a mistake in it fails here and
+    /// not first on a player's machine when the pipelines are built.
+    #[test]
+    fn the_stage_program_is_valid_wgsl() {
+        let module = naga::front::wgsl::parse_str(STAGE_SHADER)
+            .unwrap_or_else(|error| panic!("{}", error.emit_to_string(STAGE_SHADER)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|error| panic!("{}", error.emit_to_string(STAGE_SHADER)));
+    }
 }

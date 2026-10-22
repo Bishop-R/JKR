@@ -64,8 +64,9 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 if waypoint == npc.mind.tactics.home_waypoint
                     && npc.ai_flags & NPCAI_ENROUTE_TO_HOMEWP != 0
                 {
-                    // Home for the first time: the lost-enemy script would run (none does).
+                    // Home for the first time: its lost-enemy script runs.
                     npc.ai_flags &= !NPCAI_ENROUTE_TO_HOMEWP;
+                    let _ = self.activate_behavior(me, crate::script_entity::BSET_LOSTENEMY);
                 }
                 self.look_about_animation(me);
             } else {

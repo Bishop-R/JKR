@@ -106,17 +106,51 @@ impl Pool {
     }
 }
 
+/// `CG_TestLine` (`cg_effects.c:184-224`): an unfading line, the colour's bytes red,
+/// green and blue — white for none, and the saber colours by their numbers
+/// (`CGDEBUG_SaberColor`); the wire's colour is the 8-bit `weapon`. Stock draws it with the
+/// plain `white` shader one unit wide; the effects have no `$whiteimage`, so the white line
+/// texture stands in.
+fn test_line(event: LegacyImpactEvent) -> Line {
+    let color = match event.weapon {
+        0 => 0x00ff_ffff,
+        1 => 0x0000_88ff,
+        2 => 0x0000_ffff,
+        3 => 0x0000_ff00,
+        4 => 0x00ff_0000,
+        5 => 0x00ff_00ff,
+        other => u32::from(other),
+    };
+    let channel = |shift: u32| ((color >> shift) & 0xff) as f32 / 255.0;
+    Line {
+        start: event.origin,
+        end: event.start,
+        size: [1.0, 1.0],
+        alpha: [1.0, 1.0],
+        color: [channel(0), channel(8), channel(16)],
+        lifetime_millis: event.duration.max(0) as u32,
+        shader: "gfx/misc/whiteline2",
+    }
+}
+
 /// Select the exact stock EFX graph(s) used by codemp. A zero-length plan is
-/// intentional where codemp has no wall visual (Flechette alt-fire).
-pub(crate) fn plan(event: LegacyImpactEvent) -> Plan {
+/// intentional where codemp has no wall visual (Flechette alt-fire). `flesh_sparks` is
+/// EternalJK's `cg_fleshSparks` (7 plays all of stock's): a saber's flesh hit effects
+/// each need a level above their own (`cg_event.c`, `EV_SABER_HIT`).
+pub(crate) fn plan(event: LegacyImpactEvent, flesh_sparks: i64) -> Plan {
     let direction = event.direction;
+    let above = |level: i64| usize::from(flesh_sparks > level);
     match event.kind {
         LegacyImpactKind::SaberHit => match event.event_parameter {
             0 => Plan::new().effect("saber/saber_cut", direction),
-            2 => Plan::new().effect("saber/blood_sparks_50_mp", direction),
-            3 => Plan::new().effect("saber/blood_sparks_25_mp", direction),
-            16 => Plan::new().repeated("saber/blood_sparks_mp", direction, 6),
-            _ => Plan::new().repeated("saber/blood_sparks_mp", direction, 3),
+            2 => Plan::new().repeated("saber/blood_sparks_50_mp", direction, above(2)),
+            3 => Plan::new().repeated("saber/blood_sparks_25_mp", direction, above(3)),
+            16 => Plan::new().repeated("saber/blood_sparks_mp", direction, 5 * above(1) + above(0)),
+            _ => Plan::new().repeated(
+                "saber/blood_sparks_mp",
+                direction,
+                above(4) + above(5) + above(6),
+            ),
         },
         LegacyImpactKind::SaberBlock => Plan::new().effect(
             if event.event_parameter == 0 {
@@ -151,6 +185,7 @@ pub(crate) fn plan(event: LegacyImpactEvent) -> Plan {
             direction,
         ),
         LegacyImpactKind::MissileHitPlayer => missile_player(event, direction),
+        LegacyImpactKind::TestLine => Plan::new().line(test_line(event)),
         LegacyImpactKind::MissileHitWall | LegacyImpactKind::MissileHitMetal => {
             missile_wall(event, direction)
         }

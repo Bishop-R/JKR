@@ -202,12 +202,22 @@ impl VirtualFileSystem {
     }
 
     pub fn contains(&self, path: &str) -> Result<bool, VfsError> {
+        Ok(self.source_of(path)?.is_some())
+    }
+
+    /// The mount a [`Self::read`] of `path` would read it from, without reading it.
+    pub fn source_of(&self, path: &str) -> Result<Option<MountSummary>, VfsError> {
         let path = VirtualPath::new(path)?;
         Ok(self
             .mounts
             .iter()
             .rev()
-            .any(|mount| mount.source.contains(&path)))
+            .find(|mount| mount.source.contains(&path))
+            .map(|mount| MountSummary {
+                id: mount.id,
+                name: Arc::clone(&mount.name),
+                entries: mount.source.entry_count(),
+            }))
     }
 
     /// Reads from one explicitly selected mount, without changing normal search precedence.

@@ -6,6 +6,20 @@ use super::NativeGame;
 use jkr_game_jka::game_log::{self, Who};
 use std::io::Write;
 
+/// `SECURITY_LOG` (`g_local.h`).
+const SECURITY_LOG: &str = "security.log";
+
+/// A server command too long for a legacy client to read (over 1022 bytes): whom it was
+/// for (-1 for everyone) and the command.
+fn too_long(told: &super::Told) -> Option<(i32, &[u8])> {
+    const MAX_COMMAND: usize = 1_022;
+    match told {
+        super::Told::Everyone(text) if text.len() > MAX_COMMAND => Some((-1, text)),
+        super::Told::One(client, text) if text.len() > MAX_COMMAND => Some((*client as i32, text)),
+        _ => None,
+    }
+}
+
 /// `pers.guid` for a userinfo: its `ja_guid`, else `NOGUID`.
 pub(super) fn guid(userinfo: &[u8]) -> Vec<u8> {
     jkr_protocol::info_value(userinfo, b"ja_guid")
@@ -33,6 +47,7 @@ impl NativeGame {
             let _ = std::io::stdout().write_all(text.as_bytes());
         };
         self.log_file = None;
+        self.stat_log.reset();
         if name.is_empty() {
             print("Not logging game events to disk.\n".to_owned());
         } else {
@@ -47,6 +62,68 @@ impl NativeGame {
         for line in game_log::init_game(&self.status_info.clone()) {
             self.log(&line);
         }
+        // `G_InitGame` (`g_main.c:372-375`): a duel's level — every round of it, each a
+        // restart — says what ends the tournament.
+        if matches!(
+            self.gametype,
+            super::GAMETYPE_DUEL | super::GAMETYPE_POWERDUEL
+        ) {
+            let (kills, wins) = (
+                self.cvars.integer(b"fraglimit"),
+                self.cvars.integer(b"duel_fraglimit"),
+            );
+            self.log(&game_log::duel_tournament_begun(kills, wins));
+        }
+        // `g_securityLog` 1 or 2 (appended, flushed or not: every line is written at once).
+        self.security_file = None;
+        if self.cvars.integer(b"g_securityLog") == 0 {
+            print("Not logging security events to disk.\n".to_owned());
+        } else {
+            match self.config_files.append_home(SECURITY_LOG) {
+                Some(file) => {
+                    self.security_file = Some(file);
+                    print(format!("Logging to {SECURITY_LOG}\n"));
+                }
+                None => print(format!("WARNING: Couldn't open logfile: {SECURITY_LOG}\n")),
+            }
+        }
+    }
+
+    /// `G_SecurityLogPrintf` (`g_main.c:1541-1564`): `line` on the console, and in
+    /// `security.log` behind the date and time (UTC) while it is open.
+    pub(super) fn security_log(&mut self, line: &str) {
+        let _ = std::io::stdout().write_all(line.as_bytes());
+        if let Some(file) = &mut self.security_file {
+            let since_epoch = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let [year, month, day, hour, minute, second] = super::bridge_demos::utc(since_epoch);
+            let stamped = format!(
+                "[{year:04}-{month:02}-{day:02}] [{hour:02}:{minute:02}:{second:02}] {line}"
+            );
+            let _ = file.write_all(stamped.as_bytes());
+        }
+    }
+
+    /// `trap_SendServerCommand` (`g_syscalls.c:101-108`): a command longer than a legacy
+    /// client can read (1022 bytes) is not sent, and the security log says so.
+    pub(super) fn refuse_long_commands(&mut self) {
+        if !self.told.iter().any(|told| too_long(told).is_some()) {
+            return;
+        }
+        let refused: Vec<(i32, String)> = self
+            .told
+            .iter()
+            .filter_map(too_long)
+            .map(|(client, text)| (client, String::from_utf8_lossy(text).into_owned()))
+            .collect();
+        self.told.retain(|told| too_long(told).is_none());
+        for (client, text) in refused {
+            self.security_log(&format!(
+                "trap_SendServerCommand( {client}, ... ) length exceeds 1022.\n"
+            ));
+            self.security_log(&format!("text [{text}]\n"));
+        }
     }
 
     /// `G_ShutdownGame` as the server quits: the log's last line, the file closed.
@@ -56,8 +133,13 @@ impl NativeGame {
 
     /// `G_ShutdownGame`'s log: the last line, and the file closed.
     pub(super) fn close_log(&mut self) {
+        self.write_stat_log();
         self.log(&game_log::shutdown_game());
         self.log_file = None;
+        if self.security_file.is_some() {
+            self.security_log("ShutdownGame\n\n");
+            self.security_file = None;
+        }
     }
 
     /// Who a player is to the log: slot, address, guid and name.
@@ -141,5 +223,48 @@ impl NativeGame {
             );
             self.log(&line);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Identity, NativeGame, Told};
+    use jkr_network::LegacyGameHost;
+
+    /// A game with one client connected but not yet in the game.
+    fn connected() -> NativeGame {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/ffa3".to_vec(),
+        };
+        let cvars = crate::cvars::Cvars::server();
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        let userinfo = b"\\name\\a\\rate\\25000\\snaps\\40\\model\\kyle/default\\forcepowers\\7-1-032330000000001333\\color1\\4\\color2\\4\\handicap\\100\\cg_predictItems\\1\\saber1\\single_1\\saber2\\none\\char_color_red\\255\\char_color_green\\255\\char_color_blue\\255\\ip\\127.0.0.1:1";
+        game.client_connect(0, userinfo).unwrap();
+        game.told.clear();
+        game
+    }
+
+    /// `trap_SendServerCommand`: a command over 1022 bytes is not sent; a shorter one is.
+    #[test]
+    fn a_command_too_long_for_a_legacy_client_is_refused() {
+        let mut game = connected();
+        game.told.push(Told::One(0, vec![b'x'; 1_023]));
+        game.told.push(Told::Everyone(b"print \"short\"".to_vec()));
+        game.refuse_long_commands();
+        assert_eq!(game.told.len(), 1);
+        assert!(matches!(&game.told[0], Told::Everyone(text) if text == b"print \"short\""));
+    }
+
+    /// `ClientCommand`: a client not fully in the game yet is not listened to.
+    #[test]
+    fn a_client_not_yet_in_the_game_is_not_listened_to() {
+        let mut game = connected();
+        game.player_command(0, b"say hello", 100);
+        let said = game.told.iter().any(|told| {
+            matches!(told, Told::Everyone(text) | Told::One(_, text)
+                if text.windows(5).any(|window| window == b"hello"))
+        });
+        assert!(!said);
     }
 }

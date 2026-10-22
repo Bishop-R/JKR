@@ -35,6 +35,17 @@ pub(super) fn run() -> Result<(), Box<dyn Error>> {
     platform::initialize_storage(&game_data)?;
     let mut console = console::ViewerConsole::new(platform::user_config_file()?)?;
     assets::search_paths::initialize(&console)?;
+    // `Com_ExecuteCfg` (`common.cpp:1054-1066`): the player's `autoexec.cfg` runs after
+    // their config. Stock also prints "couldn't exec" every launch when there is none.
+    if [
+        console.config_directory().to_owned(),
+        game_data.join("base"),
+    ]
+    .iter()
+    .any(|directory| directory.join("autoexec.cfg").is_file())
+    {
+        console.queue_script("exec autoexec.cfg");
+    }
     // The menu goes up first so its master-server fetch runs while the map
     // loads: the browser has servers by the time the main menu is on screen.
     let mut client_menu = menu::ClientMenu::new(open_main_menu, console.master_server()?);

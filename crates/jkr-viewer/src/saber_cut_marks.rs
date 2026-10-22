@@ -13,7 +13,7 @@ impl DecalStore {
         materials: &[Arc<str>; 2],
         slots: [u8; 2],
     ) {
-        if !self.marks_enabled {
+        if self.marks == 0 {
             return;
         }
         let time = self.frame_time(now);

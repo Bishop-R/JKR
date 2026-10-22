@@ -224,7 +224,7 @@ fn turn_off(turret: &mut TurretG2, me: u16, level_time: i32, host: &mut dyn Turr
         return;
     }
     if turret.turbo() {
-        bone_anim(turret, me, 4, 5, host);
+        bone_anim(&mut turret.state, me, 4, 5, host);
     } else {
         body_sound(host, turret.origin, b"sound/chars/turret/shutdown.wav");
     }
@@ -395,7 +395,7 @@ fn aim(
             (false, true) => (b"Bone_body", [turret.speed, 0.0, 0.0]),
             (false, false) => (b"Bone_body", [-turret.speed, 0.0, 0.0]),
         };
-        set_bone_angles(turret, me, bone, angles, host);
+        set_bone_angles(&mut turret.state, me, bone, angles, host);
     }
     let sound = if yaw != 0.0 || pitch != 0.0 {
         host.sound_index(if turret.turbo() {
@@ -473,7 +473,7 @@ fn fire(
         play_effect_id(host, turret.effects[0] as u32, flash_at, angles);
         host.launch(turbolaser_bolt(turret, me, start, direction, level_time));
         let (first, last) = if turret.alt_fire { (2, 3) } else { (0, 1) };
-        bone_anim(turret, me, first, last, host);
+        bone_anim(&mut turret.state, me, first, last, host);
         return;
     }
     let flash = host.effect_index(b"blaster/muzzle_flash");
@@ -534,5 +534,6 @@ fn turbolaser_bolt(
 
 #[path = "map_turret_g2_life.rs"]
 mod life;
-use life::{bone_anim, respawn, set_bone_angles};
+use life::respawn;
+pub(crate) use life::{bone_anim, set_bone_angles};
 pub use life::{damage, spawn, used};

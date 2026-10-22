@@ -69,7 +69,7 @@ impl<G: LegacyGameHost> LegacyRosterHost for View<'_, G> {
             .verify(challenge, from, self.clock.server_time)
     }
     fn game_disconnect(&mut self, slot: usize) {
-        self.game.client_disconnect(slot);
+        self.game.client_reconnect_disconnect(slot);
     }
     fn reset_session(&mut self, slot: usize, challenge: i32) {
         let slot = &mut self.slots[slot];
@@ -95,8 +95,16 @@ impl<G: LegacyGameHost> LegacyRosterHost for View<'_, G> {
             .client_connect(slot, self.slots[slot].userinfo.as_bytes())
     }
     fn userinfo_changed(&mut self, slot: usize) {
-        if let Err(reason) = self.slots[slot].userinfo_changed(&self.settings.rates) {
+        let fix_models = self.settings.broken_models_fix;
+        if let Err(reason) = self.slots[slot].userinfo_changed(&self.settings.rates, fix_models) {
             self.drop(slot, reason, None);
+        } else if super::anti_dst::dst_model(
+            self.slots[slot]
+                .userinfo
+                .value(b"model")
+                .unwrap_or_default(),
+        ) {
+            self.dst_sighted(slot, "injection", None);
         }
     }
     fn heartbeat(&mut self) {
@@ -172,13 +180,12 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
             restarted_server_id,
             gamestate_message: slot.peer.gamestate_message,
             // The clock the last world stopped at, which this client carries across a
-            // map change; zero for a client that has never ridden one. Pure servers do
-            // not exist yet.
+            // map change; zero for a client that has never ridden one.
             old_server_time: slot.old_server_time,
             downloading: slot.download.active(),
             admission: LegacyMoveAdmission {
                 phase: slot.phase,
-                pure_required: false,
+                pure_required: self.view.game.pure_manifest().is_some(),
                 pure_authentic: slot.pure_authentic,
                 got_cp: slot.got_cp,
             },
@@ -187,7 +194,8 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
                 active: false,
                 local_client_running: false,
                 flood_protect: settings.flood_protect,
-                slow: false,
+                slow: settings.flood_protect_slow,
+                per_command: settings.flood_per_command,
             },
             checksum_feed: self.view.game.checksum_feed(),
             legacy_fixes: settings.legacy_fixes,
@@ -201,8 +209,6 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
         game_allowed: bool,
     ) {
         // `SV_ExecuteClientCommand`: engine commands first, the game otherwise.
-        // cp and vdr are not implemented yet and are swallowed here as the reference
-        // keeps them from the game.
         let mut tokens = LegacyTokens::new(text);
         let (command, client) = (tokens.next().unwrap_or_default(), self.client);
         if command.eq_ignore_ascii_case(b"disconnect") {
@@ -213,9 +219,20 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
                 tokens.next().unwrap_or_default(),
                 self.view.clock.server_time,
             );
-            match self.view.slots[client].update_userinfo(argument, now, &self.view.settings.rates)
-            {
+            let settings = (
+                &self.view.settings.rates,
+                self.view.settings.broken_models_fix,
+            );
+            match self.view.slots[client].update_userinfo(argument, now, settings) {
                 UserinfoUpdate::Changed => {
+                    let model = self.view.slots[client].userinfo.value(b"model");
+                    if super::anti_dst::dst_model(model.unwrap_or_default())
+                        && self
+                            .view
+                            .dst_sighted(client, "injection", Some((client, reliable)))
+                    {
+                        return;
+                    }
                     let View { slots, game, .. } = &mut *self.view;
                     game.client_userinfo_changed(client, slots[client].userinfo.as_bytes());
                 }
@@ -254,9 +271,26 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
             if self.view.slots[client].phase != LegacyClientPhase::Active {
                 self.view.slots[client].gamestate_due = true;
             }
-        } else if [&b"cp"[..], b"vdr"]
-            .iter()
-            .any(|engine| command.eq_ignore_ascii_case(engine))
+        } else if command.eq_ignore_ascii_case(b"cp") {
+            // `SV_VerifyPaks_f`: only a pure server reads it; an unpure client is dropped.
+            if let Some(manifest) = self.view.game.pure_manifest() {
+                let arguments: Vec<&[u8]> = LegacyTokens::new(text).collect();
+                let pure = manifest.verify(&arguments);
+                let slot = &mut self.view.slots[client];
+                (slot.got_cp, slot.pure_authentic) = (true, pure);
+                if !pure {
+                    let reason = b"Unpure client detected. Invalid .PK3 files referenced!";
+                    self.view.drop(client, reason, Some((client, reliable)));
+                }
+            }
+        } else if command.eq_ignore_ascii_case(b"vdr") {
+            // `SV_ResetPureClient_f`.
+            let slot = &mut self.view.slots[client];
+            (slot.got_cp, slot.pure_authentic) = (false, false);
+        } else if super::anti_dst::dst_command(command)
+            && self
+                .view
+                .dst_sighted(client, "command", Some((client, reliable)))
         {
         } else if game_allowed {
             self.view
@@ -330,10 +364,16 @@ impl<G: LegacyGameHost> LegacyMessageHost for Executing<'_, '_, G> {
                 self.view.slots[client].gamestate_due = true;
             }
             // `SV_UserMove`: "save time for ping calculation".
+            // Under TaystJK's `sv_pingFix`, the first acknowledgement, on the wall clock.
             LegacyMessageEvent::Movement(LegacyMoveEvent::Acknowledge { message, at }) => {
-                self.view.slots[client].timings
-                    [(message & (super::ping::MESSAGE_BACKUP as i32 - 1)) as usize]
-                    .acked = at;
+                let (ping_fix, wall) = (self.view.settings.ping_fix, self.view.clock.wall_time);
+                let timing = &mut self.view.slots[client].timings
+                    [(message & (super::ping::MESSAGE_BACKUP as i32 - 1)) as usize];
+                if !ping_fix {
+                    timing.acked = at;
+                } else if timing.acked == -1 {
+                    timing.acked = wall;
+                }
             }
         }
     }

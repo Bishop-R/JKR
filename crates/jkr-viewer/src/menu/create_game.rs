@@ -25,11 +25,12 @@ pub(crate) enum Row {
     TimeLimit,
     Hostname,
     Lan,
+    Cheats,
     Start,
 }
 
 /// Every row in screen order; a row's token is its index.
-pub(crate) const ROWS: [Row; 9] = [
+pub(crate) const ROWS: [Row; 10] = [
     Row::Mode,
     Row::Map,
     Row::Bots,
@@ -38,6 +39,7 @@ pub(crate) const ROWS: [Row; 9] = [
     Row::TimeLimit,
     Row::Hostname,
     Row::Lan,
+    Row::Cheats,
     Row::Start,
 ];
 
@@ -49,7 +51,7 @@ const HOSTNAME_BYTES: usize = 48;
 const DEFAULT_HOSTNAME: &str = "JKR local game";
 
 /// The archived cvars that remember the last choices: (name, default, help).
-pub(crate) const INTEGER_CVARS: [(&str, i64, &str); 6] = [
+pub(crate) const INTEGER_CVARS: [(&str, i64, &str); 7] = [
     ("ui_hostBots", 5, "Create game: bots added to the match"),
     ("ui_hostBotSkill", 3, "Create game: bot skill, 1 to 5"),
     (
@@ -72,6 +74,11 @@ pub(crate) const INTEGER_CVARS: [(&str, i64, &str); 6] = [
         0,
         "Create game: 1 lets LAN players join (binds every interface)",
     ),
+    (
+        "ui_hostCheats",
+        0,
+        "Create game: 1 turns the cheat commands on (god, noclip, give)",
+    ),
 ];
 /// Text cvars that remember the last choices: (name, default, help).
 pub(crate) const TEXT_CVARS: [(&str, &str, &str); 3] = [
@@ -92,6 +99,7 @@ pub(crate) struct Draft {
     pub(crate) timelimit: u32,
     pub(crate) hostname: String,
     pub(crate) allow_lan: bool,
+    pub(crate) cheats: bool,
 }
 
 impl Default for Draft {
@@ -106,6 +114,7 @@ impl Default for Draft {
             timelimit: 0,
             hostname: DEFAULT_HOSTNAME.to_owned(),
             allow_lan: false,
+            cheats: false,
         }
     }
 }
@@ -135,6 +144,7 @@ impl Draft {
             timelimit: integer("ui_hostTimelimit", defaults.timelimit),
             hostname: text("ui_hostName").map_or(defaults.hostname, str::to_owned),
             allow_lan: integer("ui_hostLan", 0) != 0,
+            cheats: integer("ui_hostCheats", 0) != 0,
         }
     }
 
@@ -149,6 +159,7 @@ impl Draft {
             ("ui_hostCapturelimit", self.capturelimit),
             ("ui_hostTimelimit", self.timelimit),
             ("ui_hostLan", u32::from(self.allow_lan)),
+            ("ui_hostCheats", u32::from(self.cheats)),
         ] {
             console.set_cvar(name, &value.to_string());
         }
@@ -181,7 +192,8 @@ impl Draft {
                 0
             },
             allow_lan: self.allow_lan,
-            cheats: false,
+            cheats: self.cheats,
+            team_auto_join: false,
         }
     }
 
@@ -214,6 +226,7 @@ impl Draft {
             },
             Row::TimeLimit => self.timelimit = bump(self.timelimit, 5, 120),
             Row::Lan => self.allow_lan = !self.allow_lan,
+            Row::Cheats => self.cheats = !self.cheats,
             Row::Hostname | Row::Start => {}
         }
     }
@@ -546,4 +559,30 @@ fn shown_map<'a>(picker: &MapPicker, catalogue: &'a Catalogue, draft: &'a Draft)
             .map_or("", |entry| entry.name.as_str());
     }
     &draft.map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    /// The Cheats switch is off until the player turns it on, and then starts the server
+    /// with `--cheats` alone: a hosted match keeps the team choice a devmap skips.
+    #[test]
+    fn cheats_switch_reaches_the_server_command_line() {
+        let catalogue = Catalogue::default();
+        let flags = |draft: &Draft| {
+            let arguments = draft
+                .host_settings(&[], 0)
+                .arguments(Path::new("GameData"), 0);
+            let has = |flag: &str| arguments.iter().any(|argument| argument == flag);
+            (has("--cheats"), has("--team-auto-join"))
+        };
+        let mut draft = Draft::default();
+        assert_eq!(flags(&draft), (false, false));
+        draft.adjust(Row::Cheats, 1, &catalogue);
+        assert_eq!(flags(&draft), (true, false));
+        draft.adjust(Row::Cheats, -1, &catalogue);
+        assert_eq!(flags(&draft), (false, false));
+    }
 }

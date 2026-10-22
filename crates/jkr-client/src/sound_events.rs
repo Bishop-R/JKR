@@ -14,6 +14,7 @@ use crate::loop_sounds::{LegacyLoopAdapter, LegacyLoopDecision};
 use crate::maintained_sounds::{
     LegacyMaintainedAction, LegacyMaintainedEvent, LegacyMaintainedLoopDecision, MaintainedSounds,
 };
+use crate::siege_notices::{EV_SIEGE_OBJECTIVECOMPLETE, EV_SIEGE_ROUNDOVER, SiegeAnnouncer};
 use crate::{AmbientSetKind, AmbientSets};
 use jkr_audio::{Attenuation, ChannelId, PlayRequest, SoundHandle, SourceId};
 use jkr_protocol::{EntityState, GameState, Snapshot};
@@ -22,6 +23,8 @@ use jkr_vfs::VirtualFileSystem;
 mod feedback;
 #[path = "sound_taunts.rs"]
 mod taunts;
+#[path = "sound_use_items.rs"]
+mod use_items;
 
 const CS_SOUNDS: usize = 811; // codemp/game/bg_public.h:132
 const MAX_SOUNDS: usize = 256;
@@ -37,7 +40,7 @@ const CHAN_MENU1: u32 = 11;
 const CHAN_LOCAL: u32 = 1;
 pub(crate) const CHAN_ANNOUNCER: u32 = 9;
 const CS_AMBIENT_SET: usize = 37;
-const EVENT_KIND_COUNT: usize = 56;
+const EVENT_KIND_COUNT: usize = 59;
 const EV_PLAYDOORLOOPSOUND: u16 = 72;
 const EV_MUTE_SOUND: u16 = 74;
 const EV_GENERAL_SOUND: u16 = 76;
@@ -197,6 +200,8 @@ pub enum LegacySoundEvent {
     SaberUnholster,
     BecomeJediMaster,
     DisruptorZoom,
+    /// `EV_USE_ITEM0`..`EV_USE_ITEM15`: a holdable put to use (`CG_UseItem`).
+    UseItem,
     Predefined,
     TeamPower,
     ItemRespawn,
@@ -237,6 +242,15 @@ pub enum LegacySoundEvent {
     Choke,
     /// Failed push reaction voice (`cg_event.c:1821-1823`).
     PushFail,
+    /// An NPC's other lines: `EV_ANGER1` to `EV_CONFUSE3`, `EV_FFWARN` to `EV_GLOAT3`
+    /// (`cg_event.c`, `CG_TryPlayCustomSound`).
+    VoiceLine,
+    /// A Siege objective's announcer line (`CG_SiegeObjectiveCompleted`).
+    SiegeObjectiveComplete,
+    /// A Siege round's announcer line (`CG_SiegeRoundOver`).
+    SiegeRoundOver,
+    /// `CG_Draw2D`'s 3/2/1 before a Siege round begins.
+    SiegeCountdown,
 }
 
 impl LegacySoundEvent {
@@ -256,6 +270,7 @@ impl LegacySoundEvent {
             Self::Pushed => "EV_PUSHED",
             Self::Choke => "EV_CHOKE",
             Self::PushFail => "EV_PUSHFAIL",
+            Self::VoiceLine => "EV_ANGER1..EV_GLOAT3",
             Self::GlobalTeam => "EV_GLOBAL_TEAM_SOUND",
             Self::Footstep => "EV_FOOTSTEP",
             Self::FootstepMetal => "EV_FOOTSTEP_METAL",
@@ -283,6 +298,7 @@ impl LegacySoundEvent {
             Self::SaberUnholster => "EV_SABER_UNHOLSTER",
             Self::BecomeJediMaster => "EV_BECOME_JEDIMASTER",
             Self::DisruptorZoom => "EV_DISRUPTOR_ZOOMSOUND",
+            Self::UseItem => "EV_USE_ITEM",
             Self::Predefined => "EV_PREDEFSOUND",
             Self::TeamPower => "EV_TEAM_POWER",
             Self::ItemRespawn => "EV_ITEM_RESPAWN",
@@ -309,6 +325,9 @@ impl LegacySoundEvent {
             Self::ThreeFragWarning => "CG_THREE_FRAG_WARNING",
             Self::WarmupCount => "CG_WARMUP_COUNT",
             Self::RestartFight => "CG_RESTART_FIGHT",
+            Self::SiegeObjectiveComplete => "EV_SIEGE_OBJECTIVECOMPLETE",
+            Self::SiegeRoundOver => "EV_SIEGE_ROUNDOVER",
+            Self::SiegeCountdown => "CG_SIEGE_COUNTDOWN",
         }
     }
 }
@@ -335,6 +354,20 @@ pub struct LegacySoundDecision {
     pub additional: bool,
     /// Engine-generic playback request.
     pub request: PlayRequest,
+}
+
+impl LegacySoundDecision {
+    /// Whether this is a stinger that holds the music down: the second voice of the local
+    /// player's death to someone (`dramaticFailure`) or of becoming the Jedi Master
+    /// (`happyMusic`), each beside `CGCam_SetMusicMult(0.3f, 5000)` (`cg_event.c:2434-2437`,
+    /// `3328-3331`; [`crate::music_duck`]).
+    pub fn ducks_music(&self) -> bool {
+        self.additional
+            && matches!(
+                self.event,
+                LegacySoundEvent::Death | LegacySoundEvent::BecomeJediMaster
+            )
+    }
 }
 
 /// Background-track transition requested by `EV_PRIVATE_DUEL`.
@@ -392,6 +425,7 @@ impl LegacySoundLedger {
 
 #[derive(Clone, Copy, Default)]
 struct CustomSet {
+    siege: [Option<u16>; jkr_game_jka::voice_commands::SOUNDS.len()],
     pushed: [Option<u16>; 3],
     choke: [Option<u16>; 3],
     push_fail: Option<u16>,
@@ -399,6 +433,7 @@ struct CustomSet {
     pain: [Option<u16>; 4],
     death: [Option<u16>; 3],
     land: Option<u16>,
+    falling: Option<u16>,
     gasp: Option<u16>,
     taunt: Option<u16>,
     anger: [Option<u16>; 3],
@@ -410,12 +445,15 @@ struct CustomSet {
 
 #[derive(Clone, Copy)]
 enum CustomKind {
+    Siege(usize),
     Pushed(usize),
     Choke(usize),
     PushFail,
     Jump,
     Pain(usize),
     Death(usize),
+    Land,
+    Falling,
     Gasp,
     Taunt,
     Anger(usize),
@@ -425,15 +463,46 @@ enum CustomKind {
     Gloat(usize),
 }
 
+impl CustomKind {
+    /// The custom sound's name (`*name`), for an NPC's sound sets; a Siege line has none
+    /// there.
+    fn name(self) -> Option<&'static str> {
+        let numbered = |names: [&'static str; 3], index: usize| names.get(index).copied();
+        match self {
+            Self::Siege(_) => None,
+            Self::Pushed(index) => numbered(["pushed1", "pushed2", "pushed3"], index),
+            Self::Choke(index) => numbered(["choke1", "choke2", "choke3"], index),
+            Self::PushFail => Some("pushfail"),
+            Self::Jump => Some("jump1"),
+            Self::Pain(index) => ["pain25", "pain50", "pain75", "pain100"]
+                .get(index)
+                .copied(),
+            Self::Death(index) => numbered(["death1", "death2", "death3"], index),
+            Self::Land => Some("land1"),
+            Self::Falling => Some("falling1"),
+            Self::Gasp => Some("gasp"),
+            Self::Taunt => Some("taunt"),
+            Self::Anger(index) => numbered(["anger1", "anger2", "anger3"], index),
+            Self::Victory(index) => numbered(["victory1", "victory2", "victory3"], index),
+            Self::TauntNumbered(index) => numbered(["taunt1", "taunt2", "taunt3"], index),
+            Self::Deflect(index) => numbered(["deflect1", "deflect2", "deflect3"], index),
+            Self::Gloat(index) => numbered(["gloat1", "gloat2", "gloat3"], index),
+        }
+    }
+}
+
 impl CustomSet {
     fn get(self, kind: CustomKind) -> Option<u16> {
         match kind {
+            CustomKind::Siege(index) => self.siege[index],
             CustomKind::Pushed(index) => self.pushed[index],
             CustomKind::Choke(index) => self.choke[index],
             CustomKind::PushFail => self.push_fail,
             CustomKind::Jump => self.jump,
             CustomKind::Pain(index) => self.pain[index],
             CustomKind::Death(index) => self.death[index],
+            CustomKind::Land => self.land,
+            CustomKind::Falling => self.falling,
             CustomKind::Gasp => self.gasp,
             CustomKind::Taunt => self.taunt,
             CustomKind::Anger(index) => self.anger[index],
@@ -464,9 +533,17 @@ struct EventSubject {
     fixed_origin: [f32; 3],
     tracked_entity: u16,
     mute_entity: u16,
+    /// `csSounds_Std`, `csSounds_Combat`, `csSounds_Extra`, `csSounds_Jedi`.
+    npc_sets: [u16; 4],
 }
 
 impl EventSubject {
+    /// An NPC: its own entity and client number past the players'. Its custom sounds
+    /// come from its sound sets (`CG_CustomSound`'s `npcClient`).
+    fn npc(self) -> bool {
+        usize::from(self.number) >= MAX_CLIENTS && usize::from(self.client_num) >= MAX_CLIENTS
+    }
+
     fn entity(state: &EntityState) -> Self {
         Self {
             predicted_zoom: None,
@@ -488,6 +565,7 @@ impl EventSubject {
             fixed_origin: state.event_origin(),
             tracked_entity: state.tracked_entity_num(),
             mute_entity: state.mute_entity_num(),
+            npc_sets: [80, 103, 104, 105].map(|field| state.raw_field(field).unwrap_or(0) as u16),
         }
     }
 
@@ -510,6 +588,7 @@ impl EventSubject {
             fixed_origin: snapshot.player.origin(),
             tracked_entity: 0,
             mute_entity: 0,
+            npc_sets: [0; 4],
         }
     }
 }
@@ -524,7 +603,12 @@ pub struct LegacySoundAdapter {
     footsteps: [[Option<u16>; 4]; 11],
     water_steps: [[Option<u16>; 4]; 3],
     custom: [CustomSet; MAX_CLIENTS],
+    npc_voices: crate::npc_voices::NpcVoices,
+    /// A duel or power duel: players' duel taunts play (`cg_customDuelSoundNames`).
+    duel: bool,
     client_teams: [u8; MAX_CLIENTS],
+    /// EternalJK's `cgs.ignoredVGS`: the players whose voice commands go unheard.
+    ignored_voice: u32,
     taunt_random: crate::animation_events::Random,
     saber_attack: [Option<u16>; 8],
     saber_hit: [Option<u16>; 3],
@@ -549,10 +633,15 @@ pub struct LegacySoundAdapter {
     team_power: [Option<u16>; 2],
     drain: Option<u16>,
     zoom: [Option<u16>; 2],
+    use_items: use_items::UseItemSounds,
+    /// `cgs.media.holocronPickup`.
+    holocron_pickup: Option<u16>,
     select_fallback: Option<u16>,
     dramatic_failure: Option<u16>,
     /// Announcer and chat sounds derived on the client (`local_sounds.rs`).
     local: LegacyLocalSounds,
+    /// The Siege map's objective and round lines.
+    siege: Option<SiegeAnnouncer>,
     decisions: Vec<LegacySoundDecision>,
     music_actions: Vec<LegacyMusicAction>,
     previous_entity_event: Box<[u16]>,
@@ -568,13 +657,49 @@ pub struct LegacySoundAdapter {
     ledger: LegacySoundLedger,
     loops: LegacyLoopAdapter,
     maintained: MaintainedSounds,
+    loop_command_sequence: i32,
+    /// `cg_noTaunt`.
+    no_taunt: bool,
+    /// EternalJK's `cg_noTeleFX`.
+    no_teleport: bool,
 }
 
 impl LegacySoundAdapter {
+    /// EternalJK's `ignoreVGS` list: one bit per player whose voice commands go unheard.
+    pub fn ignored_voice_commands(&self) -> u32 {
+        self.ignored_voice
+    }
+
+    /// Replace the [`Self::ignored_voice_commands`] list.
+    pub fn set_ignored_voice_commands(&mut self, players: u32) {
+        self.ignored_voice = players;
+    }
+
     /// Select TaystJK chat notification variants (cg_servercmds.c:1715-1761).
     pub fn set_chat_sound_mode(&mut self, mode: i64, clean: bool) {
         self.local.chat_mode = mode;
         self.local.chat_filter.enabled = clean;
+    }
+
+    /// `cg_teamChatsOnly` (`CG_Chat_f`): no beep for chat that is not the team's.
+    pub fn set_team_chats_only(&mut self, on: bool) {
+        self.local.team_chats_only = on;
+    }
+
+    /// `cg_noTaunt` (`cg_event.c:1586`): taunts, gloats, flourishes and bows are silent.
+    pub fn set_no_taunt(&mut self, on: bool) {
+        self.no_taunt = on;
+    }
+
+    /// EternalJK's `cg_noTeleFX` (`cg_event.c`): teleports in and out are silent.
+    pub fn set_no_teleport(&mut self, on: bool) {
+        self.no_teleport = on;
+    }
+
+    /// EternalJK's `cg_noFX 2` (`cg_ents.c:3690-3694`): the map's speakers are left out,
+    /// their sounds and their loops.
+    pub fn set_no_speakers(&mut self, on: bool) {
+        self.loops.skip_speakers = on;
     }
 
     /// Resolve and decode all static tables, CS_SOUNDS, and model custom sounds.
@@ -590,6 +715,11 @@ impl LegacySoundAdapter {
         let mut intern = |path: &str| intern_sound(&mut sounds, vfs, path, &mut register);
         let mut cs_sounds = [None; MAX_SOUNDS];
         let mut cs_custom = [None; MAX_SOUNDS];
+        let gametype = game_state
+            .config_string(0)
+            .and_then(|info| crate::LegacyClientInfo::new(info).integer("g_gametype"))
+            .unwrap_or(0);
+        let mut npc_voices = crate::npc_voices::NpcVoices::new(gametype as i32);
         for (index, slot) in cs_sounds.iter_mut().enumerate() {
             let Some(bytes) = game_state.config_string(CS_SOUNDS + index) else {
                 continue;
@@ -597,7 +727,10 @@ impl LegacySoundAdapter {
             let Ok(path) = std::str::from_utf8(bytes) else {
                 continue;
             };
-            if let Some(kind) = custom_kind(path) {
+            if path.starts_with("*$") {
+                let exists = |path: &str| vfs.contains(path).unwrap_or(false);
+                npc_voices.set_slot(index, path, exists, &mut intern);
+            } else if let Some(kind) = custom_kind(path) {
                 cs_custom[index] = Some(kind);
             } else if !path.is_empty() {
                 *slot = Some(intern(path));
@@ -723,6 +856,8 @@ impl LegacySoundAdapter {
             "sound/weapons/disruptor/zoomstart.wav",
         ]
         .map(|path| Some(intern(path)));
+        let use_items = use_items::UseItemSounds::register(&mut intern);
+        let holocron_pickup = Some(intern("sound/player/holocron.wav"));
         let select_fallback = Some(intern("sound/weapons/change.wav"));
         let dramatic_failure = Some(intern("music/badsmall.mp3"));
         let mut local_media = LocalSoundMedia::register(&mut intern);
@@ -733,6 +868,7 @@ impl LegacySoundAdapter {
         let custom =
             std::array::from_fn(|client| custom_set(game_state, vfs, client as u16, &mut intern));
         let client_teams = std::array::from_fn(|client| client_team(game_state, client));
+        let siege = SiegeAnnouncer::load(vfs, game_state, &mut intern);
 
         drop(intern);
         if let Some(id) = preferred_chat.filter(|id| sounds[*id as usize].handle.is_some()) {
@@ -751,7 +887,10 @@ impl LegacySoundAdapter {
             footsteps,
             water_steps,
             custom,
+            npc_voices,
+            duel: matches!(gametype, 3 | 4),
             client_teams,
+            ignored_voice: 0,
             predicted_events: Default::default(),
             taunt_random: Default::default(),
             saber_attack,
@@ -776,9 +915,12 @@ impl LegacySoundAdapter {
             team_power,
             drain,
             zoom,
+            use_items,
+            holocron_pickup,
             select_fallback,
             dramatic_failure,
             local,
+            siege,
             ambient_catalog: ambient,
             decisions: Vec::with_capacity(2_048),
             music_actions: Vec::with_capacity(2),
@@ -795,6 +937,9 @@ impl LegacySoundAdapter {
             ledger: LegacySoundLedger::default(),
             loops,
             maintained,
+            loop_command_sequence: game_state.server_command_sequence,
+            no_taunt: false,
+            no_teleport: false,
         }
     }
 
@@ -852,6 +997,18 @@ impl LegacySoundAdapter {
         self.decisions.clear();
         self.music_actions.clear();
         self.maintained.begin_snapshot();
+        for command in &snapshot.server_commands {
+            if command.sequence <= self.loop_command_sequence {
+                continue;
+            }
+            self.loop_command_sequence = command.sequence;
+            if let Some(targets) = crate::sound_commands::loop_stop_targets(&command.command) {
+                for source in targets.into_iter().flatten() {
+                    self.maintained
+                        .stop(LegacyMaintainedEvent::KillLoopSounds, source);
+                }
+            }
+        }
         self.observe_entity_events(snapshot);
         self.observe_player_events(snapshot);
         self.local.observe_snapshot(snapshot);
@@ -891,8 +1048,23 @@ impl LegacySoundAdapter {
         listener_origin: [f32; 3],
         presented_origin: impl FnMut(&EntityState) -> [f32; 3],
     ) -> usize {
-        self.loops
-            .observe(snapshot, presented_time, listener_origin, presented_origin)
+        let count = self
+            .loops
+            .observe(snapshot, presented_time, listener_origin, presented_origin);
+        for source in self.loops.speaker_stops() {
+            self.maintained.clear_source(source.0 as u16);
+        }
+        count
+    }
+
+    /// Automatic ET_SPEAKER one-shots selected at presentation cadence.
+    pub fn speaker_shots(&self) -> &[LegacySoundDecision] {
+        self.loops.speaker_shots()
+    }
+
+    /// ET_SPEAKER entities explicitly suppressing their looping sounds.
+    pub fn speaker_stops(&self) -> &[SourceId] {
+        self.loops.speaker_stops()
     }
 
     /// Loop requests selected for the most recent presented frame.
@@ -980,6 +1152,34 @@ impl LegacySoundAdapter {
             self.local.team_event(parameter);
             return;
         }
+        if matches!(event, EV_SIEGE_ROUNDOVER | EV_SIEGE_OBJECTIVECOMPLETE) {
+            // `S_StartLocalSound(…, CHAN_ANNOUNCER)` straight away, not through the ring.
+            let (team, won) = (snapshot.player.team(), i32::from(parameter));
+            let objective = i32::from(entity.tracked_entity);
+            let sound = self
+                .siege
+                .as_ref()
+                .and_then(|siege| siege.line(event, team, won, objective));
+            if sound.is_some() {
+                let kind = if event == EV_SIEGE_ROUNDOVER {
+                    LegacySoundEvent::SiegeRoundOver
+                } else {
+                    LegacySoundEvent::SiegeObjectiveComplete
+                };
+                let client = snapshot.player.client_num();
+                self.emit(
+                    kind,
+                    sound,
+                    client,
+                    CHAN_ANNOUNCER,
+                    true,
+                    false,
+                    [0.0; 3],
+                    snapshot,
+                );
+            }
+            return;
+        }
         let source = entity.number;
         let client = usize::from(entity.client_num).min(MAX_CLIENTS - 1);
         let variant = deterministic_variant(source, event, parameter);
@@ -1025,7 +1225,7 @@ impl LegacySoundAdapter {
                 return;
             }
             Some(MaintainedRule::Start) => {
-                let sound = self.configured_sound(parameter, client);
+                let sound = self.configured_sound(parameter, entity);
                 self.start_maintained(
                     LegacyMaintainedEvent::StartLoopingSound,
                     source,
@@ -1040,25 +1240,34 @@ impl LegacySoundAdapter {
         let simple = match event {
             125..=127 => Some((
                 LegacySoundEvent::Pushed,
-                self.custom[client].pushed[usize::from(event - 125)],
+                self.voice(entity, CustomKind::Pushed(usize::from(event - 125))),
                 source,
                 CHAN_VOICE,
                 false,
             )),
             128..=130 => Some((
                 LegacySoundEvent::Choke,
-                self.custom[client].choke[usize::from(event - 128)],
+                self.voice(entity, CustomKind::Choke(usize::from(event - 128))),
                 source,
                 CHAN_VOICE,
                 false,
             )),
             190 => Some((
                 LegacySoundEvent::PushFail,
-                self.custom[client].push_fail,
+                self.voice(entity, CustomKind::PushFail),
                 source,
                 CHAN_VOICE,
                 false,
             )),
+            116..=124 | 131..=189 => crate::npc_voices::voice_event_name(event).map(|name| {
+                (
+                    LegacySoundEvent::VoiceLine,
+                    self.voice_line(entity, name),
+                    source,
+                    CHAN_VOICE,
+                    false,
+                )
+            }),
             2 => Some((
                 LegacySoundEvent::Footstep,
                 self.footsteps[footstep_kind(parameter)][variant % 4],
@@ -1124,7 +1333,7 @@ impl LegacySoundAdapter {
             )),
             16 => Some((
                 LegacySoundEvent::Jump,
-                self.custom[client].jump,
+                self.voice(entity, CustomKind::Jump),
                 source,
                 CHAN_VOICE,
                 false,
@@ -1152,21 +1361,24 @@ impl LegacySoundAdapter {
             )),
             21 => Some((
                 LegacySoundEvent::WaterClear,
-                self.custom[client].gasp,
+                self.voice(entity, CustomKind::Gasp),
                 source,
                 CHAN_AUTO,
                 false,
             )),
             22 => {
                 // EV_ITEM_PICKUP carries an entity number, not an eight-bit item index.
-                let item = snapshot
-                    .entities
-                    .iter()
-                    .find(|state| state.number() == raw)
-                    .map_or(0, EntityState::model_index);
+                let picked = snapshot.entities.iter().find(|state| state.number() == raw);
+                let item = picked.map_or(0, EntityState::model_index);
+                // A holocron: no item, marked as a Jedi Master (`cg_event.c:1861-1865`).
+                let holocron = item < 1 && picked.is_some_and(EntityState::is_jedi_master);
                 Some((
                     LegacySoundEvent::ItemPickup,
-                    self.item_sounds[item_sound_kind(item)],
+                    if holocron {
+                        self.holocron_pickup
+                    } else {
+                        self.item_sounds[item_sound_kind(item)]
+                    },
                     source,
                     CHAN_AUTO,
                     false,
@@ -1261,6 +1473,24 @@ impl LegacySoundAdapter {
                 CHAN_AUTO,
                 true,
             )),
+            45..=60 => self
+                .use_items
+                .sound(
+                    event,
+                    parameter,
+                    source == snapshot.player.client_num(),
+                    snapshot.player.weapon_state() == 0,
+                    entity.predicted_zoom.unwrap_or(snapshot.player.zoom_mode()),
+                )
+                .map(|sound| {
+                    (
+                        LegacySoundEvent::UseItem,
+                        Some(sound),
+                        source,
+                        CHAN_AUTO,
+                        event == 50,
+                    )
+                }),
             62 => Some((
                 LegacySoundEvent::ItemRespawn,
                 self.respawn,
@@ -1275,14 +1505,14 @@ impl LegacySoundAdapter {
                 CHAN_AUTO,
                 false,
             )),
-            64 => Some((
+            64 if !self.no_teleport => Some((
                 LegacySoundEvent::TeleportIn,
                 self.teleport[0],
                 source,
                 CHAN_AUTO,
                 false,
             )),
-            65 => Some((
+            65 if !self.no_teleport => Some((
                 LegacySoundEvent::TeleportOut,
                 self.teleport[1],
                 source,
@@ -1304,21 +1534,21 @@ impl LegacySoundAdapter {
                 }),
             76 => Some((
                 LegacySoundEvent::General,
-                self.configured_sound(parameter, client),
+                self.configured_sound(parameter, entity),
                 source,
                 entity.general_channel,
                 false,
             )),
             77 => Some((
                 LegacySoundEvent::Global,
-                self.configured_sound(parameter, client),
+                self.configured_sound(parameter, entity),
                 snapshot.player.client_num(),
                 CHAN_MENU1,
                 true,
             )),
             79 => Some((
                 LegacySoundEvent::Entity,
-                self.configured_sound(parameter, client),
+                self.configured_sound(parameter, entity),
                 entity.client_num,
                 entity.entity_channel,
                 false,
@@ -1339,7 +1569,7 @@ impl LegacySoundAdapter {
                 };
                 Some((
                     LegacySoundEvent::Pain,
-                    self.custom[client].pain[band],
+                    self.voice(entity, CustomKind::Pain(band)),
                     source,
                     CHAN_VOICE,
                     false,
@@ -1347,7 +1577,7 @@ impl LegacySoundAdapter {
             }
             90..=92 => Some((
                 LegacySoundEvent::Death,
-                self.custom[client].death[(event - 90) as usize],
+                self.voice(entity, CustomKind::Death(usize::from(event - 90))),
                 source,
                 CHAN_VOICE,
                 false,
@@ -1406,7 +1636,7 @@ impl LegacySoundAdapter {
                     }
                     self.emit(
                         LegacySoundEvent::Roll,
-                        self.custom[client].jump,
+                        self.voice(entity, CustomKind::Jump),
                         source,
                         CHAN_VOICE,
                         false,
@@ -1480,6 +1710,7 @@ impl LegacySoundAdapter {
                     }
                 }
                 75 => self.emit_voice_command(parameter, entity, snapshot),
+                115 if self.no_taunt => {}
                 115 => {
                     let sound = self.taunt_sound(client, parameter);
                     self.emit(
@@ -1497,7 +1728,7 @@ impl LegacySoundAdapter {
             }
         }
         if event == 11 && parameter > 44 && entity.e_flags & (1 << 1) == 0 {
-            let sound = self.custom[client].land;
+            let sound = self.voice(entity, CustomKind::Land);
             self.pain_deadline[usize::from(source)] = time.saturating_add(500);
             self.emit(
                 LegacySoundEvent::Fall,
@@ -1584,10 +1815,17 @@ impl LegacySoundAdapter {
 
     fn emit_voice_command(&mut self, parameter: u8, entity: EventSubject, snapshot: &Snapshot) {
         let client = usize::from(entity.ground);
-        if client >= MAX_CLIENTS {
+        // EternalJK's `ignoreVGS` (`cg_event.c:3579`).
+        if client >= MAX_CLIENTS || self.ignored_voice & (1 << client) != 0 {
             return;
         }
-        let sound = self.configured_sound(parameter, client);
+        // The speaker is the client in `groundEntityNum`, not the event's own entity.
+        let speaker = EventSubject {
+            number: entity.ground,
+            client_num: entity.ground,
+            ..entity
+        };
+        let sound = self.configured_sound(parameter, speaker);
         let same_team = self.client_teams[client] == snapshot.player.team();
         if entity.ground != snapshot.player.client_num() && same_team {
             self.emit(
@@ -1613,14 +1851,46 @@ impl LegacySoundAdapter {
         );
     }
 
-    fn configured_sound(&self, parameter: u8, client: usize) -> Option<u16> {
+    fn configured_sound(&self, parameter: u8, entity: EventSubject) -> Option<u16> {
         self.cs_sounds[usize::from(parameter)].or_else(|| {
-            self.cs_custom[usize::from(parameter)].and_then(|kind| self.custom[client].get(kind))
+            self.cs_custom[usize::from(parameter)].and_then(|kind| self.voice(entity, kind))
         })
+    }
+
+    /// The custom sound `kind` of an event's entity (`CG_CustomSound`): an NPC's from its
+    /// own sound sets, a player's from its model's.
+    fn voice(&self, entity: EventSubject, kind: CustomKind) -> Option<u16> {
+        if entity.npc() {
+            return self.npc_voices.sound(entity.npc_sets, kind.name()?);
+        }
+        self.custom[usize::from(entity.client_num).min(MAX_CLIENTS - 1)].get(kind)
+    }
+
+    /// `EV_ANGER1` to `EV_PUSHFAIL` (`cg_event.c`): an NPC says its line; a player has
+    /// only its duel taunts, in duels.
+    fn voice_line(&self, entity: EventSubject, name: &str) -> Option<u16> {
+        if entity.npc() {
+            return self.npc_voices.sound(entity.npc_sets, name);
+        }
+        let kind = custom_kind(name)?;
+        let taunt = matches!(
+            kind,
+            CustomKind::Anger(_)
+                | CustomKind::Victory(_)
+                | CustomKind::TauntNumbered(_)
+                | CustomKind::Deflect(_)
+                | CustomKind::Gloat(_)
+        );
+        (taunt && self.duel)
+            .then(|| self.voice(entity, kind))
+            .flatten()
     }
 }
 
 fn custom_kind(path: &str) -> Option<CustomKind> {
+    if let Some(index) = jkr_game_jka::voice_commands::sound_index(path) {
+        return Some(CustomKind::Siege(index));
+    }
     let name = path
         .trim_start_matches('*')
         .split('.')
@@ -1642,6 +1912,8 @@ fn custom_kind(path: &str) -> Option<CustomKind> {
         "death1" => Some(CustomKind::Death(0)),
         "death2" => Some(CustomKind::Death(1)),
         "death3" => Some(CustomKind::Death(2)),
+        "land1" => Some(CustomKind::Land),
+        "falling1" => Some(CustomKind::Falling),
         "gasp" => Some(CustomKind::Gasp),
         "taunt" => Some(CustomKind::Taunt),
         "anger1" => Some(CustomKind::Anger(0)),
@@ -1780,6 +2052,29 @@ fn custom_set(
         Some((directory, female))
     });
     let (directory, female) = configured.unwrap_or_else(|| (model.to_owned(), false));
+    let team_game = game_state
+        .config_string(0)
+        .and_then(|info| crate::LegacyClientInfo::new(info).integer("g_gametype"))
+        .is_some_and(|gametype| gametype >= 6);
+    let siege = if team_game {
+        jkr_game_jka::voice_commands::SOUNDS.map(|name| {
+            let name = &name[1..];
+            let paths = [
+                format!("sound/chars/{directory}/misc/{name}.wav"),
+                format!("sound/{directory}/{name}.wav"),
+                format!(
+                    "sound/chars/mp_generic_{}/misc/{name}.wav",
+                    if female { "female" } else { "male" }
+                ),
+            ];
+            paths
+                .iter()
+                .find(|path| sound_exists(vfs, path))
+                .map(|path| intern(path))
+        })
+    } else {
+        [None; jkr_game_jka::voice_commands::SOUNDS.len()]
+    };
     let mut sound = |name: &str| {
         let requested = format!("sound/chars/{directory}/misc/{name}.wav");
         let path = if sound_exists(vfs, &requested) {
@@ -1791,6 +2086,7 @@ fn custom_set(
         Some(intern(&path))
     };
     CustomSet {
+        siege,
         pushed: ["pushed1", "pushed2", "pushed3"].map(&mut sound),
         choke: ["choke1", "choke2", "choke3"].map(&mut sound),
         push_fail: sound("pushfail"),
@@ -1798,6 +2094,7 @@ fn custom_set(
         pain: ["pain25", "pain50", "pain75", "pain100"].map(&mut sound),
         death: ["death1", "death2", "death3"].map(&mut sound),
         land: sound("land1"),
+        falling: sound("falling1"),
         gasp: sound("gasp"),
         taunt: sound("taunt"),
         anger: ["anger1", "anger2", "anger3"].map(&mut sound),
@@ -1931,5 +2228,30 @@ mod tests {
         let baton = Some("sound/weapons/baton/fire.mp3");
         assert_eq!(WEAPON_PATHS[WP_STUN_BATON], [baton, baton]);
         assert_eq!(WEAPON_PATHS[WP_MELEE], [None, None]);
+    }
+
+    #[test]
+    fn only_the_local_stingers_hold_the_music_down() {
+        use super::{LegacySoundDecision, LegacySoundEvent};
+        let decision = |event, additional| LegacySoundDecision {
+            event,
+            sound: None,
+            handle: None,
+            additional,
+            request: jkr_audio::PlayRequest {
+                origin: None,
+                source: jkr_audio::SourceId(0),
+                channel: jkr_audio::ChannelId(0),
+                volume: 1.0,
+                attenuation: jkr_audio::Attenuation::None,
+            },
+        };
+        // The death cry and the saber coming on are anyone's; their second voices are the
+        // local player's `dramaticFailure` and `happyMusic`.
+        assert!(!decision(LegacySoundEvent::Death, false).ducks_music());
+        assert!(decision(LegacySoundEvent::Death, true).ducks_music());
+        assert!(!decision(LegacySoundEvent::BecomeJediMaster, false).ducks_music());
+        assert!(decision(LegacySoundEvent::BecomeJediMaster, true).ducks_music());
+        assert!(!decision(LegacySoundEvent::Pain, true).ducks_music());
     }
 }

@@ -292,21 +292,9 @@ fn last_int(entity: &Entity, keys: &[&str]) -> i32 {
 
 /// `G_ScaleNetHealth` (`g_utils.c:1116-1146`): the health bar the gun shows.
 fn scale_net_health(gun: &mut EmplacedGun) {
-    let (max, health) = if gun.max_health < 1_000 {
-        (gun.max_health, gun.health.max(0))
-    } else {
-        let health = (gun.health / 100).max(0);
-        (
-            gun.max_health / 100,
-            if gun.health > 0 && health <= 0 {
-                1
-            } else {
-                health
-            },
-        )
-    };
-    gun.state.set_raw_field(es::MAX_HEALTH, max as u32);
-    gun.state.set_raw_field(es::HEALTH, health as u32);
+    let (max, health) = crate::damage::net_health(gun.health, gun.max_health);
+    gun.state.set_raw_field(es::MAX_HEALTH, max);
+    gun.state.set_raw_field(es::HEALTH, health);
 }
 
 /// `G_AddEvent` on the gun: the event with the counter's next bits, shown from now.

@@ -7,7 +7,8 @@ use jkr_ui::{Color, DrawCommand, DrawList, FontWeight, Rect, TextAlign, TextId};
 mod icons;
 use icons::IconAtlas;
 pub(crate) use icons::{
-    BANNER_SIZE, BANNER_TEXTURE, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE, LEVELSHOT_TEXTURE,
+    BANNER_SIZE, BANNER_TEXTURE, HUD_CELL_COUNT, ICON_CELLS, ICON_SIZE, LEVELSHOT_SIZE,
+    LEVELSHOT_TEXTURE, RADAR_CELL_COUNT, RADAR_CELLS,
 };
 
 /// Main-menu wordmark: the Jedi Knight saber emblem laid horizontal, white
@@ -53,6 +54,8 @@ pub(crate) struct ShapeRenderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     vertices: Vec<ShapeVertex>,
+    /// The vertices of the shapes drawn under a zoom mask, which come first.
+    under: u32,
     icons: IconAtlas,
 }
 
@@ -98,9 +101,10 @@ impl ShapeRenderer {
                 module: &shader,
                 entry_point: Some("fragment_main"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
+                // The shader returns premultiplied colour, so a quad with no alpha adds.
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -131,23 +135,32 @@ impl ShapeRenderer {
             pipeline,
             vertex_buffer,
             vertices: Vec::with_capacity(MAX_SHAPE_VERTICES),
+            under: 0,
             icons,
         }
     }
 
-    /// Translate every active retained layer and upload one shared vertex batch.
+    /// Translate every active retained layer and upload one shared vertex batch; `under`,
+    /// the shapes a zoom mask covers, first ([`Self::draw_under`]).
     pub(crate) fn prepare_layers<'a>(
         &mut self,
         queue: &crate::frame_queue::FrameQueue,
+        under: Option<&'a DrawList>,
         draw_lists: impl IntoIterator<Item = &'a DrawList>,
         viewport: [f32; 2],
     ) {
         self.vertices.clear();
+        let under_commands = under.map_or(0, DrawList::len);
+        let mut split = None;
         let mut opacity = [1.0_f32; 8];
         let mut opacity_depth = 0_usize;
         let mut clips = [Rect::new(0.0, 0.0, viewport[0], viewport[1]); 8];
         let mut clip_depth = 0_usize;
-        for command in draw_lists.into_iter().flat_map(DrawList::commands) {
+        let lists = under.into_iter().chain(draw_lists);
+        for (index, command) in lists.flat_map(DrawList::commands).enumerate() {
+            if index == under_commands {
+                split = Some(self.vertices.len());
+            }
             match *command {
                 DrawCommand::SolidRect { rect, color }
                 | DrawCommand::RoundedRect {
@@ -248,25 +261,52 @@ impl ShapeRenderer {
                     viewport,
                     MAX_SHAPE_VERTICES,
                 ),
+                DrawCommand::RotatedQuad {
+                    rect,
+                    degrees,
+                    texture,
+                    color,
+                    additive,
+                } => icons::push_rotated(
+                    &mut self.vertices,
+                    rect,
+                    degrees,
+                    texture,
+                    color,
+                    additive,
+                    opacity[opacity_depth],
+                    viewport,
+                    MAX_SHAPE_VERTICES,
+                ),
                 DrawCommand::Text { .. }
                 | DrawCommand::PushClip(_)
                 | DrawCommand::PushOpacity(_) => {}
             }
         }
+        self.under = split.unwrap_or(self.vertices.len()) as u32;
         if !self.vertices.is_empty() {
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
         }
     }
 
-    /// Draw every retained shape in one pipeline/buffer submission.
-    pub(crate) fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        if self.vertices.is_empty() {
+    /// Draw the shapes a zoom mask covers (`prepare_layers`'s `under`).
+    pub(crate) fn draw_under<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.draw_range(pass, 0..self.under);
+    }
+
+    /// Draw the rest of the retained shapes.
+    pub(crate) fn draw_over<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.draw_range(pass, self.under..self.vertices.len() as u32);
+    }
+
+    fn draw_range<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, range: std::ops::Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, self.icons.bind_group(), &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.draw(0..self.vertices.len() as u32, 0..1);
+        pass.draw(range, 0..1);
     }
 
     fn push_rect(

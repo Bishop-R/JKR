@@ -115,6 +115,9 @@ impl SoundPrefetch {
             }
         }
         paths.extend(crate::effect_aux::saber_contacts::SOUNDS.map(str::to_owned));
+        if crate::effect_aux::breakage::map_has_breakables(bsp) {
+            paths.extend(crate::effect_aux::breakage::SOUNDS.map(str::to_owned));
+        }
         if let Some(music) = music {
             paths.push(default_music_extension(&music.intro));
             paths.push(default_music_extension(&music.repeating));
@@ -301,7 +304,21 @@ impl GpuState {
         }
         let music_done = Instant::now();
         audio.register_duel_music(vfs);
-        audio.register_effect_paths(vfs, ["sound/weapons/disruptor/zoomloop.wav"]);
+        audio.register_effect_paths(
+            vfs,
+            [
+                "sound/weapons/disruptor/zoomloop.wav",
+                crate::hud::force_flash::SOUND,
+            ],
+        );
+        audio.register_effect_paths(vfs, crate::corpse_fade::SOUNDS);
+        audio.register_effect_paths(
+            vfs,
+            [
+                jkr_client::rocket_lock::TICK_SOUND,
+                jkr_client::rocket_lock::LOCK_SOUND,
+            ],
+        );
         let mut effect_sound_paths = Vec::new();
         self.effects.append_sound_paths(&mut effect_sound_paths);
         audio.register_effect_paths(vfs, effect_sound_paths.iter().map(String::as_str));

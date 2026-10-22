@@ -11,6 +11,7 @@ impl ViewerConsole {
     }
     pub(crate) fn advance_command_frame(&mut self) {
         self.shell.advance_command_frame();
+        self.run_deferred(std::time::Instant::now());
     }
     pub(crate) fn take_quit(&mut self) -> bool {
         std::mem::take(&mut self.pending_quit)
@@ -247,8 +248,14 @@ impl ViewerConsole {
 
     pub(crate) fn clear_server_info(&mut self) {
         self.movement_policy_log = None;
+        self.server_force_rules = None;
         if let Ok(mut status) = self.server_status.write() {
             *status = "Not connected".to_owned();
         }
+    }
+
+    /// The connected server's Force rules, if any.
+    pub(crate) fn server_force_rules(&self) -> Option<jkr_client::ForceLegalizeRules> {
+        self.server_force_rules
     }
 }

@@ -257,7 +257,7 @@ pub(crate) fn matches_filter(entry: &MapEntry, filter: &str) -> bool {
 }
 
 /// `text` without Quake colour codes (`^` and the character after it).
-fn strip_colours(text: &str) -> String {
+pub(super) fn strip_colours(text: &str) -> String {
     let mut plain = String::with_capacity(text.len());
     let mut chars = text.chars();
     while let Some(c) = chars.next() {

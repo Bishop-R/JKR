@@ -7,6 +7,129 @@ JKR currently contains a native client and standard dedicated server in a
 20-crate Rust workspace. This page records scope and verification, rather than
 claiming complete parity from the presence of an implementation.
 
+## Glass experiment parked
+
+On 2026-10-05, the unmerged glass work was preserved in a separate local test
+folder with a complete source snapshot and the glass4 Linux preview binary.
+Product code was restored byte-for-byte to `af65396` before the subsequent
+[stock parity audit](stock-parity.md) and repair work below.
+The regular owner build returns to authored glass shaders and keeps existing
+floor reflections. No gameplay, protocol or asset changes accompany this rollback.
+
+Formatting, locked workspace build/tests (27 tests) and the optimized Linux
+owner build passed. The archived source and preview binary were byte-verified;
+the owner launcher now selects the restored build. No fresh GPU/runtime,
+Windows or multiplayer verification was performed for this source restoration.
+
+## Stock multiplayer source audit
+
+The 2026-10-05 [parity audit](stock-parity.md) inventories the major client/server
+systems against the original PC multiplayer source, with EternalJK as a secondary
+reference. The [spawn appendix](stock-spawns.md) covers all 185 reference table
+entries: 23 had missing native handlers at that baseline, with conditional gaps and
+reference no-ops distinguished from implementation failures.
+
+Confirmed gaps include client portable-shield/beam presentation,
+Siege briefing/radar/action feedback, several stock event and sound-command
+consumers, native recharge stations and holdables, ICARUS host actions, ROFF,
+pure-server validation, and specific movement/vehicle/Force interactions.
+Many core systems are implemented but remain unverified as complete experiences.
+The owner has since authorized implementing the backlog. The first changes cover
+client gameplay visibility and event feedback, sound lifetimes, server query and
+password handling, movement exceptions, all five recharge-station classes,
+three map target actions and player ICARUS actions. See the [implementation ledger](stock-parity-progress.md)
+for exact coverage, reference evidence and remaining verification. The backlog
+is not complete; no owner build or publication is implied by these changes.
+
+Breakable glass, debris and model explosions (audit row C7) now present on the
+client. Their rules match unchanged OpenJK functions bit for bit on synthetic
+inputs; a live `ctf5` break was compared against a TaystJK client on the same
+JKR server, and debris was captured on `duel8`. Resting chunks vanish rather
+than fade, and fragments ignore movers; see the ledger row for the remaining
+limits.
+
+Player commands (audit row N3) now pass OpenJK's `ClientCommand` gates in the
+reference's order, and `forcechanged`, `god`, `notarget`, `giveother`,
+`killother`, `maplist`, `levelshot` and giving an item by name answer as stock
+does. A live `ctf5` session checked every reply, fall damage with and without
+god, named items under `g_weaponDisable`, the dead-player refusals and the
+intermission refusals. Waypoint editing and a given flag's capture rules stay
+open; see the ledger row.
+
+Force Sight now dodges disruptor shots as stock does (audit row G4): the player
+takes the dodge pose, speed burst and sound, and the concussion beam no longer
+passes through Force Sight users. The rules match unchanged OpenJK on 200,000
+generated cases, and two live clients on `ctf5` showed dodged and landed shots.
+NPCs are not yet asked to dodge the disruptor; see the ledger row.
+
+The server now applies `g_maxForceRank`, `g_forcePowerDisable`,
+`g_forceBasedTeams`, `g_weaponDisable` and `g_duelWeaponDisable` to its rules. They
+were advertised but ignored, so saber-only and restricted-Force servers did not
+work. A saber-only `ctf5` spawned no weapons and gave no pistol, and a rank-1
+server admitted a client with a trimmed profile.
+
+The disruptor and the concussion beam now hurt everything stock's do, not only
+players: on `ctf5` each shattered a pane of glass, and the disruptor killed an NPC.
+Doors and buttons with health still take no damage from any weapon.
+
+Force push and pull now work Force-activated doors and Force-pushable buttons
+(audit row G3). Only `siege_korriban` has such doors among the stock maps; a push
+there slid a slab over the lava as stock does.
+
+Players can now set down the portable assault sentry (audit row N4). Like stock's,
+it hovers where it was placed, winds up, fires at the nearest visible enemy and
+blows up when spent or after a minute. Five reference scenarios match unchanged
+OpenJK line for line, and on `ffa3` a sentry killed a stormtrooper for its owner.
+The JKR client does not turn the sentry's gun yet.
+
+The client now draws the seeker drone over its owner as stock does. The server
+already ran it, but no client drew it.
+
+The jetpack flies (audit row N4). As in stock, the use key lights it in the air
+and puts it out. Its movement matches unchanged OpenJK on 50 runs at every command
+spacing, and the client predicts it without misses. The client draws the pack, its
+flames and its sounds as stock does, checked against TaystJK on the same server.
+
+Rotating doors, pendulums and turning turrets now move smoothly on the client.
+It read their angular duration from the wrong wire field, so community maps' rotating
+doors held still and then snapped open.
+
+Players can now set down the E-Web (audit row N4, its last item). As in stock, it
+unfolds, turns with its user's view, fires, keeps its health between deployments and
+blows up when shot to death or when its user dies or leaves. Eight reference scenarios
+match unchanged OpenJK, run with the server's Ghoul2, except for a last-place
+difference in the muzzle flash's direction. Live, the JKR client used it on `ffa3`
+while a TaystJK client on the same server watched the cannon turn and pitch. The JKR
+client shows no health meter for it yet.
+
+The JKR client now poses Ghoul2 machines as stock does: an E-Web unfolds, turns and
+pitches, and a turret turns by the bones its server sends; seen from the same spot,
+the JKR and TaystJK clients draw the same E-Web alike. They had been drawn in their
+bind pose and turned 90° away from stock's. Like stock clients, the JKR client also aims a
+manned emplaced gun where its gunner looks and turns a sentry toward its enemy itself;
+both were checked side by side with TaystJK.
+
+A JKR server can now run pure (`sv_pure 1`, audit row N1): it lists its pk3 files as stock
+does and checks each client's reply against them, dropping an unpure client with stock's
+message. TaystJK and the JKR client both joined such a server; the pk3 checksums match
+OpenJK's own code for every retail pak.
+
+In Siege the JKR client now announces completed objectives and the end of a round from
+the map's own `.siege` file, as stock clients do: each side's message, centre-printed,
+and its announcer line. Stock opens the round's message in a popup; JKR puts it at the
+head of the intermission scoreboard. On `siege_hoth` the JKR and TaystJK clients showed
+the same words for the same side. It also shows the round itself: waiting for players,
+the countdown with its three-two-one, the round clock (red for the timed side, green
+for the other) and the player's respawn wave. The radar of team games and vehicles is
+there too, drawn from stock's own pictures and shaders, and matched against TaystJK's
+on `siege_hoth`. Briefings and teammate health remain open.
+
+Evidence is source/call-path inspection at `af65396` on Linux, not live gameplay
+or a complete branch-by-branch equivalence proof. Workspace formatting, locked
+build and tests (27 tests) pass. No new runtime, performance, audio, Windows or
+protocol fixture checks were performed as part of the audit itself. Subsequent
+implementation evidence is recorded separately in the ledger.
+
 ## Server shader remaps
 
 Local changes on `dc36792`, verified on Linux/RADV on 2026-10-05, add initial and

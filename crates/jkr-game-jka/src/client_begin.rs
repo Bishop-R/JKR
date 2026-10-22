@@ -38,6 +38,9 @@ pub struct Sides {
     /// A power duel with three in play, or this client's duel team full
     /// (`G_PowerDuelCheckFail`): it may only spectate.
     pub power_duel_full: bool,
+    /// `g_teamForceBalance`, without `g_jediVmerc`: a side already two ahead of the other
+    /// takes no one more.
+    pub force_balance: bool,
 }
 
 /// `PickTeam` (`g_client.c:1341-1358`): the side with fewer players; on an equal count,
@@ -77,6 +80,9 @@ pub struct PlayerSession {
     pub switch_team_time: i32,
     /// `fd` as the last begin's `WP_InitForcePowers` left it: a respawn spawns with it.
     pub force: Option<ForceInitialisation>,
+    /// `ps.fd.forceDoInit`: `forcechanged` asked for the Force to be read again at the
+    /// next spawn (`g_client.c:3174-3178`).
+    pub force_do_init: bool,
     /// `sess.spectatorNum`: a spectator's place in the tournament's line, the longest
     /// waiting highest ([`crate::tournament::add_to_queue`]).
     pub spectator_num: i32,
@@ -105,6 +111,12 @@ pub struct PlayerSession {
     /// The Force levels of the siege class the player plays (`client->siegeClass`'s),
     /// which `WP_InitForcePowers` takes instead of the userinfo's; `None` without one.
     pub siege_force: Option<[u8; crate::force_config::FORCE_POWERS]>,
+    /// jaPRO's `sess.sawMOTD`: the message of the day was shown this session.
+    pub saw_motd: bool,
+    /// jaPRO's `sess.accountFlags`: the admin powers logged in with (`amlogin`).
+    pub account_flags: u32,
+    /// jaPRO's `sess.ignore`: whose chat this client does not receive (`ignore`).
+    pub ignore: crate::chat_ignore::Ignore,
 }
 
 /// `spectatorState_t`.
@@ -166,9 +178,70 @@ pub fn client_begin(
     place: SpawnPlace,
     previous: Option<&PlayerState>,
     lengths: &dyn AnimationLengths,
+    gun_game: Option<crate::gun_game::Rung>,
 ) -> Begun {
     // The state is cleared first, the style with it.
     (session.saber_style.level, session.saber_style.draw_level) = (0, 0);
+    let force = init_force_powers(session, userinfo, settings);
+    let attack = i32::from(force.levels[15]);
+    sabers_spawned(session, attack);
+    // `ClientBegin` clears the state; the spawn count and the entity flags survive.
+    let mut persistant = [0; 16];
+    if let Some(previous) = previous {
+        persistant[PERS_SPAWN_COUNT] = previous.persistent[PERS_SPAWN_COUNT] as i32;
+    }
+    let request = SpawnRequest {
+        client,
+        team: session.team,
+        level_time: place.level_time,
+        origin: place.origin,
+        angles: place.angles,
+        command_angles: place.command_angles,
+        max_health: accepted.max_health,
+        custom_rgba: accepted.custom_rgba,
+        force: &force,
+        saber_style: session.saber_style,
+        settings,
+        spawn_invulnerability,
+        previous_entity_flags: previous
+            .and_then(|previous| previous.raw_field(17))
+            .unwrap_or(0),
+        persistant,
+        event_sequence: 0,
+        saber_entity: previous
+            .and_then(|previous| previous.raw_field(31))
+            .unwrap_or(0),
+        gun_game,
+    };
+    let state = client_spawn(&request, lengths);
+    let playing = session.team != TEAM_SPECTATOR;
+    let mut events =
+        EventEntity::force_rules(settings.saber_only(), settings.disabled != 0).to_vec();
+    if playing {
+        events.push(EventEntity::teleport_in(place.origin, client));
+    }
+    let announced = playing && (settings.gametype != GT_DUEL || settings.gametype == GT_POWER_DUEL);
+    let entered =
+        announced.then(|| [b"print \"", accepted.name.as_slice(), b"^7 @@@PLENTER\n\""].concat());
+    let mut force = force;
+    let commands = std::mem::take(&mut force.commands);
+    session.force = Some(force);
+    Begun {
+        state,
+        commands,
+        entered,
+        events,
+    }
+}
+
+/// `WP_InitForcePowers` for a player: the configuration its userinfo asks for under the
+/// server's rules (a siege class's in siege). One the rules refuse sends the player to
+/// the spectators.
+pub fn init_force_powers(
+    session: &mut PlayerSession,
+    userinfo: &[u8],
+    settings: ForceServerSettings,
+) -> ForceInitialisation {
     let configuration = info_value(userinfo, b"forcepowers").unwrap_or_default();
     let force = initialise_force_powers(
         configuration,
@@ -198,54 +271,7 @@ pub fn client_begin(
     if force.to_spectators {
         session.team = TEAM_SPECTATOR;
     }
-    let attack = i32::from(force.levels[15]);
-    sabers_spawned(session, attack);
-    // `ClientBegin` clears the state; the spawn count and the entity flags survive.
-    let mut persistant = [0; 16];
-    if let Some(previous) = previous {
-        persistant[PERS_SPAWN_COUNT] = previous.persistent[PERS_SPAWN_COUNT] as i32;
-    }
-    let request = SpawnRequest {
-        client,
-        team: session.team,
-        level_time: place.level_time,
-        origin: place.origin,
-        angles: place.angles,
-        command_angles: place.command_angles,
-        max_health: accepted.max_health,
-        custom_rgba: accepted.custom_rgba,
-        force: &force,
-        saber_style: session.saber_style,
-        settings,
-        spawn_invulnerability,
-        previous_entity_flags: previous
-            .and_then(|previous| previous.raw_field(17))
-            .unwrap_or(0),
-        persistant,
-        event_sequence: 0,
-        saber_entity: previous
-            .and_then(|previous| previous.raw_field(31))
-            .unwrap_or(0),
-    };
-    let state = client_spawn(&request, lengths);
-    let playing = session.team != TEAM_SPECTATOR;
-    let mut events =
-        EventEntity::force_rules(settings.saber_only(), settings.disabled != 0).to_vec();
-    if playing {
-        events.push(EventEntity::teleport_in(place.origin, client));
-    }
-    let announced = playing && (settings.gametype != GT_DUEL || settings.gametype == GT_POWER_DUEL);
-    let entered =
-        announced.then(|| [b"print \"", accepted.name.as_slice(), b"^7 @@@PLENTER\n\""].concat());
-    let mut force = force;
-    let commands = std::mem::take(&mut force.commands);
-    session.force = Some(force);
-    Begun {
-        state,
-        commands,
-        entered,
-        events,
-    }
+    force
 }
 
 /// `ClientSpawn`'s saber blocks: the stance the sabers bring when they were set on
@@ -267,13 +293,22 @@ fn sabers_spawned(session: &mut PlayerSession, attack: i32) {
 pub fn client_respawn(
     client: u16,
     session: &mut PlayerSession,
+    userinfo: &[u8],
     accepted: &AcceptedUserinfo,
     settings: ForceServerSettings,
     spawn_invulnerability: i32,
     place: SpawnPlace,
     previous: &PlayerState,
     lengths: &dyn AnimationLengths,
+    gun_game: Option<crate::gun_game::Rung>,
 ) -> Option<Begun> {
+    // `forceDoInit`: a `forcechanged` since the last spawn has the Force read again.
+    let mut commands = Vec::new();
+    if std::mem::take(&mut session.force_do_init) {
+        let mut force = init_force_powers(session, userinfo, settings);
+        commands = std::mem::take(&mut force.commands);
+        session.force = Some(force);
+    }
     let mut force = session.force.clone()?;
     // `WP_SpawnInitForcePowers` (`w_force.c:519-532`): a siege class's powers, again, at
     // every spawn — a class picked since the last begin is the one spawned with.
@@ -303,11 +338,12 @@ pub fn client_respawn(
         persistant: previous.persistent.map(|value| value as i32),
         event_sequence: previous.raw_field(19).unwrap_or(0),
         saber_entity: previous.raw_field(31).unwrap_or(0),
+        gun_game,
     };
     let state = client_spawn(&request, lengths);
     Some(Begun {
         state,
-        commands: Vec::new(),
+        commands,
         entered: None,
         events: vec![EventEntity::teleport_in(place.origin, client)],
     })
@@ -411,19 +447,32 @@ pub fn set_team(
         (SPECTATOR_NOT, 0)
     };
     // `SetTeam`'s team-game branch (`g_cmds.c:673-701`): red and blue by name, and
-    // anything else is `PickTeam`'s choice. (`g_teamForceBalance`, which would refuse a
-    // side already two ahead, is off by default and is not ported.)
+    // anything else is `PickTeam`'s choice.
     if gametype >= GT_TEAM {
         let wanted_team = team_for_word(wanted, sides);
-        let before = std::mem::replace(&mut session.team, wanted_team);
-        if wanted_team == before {
+        // `g_teamForceBalance` (`g_cmds.c:702-743`): "we allow a spread of two", and a
+        // player already on the side ahead is refused too.
+        if sides.force_balance {
+            let ahead: Option<&[u8]> = match wanted_team {
+                TEAM_RED if sides.red_players - sides.blue_players > 1 => Some(b"TOOMANYRED"),
+                TEAM_BLUE if sides.blue_players - sides.red_players > 1 => Some(b"TOOMANYBLUE"),
+                _ => None,
+            };
+            if let Some(word) = ahead {
+                return TeamCommand::Told([b"print \"@@@", word, b"\n\""].concat());
+            }
+        }
+        // `g_cmds.c:849`: only a spectator may "change" to where it already is (its
+        // spectator state can still change).
+        if wanted_team == session.team && wanted_team != TEAM_SPECTATOR {
             return TeamCommand::Unchanged;
         }
+        let before = std::mem::replace(&mut session.team, wanted_team);
         (session.spectator_state, session.spectator_client) = spectating;
         session.team_command_done(before, level_time);
         return TeamCommand::Changed {
-            announcement: None,
-            queued: wanted_team == TEAM_SPECTATOR,
+            announcement: team_change_announcement(name, wanted_team, before, gametype),
+            queued: wanted_team == TEAM_SPECTATOR && before != TEAM_SPECTATOR,
         };
     }
     let spectate = [
@@ -451,16 +500,84 @@ pub fn set_team(
     (session.spectator_state, session.spectator_client) = spectating;
     // A player who leaves for the spectators dies first in the reference (its body
     // stays, it is sent the scores); death is not ported, so here it simply leaves.
-    let words = if team == TEAM_SPECTATOR {
-        "@@@JOINEDTHESPECTATORS"
-    } else {
-        "@@@JOINEDTHEBATTLE"
-    };
-    let announced = team != before;
-    let queued = team == TEAM_SPECTATOR && before != TEAM_SPECTATOR;
     TeamCommand::Changed {
-        announcement: announced
-            .then(|| [b"cp \"", name, b"^7 ", words.as_bytes(), b"\n\""].concat()),
-        queued,
+        announcement: team_change_announcement(name, team, before, gametype),
+        queued: team == TEAM_SPECTATOR && before != TEAM_SPECTATOR,
+    }
+}
+
+/// `BroadcastTeamChange` (`g_cmds.c:579-603`): everyone is told where the player went —
+/// red, blue, the spectators (from anywhere else) or the battle — but nothing in Siege.
+fn team_change_announcement(name: &[u8], team: i32, before: i32, gametype: i32) -> Option<Vec<u8>> {
+    let words: &[u8] = match team {
+        _ if gametype == GT_SIEGE => return None,
+        TEAM_RED => b"@@@JOINEDTHEREDTEAM",
+        TEAM_BLUE => b"@@@JOINEDTHEBLUETEAM",
+        TEAM_SPECTATOR if before != TEAM_SPECTATOR => b"@@@JOINEDTHESPECTATORS",
+        TEAM_FREE => b"@@@JOINEDTHEBATTLE",
+        _ => return None,
+    };
+    Some([b"cp \"", name, b"^7 ", words, b"\n\""].concat())
+}
+
+#[cfg(test)]
+mod announcement_tests {
+    use super::*;
+
+    /// `g_teamForceBalance`: a side two ahead refuses whoever asks for it; the side behind,
+    /// or any side with the switch off, takes them.
+    #[test]
+    fn a_side_two_ahead_takes_no_one_more_under_force_balance() {
+        let sides = Sides {
+            red_players: 3,
+            blue_players: 1,
+            force_balance: true,
+            ..Sides::default()
+        };
+        let spectator = PlayerSession {
+            team: TEAM_SPECTATOR,
+            ..PlayerSession::default()
+        };
+        let mut session = spectator.clone();
+        assert_eq!(
+            set_team(&mut session, b"Kyle", b"red", GT_TEAM, sides, 0),
+            TeamCommand::Told(b"print \"@@@TOOMANYRED\n\"".to_vec())
+        );
+        assert_eq!(session.team, TEAM_SPECTATOR);
+        let joins = |wanted: &[u8], sides| {
+            let mut session = spectator.clone();
+            matches!(
+                set_team(&mut session, b"Kyle", wanted, GT_TEAM, sides, 0),
+                TeamCommand::Changed { .. }
+            )
+        };
+        assert!(joins(b"blue", sides));
+        let lax = Sides {
+            force_balance: false,
+            ..sides
+        };
+        assert!(joins(b"red", lax));
+    }
+
+    #[test]
+    fn a_team_change_is_announced_as_broadcast_team_change_words_it() {
+        let said = |team, before, gametype| {
+            team_change_announcement(b"Kyle", team, before, gametype)
+                .map(|line| String::from_utf8(line).unwrap())
+        };
+        assert_eq!(
+            said(TEAM_RED, TEAM_SPECTATOR, 8).as_deref(),
+            Some("cp \"Kyle^7 @@@JOINEDTHEREDTEAM\n\"")
+        );
+        assert_eq!(
+            said(TEAM_BLUE, TEAM_RED, 6).as_deref(),
+            Some("cp \"Kyle^7 @@@JOINEDTHEBLUETEAM\n\"")
+        );
+        assert!(said(TEAM_SPECTATOR, TEAM_SPECTATOR, 6).is_none());
+        assert!(said(TEAM_SPECTATOR, TEAM_RED, 6).is_some());
+        // Nothing in Siege; the battle is announced in a duel as anywhere else.
+        assert!(said(TEAM_RED, TEAM_SPECTATOR, GT_SIEGE).is_none());
+        assert!(said(TEAM_FREE, TEAM_SPECTATOR, GT_DUEL).is_some());
+        assert!(said(TEAM_FREE, TEAM_SPECTATOR, 0).is_some());
     }
 }

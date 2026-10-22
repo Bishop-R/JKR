@@ -49,6 +49,25 @@ pub(super) fn register(cvars: &mut CvarRegistry) -> Result<(), jkr_shell::CvarEr
         CvarFlags::NONE,
         "Hold demo presentation time for frame inspection",
     ))?;
+    for (name, value, help) in [
+        (
+            "timescale",
+            1.0,
+            "Demo playback speed (1 = real time); a live game keeps the server's time",
+        ),
+        (
+            "cg_timescaleFadeEnd",
+            1.0,
+            "The demo playback speed timescale glides to",
+        ),
+        (
+            "cg_timescaleFadeSpeed",
+            0.0,
+            "How fast timescale glides to cg_timescaleFadeEnd, per second; 0 = no glide",
+        ),
+    ] {
+        cvars.register(CvarDefinition::new(name, value, CvarFlags::NONE, help))?;
+    }
     for definition in [
         CvarDefinition::new(
             "cl_chatStylePrefix",
@@ -119,13 +138,33 @@ pub(super) fn style_chat(command: &str, prefix: &str, suffix: &str) -> String {
 }
 
 impl ViewerConsole {
-    /// OpenJK cl_cgame.cpp:755-758 holds demo serverTime, not the wall clock.
-    pub(crate) fn demo_time(&self, requested: u64, current: u64) -> u64 {
+    /// How fast demo time runs against the wall clock: `timescale`, or nothing while
+    /// `cl_freezeDemo` holds it (OpenJK `cl_cgame.cpp:755-758`).
+    pub(crate) fn demo_time_scale(&self) -> f64 {
         if self.integer_cvar("cl_freezedemo").unwrap_or(0) != 0 {
-            current
+            0.0
         } else {
-            requested
+            self.float_cvar("timescale").unwrap_or(1.0).max(0.0)
         }
+    }
+
+    /// `CG_DrawActiveFrame`'s glide (`cg_view.c:2712-2727`): `timescale` moves towards
+    /// `cg_timescaleFadeEnd` by `cg_timescaleFadeSpeed` a second of the `frame` (ms of
+    /// game time) just shown.
+    pub(crate) fn glide_timescale(&mut self, frame: f64) {
+        let speed = self.float_cvar("cg_timescaleFadeSpeed").unwrap_or(0.0);
+        let end = self.float_cvar("cg_timescaleFadeEnd").unwrap_or(1.0);
+        let current = self.float_cvar("timescale").unwrap_or(1.0);
+        if speed == 0.0 || current == end {
+            return;
+        }
+        let step = speed * frame / 1000.0;
+        let next = if current < end {
+            (current + step).min(end)
+        } else {
+            (current - step).max(end)
+        };
+        let _ = self.set_cvar("timescale", &format!("{next}"));
     }
     /// Snapshot connection-time identity preferences for the worker; no key I/O on frames.
     pub(crate) fn guid_policy(&self) -> crate::client_guid::Policy {

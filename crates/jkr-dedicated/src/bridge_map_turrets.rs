@@ -16,9 +16,11 @@
 
 use super::*;
 use bridge_map_turret_host::{Blast, ServerTurretHost, TurretWork};
+use jkr_game_jka::eweb::EWeb;
 use jkr_game_jka::map_turret::{MiscTurret, Part};
 use jkr_game_jka::map_turret_g2::TurretG2;
 use jkr_game_jka::map_turret_world::{BlowAttacker, FL_NOTARGET, ObjectBlow, Sighted};
+use jkr_game_jka::sentry::Sentry;
 
 #[path = "bridge_map_turret_host.rs"]
 mod bridge_map_turret_host;
@@ -34,7 +36,11 @@ const ENTITYNUM_WORLD: u16 = 1_022;
 pub(super) struct MapTurrets {
     g2: Vec<(EntityId, TurretG2)>,
     /// A `misc_turret`'s base, its top and itself.
-    misc: Vec<(EntityId, EntityId, MiscTurret)>,
+    pub(super) misc: Vec<(EntityId, EntityId, MiscTurret)>,
+    /// The players' portable sentries, in the order they were set down ([`bridge_sentries`]).
+    sentries: Vec<(EntityId, Sentry)>,
+    /// The players' E-Webs, in the order they were set down ([`bridge_ewebs`]).
+    ewebs: Vec<(EntityId, EWeb)>,
     work: TurretWork,
     /// The level as the turrets read it, kept between frames.
     sighted: Vec<Sighted>,
@@ -43,10 +49,17 @@ pub(super) struct MapTurrets {
 }
 
 impl MapTurrets {
+    /// Registers a radar icon in the same namespace as map turrets.
+    pub(super) fn icon_index(&mut self, name: &[u8], set: &mut impl FnMut(usize, &[u8])) -> u16 {
+        bridge_map_turret_host::register_icon(&mut self.work.icons, name, set)
+    }
+
     /// Lets go of the turrets without freeing them: the pool they were in is gone.
     pub(super) fn forget_entities(&mut self) {
         self.g2.clear();
         self.misc.clear();
+        self.sentries.clear();
+        self.ewebs.clear();
         self.work.instances.clear();
     }
 
@@ -56,6 +69,14 @@ impl MapTurrets {
             || self.misc.iter().any(|(base, top, _)| {
                 base.legacy_number() == number || top.legacy_number() == number
             })
+            || self
+                .sentries
+                .iter()
+                .any(|(id, _)| id.legacy_number() == number)
+            || self
+                .ewebs
+                .iter()
+                .any(|(id, _)| id.legacy_number() == number)
     }
 
     /// The turrets' boxes for a trace of entity `pass`: not its own, nor what it owns — a
@@ -71,6 +92,7 @@ impl MapTurrets {
                     bounds: (turret.mins, turret.maxs),
                     contents: turret.contents,
                     model: None,
+                    linked_box: None,
                 });
             }
         }
@@ -83,8 +105,20 @@ impl MapTurrets {
                         bounds: (half.mins, half.maxs),
                         contents: half.contents,
                         model: None,
+                        linked_box: None,
                     });
                 }
+            }
+        }
+        for (id, sentry) in &self.sentries {
+            if !skipped(id.legacy_number(), ENTITYNUM_NONE) {
+                obstacles.push(bridge_sentries::obstacle(*id, sentry));
+            }
+        }
+        // An E-Web is its owner's: their own traces pass it.
+        for (id, placed) in &self.ewebs {
+            if !skipped(id.legacy_number(), placed.owner) {
+                obstacles.push(placed.obstacle());
             }
         }
     }
@@ -127,6 +161,7 @@ impl MapTurrets {
             velocity: [0.0; 3],
             atst: false,
             walker: false,
+            vehicle: false,
         };
         let g2 = self
             .g2
@@ -165,7 +200,31 @@ impl MapTurrets {
                 ),
             ]
         });
-        g2.chain(misc)
+        let sentries = self.sentries.iter().map(move |(id, sentry)| {
+            thing(
+                id.legacy_number(),
+                sentry.origin,
+                jkr_game_jka::sentry::BOUNDS,
+                sentry.takes_damage,
+                sentry.health,
+                0,
+                0,
+            )
+        });
+        // An E-Web is found by the box it was last linked with.
+        let ewebs = self.ewebs.iter().map(move |(id, placed)| Sighted {
+            bounds: placed.linked,
+            ..thing(
+                id.legacy_number(),
+                placed.origin,
+                jkr_game_jka::eweb::BOUNDS,
+                placed.takes_damage,
+                placed.health,
+                0,
+                0,
+            )
+        });
+        g2.chain(misc).chain(sentries).chain(ewebs)
     }
 }
 
@@ -183,6 +242,12 @@ impl NativeGame {
         for (base, top, _) in std::mem::take(&mut self.map_turrets.misc) {
             self.pool.free(base, level_time);
             self.pool.free(top, level_time);
+        }
+        for (id, _) in std::mem::take(&mut self.map_turrets.sentries) {
+            self.pool.free(id, level_time);
+        }
+        for (id, _) in std::mem::take(&mut self.map_turrets.ewebs) {
+            self.pool.free(id, level_time);
         }
         self.map_turrets.work.instances.clear();
         let Some(map) = self.map.take() else { return };
@@ -240,6 +305,10 @@ impl NativeGame {
                         self.pool.set_state(id, &half.state);
                         self.pool.set_bounds(id, (half.mins, half.maxs));
                     }
+                    // `G_SpawnGEntityFromSpawnVars` precaches a `healingsound`.
+                    if let Some(sound) = &turret.healing.sound {
+                        self.sound_index_for(sound);
+                    }
                     self.map_turrets.misc.push((base, top, turret));
                 }
                 _ => {}
@@ -253,6 +322,12 @@ impl NativeGame {
     /// gun's), added to `CS_ITEMS` so that the clients load what draws their bolts.
     fn register_turret_items(&mut self) {
         let items = std::mem::take(&mut self.map_turrets.work.items);
+        self.register_items(items);
+    }
+
+    /// `RegisterItem` for each of `items` (item-list rows): marked in `CS_ITEMS`, told
+    /// when that changed it.
+    pub(super) fn register_items(&mut self, items: impl IntoIterator<Item = usize>) {
         let Some(mut present) = self
             .config_strings
             .iter()
@@ -285,6 +360,15 @@ impl NativeGame {
         } else {
             self.obstacles.clear();
         }
+        self.with_gathered_turret_host(map, f)
+    }
+
+    /// `f(host)` with the obstacles as they were last gathered.
+    fn with_gathered_turret_host<R>(
+        &mut self,
+        map: Option<&LoadedMap>,
+        f: impl FnOnce(&mut ServerTurretHost<'_>) -> R,
+    ) -> R {
         let mut registered = Vec::new();
         let clock = if self.previous_frame_time == 0 {
             self.last_frame_time
@@ -365,7 +449,7 @@ impl NativeGame {
                     client: true,
                     takes_damage: true,
                     health: peer.health,
-                    no_target: false,
+                    no_target: peer.riding.flags & FL_NOTARGET != 0,
                     breakable: false,
                     session_team: peer.session.team,
                     temp_spectate_until: 0,
@@ -377,6 +461,7 @@ impl NativeGame {
                     velocity: peer.state.velocity(),
                     atst: false,
                     walker: false,
+                    vehicle: false,
                 });
             }
         }
@@ -401,6 +486,7 @@ impl NativeGame {
                 velocity: npc.player.velocity(),
                 atst: npc.npc_type.eq_ignore_ascii_case(b"atst_vehicle"),
                 walker,
+                vehicle: npc.definition.client_class == jkr_game_jka::npc_parms::CLASS_VEHICLE,
             });
         }
         for (id, brush) in breakables.iter().filter(|(_, brush)| brush.contents != 0) {
@@ -422,6 +508,7 @@ impl NativeGame {
                 velocity: [0.0; 3],
                 atst: false,
                 walker: false,
+                vehicle: false,
             });
         }
         sighted.extend(map_turrets.things());
@@ -475,9 +562,50 @@ impl NativeGame {
         self.carry_out_turret_work(level_time);
     }
 
+    /// The sentries and E-Webs set down in the world, as a mover's push takes them.
+    pub(super) fn turret_pushees(&self) -> impl Iterator<Item = jkr_game_jka::path_movers::Pushee> {
+        let turrets = &self.map_turrets;
+        let sentries = turrets
+            .sentries
+            .iter()
+            .map(|(id, sentry)| sentry.pushee(id.legacy_number()));
+        let ewebs = turrets
+            .ewebs
+            .iter()
+            .map(|(id, eweb)| eweb.pushee(id.legacy_number()));
+        sentries.chain(ewebs)
+    }
+
+    /// `G_TryPushingEntity` moving sentry or E-Web `number` to `to`, published there.
+    /// Whether it was one.
+    pub(super) fn shove_turret(&mut self, number: u16, to: [f32; 3], carried: bool) -> bool {
+        let Self {
+            map_turrets, pool, ..
+        } = self;
+        if let Some((id, sentry)) = map_turrets
+            .sentries
+            .iter_mut()
+            .find(|(id, _)| id.legacy_number() == number)
+        {
+            sentry.shove(to, carried);
+            pool.set_state(*id, &sentry.state);
+            return true;
+        }
+        let Some(index) = map_turrets
+            .ewebs
+            .iter()
+            .position(|(id, _)| id.legacy_number() == number)
+        else {
+            return false;
+        };
+        map_turrets.ewebs[index].1.shove(to, carried);
+        self.publish_eweb(index);
+        true
+    }
+
     /// A turret's wire state and box into the pool (both halves of a `misc_turret`); a
     /// turret `ObjectDie` freed leaves it.
-    fn publish_turret(&mut self, number: u16) {
+    pub(super) fn publish_turret(&mut self, number: u16) {
         let level_time = self.last_frame_time;
         if let Some(index) = self
             .map_turrets
@@ -577,8 +705,31 @@ impl NativeGame {
             ),
         };
         self.map = map;
+        self.blast_thrown_flags(blast.origin, blast.damage, blast.radius, level_time);
         self.flush_npc_blows();
         self.splash_targets = targets;
+    }
+
+    /// `G_FreeEntity` reaching a `misc_turretG2` by name, as a script's `remove` does
+    /// (`Q3_RemoveEnt`): the first of that name still standing goes, and every client
+    /// drops its Ghoul2 model (`G_KillG2Queue`, `kg2`).
+    pub(super) fn free_named_turret(&mut self, name: &str) {
+        let Some(index) =
+            self.map_turrets.g2.iter().position(|(_, turret)| {
+                !turret.freed && turret.targetname.eq_ignore_ascii_case(name)
+            })
+        else {
+            return;
+        };
+        let (id, _) = self.map_turrets.g2.remove(index);
+        let number = id.legacy_number();
+        self.map_turrets
+            .work
+            .instances
+            .retain(|instance| instance.number != number);
+        self.pool.free(id, self.last_frame_time);
+        self.told
+            .push(Told::Everyone(format!("kg2 {number}").into_bytes()));
     }
 
     /// `G_UseTargets` reaching the turrets called `name`: each switched on or off.
@@ -612,5 +763,9 @@ impl NativeGame {
     }
 }
 
+#[path = "bridge_ewebs.rs"]
+mod bridge_ewebs;
+#[path = "bridge_sentries.rs"]
+mod bridge_sentries;
 #[path = "bridge_map_turret_damage.rs"]
 mod damage;

@@ -2,6 +2,7 @@
 //! server commands it has not acknowledged and carries a snapshot, as
 //! `SV_SendClientSnapshot` builds them, and leaves when `SV_SendClientMessages`
 //! would send it.
+use super::demo::LegacyDemoExtras;
 use super::{
     LegacyGameHost, LegacyRateSettings, LegacySnapshotFrame, Slot, download::DownloadPolicy,
     snapshot::SnapshotRequest,
@@ -26,7 +27,7 @@ impl Slot {
         now: i32,
         server_bit: u8,
         rates: &mut LegacyRateSettings,
-        downloads: DownloadPolicy,
+        (downloads, extras): (DownloadPolicy, LegacyDemoExtras),
         message: &mut MessageWriter,
         send: &mut impl FnMut(SocketAddrV4, &[u8]),
     ) {
@@ -40,9 +41,14 @@ impl Slot {
             self.schedule_fragment(now, rates);
         } else {
             // A message that does not fit is not sent; the next one is complete again.
-            let Ok(bytes) =
-                self.queue_snapshot(client, game, now, server_bit, (rates, downloads), message)
-            else {
+            let Ok(bytes) = self.queue_snapshot(
+                client,
+                game,
+                now,
+                server_bit,
+                (rates, downloads, extras),
+                message,
+            ) else {
                 return;
             };
             self.schedule_message(now, bytes, rates);
@@ -64,7 +70,7 @@ impl Slot {
         now: i32,
         server_bit: u8,
         rates: &mut LegacyRateSettings,
-        downloads: DownloadPolicy,
+        (downloads, extras): (DownloadPolicy, LegacyDemoExtras),
         message: &mut MessageWriter,
         send: &mut impl FnMut(SocketAddrV4, &[u8]),
     ) {
@@ -79,7 +85,14 @@ impl Slot {
         };
         drain(self);
         if self
-            .queue_snapshot(client, game, now, server_bit, (rates, downloads), message)
+            .queue_snapshot(
+                client,
+                game,
+                now,
+                server_bit,
+                (rates, downloads, extras),
+                message,
+            )
             .is_ok()
         {
             drain(self);
@@ -102,7 +115,7 @@ impl Slot {
         game: &impl LegacyGameHost,
         server_time: i32,
         server_bit: u8,
-        (rates, downloads): (&mut LegacyRateSettings, DownloadPolicy),
+        (rates, downloads, extras): (&mut LegacyRateSettings, DownloadPolicy, LegacyDemoExtras),
         message: &mut MessageWriter,
     ) -> Result<usize, Box<dyn std::error::Error>> {
         let wire = &mut self.wire;
@@ -122,7 +135,7 @@ impl Slot {
                 server_bit,
                 rate_delayed: self.rate_delayed,
                 active: self.phase == LegacyClientPhase::Active,
-                demo_forbids_delta: self.demo.forbids_delta(delta_message),
+                demo_forbids_delta: self.demo.forbids_delta(delta_message, extras.pre_record),
             },
             // A zombie's frame is not built (`SV_BuildClientSnapshot`); every other
             // client is shown the world, flagged not active until it has entered.
@@ -138,10 +151,11 @@ impl Slot {
         let bytes = (message.bit_position() >> 3) + 1;
         message.write_u8(ServiceCommand::End as u8)?;
         self.demo.snapshot_written(sequence, delta);
-        super::ping::record_sent(&mut self.timings, sequence, server_time);
+        let stamp = self.ping_clock.unwrap_or(server_time);
+        super::ping::record_sent(&mut self.timings, sequence, stamp);
         let finished = message.finished()?;
         // "save the message to demo. this must happen before sending over network".
-        self.demo.message_sent(sequence, finished);
+        self.demo_message_sent(client, game, (sequence, finished), (extras, server_time));
         let wire = &mut self.wire;
         wire.channel
             .queue_message(finished, wire.reliable.last_client_command())?;

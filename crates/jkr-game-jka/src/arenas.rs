@@ -142,10 +142,10 @@ impl Arenas {
         Some((nextmap, map))
     }
 
-    /// `Cmd_MapList_f`'s prints: "Map list:" and every map that allows `gametype`, green
-    /// and yellow in turn (colours stripped from the names, 23 bytes at most), in prints
-    /// of under 512 bytes.
-    pub fn map_list(&self, gametype: i32) -> Vec<Vec<u8>> {
+    /// `Cmd_MapList_f`'s prints: "Map list:" and every map that allows `gametype` (every
+    /// map for `None`, jaPRO's `TV_IGNOREMAPARENAS`), green and yellow in turn (colours
+    /// stripped from the names, 23 bytes at most), in prints of under 512 bytes.
+    pub fn map_list(&self, gametype: Option<i32>) -> Vec<Vec<u8>> {
         let mut prints = Vec::new();
         let mut buffer = b"Map list:".to_vec();
         let mut toggle = 0;
@@ -153,7 +153,7 @@ impl Arenas {
             // `Q_strncpyz` into 24 bytes, then `Q_StripColor`.
             let value = self.value(index, b"map");
             let map = strip_colors(&value[..value.len().min(23)]);
-            if !self.supports(&map, gametype) {
+            if gametype.is_some_and(|gametype| !self.supports(&map, gametype)) {
                 continue;
             }
             toggle += 1;

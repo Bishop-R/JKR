@@ -1,22 +1,28 @@
 //! Fixed-size texture atlas used by generic retained UI textured quads:
 //! a grid of [`ICON_SIZE`] cells for icons, plus one wide banner strip along
 //! the bottom for the menu wordmark and, beside it, one map-preview slot
-//! (the Create game screen's levelshot).
+//! (the Create game screen's levelshot). The radar's pictures take two rows of their own.
 
 use super::ShapeVertex;
 use jkr_ui::{Color, Rect, TextureId};
 
 const ATLAS_SIZE: u32 = 2_048;
-const ATLAS_HEIGHT: u32 = ATLAS_SIZE + 768;
 /// Edge of one atlas cell; icons are uploaded at exactly this size.
 pub(crate) const ICON_SIZE: u32 = 128;
 const COLUMNS: u32 = ATLAS_SIZE / ICON_SIZE;
+/// Cells for the radar's pictures, two rows after the HUD's.
+pub(crate) const RADAR_CELL_COUNT: u32 = 2 * COLUMNS;
+/// Cells for the HUD's icons, eight rows after the menu's.
+pub(crate) const HUD_CELL_COUNT: u32 = 9 * COLUMNS;
+const ATLAS_HEIGHT: u32 = ATLAS_SIZE + HUD_CELL_COUNT / COLUMNS * ICON_SIZE + 2 * ICON_SIZE;
 /// Pixel size of the banner strip (rows of cells it takes: 3).
 pub(crate) const BANNER_SIZE: [u32; 2] = [1_536, 384];
 const BANNER_Y: u32 = ATLAS_HEIGHT - BANNER_SIZE[1];
 /// Original menu-cell reservation; HUD cells follow without reducing menu capacity.
 pub(crate) const ICON_CELLS: u32 = COLUMNS * ((ATLAS_SIZE - BANNER_SIZE[1]) / ICON_SIZE);
-const TOTAL_CELLS: u32 = ICON_CELLS + 96;
+/// The first radar cell.
+pub(crate) const RADAR_CELLS: u32 = ICON_CELLS + HUD_CELL_COUNT;
+const TOTAL_CELLS: u32 = RADAR_CELLS + RADAR_CELL_COUNT;
 /// `TexturedQuad` texture naming the banner strip.
 pub(crate) const BANNER_TEXTURE: TextureId = TextureId(u32::MAX);
 /// Pixel size of the map-preview slot right of the banner (4:3, as the
@@ -184,11 +190,13 @@ fn uv_range(texture: TextureId) -> ([f32; 2], [f32; 2]) {
             uv(x + width as f32 - 1.0, y + height as f32 - 1.0),
         );
     }
+    // Half a texel in as well: an added picture would show its neighbour's edge.
     let index = texture.0.min(TOTAL_CELLS - 1);
-    let x = (index % COLUMNS) * ICON_SIZE;
-    let y = (index / COLUMNS) * ICON_SIZE;
-    let uv = |x: u32, y: u32| [x as f32 / atlas, y as f32 / ATLAS_HEIGHT as f32];
-    (uv(x, y), uv(x + ICON_SIZE, y + ICON_SIZE))
+    let x = ((index % COLUMNS) * ICON_SIZE) as f32 + 0.5;
+    let y = ((index / COLUMNS) * ICON_SIZE) as f32 + 0.5;
+    let uv = |x: f32, y: f32| [x / atlas, y / ATLAS_HEIGHT as f32];
+    let edge = ICON_SIZE as f32 - 1.0;
+    (uv(x, y), uv(x + edge, y + edge))
 }
 
 pub(super) fn push_textured(
@@ -221,6 +229,59 @@ pub(super) fn push_textured(
         start_color: tint,
         end_color: tint,
         parameters: [0.0, 2.0],
+        uv,
+    }));
+}
+
+/// [`push_textured`] for a quad turned `degrees` about its centre, its corners placed as
+/// `RB_RotatePic2` places them (`x = cx + c·lx − s·ly`, `y = cy + s·lx + c·ly`), and
+/// added to what is below when `additive`.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn push_rotated(
+    vertices: &mut Vec<ShapeVertex>,
+    rect: Rect,
+    degrees: f32,
+    texture: TextureId,
+    color: Color,
+    additive: bool,
+    opacity: f32,
+    viewport: [f32; 2],
+    capacity: usize,
+) {
+    if rect.width <= 0.0 || rect.height <= 0.0 || vertices.len() + 6 > capacity {
+        return;
+    }
+    let (uv0, uv1) = uv_range(texture);
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let centre = [rect.x + rect.width * 0.5, rect.y + rect.height * 0.5];
+    let corner = |local: [f32; 2]| {
+        let x = centre[0] + cos * local[0] - sin * local[1];
+        let y = centre[1] + sin * local[0] + cos * local[1];
+        [x / viewport[0] * 2.0 - 1.0, 1.0 - y / viewport[1] * 2.0]
+    };
+    let (half_w, half_h) = (rect.width * 0.5, rect.height * 0.5);
+    let top_left = (corner([-half_w, -half_h]), [uv0[0], uv0[1]]);
+    let top_right = (corner([half_w, -half_h]), [uv1[0], uv0[1]]);
+    let bottom_right = (corner([half_w, half_h]), [uv1[0], uv1[1]]);
+    let bottom_left = (corner([-half_w, half_h]), [uv0[0], uv1[1]]);
+    let tint = [color.r, color.g, color.b, color.a * opacity];
+    let points = [
+        top_left,
+        top_right,
+        bottom_right,
+        top_left,
+        bottom_right,
+        bottom_left,
+    ];
+    // `ui_shapes.wgsl`: 2 samples the atlas, 3 also adds.
+    let mode = if additive { 3.0 } else { 2.0 };
+    vertices.extend(points.map(|(position, uv)| ShapeVertex {
+        position,
+        local: [0.0, 0.0],
+        size: [rect.width, rect.height],
+        start_color: tint,
+        end_color: tint,
+        parameters: [0.0, mode],
         uv,
     }));
 }

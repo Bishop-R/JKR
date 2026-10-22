@@ -294,13 +294,15 @@ pub struct LegacyViewWeaponPose {
 /// `CG_CalculateWeaponPosition` (`cg_weapons.c:225-270`) with the view bob
 /// fields from `CG_CalcViewValues` (`cg_view.c:1543-1551`). `landing` is the
 /// current [`crate::LegacyFirstPersonView::landing_offset`]; the weapon
-/// follows a quarter of it (`cg_fallingBob`, `:242-250`).
+/// follows a quarter of it while `cg_fallingBob` is set (`:242-250`), and bobs
+/// and drifts while `cg_weaponBob` is (`:235-240`, `:263-269`).
 pub fn legacy_view_weapon_pose(
     view_origin: [f32; 3],
     view_angles: [f32; 3],
     bob: LegacyViewBobSample,
     landing: f32,
     time_millis: i64,
+    (weapon_bob, falling_bob): (bool, bool),
 ) -> LegacyViewWeaponPose {
     let scale = if bob.odd_leg {
         -bob.xy_speed
@@ -308,14 +310,21 @@ pub fn legacy_view_weapon_pose(
         bob.xy_speed
     };
     let [mut pitch, mut yaw, mut roll] = view_angles;
-    roll += scale * bob.fraction_sin * 0.005;
-    yaw += scale * bob.fraction_sin * 0.01;
-    pitch += bob.xy_speed * bob.fraction_sin * 0.005;
-    let drift = (bob.xy_speed + 40.0) * (time_millis as f32 * 0.001).sin() * 0.01;
+    if weapon_bob {
+        roll += scale * bob.fraction_sin * 0.005;
+        yaw += scale * bob.fraction_sin * 0.01;
+        pitch += bob.xy_speed * bob.fraction_sin * 0.005;
+    }
     let mut origin = view_origin;
-    origin[2] += landing * 0.25;
+    if falling_bob {
+        origin[2] += landing * 0.25;
+    }
+    if weapon_bob {
+        let drift = (bob.xy_speed + 40.0) * (time_millis as f32 * 0.001).sin() * 0.01;
+        (pitch, yaw, roll) = (pitch + drift, yaw + drift, roll + drift);
+    }
     LegacyViewWeaponPose {
         origin,
-        angles: [pitch + drift, yaw + drift, roll + drift],
+        angles: [pitch, yaw, roll],
     }
 }

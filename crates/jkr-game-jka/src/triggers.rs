@@ -510,7 +510,7 @@ pub fn pushed(
 const PM_NORMAL: u8 = 0;
 const PM_DEAD: u8 = 5;
 const PM_FREEZE: u8 = 6;
-const PM_JETPACK: u8 = 8;
+const PM_JETPACK: u8 = 1;
 const PM_FLOAT: u8 = 2;
 
 /// `BG_TouchJumpPad` (`bg_misc.c:2543-2569`): the movement's own, which the client makes
@@ -593,6 +593,32 @@ pub fn teleport_player(
     }
 }
 
+/// jaPRO's `AmTeleportPlayer` (`g_misc.c:289-392`), its admins' teleport: the player put
+/// eight units above the destination at a standstill (no spit, no hold), its Force jump's
+/// start forgotten, its teleport bit flipped; flashes and the kill box as
+/// [`teleport_player`]'s, a spectator's jump silent.
+pub fn admin_teleport_player(
+    state: &mut PlayerState,
+    destination: [f32; 3],
+    angles: [f32; 3],
+    spectating: bool,
+) -> Teleported {
+    /// `fd.forceJumpZStart`, set far below so no Force jump's fall counts from before.
+    const PS_FORCE_JUMP_Z_START: usize = 74;
+    let origin = [destination[0], destination[1], destination[2] + 8.0];
+    state.set_origin(origin);
+    state.set_velocity([0.0; 3]);
+    state.set_raw_field(PS_FORCE_JUMP_Z_START, (-65_536.0_f32).to_bits());
+    let flags = state.raw_field(PS_EFLAGS).unwrap_or(0);
+    state.set_raw_field(PS_EFLAGS, flags ^ EF_TELEPORT_BIT);
+    Teleported {
+        origin,
+        angles,
+        flashes: !spectating,
+        kill_box: !spectating,
+    }
+}
+
 /// `PMF_TIME_KNOCKBACK`, and `EF_TELEPORT_BIT`, which tells a client not to lerp.
 const PMF_TIME_KNOCKBACK: u16 = 64;
 const EF_TELEPORT_BIT: u32 = 1 << 3;
@@ -602,7 +628,9 @@ const EF_TELEPORT_BIT: u32 = 1 << 3;
 /// them; its view angles and its entity's angles follow.
 pub fn face(state: &mut PlayerState, angles: [f32; 3], command_angles: [i32; 3]) {
     for axis in 0..3 {
-        let short = (angles[axis] * (65_536.0 / 360.0)) as i32 & 65_535;
+        // ANGLE2SHORT multiplies before dividing. Precomputing the ratio changes
+        // rounding at integer boundaries, especially after several rotations.
+        let short = (angles[axis] * 65_536.0 / 360.0) as i32 & 65_535;
         state.set_raw_field(
             PS_DELTA_ANGLES[axis],
             short.wrapping_sub(command_angles[axis]) as u32,
@@ -945,6 +973,12 @@ pub struct NoHooks;
 
 impl TouchHooks for NoHooks {}
 
+/// Whether anything can touch the trigger at all: `G_TouchTriggers` passes over whatever
+/// is not `CONTENTS_TRIGGER` (`g_active.c:563-565`), as a fired `trigger_once` no longer is.
+pub fn touchable(trigger: &Multiple) -> bool {
+    trigger.contents & CONTENTS_TRIGGER != 0
+}
+
 /// [`touch_multiple_as`] with a game type's [`TouchHooks`].
 pub fn touch_multiple_as_with(
     trigger: &mut Multiple,
@@ -1107,17 +1141,26 @@ pub fn fire_multiple(
 #[derive(Clone, Debug, PartialEq)]
 pub enum Target {
     /// `target_print`: the message, and who is told — the activator alone (spawnflag 4),
-    /// a team (1 or 2), or everyone.
+    /// the red team (1) and the blue team (2), or everyone — and how long, in
+    /// milliseconds, it stays quiet after printing (`wait`).
     Print {
         message: String,
         to_activator: bool,
-        team: Option<u8>,
+        /// Spawnflags 1 and 2: bit 0 the red team, bit 1 the blue.
+        teams: u8,
+        wait: f32,
     },
     /// `target_speaker`: the sound, and how it is played (a looping toggle at 3, on the
     /// activator at 8, everywhere at 4, else on itself).
     Speaker { noise: u16, spawnflags: u32 },
-    /// `target_relay`: fires its own targets, or one of them at random (spawnflag 4).
-    Relay { target: String, spawnflags: u32 },
+    /// `target_relay`: fires its own targets — for a red (spawnflag 1) or a blue (2)
+    /// activator only when flagged, one of them at random (4), not before something
+    /// activates it (128), and only once with `wait` -1.
+    Relay {
+        target: String,
+        spawnflags: u32,
+        wait: f32,
+    },
     /// `target_delay`: fires its targets `wait` seconds on, wandered by `random`.
     Delay {
         target: String,
@@ -1130,8 +1173,47 @@ pub enum Target {
     SetActive { target: String, active: bool },
 }
 
+impl Target {
+    /// Whether it starts deactivated: a relay with its INACTIVE spawnflag
+    /// (`SP_target_relay`'s `FL_INACTIVE`).
+    pub fn starts_inactive(&self) -> bool {
+        matches!(self, Target::Relay { spawnflags, .. } if spawnflags & 128 != 0)
+    }
+}
+
+/// `target_relay_use`'s team gate (`g_target.c:502-511`): a relay flagged RED_ONLY (1) or
+/// BLUE_ONLY (2) does nothing for a client activator of another session team; an activator
+/// that is no client passes.
+pub fn relay_passes(spawnflags: u32, activator_team: Option<i32>) -> bool {
+    activator_team.is_none_or(|team| {
+        (spawnflags & 1 == 0 || team == crate::ctf::TEAM_RED)
+            && (spawnflags & 2 == 0 || team == crate::ctf::TEAM_BLUE)
+    })
+}
+
+/// The command `Use_Target_Print` sends (`g_target.c:146-260`): a message that is one
+/// string-table reference (`@` but not `@@`) goes as `cps`, which the client looks up
+/// whole; anything else as `cp`.
+pub fn print_command(message: &str) -> Vec<u8> {
+    let command = if message.starts_with('@') && !message.starts_with("@@") {
+        "cps"
+    } else {
+        "cp"
+    };
+    format!("{command} \"{message}\"").into_bytes()
+}
+
 /// Every target of a map's entity lump, by the name things fire it with. `sound` names
 /// each `noise` as `G_SoundIndex` would.
+/// Whether [`map_targets`] makes a used target of an entity of `classname` (a print, a
+/// relay, a delay, an activation; not a speaker, which is an entity of its own).
+pub fn is_used_target(classname: &str) -> bool {
+    matches!(
+        classname,
+        "target_print" | "target_relay" | "target_delay" | "target_activate" | "target_deactivate"
+    )
+}
+
 pub fn map_targets(
     entities: &[Entity],
     sound: &mut dyn FnMut(&str) -> u16,
@@ -1154,17 +1236,18 @@ pub fn map_targets(
             "target_print" => Target::Print {
                 message: entity.get("message").unwrap_or_default().to_owned(),
                 to_activator: spawnflags & 4 != 0,
-                team: match spawnflags & 3 {
-                    1 => Some(1),
-                    2 => Some(2),
-                    _ => None,
-                },
+                teams: (spawnflags & 3) as u8,
+                wait: number("wait"),
             },
             "target_speaker" => Target::Speaker {
                 noise: entity.get("noise").map_or(0, |noise| sound(noise)),
                 spawnflags,
             },
-            "target_relay" => Target::Relay { target, spawnflags },
+            "target_relay" => Target::Relay {
+                target,
+                spawnflags,
+                wait: number("wait"),
+            },
             // `SP_target_delay`: `delay` for the old maps, else `wait`, and never zero.
             "target_delay" => {
                 let wait = entity
@@ -1192,4 +1275,32 @@ pub fn map_targets(
         targets.push((name, target));
     }
     targets
+}
+
+#[cfg(test)]
+mod print_tests {
+    use super::*;
+
+    #[test]
+    fn a_string_reference_prints_as_cps_and_everything_else_as_cp() {
+        assert_eq!(
+            print_command("@SIEGE_HOTH_PRINT_8"),
+            b"cps \"@SIEGE_HOTH_PRINT_8\"".to_vec()
+        );
+        assert_eq!(print_command("@@@NOCLASS"), b"cp \"@@@NOCLASS\"".to_vec());
+        assert_eq!(print_command("Doors open"), b"cp \"Doors open\"".to_vec());
+    }
+
+    #[test]
+    fn a_team_relay_ignores_the_other_team_and_starts_inactive_when_flagged() {
+        assert!(relay_passes(0, Some(2)) && relay_passes(1, None));
+        assert!(relay_passes(1, Some(1)) && !relay_passes(1, Some(2)));
+        assert!(relay_passes(2, Some(2)) && !relay_passes(2, Some(0)));
+        let relay = |spawnflags| Target::Relay {
+            target: "t1".to_owned(),
+            spawnflags,
+            wait: -1.0,
+        };
+        assert!(relay(128).starts_inactive() && !relay(4).starts_inactive());
+    }
 }

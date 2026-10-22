@@ -4,8 +4,6 @@
 
 use crate::saber_clash::normalize;
 
-/// `g_knockback`'s default.
-const KNOCKBACK: f64 = 1_000.0;
 /// `PMF_TIME_KNOCKBACK`.
 const PMF_TIME_KNOCKBACK: u16 = 0x40;
 /// The most entities `trap->EntitiesInBox` answers with here.
@@ -113,12 +111,11 @@ pub fn radius_damage(
 /// `G_Throw` on a client (mass 200, gravity on): 0.8 of the knockback across and 1.5 of
 /// it up added to its velocity, and — where it has no `pm_time` — twice the push, 50 to
 /// 200 ms, as `PMF_TIME_KNOCKBACK`, "so that the other client can't cancel out the
-/// movement immediately".
-pub fn throw(state: &mut jkr_protocol::PlayerState, direction: [f32; 3], push: f32) {
-    const KNOCKBACK_F32: f32 = KNOCKBACK as f32;
+/// movement immediately". `strength` is `g_knockback`.
+pub fn throw(state: &mut jkr_protocol::PlayerState, direction: [f32; 3], push: f32, strength: f32) {
     // `g_knockback.value * (float)push / mass * 0.8`: a float product, then a double one.
-    let across = (f64::from(KNOCKBACK_F32 * push / 200.0) * 0.8) as f32;
-    let up = (f64::from(direction[2] * KNOCKBACK_F32 * push / 200.0) * 1.5) as f32;
+    let across = (f64::from(strength * push / 200.0) * 0.8) as f32;
+    let up = (f64::from(direction[2] * strength * push / 200.0) * 1.5) as f32;
     let velocity = state.velocity();
     state.set_velocity([
         velocity[0] + direction[0] * across,

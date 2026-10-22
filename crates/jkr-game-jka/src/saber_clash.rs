@@ -78,8 +78,6 @@ pub const GT_SIEGE: i32 = 7;
 /// `SABER_BOX_SIZE`, the box of a saber whose blade has not been read lately.
 const SABER_BOX_SIZE: f32 = 16.0;
 const SABER_EXTRAPOLATE_DIST: f32 = 16.0;
-/// `g_saberLockFactor`.
-const LOCK_FACTOR: i32 = 2;
 /// `SABER_NONATTACK_DAMAGE`.
 const SABER_NONATTACK_DAMAGE: i32 = 1;
 
@@ -418,11 +416,12 @@ impl Fighter {
     }
 
     /// `disarmChance` against this fighter's opponent (`w_saber.c:6840-6849`): 1, its first
-    /// saber's `disarmBonus`, and — with `g_fixSaberDisarmBonus` — a fully lit second's.
-    pub fn disarm_chance(&self) -> i32 {
+    /// saber's `disarmBonus`, and — with `g_fixSaberDisarmBonus` (`fixed`) — a fully lit
+    /// second's.
+    pub fn disarm_chance(&self, fixed: bool) -> i32 {
         let [first, second] = &self.sabers.sabers;
         1 + first.combat.disarm_bonus
-            + if second.held && self.holstered == 0 {
+            + if fixed && second.held && self.holstered == 0 {
                 second.combat.disarm_bonus
             } else {
                 0
@@ -610,6 +609,8 @@ pub struct Blow {
     /// The blade swept is the swinger's thrown first saber (`saberInFlight`,
     /// `rSaberNum == 0`).
     pub thrown: bool,
+    /// `g_saberLockFactor`: in twenty, the chance that the clash tries for a lock.
+    pub lock_factor: i32,
 }
 
 /// What a clash reaches besides the two fighters.
@@ -617,6 +618,11 @@ pub trait ClashWorld {
     /// `g_debugSaberLocks`: bypass the ordinary clash rules with a random lock.
     fn debug_saber_locks(&self) -> bool {
         false
+    }
+    /// The server's saber settings (`g_friendlySaber`, `g_fixSaberDisarmBonus`, ...).
+    /// Stock's by default.
+    fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
+        crate::saber_damage::SaberSettings::default()
     }
     /// The game's generator (`Q_irand`), which the clash rules draw from.
     fn rng(&mut self) -> &mut Rng;
@@ -640,7 +646,7 @@ pub fn clash(
     world: &mut dyn ClashWorld,
 ) -> Option<Clash> {
     // `OnSameTeam` with `g_friendlySaber 0`, then the duels.
-    if me.team != 0 && me.team == other.team {
+    if me.team != 0 && me.team == other.team && !world.saber_settings().friendly {
         return None;
     }
     // "don't hit your teammate's sabers if you are an NPC" (`w_saber.c:4773-4778`).
@@ -692,7 +698,7 @@ pub fn clash(
     let mut other_unblockable = false;
     if damage > SABER_NONATTACK_DAMAGE
         && !unblockable
-        && world.rng().irand(1, 20) <= LOCK_FACTOR
+        && world.rng().irand(1, 20) <= blow.lock_factor
         && !other.idle_in_world
         && world.check_lock(me.number, other.number)
     {
@@ -946,18 +952,20 @@ fn broken_parry_knockdown(
     gametype: i32,
     world: &mut dyn ClashWorld,
 ) {
-    if let Some(velocity) = broken_parry_disarm(owner, other, level_time, gametype, world.rng()) {
+    let fixed = world.saber_settings().disarm_bonus_fix;
+    let disarm = broken_parry_disarm(owner, other, (level_time, gametype, fixed), world.rng());
+    if let Some(velocity) = disarm {
         let _ = world.knock_out(owner.number, velocity);
     }
 }
 
 /// The draws and the momentum of `saberCheckKnockdown_BrokenParry`: the velocity `owner`'s
 /// saber is to be knocked out of its hand with, where it is.
+/// `fixed` is `g_fixSaberDisarmBonus`.
 pub fn broken_parry_disarm(
     owner: &Fighter,
     other: &Fighter,
-    level_time: i32,
-    gametype: i32,
+    (level_time, gametype, fixed): (i32, i32, bool),
     rng: &mut Rng,
 ) -> Option<[f32; 3]> {
     // `SABERINVALID`.
@@ -976,7 +984,7 @@ pub fn broken_parry_disarm(
     }
     let velocity =
         crate::saber_drop::disarm_velocity(&owner.storage, &other.storage, false, level_time)?;
-    (rng.irand(0, other.disarm_chance()) != 0).then_some(velocity)
+    (rng.irand(0, other.disarm_chance(fixed)) != 0).then_some(velocity)
 }
 
 /// `WP_GetSaberDeflectionAngle` (`w_saber.c:1931`): the attacker's move after its blade

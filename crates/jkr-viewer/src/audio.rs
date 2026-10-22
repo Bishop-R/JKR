@@ -12,6 +12,7 @@ use crate::audio_output::{AudioCommand, AudioOutput, LOOPS, SAMPLE_RATE, VOICES}
 use crate::console::ViewerConsole;
 use jkr_audio::{ChannelId, MixerConfig, PlayRequest, SoundHandle, SourceId};
 use jkr_bsp::Bsp;
+use jkr_client::music_duck::{STINGER_MS, STINGER_MULTIPLIER};
 use jkr_client::{
     LegacyMaintainedActionKind, LegacyMusicAction, LegacySoundAdapter, legacy_evaluate_trajectory,
 };
@@ -63,6 +64,8 @@ pub(crate) struct GameAudio {
     dynamic: Option<dynamic::Level>,
     allow_dynamic: bool,
     duel_enabled: bool,
+    /// TaystJK's `cg_ambientSounds`: speakers, entity loops and sound sets play.
+    ambient: bool,
     chat_beeps: [bool; 2],
     deferred_starts: u64,
     maximum_deferred_start_ms: f64,
@@ -73,9 +76,17 @@ pub(crate) struct GameAudio {
     transitions: transitions::Transitions,
     /// `JKR_TRACE_AUDIO=1`: when the next level line is due.
     trace_due: Option<Instant>,
+    /// The music held down under a stinger (`s_musicMult`), on the audio's own clock.
+    music_duck: jkr_client::music_duck::MusicDuck,
+    clock: Instant,
 }
 
 impl GameAudio {
+    /// The legacy sound events' resolver, once a level's sounds are in.
+    pub(crate) fn sound_adapter_mut(&mut self) -> Option<&mut LegacySoundAdapter> {
+        self.legacy.as_mut()
+    }
+
     /// Feed immediate local movement through the snapshot sound resolver and mixer.
     pub(crate) fn observe_predicted_event(
         &mut self,
@@ -128,6 +139,7 @@ impl GameAudio {
             dynamic: None,
             allow_dynamic: true,
             duel_enabled: true,
+            ambient: true,
             chat_beeps: [true; 2],
             deferred_starts: 0,
             maximum_deferred_start_ms: 0.0,
@@ -136,6 +148,8 @@ impl GameAudio {
             kill_sounds: 2,
             transitions: transitions::Transitions::default(),
             trace_due: std::env::var_os("JKR_TRACE_AUDIO").map(|_| Instant::now()),
+            music_duck: Default::default(),
+            clock: Instant::now(),
         };
         // `s_volume`/`s_musicvolume` defaults from `S_Init` in
         // codemp/client/snd_dma.cpp:462-466. The console overwrites these on
@@ -228,6 +242,10 @@ impl GameAudio {
             adapter.observe_snapshot(snapshot);
             let footsteps = self.footsteps;
             for decision in adapter.decisions() {
+                if decision.ducks_music() {
+                    let now = self.clock.elapsed().as_millis() as i64;
+                    self.music_duck.set(STINGER_MULTIPLIER, STINGER_MS, now);
+                }
                 if let Some(handle) = self.transitions.handle(decision, snapshot.server_time)
                     && controls::allows_event(decision.event, footsteps, self.chat_beeps)
                     && self
@@ -290,6 +308,10 @@ impl GameAudio {
                 continue;
             }
             for decision in adapter.decisions() {
+                if decision.ducks_music() {
+                    let now = self.clock.elapsed().as_millis() as i64;
+                    self.music_duck.set(STINGER_MULTIPLIER, STINGER_MS, now);
+                }
                 if let Some(handle) = self.transitions.handle(decision, snapshot.server_time)
                     && controls::allows_event(decision.event, self.footsteps, self.chat_beeps)
                     && self
@@ -343,13 +365,16 @@ impl GameAudio {
         world: &World,
         bsp: &Bsp,
     ) {
+        let ambient = self.ambient;
         let Some(adapter) = &mut self.legacy else {
             return;
         };
         adapter.observe_loops(snapshot, presented_time, listener_origin, |state| {
             presented_entity_origin(world, bsp, state, presented_time)
         });
-        for decision in adapter.loop_decisions() {
+        // TaystJK's `cg_ambientSounds 0` skips `ET_SPEAKER`s and every entity's loop and
+        // sound set (`CG_EntityEffects`); running speakers still stop.
+        for decision in adapter.loop_decisions().iter().filter(|_| ambient) {
             if let Some(handle) = decision.handle {
                 self.output.send(AudioCommand::SetLoop(
                     handle,
@@ -358,7 +383,15 @@ impl GameAudio {
                 ));
             }
         }
-        for shot in adapter.ambient_shots() {
+        for shot in adapter.ambient_shots().iter().filter(|_| ambient) {
+            if let Some(handle) = shot.handle {
+                self.output.send(AudioCommand::Play(handle, shot.request));
+            }
+        }
+        for source in adapter.speaker_stops() {
+            self.output.send(AudioCommand::StopLoops(*source));
+        }
+        for shot in adapter.speaker_shots().iter().filter(|_| ambient) {
             if let Some(handle) = shot.handle {
                 self.output.send(AudioCommand::Play(handle, shot.request));
             }

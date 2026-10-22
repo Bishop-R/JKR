@@ -46,6 +46,8 @@ pub(crate) fn create(
         "gfx/effects/light_cone",
         "gfx/misc/smoke",
         "gfx/misc/black_smoke",
+        // A thrown saber's glows (`thrown_saber.rs`).
+        "gfx/effects/yellow_glow",
     ];
     struct PendingAnimation {
         shader: String,
@@ -60,6 +62,7 @@ pub(crate) fn create(
     }
     let requested_shaders = EFFECT_SHADERS
         .iter()
+        .chain(&crate::actor_pose::sounds::footprints::SHADERS)
         .map(|shader| (*shader).to_owned())
         .chain(required_effect_shaders.iter().cloned())
         .collect::<BTreeSet<_>>();
@@ -77,7 +80,9 @@ pub(crate) fn create(
                     if name.starts_with('$') || name == "-" {
                         continue;
                     }
-                    if let Some(path) = shaders.resolve_image(vfs, name)?
+                    // A stage's `map` names an image, never a shader: `saberglowmark`'s glow
+                    // stage names the very picture its shader is called after.
+                    if let Some(path) = shaders.resolve_stage_image(vfs, name)?
                         && !paths.contains(&path)
                     {
                         paths.push(path);
@@ -100,7 +105,10 @@ pub(crate) fn create(
                         one_shot: stage.one_shot,
                         blend,
                         rgb_wave: stage.rgb_wave.clone(),
-                        alpha_wave: stage.alpha_wave.clone(),
+                        alpha_wave: stage
+                            .alpha_wave
+                            .clone()
+                            .or_else(|| stage.alpha_constant.map(constant_wave)),
                         tc_scale,
                         tc_scroll,
                     });
@@ -127,7 +135,7 @@ pub(crate) fn create(
         .iter()
         .map(|animation| animation.paths.len())
         .sum::<usize>()
-        .max(1);
+        + 1;
     let columns = (tile_count as f32).sqrt().ceil() as u32;
     let rows = u32::try_from(tile_count)?.div_ceil(columns);
     let width = TILE * columns;
@@ -183,6 +191,32 @@ pub(crate) fn create(
                 });
         }
     }
+    // One white tile serves code-built, untextured additive primitives (RT_BEAM).
+    let tile_x = tile_index % columns;
+    let tile_y = tile_index / columns;
+    for y in tile_y * TILE..(tile_y + 1) * TILE {
+        for x in tile_x * TILE..(tile_x + 1) * TILE {
+            atlas.put_pixel(x, y, image::Rgba([255; 4]));
+        }
+    }
+    animations.insert(
+        "@jkr/solid-add".to_owned(),
+        vec![ParticleAtlasAnimation {
+            frames: vec![[
+                (tile_x as f32 * TILE as f32 + 0.5) / width as f32,
+                (tile_y as f32 * TILE as f32 + 0.5) / height as f32,
+                ((tile_x + 1) as f32 * TILE as f32 - 0.5) / width as f32,
+                ((tile_y + 1) as f32 * TILE as f32 - 0.5) / height as f32,
+            ]],
+            frequency: 0.0,
+            one_shot: false,
+            blend: ParticleBlend::Add,
+            rgb_wave: None,
+            alpha_wave: None,
+            tc_scale: [1.0; 2],
+            tc_scroll: [0.0; 2],
+        }],
+    );
     let fallback = animations
         .get("gfx/misc/spark")
         .and_then(|animations| animations.first())
@@ -250,5 +284,16 @@ impl GpuState {
             &required,
         )?;
         Ok(())
+    }
+}
+
+/// `alphaGen const`: a flat wave at the constant, which `effect_wave::evaluate` returns as is.
+fn constant_wave(value: f32) -> WaveForm {
+    WaveForm {
+        function: "sin".to_owned(),
+        base: value,
+        amplitude: 0.0,
+        phase: 0.0,
+        frequency: 0.0,
     }
 }

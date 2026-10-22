@@ -7,7 +7,7 @@ use super::*;
 
 impl NativeGame {
     /// `G_MissileImpact`'s damage on a thing that is no client: a breakable brush, else a
-    /// turret, else an emplaced gun.
+    /// turret, else an emplaced gun; none from a typing player under jaPRO's god chat.
     pub(in crate::bridge) fn hurt_thing(
         &mut self,
         number: u16,
@@ -21,6 +21,7 @@ impl NativeGame {
             missile.owner,
             level_time,
         ) || missile.damage == 0
+            || self.typing_player(missile.owner)
         {
             return;
         }
@@ -34,11 +35,15 @@ impl NativeGame {
             flags: missile.damage_flags,
             means: missile.method_of_death,
         };
-        if self.strike_siege_item(number, request) || self.strike_shield(number, request) {
+        if self.strike_siege_item(number, request)
+            || self.strike_shield(number, request)
+            || self.strike_body(number, request)
+        {
             return;
         }
         if !self.map_turrets.owns(number) {
-            self.hurt_gun(number, missile.damage, Some(missile.owner), level_time);
+            let attacker = (Some(missile.owner), missile.method_of_death);
+            self.hurt_gun(number, missile.damage, attacker, level_time);
             return;
         }
         let attacker = self.attacker_for(missile.owner);
@@ -119,7 +124,8 @@ impl NativeGame {
         })
     }
 
-    /// What `G_Damage` reads of the attacker numbered `number` when it strikes a turret.
+    /// What `G_Damage` reads of the attacker numbered `number` when it strikes a thing that
+    /// is no client: a turret, a shield, a breakable.
     pub(in crate::bridge) fn blow_attacker(&self, number: u16) -> Option<BlowAttacker> {
         if let Some(peer) = self.peer(usize::from(number)) {
             return Some(BlowAttacker {
@@ -164,6 +170,13 @@ impl NativeGame {
                 })
                 .map(|(_, _, turret)| turret.base.team_no_damage)
         });
+        // A breakable that went off strikes as itself (`funcBBrushDieGo`).
+        let team = team.or_else(|| {
+            self.breakables
+                .iter()
+                .find(|(id, _)| id.legacy_number() == number)
+                .map(|(_, brush)| brush.team_no_damage)
+        });
         Some(BlowAttacker {
             number,
             client: false,
@@ -194,12 +207,31 @@ impl NativeGame {
             siege_round_begun: self.siege.as_ref().is_some_and(|siege| siege.round.begun),
             friendly_fire_objectives: self.integer_cvar(b"g_ff_objectives", 0) != 0,
         };
+        if self
+            .map_turrets
+            .sentries
+            .iter()
+            .any(|(id, _)| id.legacy_number() == target)
+        {
+            self.damage_sentry(target, &blow, level_time);
+            return;
+        }
+        if self
+            .map_turrets
+            .ewebs
+            .iter()
+            .any(|(id, _)| id.legacy_number() == target)
+        {
+            self.damage_eweb(target, &blow, level_time);
+            return;
+        }
         self.gather_turret_sights();
         let targets = std::mem::take(&mut self.map_turrets.sighted);
         let known = attacker
             .and_then(|attacker| targets.iter().find(|entry| entry.number == attacker.number))
             .copied();
         let map = self.map.take();
+        let (mut taken, mut survived) = (None, false);
         if let Some(index) = self
             .map_turrets
             .g2
@@ -207,7 +239,7 @@ impl NativeGame {
             .position(|(id, _)| id.legacy_number() == target)
         {
             let (id, mut turret) = self.map_turrets.g2.remove(index);
-            self.with_turret_host(map.as_ref(), usize::MAX, |host| {
+            taken = self.with_turret_host(map.as_ref(), usize::MAX, |host| {
                 jkr_game_jka::map_turret_g2::damage(
                     &mut turret,
                     target,
@@ -217,6 +249,7 @@ impl NativeGame {
                     host,
                 )
             });
+            survived = turret.health > 0;
             self.map_turrets.g2.insert(index, (id, turret));
         } else if let Some(index) = self.map_turrets.misc.iter().position(|(base, top, _)| {
             base.legacy_number() == target || top.legacy_number() == target
@@ -227,7 +260,7 @@ impl NativeGame {
             } else {
                 Part::Top
             };
-            self.with_turret_host(map.as_ref(), usize::MAX, |host| {
+            taken = self.with_turret_host(map.as_ref(), usize::MAX, |host| {
                 jkr_game_jka::map_turret::damage(
                     &mut turret,
                     part,
@@ -238,10 +271,17 @@ impl NativeGame {
                     host,
                 )
             });
+            survived = match part {
+                Part::Base => turret.base.health > 0,
+                Part::Top => turret.top.health > 0,
+            };
             self.map_turrets.misc.insert(index, (base, top, turret));
         }
         self.map = map;
         self.map_turrets.sighted = targets;
+        if let Some(take) = taken.filter(|_| survived) {
+            self.tally_object_damage(&blow, take);
+        }
         self.publish_turret(target);
         self.carry_out_turret_work(level_time);
     }

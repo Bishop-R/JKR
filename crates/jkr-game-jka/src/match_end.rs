@@ -80,6 +80,10 @@ pub struct MatchEnd {
     /// `g_endPDuel`: a power duel's round was decided by a death, to be ended at the next
     /// check of the rules.
     pub end_power_duel: bool,
+    /// `gDoSlowMoDuel` with `gSlowMoDuelTime`: a duel's deciding blow playing out in slow
+    /// motion since this millisecond (`g_slowmoDuelEnd`), which no limit interrupts and
+    /// nobody respawns during ([`slow_motion_step`]).
+    pub slow_motion: Option<i32>,
 }
 
 impl MatchEnd {
@@ -108,6 +112,8 @@ pub struct Contender {
     /// `iAmALoser`: a power duellist dead this round and waiting in line, still counted
     /// as playing (`CalculateRanks`).
     pub loser: bool,
+    /// `sess.wins`: the duels it has won this tournament.
+    pub wins: i32,
 }
 
 /// The server's limits, read fresh every frame as the reference reads its cvars.
@@ -127,6 +133,9 @@ pub struct Limits {
     pub no_intermission_wait: bool,
     /// `duel_fraglimit`: the duels a player must win to end the tournament, 0 for none.
     pub duel_fraglimit: i32,
+    /// jaPRO's `g_mercyRule`: past half the frag limit, a team leading by more than this
+    /// share of the limit wins at once; 0 for none.
+    pub mercy: f32,
 }
 
 impl Default for Limits {
@@ -141,6 +150,7 @@ impl Default for Limits {
             warmup_time: 0,
             no_intermission_wait: false,
             duel_fraglimit: 10,
+            mercy: 0.0,
         }
     }
 }
@@ -163,12 +173,35 @@ pub enum Announce {
     TimeLimit,
     /// `print "Red @@@HIT_THE_KILL_LIMIT.\n"` and the blue twin, for a team's score.
     TeamKillLimit(i32),
+    /// jaPRO's `print "Red @@@HIT_THE_KILL_LIMIT (Mercy rule)\n"` and the blue twin.
+    MercyRule(i32),
     /// `print "<name>^7 @@@HIT_THE_KILL_LIMIT.\n"` for the client that reached it.
     ClientKillLimit(usize),
     /// The two prints a capture limit sends: the team's name, then the limit.
     CaptureLimit(i32),
+    /// `print "<name>^7 hit the win limit.\n"` for the client whose duel wins reached
+    /// `duel_fraglimit`.
+    WinLimit(usize),
     /// A duel whose limit is one prints nothing (`printLimit` stays false).
     Silent,
+}
+
+impl Ending {
+    /// `d_powerDuelPrint`'s name for the limit that ended the match
+    /// (`POWERDUEL WIN CONDITION: ...`, `g_main.c:2010-2200`), for the limits that have
+    /// one: the time, a team's or a client's kills, a duellist's wins.
+    pub fn power_duel_condition(&self) -> Option<&'static str> {
+        match self.announce {
+            Announce::TimeLimit => Some("Timelimit hit (1)"),
+            Announce::TeamKillLimit(TEAM_RED) => Some("Kill limit (1)"),
+            Announce::TeamKillLimit(_) => Some("Kill limit (2)"),
+            Announce::WinLimit(_) => Some("Duel limit hit (1)"),
+            Announce::ClientKillLimit(_) => Some("Kill limit (3)"),
+            // A duel whose limit is one names nobody; "Powerduel ended." prints nothing.
+            Announce::Silent if self.reason.is_empty() => Some("Kill limit (3)"),
+            Announce::Silent | Announce::MercyRule(_) | Announce::CaptureLimit(_) => None,
+        }
+    }
 }
 
 /// What [`check_exit_rules`] did with this frame.
@@ -226,6 +259,10 @@ pub fn check_exit_rules(
     // At the intermission, nothing else is decided: the level waits for its clients.
     if state.intermission_time != 0 {
         return check_intermission_exit(limits, contenders, level_time, state);
+    }
+    // "don't go to intermission while in slow motion".
+    if state.slow_motion.is_some() {
+        return ExitStep::Playing;
     }
     // The second between the limit and the scoreboard, so that the last frag is seen.
     if state.queued != 0 {
@@ -306,15 +343,52 @@ pub fn check_exit_rules(
                 );
             }
         }
-        // The reference walks the client slots, so where two players cross the limit in
-        // the same frame it is the lower client number that is named — not the higher
-        // score. `contenders` is sorted best-first, so the slot order is found rather
-        // than assumed, and without a second list.
+        // jaPRO's mercy rule (`g_main.c`, after the teams' limit): past half the limit, a
+        // lead of more than `mercy` times it ends the match.
+        let limit = limits.fraglimit as f32;
+        let past_half = team_scores.iter().any(|&score| score as f32 > limit * 0.5);
+        if limits.mercy > 0.0 && limits.fraglimit > 5 && past_half {
+            let [red, blue] = team_scores;
+            for (team, lead) in [(TEAM_RED, red - blue), (TEAM_BLUE, blue - red)] {
+                if lead as f32 > limits.mercy * limit {
+                    return log_exit(
+                        state,
+                        level_time,
+                        Ending {
+                            reason: kill_limit,
+                            announce: Announce::MercyRule(team),
+                        },
+                    );
+                }
+            }
+        }
+        // The reference walks the client slots, so where two players cross a limit in the
+        // same frame it is the lower client number that is named — not the higher score.
+        // `contenders` is sorted best-first, so the slot order is found rather than
+        // assumed, and without a second list. A duellist's wins are looked at before its
+        // score: `duel_fraglimit` lowered under someone's wins, or a power duel down to
+        // two, ends the tournament here.
+        let win_limit =
+            |c: &Contender| duel && limits.duel_fraglimit != 0 && c.wins >= limits.duel_fraglimit;
         let first = contenders
             .iter()
-            .filter(|c| c.connected && c.team == TEAM_FREE && c.score >= limits.fraglimit)
+            .filter(|c| {
+                c.connected && c.team == TEAM_FREE && (win_limit(c) || c.score >= limits.fraglimit)
+            })
             .min_by_key(|c| c.client);
         if let Some(contender) = first {
+            if win_limit(contender) {
+                state.duel_exit = true;
+                return log_exit(
+                    state,
+                    level_time,
+                    Ending {
+                        reason: "Duel limit hit.",
+                        announce: Announce::WinLimit(contender.client),
+                    },
+                );
+            }
+            state.duel_exit = false;
             let announce = if kill_limit.is_empty() {
                 Announce::Silent
             } else {
@@ -435,7 +509,7 @@ pub const MAP_RESTART_COMMAND: &str = "map_restart 0\n";
 /// ready, it should stick". The edge is what counts, not the button being down.
 pub fn asked_to_leave(old_buttons: i32, buttons: i32) -> bool {
     const BUTTON_ATTACK: i32 = 1;
-    const BUTTON_USE_HOLDABLE: i32 = 2;
+    const BUTTON_USE_HOLDABLE: i32 = 4;
     buttons & (BUTTON_ATTACK | BUTTON_USE_HOLDABLE) & (old_buttons ^ buttons) != 0
 }
 
@@ -447,7 +521,7 @@ pub fn asked_to_leave(old_buttons: i32, buttons: i32) -> bool {
 pub fn move_client_to_intermission(player: &mut PlayerState, origin: [f32; 3], angles: [f32; 3]) {
     /// `eFlags`, `eFlags2` and `rocketLockIndex` in `msg.cpp`'s player-state table.
     const PS_EFLAGS: usize = 17;
-    const PS_EFLAGS2: usize = 90;
+    const PS_EFLAGS2: usize = 103;
     const PS_ROCKET_LOCK_INDEX: usize = 24;
     const PS_ROCKET_LOCK_TIME: usize = 79;
     player.set_origin(origin);
@@ -462,4 +536,149 @@ pub fn move_client_to_intermission(player: &mut PlayerState, origin: [f32; 3], a
         u32::from(jkr_protocol::ENTITY_NUMBER_NONE),
     );
     player.set_raw_field(PS_ROCKET_LOCK_TIME, 0);
+}
+
+/// What `G_RunFrame` sets `timescale` to in a duel's slow motion begun at `started`
+/// (`g_main.c:2956-3010`) — a tenth for 150 ms, then the elapsed seconds up to one, then
+/// one — and whether the slow motion is over: half a second after that, once `timescale`
+/// (as it reads before this frame's) is one. A pending restart (`level.restarted`) ends it
+/// as soon as `timescale` is back to one.
+pub fn slow_motion_step(
+    started: i32,
+    level_time: i32,
+    restarted: bool,
+    timescale: f32,
+) -> (String, bool) {
+    if restarted {
+        return ("1".to_owned(), timescale == 1.0);
+    }
+    let elapsed = level_time.wrapping_sub(started) as f32;
+    if elapsed < 150.0 {
+        ("0.1f".to_owned(), false)
+    } else if elapsed < 1150.0 {
+        let scale = (elapsed / 1000.0).clamp(0.1, 1.0);
+        (format!("{:.6}", f64::from(scale)), false)
+    } else {
+        ("1".to_owned(), elapsed > 1500.0 && timescale == 1.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn player(client: usize, team: i32) -> Contender {
+        Contender {
+            client,
+            team,
+            score: 0,
+            connected: true,
+            bot: false,
+            ready: false,
+            loser: false,
+            wins: 0,
+        }
+    }
+
+    /// `CheckExitRules`' client walk (`g_main.c:2175-2210`): in a duel, a duellist whose
+    /// wins have reached `duel_fraglimit` (say it was lowered under them) ends the
+    /// tournament before any score is looked at, and is named as the one at the limit.
+    #[test]
+    fn a_duellist_at_the_win_limit_ends_the_tournament() {
+        let limits = Limits {
+            gametype: GT_DUEL,
+            duel_fraglimit: 2,
+            ..Limits::default()
+        };
+        let mut players = [player(0, TEAM_FREE), player(1, TEAM_FREE)];
+        players[0].score = 25;
+        players[1].wins = 3;
+        let mut state = MatchEnd::default();
+        let ended = check_exit_rules(&limits, &players, [0, 0], 1_000, 0, &mut state);
+        let ExitStep::Logged(ending) = ended else {
+            panic!("the tournament goes on: {ended:?}");
+        };
+        // The lower slot comes first: its score is over the frag limit.
+        assert_eq!(ending.reason, "Kill limit hit.");
+        assert_eq!(ending.power_duel_condition(), Some("Kill limit (3)"));
+        // A tie is never ended by a limit: the second scores once.
+        (players[0].score, players[1].score) = (0, 1);
+        let mut state = MatchEnd::default();
+        let ended = check_exit_rules(&limits, &players, [0, 0], 1_000, 0, &mut state);
+        let ExitStep::Logged(ending) = ended else {
+            panic!("the tournament goes on: {ended:?}");
+        };
+        assert_eq!(ending.reason, "Duel limit hit.");
+        assert_eq!(ending.announce, Announce::WinLimit(1));
+        assert_eq!(ending.power_duel_condition(), Some("Duel limit hit (1)"));
+        assert!(state.duel_exit);
+    }
+
+    /// jaPRO's `g_mercyRule`: past half of 20, a lead of more than half of 20 ends it.
+    #[test]
+    fn a_crushing_lead_ends_a_team_game_under_the_mercy_rule() {
+        let limits = Limits {
+            gametype: GT_TEAM,
+            mercy: 0.5,
+            ..Limits::default()
+        };
+        let players = [player(0, TEAM_RED), player(1, TEAM_BLUE)];
+        let mut state = MatchEnd::default();
+        let ended = check_exit_rules(&limits, &players, [11, 0], 1_000, 0, &mut state);
+        assert!(matches!(
+            ended,
+            ExitStep::Logged(Ending {
+                announce: Announce::MercyRule(TEAM_RED),
+                ..
+            })
+        ));
+        let mut state = MatchEnd::default();
+        let close = check_exit_rules(&limits, &players, [11, 1], 1_000, 0, &mut state);
+        assert_eq!(close, ExitStep::Playing);
+        let stock = Limits {
+            gametype: GT_TEAM,
+            ..Limits::default()
+        };
+        let mut state = MatchEnd::default();
+        let on = check_exit_rules(&stock, &players, [11, 0], 1_000, 0, &mut state);
+        assert_eq!(on, ExitStep::Playing);
+    }
+
+    /// The slow motion's `timescale`: a tenth, then the elapsed seconds as `%f` writes them,
+    /// then one until it reads one half a second on.
+    #[test]
+    fn a_duels_end_slows_down_and_recovers() {
+        assert_eq!(
+            slow_motion_step(1_000, 1_100, false, 1.0),
+            ("0.1f".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_250, false, 0.1),
+            ("0.250000".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_999, false, 0.9),
+            ("0.999000".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 2_149, false, 0.9),
+            ("1.000000".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 2_200, false, 0.99),
+            ("1".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 2_501, false, 1.0),
+            ("1".into(), true)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_100, true, 0.1),
+            ("1".into(), false)
+        );
+        assert_eq!(
+            slow_motion_step(1_000, 1_150, true, 1.0),
+            ("1".into(), true)
+        );
+    }
 }

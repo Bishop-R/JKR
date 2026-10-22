@@ -24,6 +24,8 @@ pub(crate) struct Runtime {
     last_time: Option<i64>,
     materials: [Arc<str>; 2],
     pub(crate) enabled: bool,
+    /// Blades kept touching the bodies the server says they struck (`CG_SaberCompWork`).
+    pub(crate) compensation: compensation::Compensation,
 }
 impl Default for Runtime {
     fn default() -> Self {
@@ -33,6 +35,7 @@ impl Default for Runtime {
             last_time: None,
             materials: MATERIALS.map(Arc::from),
             enabled: true,
+            compensation: Default::default(),
         }
     }
 }
@@ -40,6 +43,7 @@ impl Runtime {
     pub(crate) fn clear(&mut self) {
         self.states.fill(Contact::default());
         self.last_time = None;
+        self.compensation.clear();
     }
 
     /// One scratch-backed MASK_SOLID trace per displayed blade and presentation time.
@@ -217,6 +221,9 @@ pub(crate) fn frame(
             }
         },
     );
+    compensation::frame(gpu, time, now, audio);
+    // Marks asked for by this frame's impacts and blades, laid on this frame's poses.
+    crate::actor_marks::frame(gpu, time);
 }
 
 // OpenJK codemp cg_players.c:6246–6249 uses these three wall sounds at 100 ms.
@@ -228,6 +235,8 @@ pub(crate) const SOUNDS: [&str; 3] = [
 fn sound_due(previous: Option<i64>, time: i64) -> bool {
     previous.is_none_or(|last| time.saturating_sub(last) >= 100)
 }
+#[path = "saber_compensation.rs"]
+pub(crate) mod compensation;
 #[path = "saber_contact_sparks.rs"]
 mod sparks;
 use sparks::spawn_sparks;

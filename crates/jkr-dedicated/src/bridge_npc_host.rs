@@ -27,12 +27,19 @@ pub(super) type Skeleton = (Option<Arc<dyn AnimationLengths>>, bool);
 pub(super) enum NpcOutcome {
     /// `AddScore` on a player.
     PlayerScore(u16, i32),
+    /// `ICARUS_RunScript` for the script NPC `.0`'s behaviour set `.1` names
+    /// (`G_ActivateBehavior`), started with the NPCs' scripts this frame.
+    RunBehavior(u16, usize),
     /// A player's kill of an NPC: the stun baton's count and the excellent award.
     CreditKill(u16, u32),
+    /// A player's kill of an NPC, for the statistics log.
+    TallyKill(u16, u32),
     /// `AddScore` on an NPC: its team's score in a team game, and the ranks.
     NpcScored(i32, i32),
     /// `NPC_CheckAttacker`: whom a player is taken to fight.
     PlayerEnemy(u16, Option<u16>),
+    /// `other->flags &= ~FL_NOTARGET` for a player an ally turns on (`NPC_reactions.c`).
+    ClearPlayerNotarget(u16),
     /// `npc kill team nonally` on a player.
     KillPlayer(u16),
     /// A line of the game log (`G_LogPrintf`).
@@ -94,6 +101,14 @@ pub(crate) struct ServerHost<'a> {
     pub(super) jedi_master: Option<u16>,
     pub(super) warmup: bool,
     pub(super) intermission: bool,
+    /// jaPRO's `g_scoreNPCs` ([`NpcHost::score_npcs`]).
+    pub(super) score_npcs: i32,
+    /// jaPRO's Force options, for the NPCs' powers and the players'.
+    pub(super) force_rules: jkr_game_jka::force_powers::ForceRules,
+    /// How long the items the NPCs pick up stay away ([`NpcHost::item_respawns`]).
+    pub(super) item_respawns: jkr_game_jka::items::Respawns,
+    /// jaPRO's gun game runs: an NPC's pull disarms no player.
+    pub(super) gun_game: bool,
     pub(super) map: Option<&'a LoadedMap>,
     /// Everything solid but the NPCs: the players first, then missiles and brushes.
     pub(super) solids: &'a [BoxObstacle],
@@ -114,6 +129,8 @@ pub(crate) struct ServerHost<'a> {
     pub(super) level_time: i32,
     pub(super) gravity: f32,
     pub(super) skill: i32,
+    /// The server's movement variables, which an NPC's moves read as a player's do.
+    pub(super) move_cvars: jkr_game_jka::pmove_rules::MoveCvars,
     pub(super) gametype: i32,
     pub(super) client_zero: ([f32; 3], i32),
     /// The items registered while the level spawns; afterwards they are not recorded.
@@ -125,7 +142,7 @@ pub(crate) struct ServerHost<'a> {
     pub(super) doors: &'a [(EntityId, jkr_game_jka::movers::Door)],
     pub(super) multiples: &'a [jkr_game_jka::triggers::Multiple],
     pub(super) breakables: &'a [(EntityId, jkr_game_jka::breakables::Breakable)],
-    pub(super) usables: &'a [(EntityId, jkr_game_jka::use_key::Usable)],
+    pub(super) usables: &'a [(EntityId, jkr_game_jka::usables::Usable)],
     /// The game's `rand()`, which a missile an NPC's push turns back reads; the dropped
     /// items a pull's torn-away weapons join.
     pub(super) crt: &'a mut CrtRand,
@@ -139,6 +156,16 @@ pub(crate) struct ServerHost<'a> {
     pub(super) fighter_alt_control: bool,
     /// `g_debugSaberLocks`.
     pub(super) debug_saber_locks: bool,
+    /// The server's saber settings.
+    pub(super) saber: jkr_game_jka::saber_damage::SaberSettings,
+    /// How blows push and where they land count.
+    pub(super) damage: jkr_game_jka::damage::DamageRules,
+    /// The animation fixes the moves run (`CS_LEGACY_FIXES`).
+    pub(super) legacy_fixes: u32,
+    /// `g_smoothClients`.
+    pub(super) smooth_clients: bool,
+    /// `d_npcfreeze`, `d_noGroupAI`, `d_asynchronousGroupAI`.
+    pub(super) npc_switches: jkr_game_jka::npc_spawn::NpcSwitches,
     /// `g_dismember` and the clients with heavy melee ([`dismember`]).
     pub(super) limbs: dismember::LimbRules,
 }
@@ -265,8 +292,9 @@ impl NpcHost for ServerHost<'_> {
         // always on.
         let removable = self.usables.iter().any(|(known, usable)| {
             known.legacy_number() == number
+                && usable.kind == jkr_game_jka::usables::Kind::Usable
                 && usable.eflags & EF_SHADER_ANIM == 0
-                && usable.spawnflags & jkr_game_jka::use_key::USABLE_ALWAYS_ON == 0
+                && usable.spawnflags & jkr_game_jka::usables::ALWAYS_ON == 0
                 && !usable.targetname.is_empty()
         });
         if removable {
@@ -520,6 +548,10 @@ impl NpcHost for ServerHost<'_> {
         self.gravity
     }
 
+    fn move_cvars(&self) -> jkr_game_jka::pmove_rules::MoveCvars {
+        self.move_cvars
+    }
+
     fn skill(&self) -> i32 {
         self.skill
     }
@@ -608,12 +640,28 @@ impl NpcHost for ServerHost<'_> {
         self.outcomes.push(NpcOutcome::CreditKill(player, means));
     }
 
+    fn tally_kill(&mut self, player: u16, means: u32) {
+        self.outcomes.push(NpcOutcome::TallyKill(player, means));
+    }
+
     fn npc_scored(&mut self, team: i32, points: i32) {
         self.outcomes.push(NpcOutcome::NpcScored(team, points));
     }
 
     fn jedi_master(&self) -> Option<u16> {
         self.jedi_master
+    }
+
+    fn score_npcs(&self) -> i32 {
+        self.score_npcs
+    }
+
+    fn force_rules(&self) -> jkr_game_jka::force_powers::ForceRules {
+        self.force_rules
+    }
+
+    fn item_respawns(&self) -> jkr_game_jka::items::Respawns {
+        self.item_respawns
     }
 
     fn warmup(&self) -> bool {
@@ -626,6 +674,14 @@ impl NpcHost for ServerHost<'_> {
 
     fn set_player_enemy(&mut self, player: u16, enemy: Option<u16>) {
         self.outcomes.push(NpcOutcome::PlayerEnemy(player, enemy));
+    }
+
+    fn clear_player_notarget(&mut self, player: u16) {
+        self.outcomes.push(NpcOutcome::ClearPlayerNotarget(player));
+    }
+
+    fn run_behavior(&mut self, number: u16, bset: usize) {
+        self.outcomes.push(NpcOutcome::RunBehavior(number, bset));
     }
 
     fn humanoid_animations(&mut self) -> Option<Arc<dyn AnimationLengths>> {
@@ -827,6 +883,10 @@ impl NpcHost for ServerHost<'_> {
 
     fn dismember_setting(&self) -> i32 {
         self.limbs.dismember
+    }
+
+    fn austrian_duel(&self) -> bool {
+        self.limbs.austrian_duel
     }
 
     fn heavy_melee(&self, attacker: u16) -> bool {
@@ -1154,6 +1214,26 @@ impl NpcHost for ServerHost<'_> {
         self.debug_saber_locks
     }
 
+    fn saber_settings(&self) -> jkr_game_jka::saber_damage::SaberSettings {
+        self.saber
+    }
+
+    fn damage_rules(&self) -> jkr_game_jka::damage::DamageRules {
+        self.damage
+    }
+
+    fn legacy_fixes(&self) -> u32 {
+        self.legacy_fixes
+    }
+
+    fn smooth_clients(&self) -> bool {
+        self.smooth_clients
+    }
+
+    fn npc_switches(&self) -> jkr_game_jka::npc_spawn::NpcSwitches {
+        self.npc_switches
+    }
+
     fn gunner(&mut self, number: u16) -> Option<jkr_game_jka::vehicle_turrets::Gunner> {
         let handle = self.roster.at(usize::from(number))?;
         let peer = self.server.world(self.world)?.entity(handle)?;
@@ -1281,6 +1361,7 @@ impl Everyone<'_> {
                 bounds: ([0.0; 3], [0.0; 3]),
                 contents: 0,
                 model: None,
+                linked_box: None,
             }; ON_STACK];
             let mut used = 0;
             for body in all {

@@ -79,6 +79,7 @@ impl<'w, 'a, H: NpcHost> BladeWorld<'w, 'a, H> {
                 bounds: (entity.mins, entity.maxs),
                 contents: CONTENTS_LIGHTSABER,
                 model: None,
+                linked_box: None,
             });
         }
         host.player_saber_boxes(bodies);
@@ -150,11 +151,12 @@ impl<H: NpcHost> SaberTargets for BladeWorld<'_, '_, H> {
                 disintegrated: npc.state.raw_field(ES_EFLAGS).unwrap_or(0)
                     & crate::disruptor::EF_DISINTEGRATION
                     != 0,
-                spared_by_idle: npcs_on_same_team(
-                    self.world.host.gametype(),
-                    swinger.session_team,
-                    npc.session_team,
-                ),
+                spared_by_idle: !self.world.host.saber_settings().friendly
+                    && npcs_on_same_team(
+                        self.world.host.gametype(),
+                        swinger.session_team,
+                        npc.session_team,
+                    ),
                 duel_elsewhere: false,
                 knocked_down_on_ground: crate::saber_rules::knocked_down_on_ground(
                     legs,
@@ -197,6 +199,10 @@ impl<H: NpcHost> SaberTargets for BladeWorld<'_, '_, H> {
 impl<H: NpcHost> ClashWorld for BladeWorld<'_, '_, H> {
     fn debug_saber_locks(&self) -> bool {
         self.world.host.debug_saber_locks()
+    }
+
+    fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
+        self.world.host.saber_settings()
     }
 
     fn rng(&mut self) -> &mut Rng {
@@ -272,7 +278,8 @@ impl<H: NpcHost> NpcWorld<'_, H> {
                 || host.players().iter().any(|player| player.number == victim)
         };
         let mut blows = [None; 16];
-        for (slot, blow) in blows.iter_mut().zip(hits.blows(&is_client)) {
+        let wall_scale = host.saber_settings().wall_scale;
+        for (slot, blow) in blows.iter_mut().zip(hits.blows(&is_client, wall_scale)) {
             *slot = Some(blow);
         }
         for blow in blows.into_iter().flatten() {

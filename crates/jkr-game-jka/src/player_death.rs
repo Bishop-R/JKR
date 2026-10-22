@@ -163,6 +163,17 @@ pub struct DeathRequest {
     /// The player is in space (`client->inSpaceIndex`, [`crate::vehicle_triggers`]): it
     /// dies choking (`BOTH_CHOKE3`).
     pub in_space: bool,
+    /// `!g_dontPenalizeTeam`: in team deathmatch the point a death costs also comes off
+    /// the team; `SetTeam`'s death (`g_cmds.c:874-876`) costs the player alone.
+    pub penalize_team: bool,
+    /// jaPRO's flag options: how a carried flag drops, and whether a suicide sends it
+    /// home ([`crate::flag_throw`]).
+    pub flag_rules: crate::flag_throw::FlagRules,
+    /// The attacker, another player, is on the dead's team (`OnSameTeam`): its kill costs
+    /// it a point (`g_combat.c:2524`), with no award.
+    pub team_kill: bool,
+    /// jaPRO's gun game runs: nothing is dropped but a carried flag.
+    pub gun_game: bool,
 }
 
 impl DeathRequest {
@@ -193,6 +204,10 @@ impl DeathRequest {
             duel_opponent: None,
             jedi_master: None,
             in_space: false,
+            penalize_team: true,
+            flag_rules: crate::flag_throw::FlagRules::default(),
+            team_kill: false,
+            gun_game: false,
         }
     }
 }
@@ -407,19 +422,32 @@ pub fn kill(
         }
         Some(attacker) if attacker == request.client => {
             duel_point(request.duel_opponent).or_else(|| {
-                state.persistent[PERS_SCORE] = state.persistent[PERS_SCORE].wrapping_sub(1);
+                // jaPRO's `g_fixCTFScores`: a suicide in CTF costs no point.
+                let free =
+                    request.gametype == crate::ctf::GT_CTF && request.flag_rules.fixed_scores;
+                if !free {
+                    state.persistent[PERS_SCORE] = state.persistent[PERS_SCORE].wrapping_sub(1);
+                }
                 if request.jedi_master.is_some() && was_master {
                     saber_lost = Some(None);
                 }
                 Some(KillerScore {
                     killer: attacker,
-                    points: -1,
+                    points: if free { 0 } else { -1 },
                     excellent: false,
                     gauntlet: false,
                     kill: false,
                 })
             })
         }
+        // A teammate's kill: the killer loses the point, as the dead does for a suicide.
+        Some(attacker) if request.team_kill => Some(KillerScore {
+            killer: attacker,
+            points: -1,
+            excellent: false,
+            gauntlet: false,
+            kill: false,
+        }),
         Some(attacker) => {
             let excellent =
                 request.level_time - request.killer_last_kill_time < CARNAGE_REWARD_TIME;
@@ -467,12 +495,13 @@ pub fn kill(
     if saber_lost.is_some() {
         state.set_raw_field(PS_JEDI_MASTER, 0);
     }
-    // A suicide or a fall to death does not drop the flag: it goes home
-    // (`g_combat.c:2654-2688`).
+    // A suicide (unless jaPRO's `g_fixFlagSuicide` says otherwise) or a fall to death
+    // does not drop the flag: it goes home (`g_combat.c:2654-2688`).
     let carried_flags = [state.powerups[PW_REDFLAG], state.powerups[PW_BLUEFLAG]];
     let falling = read(state, crate::triggers::PS_FALLING_TO_DEATH) != 0;
+    let suicide = request.means == crate::means_of_death::MOD_SUICIDE;
     let mut returned_flag = None;
-    if request.means == crate::means_of_death::MOD_SUICIDE || falling {
+    if (suicide && !request.flag_rules.suicide_drops) || falling {
         returned_flag = [PW_REDFLAG, PW_BLUEFLAG]
             .into_iter()
             .find(|flag| state.powerups[*flag] != 0);
@@ -491,6 +520,8 @@ pub fn kill(
             request.gametype,
             request.level_time,
             rng,
+            request.flag_rules,
+            request.gun_game,
         )
     } else {
         crate::dropped_items::Tossed::default()
@@ -626,7 +657,7 @@ pub fn body_left_behind(
     const EF_DEAD: u32 = 1 << 1;
     const ET_BODY: u32 = 15;
     const TR_STATIONARY: u32 = 0;
-    const TR_GRAVITY: u32 = 5;
+    const TR_GRAVITY: u32 = 6;
     const WP_BLASTER: u32 = 5;
     const ENTITY_NONE: u32 = 1_023;
     const FORCE_LIGHTSIDE: u32 = 1;
@@ -724,5 +755,37 @@ impl Body {
             u8::from(self.light)
         )
         .into_bytes()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `OnSameTeam`'s branch (`g_combat.c:2524`): a teammate's kill costs the killer a
+    /// point and earns it nothing; the dead keeps its score.
+    #[test]
+    fn a_team_kill_costs_the_killer_its_point() {
+        let mut state = PlayerState::default();
+        state.persistent[PERS_SCORE] = 3;
+        let mut entity = EntityState::zero(2, &jkr_protocol::LEGACY_ENTITY_FIELDS);
+        let (mut mortality, mut deaths) = (Mortality::default(), Deaths::default());
+        let lengths = crate::pmove_anim::AnimationLengthTable::new([]);
+        let mut request = DeathRequest::suicide(1_000, 2, [0.0; 3], [0; 2], 0);
+        request.attacker = Some(5);
+        request.means = MOD_STUN_BATON;
+        request.team_kill = true;
+        let died = kill(
+            &mut state,
+            &mut entity,
+            &mut mortality,
+            &mut deaths,
+            request,
+            &lengths,
+        );
+        let score = died.killer_score.expect("the killer is scored");
+        assert_eq!((score.killer, score.points), (5, -1));
+        assert!(!score.kill && !score.gauntlet && !score.excellent);
+        assert_eq!(state.persistent[PERS_SCORE], 3);
     }
 }

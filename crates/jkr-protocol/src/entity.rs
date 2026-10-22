@@ -339,8 +339,9 @@ impl EntityState {
         self.raw_field(34).unwrap_or(0) as i32
     }
 
+    /// `apos.trDuration` (field 89; 91 is `bolt1`).
     pub fn angular_trajectory_duration(&self) -> i32 {
-        self.raw_field(91).unwrap_or(0) as i32
+        self.raw_field(89).unwrap_or(0) as i32
     }
 
     pub fn client_num(&self) -> u16 {
@@ -382,6 +383,12 @@ impl EntityState {
     /// Generic `entityState_t::speed` value carried by protocol 26.
     pub fn speed(&self) -> f32 {
         f32::from_bits(self.raw_field(31).unwrap_or(0))
+    }
+
+    /// Generic `entityState_t::time2` value carried by protocol 26 (`EV_TESTLINE`'s
+    /// duration, among others).
+    pub fn time2(&self) -> i32 {
+        self.raw_field(61).unwrap_or(0) as i32
     }
 
     /// Generic `entityState_t::time` value carried by protocol 26.
@@ -520,6 +527,12 @@ impl EntityState {
         self.raw_field(88).unwrap_or(0) as u8
     }
 
+    /// Protocol-26 `entityState_t::activeForcePass` (netfield 68); a manned emplaced gun
+    /// carries `NUM_FORCE_POWERS + 1` here.
+    pub fn active_force_pass(&self) -> u8 {
+        self.raw_field(68).unwrap_or(0) as u8
+    }
+
     /// Protocol-26 `entityState_t::boneIndex1`..`boneIndex4` (netfields 87, 107-109): the
     /// `CS_G2BONES` index of the bone a server turns in `slot` (0-3), zero for none.
     pub fn bone_index(&self, slot: usize) -> u16 {
@@ -596,6 +609,12 @@ impl EntityState {
     /// Protocol-26 `entityState_t::bolt1` (netfield 91).
     pub fn bolt1(&self) -> bool {
         self.raw_field(91).unwrap_or(0) != 0
+    }
+
+    /// Protocol-26 `entityState_t::bolt2` (netfield 63); a sentry's enemy, `ENTITYNUM_NONE`
+    /// (1023) for none.
+    pub fn bolt2(&self) -> u16 {
+        self.raw_field(63).unwrap_or(0) as u16
     }
 
     /// Protocol-26 `entityState_t::isJediMaster` (netfield 97).

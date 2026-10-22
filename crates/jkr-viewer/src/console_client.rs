@@ -10,6 +10,8 @@ impl ViewerConsole {
 use std::collections::VecDeque;
 use std::sync::mpsc::Receiver;
 
+#[path = "console_aimed.rs"]
+mod aimed;
 #[path = "console_hud_commands.rs"]
 mod hud_commands;
 #[path = "console_identity.rs"]
@@ -60,7 +62,37 @@ pub(super) const COMMANDS: &[(&str, &str)] = &[
         "Search commands and cvars and edit cvar values (F3 in the console)",
     ),
     ("togglemenu", "Toggle the in-game menu"),
+    (
+        "tell_target",
+        "Privately message the player under the crosshair",
+    ),
+    ("tell_attacker", "Privately message your last attacker"),
+    (
+        "tcmd",
+        "Give the player under the crosshair an order (gc), by number",
+    ),
+    ("clientlist", "List the players with their teams"),
+    (
+        "showPlayerId",
+        "List the players with their teams (EternalJK's name)",
+    ),
+    ("do", "Run a vstr after a delay in milliseconds (EternalJK)"),
+    (
+        "ignoreVGS",
+        "Mute a player's voice commands, -1 for everyone (EternalJK)",
+    ),
+    (
+        "chatlog",
+        "List or toggle the cg_logChat settings (EternalJK)",
+    ),
+    ("lowjump", "Tap jump for one frame (EternalJK)"),
+    ("+duck", "Crouch without rolling (EternalJK)"),
+    ("briefing", "Show your side's Siege objectives"),
     ("cmd", "Forward arguments as a reliable server command"),
+    (
+        "autoLogin",
+        "amLogin on this server with its cg_autoLoginServer/Pass pair (EternalJK)",
+    ),
     ("clientinfo", "Print client state and userinfo"),
     ("userinfo", "Print userinfo"),
     ("model", "Set player model and optional skin"),
@@ -329,6 +361,11 @@ impl crate::GpuState {
         let args = &tokens[1..];
         match name.as_str() {
             "remapshader" | "listremaps" => return self.remap_command(&name, args),
+            "tell_target" | "tell_attacker" | "tcmd" => return self.aimed_command(&name, args),
+            "clientlist" | "showplayerid" => return self.client_list(),
+            "do" | "lowjump" | "+duck" | "-duck" => return self.deferred_command(&name, args),
+            "ignorevgs" => return self.ignore_vgs(args, audio),
+            "chatlog" => return self.chat_log_settings(args),
             "speedometer" | "strafehelper" => {
                 return hud_commands::execute(
                     self.console.as_mut().ok_or("Console unavailable")?,
@@ -359,6 +396,11 @@ impl crate::GpuState {
                 if let Some(console) = &mut self.console {
                     console.set_open(!console.is_open());
                 }
+                self.sync_cursor_policy();
+            }
+            "briefing" => {
+                // As `CG_SiegeBriefing_f`: nothing outside Siege or off a side.
+                self.open_siege_objectives();
                 self.sync_cursor_policy();
             }
             "consolebrowser" => {

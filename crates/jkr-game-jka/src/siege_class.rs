@@ -50,10 +50,15 @@ const CLASS_FLAGS: [(&str, i32); 8] = [
     ("CFL_CUSTOMSKEL", 6),
     ("CFL_EXTRA_AMMO", 7),
 ];
+/// `CFL_FASTFORCEREGEN` as a bit number: the class's Force comes back five times as fast.
+pub const CFL_FASTFORCEREGEN: u32 = 2;
 /// `CFL_STATVIEWER`, `CFL_SINGLE_ROCKET` and `CFL_EXTRA_AMMO` as bit numbers.
 pub const CFL_STATVIEWER: u32 = 3;
 pub const CFL_SINGLE_ROCKET: u32 = 5;
 pub const CFL_EXTRA_AMMO: u32 = 7;
+/// `EF_DOUBLE_AMMO`: what a `CFL_EXTRA_AMMO` class wears in `eFlags`; `Add_Ammo` and the
+/// ammunition dispenser then fill to twice the usual maximum.
+pub const EF_DOUBLE_AMMO: u32 = 1 << 20;
 
 /// `HoldableTable` (`bg_saga.c:138-152`).
 const HOLDABLES: [(&str, i32); 12] = [

@@ -2,10 +2,14 @@
 //! `:518-539`; the wake-up script is not run), a jump to the navigation goal along a
 //! parabola (`NPC_BSJump`, `:749-939`), waiting to be out of client 0's sight to vanish
 //! (`NPC_BSRemove`, `:941-958`), and flying through walls to the goal (`NPC_BSNoClip`,
-//! `:1181-1213`). A host that runs scripts sets them as `Q3_SetBState` does
-//! (`g_ICARUScb.c:2599-2713`): the behaviour state, `client->noclip` for `BS_NOCLIP`, the
-//! jump's state for `BS_JUMP`.
+//! `:1181-1213`). A host that runs scripts sets them through the roster as `Q3_SetBState`
+//! does (`g_ICARUScb.c:2599-2713`): the behaviour state, `client->noclip` for `BS_NOCLIP`,
+//! the jump's state for `BS_JUMP`; and as `Q3_SetTempBState`, `Q3_SetDefaultBState` and
+//! `G_ActivateBehavior` do.
 
+use crate::icarus_set_table;
+use crate::npc_behavior::bstate;
+use crate::npc_roster::NpcRoster;
 use crate::npc_senses::{AEL_MINOR, subtract};
 use crate::npc_spawn::{NpcHost, NpcThink};
 use crate::npc_states::jump;
@@ -36,50 +40,218 @@ const FRAMETIME: i32 = 100;
 /// `ENTITYNUM_NONE`.
 const ENTITYNUM_NONE: u16 = 1_023;
 
-impl<H: NpcHost> NpcWorld<'_, H> {
-    /// `Q3_SetBState` (`g_ICARUScb.c:2599-2713`), a script's `SET_BEHAVIOR_STATE`: a search
-    /// or a wander started from the NPC's waypoint (none found: nothing changes); the
-    /// temporary state cleared; the state set (and made the default for `BS_DEFAULT`);
-    /// `client->noclip` for `BS_NOCLIP` alone; a jump begun facing its goal.
-    pub fn script_set_bstate(&mut self, me: usize, state: i32) {
-        use crate::npc_behavior::bstate;
-        if state == bstate::SEARCH || state == bstate::WANDER {
-            let mut waypoint = self.actors[me].mind.tactics.waypoint;
-            if waypoint == crate::npc_mind::WAYPOINT_NONE {
-                waypoint = self.closest_waypoint_for(
-                    crate::npc_navigator::NavHolder::Actor(me),
-                    crate::npc_mind::WAYPOINT_NONE,
-                );
-                self.actors[me].mind.tactics.waypoint = waypoint;
-                if waypoint == crate::npc_mind::WAYPOINT_NONE {
-                    return;
-                }
+/// `GetIDForString(BSTable, name)`: the behaviour state a script names, in any case.
+pub fn behavior_state_named(name: &str) -> Option<i32> {
+    crate::script_entity::BEHAVIOR_STATES
+        .iter()
+        .position(|known| known.eq_ignore_ascii_case(name))
+        .map(|state| state as i32)
+}
+
+/// `Q3_Set`'s flag sets (`g_ICARUScb.c`): each turns one `scriptFlags` bit on or off
+/// (`b_public.h:48-73`).
+const SCRIPT_FLAG_SETS: [(i32, u32); 18] = [
+    (icarus_set_table::SET_CROUCHED, 0x1),
+    (icarus_set_table::SET_WALKING, 0x2),
+    (icarus_set_table::SET_RUNNING, 0x20),
+    (icarus_set_table::SET_ALT_FIRE, 0x40),
+    (icarus_set_table::SET_NO_RESPONSE, 0x80),
+    (icarus_set_table::SET_NO_COMBAT_TALK, 0x200),
+    (icarus_set_table::SET_CHASE_ENEMIES, 0x400),
+    (icarus_set_table::SET_LOOK_FOR_ENEMIES, 0x800),
+    (icarus_set_table::SET_FACE_MOVE_DIR, 0x1000),
+    (icarus_set_table::SET_DONTFIRE, 0x4000),
+    (icarus_set_table::SET_DONT_FLEE, 0x8000),
+    (icarus_set_table::SET_FORCED_MARCH, 0x1_0000),
+    (icarus_set_table::SET_FIRE_WEAPON, 0x4_0000),
+    (icarus_set_table::SET_USE_CP_NEAREST, 0x10_0000),
+    (icarus_set_table::SET_NO_FORCE, 0x20_0000),
+    (icarus_set_table::SET_NO_FALLTODEATH, 0x40_0000),
+    (icarus_set_table::SET_NO_ACROBATICS, 0x80_0000),
+    (icarus_set_table::SET_NO_ALERT_TALK, 0x200_0000),
+];
+
+impl NpcRoster {
+    /// [`NpcWorld::script_set_bstate`] on the NPC numbered `number`, the state `name`:
+    /// whether the script's task completes at once (it does where there is no such NPC).
+    pub fn script_set_bstate(
+        &mut self,
+        number: u16,
+        name: &str,
+        level_time: i32,
+        host: &mut impl NpcHost,
+    ) -> bool {
+        let Some(at) = self.actors.iter().position(|npc| npc.number == number) else {
+            return true;
+        };
+        let mut fired = Vec::new();
+        self.world(level_time, host, &mut fired)
+            .script_set_bstate(at, behavior_state_named(name))
+    }
+
+    /// `Q3_SetEnemy` on NPC `number` (`g_ICARUScb.c:2170-2220`): `enemy` taken
+    /// (`G_SetEnemy`, its can't-hit counter reset), or none (`G_ClearEnemy`). The names it
+    /// fired on the way.
+    pub fn script_set_enemy(
+        &mut self,
+        number: u16,
+        enemy: Option<u16>,
+        level_time: i32,
+        host: &mut impl NpcHost,
+    ) -> crate::npc_roster::Fired {
+        let mut fired = Vec::new();
+        let Some(at) = self.actors.iter().position(|npc| npc.number == number) else {
+            return fired;
+        };
+        let mut world = self.world(level_time, host, &mut fired);
+        match enemy {
+            Some(enemy) => {
+                world.set_enemy(at, enemy);
+                world.actors[at].mind.cant_hit_enemy_counter = 0;
             }
-            self.search_start(me, waypoint, state);
+            None => world.clear_enemy(at),
         }
-        let npc = &mut self.actors[me];
-        npc.mind.temp_behavior = bstate::DEFAULT;
-        if npc.behavior_state == bstate::NOCLIP && state != bstate::NOCLIP {
-            // "rise up out of the floor after noclipping" (`G_SetOrigin`).
-            npc.current_origin[2] += 0.125;
-            let origin = npc.current_origin;
-            npc.player.set_origin(origin);
-        }
-        npc.behavior_state = state;
-        if state == bstate::DEFAULT {
-            npc.default_behavior = state;
-        }
-        npc.ai_flags &= !NPCAI_TOUCHED_GOAL;
-        npc.mind.noclip = state == bstate::NOCLIP;
-        if state == bstate::JUMP {
-            npc.mind.states.jump_state = jump::FACING;
+        fired
+    }
+
+    /// `Q3_SetTempBState` (`g_ICARUScb.c:2725-2763`): the temporary state, where `name`
+    /// is one. Its task completes at once.
+    pub fn script_set_temp_bstate(&mut self, number: u16, name: &str) {
+        if let (Some(npc), Some(state)) = (
+            self.actors.iter_mut().find(|npc| npc.number == number),
+            behavior_state_named(name),
+        ) {
+            npc.mind.temp_behavior = state;
         }
     }
 
-    /// `NPC_BSSleep` (`NPC_behavior.c:518-539`): an alert noticed would run its wake-up
-    /// script (`BSET_AWAKE`); none runs, and it sleeps on.
+    /// `Q3_SetDefaultBState` (`g_ICARUScb.c:2775-2797`): the state it falls back to, where
+    /// `name` is one.
+    pub fn script_set_default_bstate(&mut self, number: u16, name: &str) {
+        if let (Some(npc), Some(state)) = (
+            self.actors.iter_mut().find(|npc| npc.number == number),
+            behavior_state_named(name),
+        ) {
+            npc.default_behavior = state;
+        }
+    }
+
+    /// `Q3_Set`'s flag sets on NPC `number` (`Q3_SetChaseEnemies` and the rest,
+    /// `g_ICARUScb.c`): `set`'s `scriptFlags` bit on for a value of `true` (any case), off
+    /// for any other; `SET_ALT_FIRE` also re-arms its weapon (`ChangeWeapon`) at `skill`.
+    /// Whether `set` is one of them.
+    pub fn script_set_flag(&mut self, number: u16, set: i32, value: &str, skill: i32) -> bool {
+        let Some(flag) = SCRIPT_FLAG_SETS
+            .iter()
+            .find(|(id, _)| *id == set)
+            .map(|(_, flag)| *flag)
+        else {
+            return false;
+        };
+        let Some(npc) = self.actors.iter_mut().find(|npc| npc.number == number) else {
+            return true;
+        };
+        if value.eq_ignore_ascii_case("true") {
+            npc.script_flags |= flag;
+        } else {
+            npc.script_flags &= !flag;
+        }
+        if set == icarus_set_table::SET_ALT_FIRE {
+            let weapon = npc.player.weapon();
+            crate::npc_combat::change_weapon(npc, weapon, skill);
+        }
+        true
+    }
+
+    /// `G_ActivateBehavior` of a behaviour set that names a state (`NPC_utils.c:891-895`):
+    /// the temporary state cleared and the state set.
+    pub fn script_behavior_state(&mut self, number: u16, name: &str) {
+        if let (Some(npc), Some(state)) = (
+            self.actors.iter_mut().find(|npc| npc.number == number),
+            behavior_state_named(name),
+        ) {
+            npc.mind.temp_behavior = bstate::DEFAULT;
+            npc.behavior_state = state;
+        }
+    }
+}
+
+impl<H: NpcHost> NpcWorld<'_, H> {
+    /// `G_ActivateBehavior(NPC, bset)` (`NPC_utils.c:873-900`) from the NPC's own doing:
+    /// whether it has that set. A set naming a behaviour state takes it at once; a script
+    /// is the host's to start this frame (`ICARUS_RunScript`, [`NpcHost::run_behavior`]).
+    pub(crate) fn activate_behavior(&mut self, me: usize, bset: usize) -> bool {
+        let npc = &mut self.actors[me];
+        let Some(name) = npc.behavior_sets[bset]
+            .as_deref()
+            .filter(|name| !name.is_empty())
+        else {
+            return false;
+        };
+        match behavior_state_named(&String::from_utf8_lossy(name)) {
+            Some(state) => {
+                npc.mind.temp_behavior = bstate::DEFAULT;
+                npc.behavior_state = state;
+            }
+            None => {
+                let number = npc.number;
+                self.host.run_behavior(number, bset);
+            }
+        }
+        true
+    }
+
+    /// `Q3_SetBState` (`g_ICARUScb.c:2599-2713`), a script's `SET_BEHAVIOR_STATE` of `state`
+    /// (`None` for a name `BSTable` lacks, which changes only the flags): a search or a
+    /// wander started from the NPC's waypoint (none found: nothing changes); the temporary
+    /// state cleared; the state set (and made the default for `BS_DEFAULT`);
+    /// `client->noclip` for `BS_NOCLIP` alone; a jump begun facing its goal. Whether the
+    /// script's task completes at once: all but `BS_ADVANCE_FIGHT`'s, which waits for the
+    /// state to say it is done.
+    pub fn script_set_bstate(&mut self, me: usize, state: Option<i32>) -> bool {
+        if let Some(state) = state {
+            if state == bstate::SEARCH || state == bstate::WANDER {
+                let mut waypoint = self.actors[me].mind.tactics.waypoint;
+                if waypoint == crate::npc_mind::WAYPOINT_NONE {
+                    waypoint = self.closest_waypoint_for(
+                        crate::npc_navigator::NavHolder::Actor(me),
+                        crate::npc_mind::WAYPOINT_NONE,
+                    );
+                    self.actors[me].mind.tactics.waypoint = waypoint;
+                    if waypoint == crate::npc_mind::WAYPOINT_NONE {
+                        return true;
+                    }
+                }
+                self.search_start(me, waypoint, state);
+            }
+            let npc = &mut self.actors[me];
+            npc.mind.temp_behavior = bstate::DEFAULT;
+            if npc.behavior_state == bstate::NOCLIP && state != bstate::NOCLIP {
+                // "rise up out of the floor after noclipping" (`G_SetOrigin`).
+                npc.current_origin[2] += 0.125;
+                let origin = npc.current_origin;
+                npc.player.set_origin(origin);
+            }
+            npc.behavior_state = state;
+            if state == bstate::DEFAULT {
+                npc.default_behavior = state;
+            }
+        }
+        let npc = &mut self.actors[me];
+        npc.ai_flags &= !NPCAI_TOUCHED_GOAL;
+        npc.mind.noclip = state == Some(bstate::NOCLIP);
+        if state == Some(bstate::JUMP) {
+            npc.mind.states.jump_state = jump::FACING;
+        }
+        state != Some(bstate::ADVANCE_FIGHT)
+    }
+
+    /// `NPC_BSSleep` (`NPC_behavior.c:518-539`): an alert noticed runs its wake-up script
+    /// (`BSET_AWAKE`); without one it sleeps on.
     pub fn bs_sleep(&mut self, me: usize) {
-        let _ = self.check_alerts(me, -1, false, AEL_MINOR);
+        if self.check_alerts(me, -1, false, AEL_MINOR).is_some() {
+            let _ = self.activate_behavior(me, crate::script_entity::BSET_AWAKE);
+        }
     }
 
     /// `NPC_BSJump` (`NPC_behavior.c:749-939`): facing the goal it crouches, then leaps
@@ -244,5 +416,23 @@ impl<H: NpcHost> NpcWorld<'_, H> {
             self.actors[me].player.set_velocity([0.0; 3]);
         }
         self.update_angles(me, true, true, command);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_script_names_a_behaviour_state_in_any_case() {
+        assert_eq!(behavior_state_named("BS_WANDER"), Some(bstate::WANDER));
+        assert_eq!(behavior_state_named("bs_default"), Some(bstate::DEFAULT));
+        assert_eq!(
+            behavior_state_named("BS_CINEMATIC"),
+            Some(bstate::CINEMATIC)
+        );
+        // The states past `BS_CINEMATIC` are the game's own; a script cannot name them.
+        assert_eq!(behavior_state_named("BS_HUNT_AND_KILL"), None);
+        assert_eq!(behavior_state_named("mp/wander"), None);
     }
 }

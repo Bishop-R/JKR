@@ -45,3 +45,28 @@ pub(crate) fn parse(text: &[u8], name: &[u8]) -> WeaponPresentation {
     }
     result
 }
+
+/// Vehicle `name`'s client-only `radarIcon` (`vehicleFields`, `bg_vehicleLoad.c`): the
+/// picture the radar shows it by; the last one written counts, as the parser assigns each.
+pub(crate) fn radar_icon(text: &[u8], name: &[u8]) -> Option<String> {
+    let mut parser = TextParser::new(text);
+    if !crate::vehicle_parms::find_block(&mut parser, name) {
+        return None;
+    }
+    let mut icon = None;
+    loop {
+        parser.skip_rest_of_line();
+        let key = parser.parse_ext(true);
+        if key.is_empty() || key == b"}" {
+            break;
+        }
+        let value = parser.parse_ext(true);
+        if key.eq_ignore_ascii_case(b"radarIcon") {
+            icon = std::str::from_utf8(value)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned);
+        }
+    }
+    icon
+}

@@ -52,7 +52,8 @@ const WP_THERMAL: u8 = 12;
 const BUTTON_ATTACK: u16 = 1;
 /// `FP_LIGHTNING`, `FP_DRAIN`, `FP_PUSH`, `FP_GRIP`: powers that hold the hands.
 const HANDS_BUSY: u32 = 1 << 7 | 1 << 13 | 1 << 3 | 1 << 6;
-const MASK_PLAYERSOLID: u32 = 0x1 | 0x100 | 0x10000;
+/// `CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_BODY | CONTENTS_TERRAIN`.
+const MASK_PLAYERSOLID: u32 = 0x1 | 0x10 | 0x100 | 0x1000;
 /// `BOTH_KNOCKDOWN1..=BOTH_KNOCKDOWN5`, then the get-ups through `BOTH_GETUP_FROLL_R`.
 const KNOCKDOWN_LEGS: std::ops::RangeInclusive<u16> = 1_219..=1_223;
 const GETUP_LEGS: std::ops::RangeInclusive<u16> = 1_224..=1_246;

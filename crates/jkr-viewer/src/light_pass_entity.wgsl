@@ -8,7 +8,10 @@
     let position = instance_position(vertex, instance);
     var result: LightOutput;
     result.position = clip_position(position, instance.position.w);
-    if !instance_visible(instance) { result.position = vec4(2.0, 2.0, 2.0, 1.0); }
+    // A burning body lights nothing behind its hole: it leaves the light buffer.
+    if !instance_visible(instance) || dissolve_mode(instance) != 0u {
+        result.position = vec4(2.0, 2.0, 2.0, 1.0);
+    }
     result.world = position;
     result.normal = normalize(rotate_vector(instance.rotation, vertex.normal));
     result.uv = vertex.texture_coordinates;

@@ -170,6 +170,8 @@ pub struct Spoken {
     pub log: Vec<Vec<u8>>,
     /// What the server prints besides.
     pub console: Vec<Vec<u8>>,
+    /// The security log's lines (`G_SecurityLogPrintf`), each with its line end.
+    pub security: Vec<String>,
 }
 
 /// The game state a message is read against.
@@ -215,7 +217,13 @@ pub fn chat_command(
         } else {
             Mode::All
         };
-        chat.say(None, mode, &cut(concat_args(arguments, 1)), &mut spoken);
+        let text = cut(
+            concat_args(arguments, 1),
+            command_name(command),
+            me,
+            &mut spoken,
+        );
+        chat.say(None, mode, &text, &mut spoken);
     } else if is("tell") {
         if arguments.len() < 3 {
             spoken.told.push((
@@ -227,7 +235,8 @@ pub fn chat_command(
         let Some(target) = chat.find(arguments[1], &mut spoken) else {
             return Some(spoken);
         };
-        chat.tell(target, &cut(concat_args(arguments, 2)), &mut spoken);
+        let text = cut(concat_args(arguments, 2), "Cmd_Tell_f", me, &mut spoken);
+        chat.tell(target, &text, &mut spoken);
     } else {
         if arguments.len() != 3 {
             spoken.told.push((
@@ -261,10 +270,28 @@ pub fn chat_command(
     Some(spoken)
 }
 
-/// `Cmd_Say_f`'s cut: a message of `MAX_SAY_TEXT` bytes or more loses its end.
-fn cut(mut text: Vec<u8>) -> Vec<u8> {
-    text.truncate(MAX_SAY_TEXT - 1);
+/// `Cmd_Say_f`'s cut: a message of `MAX_SAY_TEXT` bytes or more loses its end, which the
+/// security log notes under the command's name in the reference (`g_cmds.c:1660-1663`).
+fn cut(mut text: Vec<u8>, command: &str, me: &ClientView, spoken: &mut Spoken) -> Vec<u8> {
+    if text.len() >= MAX_SAY_TEXT {
+        text.truncate(MAX_SAY_TEXT - 1);
+        spoken.security.push(format!(
+            "{command} from {} ({}) has been truncated: {}\n",
+            me.client,
+            String::from_utf8_lossy(&me.name),
+            String::from_utf8_lossy(&text)
+        ));
+    }
     text
+}
+
+/// The reference's function for a chat command, as its security log names it.
+fn command_name(command: &[u8]) -> &'static str {
+    if command.eq_ignore_ascii_case(b"say_team") {
+        "Cmd_SayTeam_f"
+    } else {
+        "Cmd_Say_f"
+    }
 }
 
 /// One message being sent: who says it and to whom it could go.

@@ -1,8 +1,7 @@
 //! `CG_PlayerSprites` (`codemp/cgame/cg_players.c`): the sprite cgame floats over a
 //! player's head, the connection-trouble icon before the talk balloon.
 //!
-//! The voice-chat icon between them (`vChatTime`, from siege voice commands) is not
-//! selected here; nothing in the client tracks voice-command events yet.
+//! Voice-command timing comes from [`crate::event_feedback::Feedback`].
 
 /// `EF_TALK` (`bg_public.h`): the player has a key catcher open.
 const EF_TALK: u32 = jkr_game_jka::pmove_talk::EF_TALK;
@@ -24,6 +23,8 @@ pub enum LegacyPlayerSprite {
     ConnectionInterrupted,
     /// `cgs.media.balloonShader`, for `EF_TALK`.
     Talk,
+    /// A Siege voice command (`vChatTime`).
+    Voice,
 }
 
 impl LegacyPlayerSprite {
@@ -32,6 +33,7 @@ impl LegacyPlayerSprite {
         match self {
             Self::ConnectionInterrupted => "gfx/2d/net",
             Self::Talk => "gfx/mp/chat_icon",
+            Self::Voice => "gfx/mp/vchat_icon",
         }
     }
 }
@@ -44,10 +46,22 @@ pub fn legacy_player_sprite(
     entity_type: u8,
     mind_tricked: bool,
 ) -> Option<LegacyPlayerSprite> {
+    with_voice(entity_flags, entity_type, mind_tricked, false)
+}
+
+/// Stock priority: mind trick, connection interruption, voice, then typing.
+pub fn with_voice(
+    entity_flags: u32,
+    entity_type: u8,
+    mind_tricked: bool,
+    speaking: bool,
+) -> Option<LegacyPlayerSprite> {
     if mind_tricked {
         None
     } else if entity_flags & EF_CONNECTION != 0 {
         Some(LegacyPlayerSprite::ConnectionInterrupted)
+    } else if speaking {
+        Some(LegacyPlayerSprite::Voice)
     } else if entity_type != ET_NPC && entity_flags & EF_TALK != 0 {
         Some(LegacyPlayerSprite::Talk)
     } else {

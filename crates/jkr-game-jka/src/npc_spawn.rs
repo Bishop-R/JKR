@@ -97,6 +97,9 @@ pub enum NpcThink {
     RemoveBody(i32),
 }
 
+/// `behaviorSet[NUM_BSETS]`: a script name (or behaviour state) per behaviour set.
+pub type BehaviorSets = [Option<Vec<u8>>; crate::script_entity::NUM_BSETS];
+
 /// An NPC: the reference's `gentity_t` with its `gNPC_t` and fake `gclient_t`, as far as
 /// the spawn writes them.
 #[derive(Clone, Debug)]
@@ -168,8 +171,9 @@ pub struct NpcActor {
     /// `ent->message`: a key it carries. `ent->fullName`.
     pub message: Option<Vec<u8>>,
     pub full_name: Option<Vec<u8>>,
-    /// `behaviorSet[BSET_SPAWN]`: the ICARUS script it would run once begun.
-    pub spawn_script: Option<Vec<u8>>,
+    /// `behaviorSet`: the ICARUS script of each behaviour set (`BSET_SPAWN` runs once
+    /// begun, `BSET_DEATH` as it dies, ...) — or the name of a behaviour state to take.
+    pub behavior_sets: BehaviorSets,
     /// `alliedTeam`, `teamnodmg`.
     pub allied_team: i32,
     pub team_no_damage: i32,
@@ -224,8 +228,21 @@ impl NpcActor {
             bounds: (self.mins, self.maxs),
             contents: self.contents,
             model: None,
+            linked_box: None,
         }
     }
+}
+
+/// The NPCs' developer switches, all cheats and off by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct NpcSwitches {
+    /// `d_npcfreeze`: every NPC only turns and stands.
+    pub freeze: bool,
+    /// `d_noGroupAI`: no NPC joins a squad (`AI_GetGroup`, `AI_UpdateGroups`).
+    pub no_group_ai: bool,
+    /// `d_asynchronousGroupAI`: a squad's commander orders one member a turn
+    /// (`ST_Commander`).
+    pub asynchronous_group_ai: bool,
 }
 
 /// What the spawn needs of the world it spawns into: entity numbers, the tables clients
@@ -289,6 +306,11 @@ pub trait NpcHost: SaberParseHost {
     fn print(&mut self, text: &str);
     /// `g_gravity`, `g_npcspskill`, `g_gametype`.
     fn gravity(&self) -> f32;
+    /// The server's movement variables (`pmove_fixed`, `pmove_msec`, `pmove_float`,
+    /// `g_stepSlideFix`, `g_noSpecMove`), which an NPC's think reads as a player's does.
+    fn move_cvars(&self) -> crate::pmove_rules::MoveCvars {
+        crate::pmove_rules::MoveCvars::default()
+    }
     fn skill(&self) -> i32;
     fn gametype(&self) -> i32;
     /// The game's generator (`Q_irand`'s), for what takes it whole.
@@ -647,6 +669,11 @@ pub trait NpcHost: SaberParseHost {
     fn dismember_setting(&self) -> i32 {
         0
     }
+    /// `g_austrian` in a duel or power duel: each limb a client loses is logged ("Duel
+    /// Dismemberment"). Off by default.
+    fn austrian_duel(&self) -> bool {
+        false
+    }
     /// `G_HeavyMelee(attacker)` (`g_combat.c:52-63`): in a siege, the attacker plays a class
     /// with `CFL_HEAVYMELEE`, whose melee cuts as a blade does. None by default.
     fn heavy_melee(&self, _attacker: u16) -> bool {
@@ -725,6 +752,30 @@ pub trait NpcHost: SaberParseHost {
     /// `g_debugSaberLocks`: any two blades that meet lock ([`crate::saber_lock::forced_lock`]).
     fn debug_saber_locks(&self) -> bool {
         false
+    }
+    /// The server's saber settings ([`crate::saber_damage::SaberSettings`]). Stock's by
+    /// default.
+    fn saber_settings(&self) -> crate::saber_damage::SaberSettings {
+        crate::saber_damage::SaberSettings::default()
+    }
+    /// The NPCs' developer switches ([`NpcSwitches`]), all off by default.
+    fn npc_switches(&self) -> NpcSwitches {
+        NpcSwitches::default()
+    }
+    /// `g_smoothClients`: an NPC's entity is extrapolated from its command time. On by
+    /// default, as stock.
+    fn smooth_clients(&self) -> bool {
+        true
+    }
+    /// The `CS_LEGACY_FIXES` mask the moves run ([`crate::pmove::MovementConfig`]). All
+    /// three fixes by default, as stock.
+    fn legacy_fixes(&self) -> u32 {
+        0b111
+    }
+    /// How blows push and where they land count ([`crate::damage::DamageRules`]).
+    /// Stock's by default.
+    fn damage_rules(&self) -> crate::damage::DamageRules {
+        crate::damage::DamageRules::default()
     }
     /// Entity `number`'s wire state as the host keeps it (an NPC's saber entity's, which its
     /// flight writes). None by default.
@@ -961,12 +1012,28 @@ pub trait NpcHost: SaberParseHost {
     /// A player killed an NPC (`player_die`, `g_combat.c:2600-2622`): the stun baton's count,
     /// the excellent award by its last kill's time, and the time of this one.
     fn credit_kill(&mut self, _player: u16, _means: u32) {}
+    /// A player killed an NPC, for the statistics log (`G_LogWeaponKill`).
+    fn tally_kill(&mut self, _player: u16, _means: u32) {}
     /// `AddScore` on an NPC, beyond its own score: its team's in a team game (by the
     /// player team it counts as), and the ranks.
     fn npc_scored(&mut self, _team: i32, _points: i32) {}
     /// In a Jedi Master game, the master's client number, if anyone is the master.
     fn jedi_master(&self) -> Option<u16> {
         None
+    }
+    /// jaPRO's `g_scoreNPCs`: what a player's kill of an NPC counts for — 0 nothing (no
+    /// score, award or victory), 1 its score and awards without the killer's victory, 2
+    /// (stock) all of it.
+    fn score_npcs(&self) -> i32 {
+        2
+    }
+    /// jaPRO's Force options, which an NPC's powers obey too.
+    fn force_rules(&self) -> crate::force_powers::ForceRules {
+        crate::force_powers::ForceRules::default()
+    }
+    /// How long the items an NPC picks up stay away ([`crate::items::Respawns`]).
+    fn item_respawns(&self) -> crate::items::Respawns {
+        crate::items::Respawns::default()
     }
     /// `level.warmupTime`: no scoring during the warm-up.
     fn warmup(&self) -> bool {
@@ -981,6 +1048,9 @@ pub trait NpcHost: SaberParseHost {
     fn set_player_enemy(&mut self, _player: u16, _enemy: Option<u16>) {}
     /// `other->flags &= ~FL_NOTARGET` for a player an ally turns on.
     fn clear_player_notarget(&mut self, _player: u16) {}
+    /// `ICARUS_RunScript` for the script NPC `number`'s behaviour set `bset` names
+    /// (`G_ActivateBehavior`), started this frame after the NPCs' own turn.
+    fn run_behavior(&mut self, _number: u16, _bset: usize) {}
     /// The humanoid skeleton's animation lengths (`bgHumanoidAnimations`), whose frame
     /// times a pain animation's length is taken at.
     fn humanoid_animations(
@@ -1391,7 +1461,7 @@ fn actor(
         open_target: spawner.open_target.clone(),
         message: spawner.message.clone(),
         full_name: (!spawner.full_name.is_empty()).then(|| spawner.full_name.clone()),
-        spawn_script: spawner.spawn_script.clone(),
+        behavior_sets: spawner.behavior_sets.clone(),
         allied_team: spawner.allied_team,
         team_no_damage: spawner.team_no_damage,
         think: NpcThink::Begin(level_time + FRAMETIME),

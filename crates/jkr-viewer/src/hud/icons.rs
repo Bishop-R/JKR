@@ -58,12 +58,20 @@ pub(crate) fn install(
     hud.icons.handles = assets::load(vfs, shaders, |id, rgba| {
         renderer.upload_icon(queue, id, rgba)
     });
+    hud.icons.hacker = assets::load_hacker(vfs, shaders, |id, rgba| {
+        renderer.upload_icon(queue, id, rgba)
+    });
     (renderer, hud)
 }
+
+/// `forcePowerSorted` (`bg_misc.c:200-220`): the order Force powers are always drawn in.
+const FORCE_SORTED: [usize; 18] = [5, 0, 10, 9, 11, 1, 2, 3, 4, 14, 7, 13, 8, 6, 12, 15, 16, 17];
 
 /// Sampled options and scalar snapshot data; all texture handles are map-lifetime values.
 pub(crate) struct Icons {
     handles: [Option<TextureId>; assets::COUNT],
+    /// The hack bar's technician (`assets::load_hacker`).
+    pub(super) hacker: Option<TextureId>,
     enabled: bool,
     models: bool,
     powers: bool,
@@ -75,12 +83,23 @@ pub(crate) struct Icons {
     cty: bool,
     method: usize,
     warned_model: bool,
+    /// `forcePowersActive`, rage recovery running, and whether `CG_DrawActivePowers`
+    /// stands down (zoomed, or a spectator).
+    active_powers: u32,
+    rage_recovery: bool,
+    powers_hidden: bool,
+    /// `holocronBits`: the holocrons held.
+    holocrons: u32,
+    /// `CG_DrawFlagStatus`'s two icons, bottom up: the enemy flag the viewer's team holds,
+    /// the viewer's own flag taken.
+    flag_status: [Option<usize>; 2],
 }
 
 impl Default for Icons {
     fn default() -> Self {
         Self {
             handles: [None; assets::COUNT],
+            hacker: None,
             enabled: true,
             models: false,
             powers: true,
@@ -92,6 +111,11 @@ impl Default for Icons {
             cty: false,
             method: 0,
             warned_model: false,
+            active_powers: 0,
+            rage_recovery: false,
+            powers_hidden: true,
+            holocrons: 0,
+            flag_status: [None; 2],
         }
     }
 }
@@ -130,10 +154,16 @@ impl Icons {
 
         self.weapon = snapshot.player.weapon();
         self.alive = snapshot.player.health() > 0 && snapshot.player.movement_type() != 4;
+        self.active_powers = snapshot.player.force_powers_active();
+        self.rage_recovery = snapshot.player.force_rage_recovery_time() > snapshot.server_time;
+        self.powers_hidden = snapshot.player.zoom_mode() != 0 || snapshot.player.team() == 3;
+        self.holocrons = snapshot.player.raw_field(113).unwrap_or(0);
+        // `GT_CTY` is 9; 8 is capture the flag.
         self.cty = game
             .config_string(0)
             .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"))
-            == Some(8);
+            == Some(9);
+        self.flag_status = flag_status(game, snapshot.player.team());
         for (seconds, end) in self.seconds.iter_mut().zip(snapshot.player.powerups) {
             let remaining = i64::from(end) - i64::from(snapshot.server_time);
             *seconds = if remaining > 0 {
@@ -174,6 +204,20 @@ impl Icons {
         let [w, h] = viewport;
         let s = (h / 1080.0).clamp(0.6, 2.5);
         let white = Color::new(1.0, 1.0, 1.0, 1.0);
+        if visibility.hud && !self.powers_hidden {
+            self.holocrons(list, viewport);
+            self.active_powers(list, viewport);
+        }
+        if visibility.status && self.alive {
+            // `CG_DrawFlagStatus`: up the left edge from about two thirds down (2, 328 of
+            // 640 by 480), 32 high with 2 between.
+            let size = h * 32.0 / 480.0;
+            let mut y = h * 328.0 / 480.0;
+            for slot in self.flag_status.into_iter().flatten() {
+                self.quad(list, slot, Rect::new(8.0 * s, y, size, size), white);
+                y -= size + h * 2.0 / 480.0;
+            }
+        }
         if self.enabled && visibility.status && self.alive {
             let item = assets::WEAPONS
                 .get(self.weapon as usize)
@@ -240,6 +284,111 @@ impl Icons {
         }
     }
 
+    /// `CG_DrawActivePowers` (`cg_draw.c:5714-5754`): an icon for each running power that
+    /// lasts (heal, speed, mind trick, rage, protect, absorb, sight), in `forcePowerSorted`
+    /// order along the bottom left and wrapping, then rage recovery's while it runs.
+    fn active_powers(&self, list: &mut DrawList, viewport: [f32; 2]) {
+        /// `CG_IsDurationPower`: heal, speed, mind trick, rage, protect, absorb, sight.
+        const LASTING: [usize; 7] = [0, 2, 5, 8, 9, 10, 14];
+        let [w, h] = viewport;
+        let s = (h / 1080.0).clamp(0.6, 2.5);
+        let (size, step) = (64.0 * s, 68.0 * s);
+        let start = 56.0 * s;
+        let (mut x, mut y) = (start, h - 260.0 * s);
+        let white = Color::new(1.0, 1.0, 1.0, 1.0);
+        let powers = FORCE_SORTED
+            .iter()
+            .filter(|power| LASTING.contains(power) && self.active_powers & (1 << **power) != 0)
+            .map(|power| assets::FORCE + power)
+            .chain(self.rage_recovery.then_some(assets::RAGE_RECOVERY));
+        for slot in powers {
+            self.quad(list, slot, Rect::new(x, y, size, size), white);
+            x += step;
+            if x + size >= w - 200.0 * s {
+                x = start;
+                y += step;
+            }
+        }
+    }
+
+    /// `CG_DrawHolocronIcons` (`cg_draw.c:5664-5696`): the icon of each holocron held, in
+    /// `forcePowerSorted` order down the top left, wrapping into a further column.
+    fn holocrons(&self, list: &mut DrawList, viewport: [f32; 2]) {
+        if self.holocrons == 0 {
+            return;
+        }
+        let [_, h] = viewport;
+        let s = (h / 1080.0).clamp(0.6, 2.5);
+        let (size, step) = (64.0 * s, 68.0 * s);
+        let top = 24.0 * s;
+        let (mut x, mut y) = (24.0 * s, top);
+        let white = Color::new(1.0, 1.0, 1.0, 1.0);
+        for power in FORCE_SORTED {
+            if self.holocrons & (1 << power) == 0 {
+                continue;
+            }
+            self.quad(
+                list,
+                assets::FORCE + power,
+                Rect::new(x, y, size, size),
+                white,
+            );
+            y += step;
+            if y + size >= h - 200.0 * s {
+                y = top;
+                x += step;
+            }
+        }
+    }
+
+    /// One of the vehicle HUD's pictures; `mirrored` turns it about (the right frame, which
+    /// stock draws with a negative width).
+    pub(super) fn vehicle(
+        &self,
+        list: &mut DrawList,
+        picture: usize,
+        rect: Rect,
+        color: Color,
+        mirrored: bool,
+    ) {
+        let Some(texture) = self
+            .handles
+            .get(assets::VEHICLE + picture)
+            .copied()
+            .flatten()
+        else {
+            return;
+        };
+        let _ = list.push(if mirrored {
+            DrawCommand::RotatedQuad {
+                rect,
+                degrees: 180.0,
+                texture,
+                color,
+                additive: false,
+            }
+        } else {
+            DrawCommand::TexturedQuad {
+                rect,
+                texture,
+                color,
+            }
+        });
+    }
+
+    /// The icon of an item just picked up, at the right of the screen (`CG_DrawPickupItem`
+    /// draws it at 573, 320 of 640 by 480).
+    pub(super) fn pickup(&self, list: &mut DrawList, viewport: [f32; 2], item: u16, alpha: f32) {
+        let [w, h] = viewport;
+        let s = (h / 1080.0).clamp(0.6, 2.5);
+        self.quad(
+            list,
+            usize::from(item),
+            Rect::new(w - 132.0 * s, h * (320.0 / 480.0), 96.0 * s, 96.0 * s),
+            Color::new(1.0, 1.0, 1.0, alpha),
+        );
+    }
+
     /// Add an icon beside the existing obituary text and reserve its space.
     pub(super) fn feed(&self, list: &mut DrawList, rect: &mut Rect, alpha: f32, scale: f32) {
         let index = 51 + self.method.min(42);
@@ -291,3 +440,62 @@ const NUMBERS: [[u8; 3]; 999] = {
     }
     values
 };
+
+/// `CG_DrawFlagStatus`'s icons for a player of `team` (`CS_FLAGSTATUS`, `CG_YourTeamHasFlag`,
+/// `CG_OtherTeamHasFlag`): in CTF and CTY only, the enemy flag when the team holds it, then
+/// the team's own flag, crossed out, when the enemy holds it.
+fn flag_status(game: &GameState, team: u8) -> [Option<usize>; 2] {
+    const GT_CTF: i32 = 8;
+    const GT_CTY: i32 = 9;
+    const CS_FLAGSTATUS: usize = 23;
+    const TEAM_RED: u8 = 1;
+    const TEAM_BLUE: u8 = 2;
+    let gametype = game
+        .config_string(0)
+        .and_then(|s| jkr_client::LegacyClientInfo::new(s).integer("g_gametype"));
+    let own = match team {
+        TEAM_RED => 0,
+        TEAM_BLUE => 1,
+        _ => return [None; 2],
+    };
+    let enemy = 1 - own;
+    let flags = match gametype {
+        Some(GT_CTF) => assets::FLAGS,
+        Some(GT_CTY) => assets::CTY_FLAGS,
+        _ => return [None; 2],
+    };
+    // Red's status, then blue's; '1' is taken.
+    let status = game.config_string(CS_FLAGSTATUS).unwrap_or_default();
+    let taken = |side: usize| status.get(side) == Some(&b'1');
+    [
+        taken(enemy).then_some(flags[enemy]),
+        taken(own).then_some(assets::TAKEN_FLAGS[own]),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn game(gametype: u8, status: &str) -> GameState {
+        let mut game = GameState::empty_local(0);
+        let info = format!("\\g_gametype\\{gametype}").into_bytes();
+        game.replace_config_string(0, info).unwrap();
+        game.replace_config_string(23, status.as_bytes().to_vec())
+            .unwrap();
+        game
+    }
+
+    #[test]
+    fn flag_status_shows_whose_flag_is_out() {
+        // Red holds blue's flag: red sees blue's flag; blue sees its own crossed out.
+        let ctf = game(8, "01");
+        assert_eq!(flag_status(&ctf, 1), [Some(47), None]);
+        assert_eq!(flag_status(&ctf, 2), [None, Some(116)]);
+        // Both out, in capture the ysalamiri: the ysalamiri flag, then the crossed one.
+        assert_eq!(flag_status(&game(9, "11"), 1), [Some(95), Some(115)]);
+        // A spectator, or another game type, sees none.
+        assert_eq!(flag_status(&ctf, 3), [None, None]);
+        assert_eq!(flag_status(&game(6, "11"), 1), [None, None]);
+    }
+}

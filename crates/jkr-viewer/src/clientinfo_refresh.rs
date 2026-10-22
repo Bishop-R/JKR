@@ -15,12 +15,14 @@ use super::*;
 use crate::actor_load::{build_actor_mesh, client_saber_names};
 use crate::player_assets::{GlaCache, load_player_appearance_with};
 use crate::shared_geometry::relocate;
-use jkr_client::legacy_client_appearance_forced;
+use jkr_client::legacy_client_appearance_dressed;
 
 #[path = "corpse_actors.rs"]
 mod corpse_actors;
 #[path = "clientinfo_forcing.rs"]
 mod forcing;
+#[path = "siege_looks.rs"]
+pub(crate) mod siege_looks;
 
 /// Per-world appearance loading caches used by dirty clientinfo notifications.
 pub(crate) struct ClientInfoWatch {
@@ -32,6 +34,8 @@ pub(crate) struct ClientInfoWatch {
     local_identity: (i32, i32),
     /// Appearances whose load failed; not retried until the string changes.
     pub(crate) failed: BTreeSet<Appearance>,
+    /// The siege classes' looks for the level shown.
+    pub(crate) siege_looks: siege_looks::SiegeLooksCache,
 }
 
 impl ClientInfoWatch {
@@ -44,6 +48,7 @@ impl ClientInfoWatch {
             overrides: std::array::from_fn(|_| String::new()),
             local_identity: (-1, -1),
             failed: BTreeSet::new(),
+            siege_looks: Default::default(),
         }
     }
 }
@@ -147,10 +152,16 @@ impl GpuState {
                 self.clientinfo_watch.local_identity,
                 forcing::team(game_state, client),
             );
-            let Some(appearance) = legacy_client_appearance_forced(
+            // A siege class's model and skin come after `cg_forceModel` (`CG_NewClientInfo`).
+            let looks = self
+                .clientinfo_watch
+                .siege_looks
+                .for_level(game_state, self.vfs.as_deref());
+            let Some(appearance) = legacy_client_appearance_dressed(
                 game_state,
                 client,
                 override_model.as_deref().or(forced),
+                looks,
             ) else {
                 return Ok(());
             };
@@ -177,11 +188,39 @@ impl GpuState {
         if self.clientinfo_watch.failed.contains(&appearance) {
             return Ok(());
         }
-        let mesh = match self.build_live_actor(&appearance, entity_id, saber_names) {
+        let mesh = match self.build_live_actor(&appearance, entity_id, saber_names.clone()) {
             Ok(mesh) => mesh,
             Err(error) => {
-                self.clientinfo_watch.failed.insert(appearance.clone());
-                return Err(error);
+                // `CG_LoadClientInfo`: a model that cannot be loaded stands in as Kyle; the
+                // look asked for is kept on the mesh, so it is not tried again.
+                let game_state = self
+                    .live_session
+                    .as_ref()
+                    .map(ClientSession::game_state)
+                    .or_else(|| {
+                        self.demo_session
+                            .as_ref()
+                            .map(demo_playback::Session::game_state)
+                    });
+                let stand_in = crate::actor_load::fallback_for(
+                    &appearance,
+                    crate::actor_load::team_game(game_state),
+                    crate::actor_load::female(game_state, client as u16),
+                );
+                match self.build_live_actor(&stand_in, entity_id, saber_names) {
+                    Ok(mut mesh) => {
+                        log::progress(format_args!(
+                            "client {client}: {}/{} cannot be loaded ({error}); {} stands in",
+                            appearance.model, appearance.variant, stand_in.model
+                        ));
+                        mesh.appearance = appearance.clone();
+                        mesh
+                    }
+                    Err(_) => {
+                        self.clientinfo_watch.failed.insert(appearance.clone());
+                        return Err(error);
+                    }
+                }
             }
         };
         match index {
@@ -196,6 +235,24 @@ impl GpuState {
             appearance.model, appearance.variant
         ));
         Ok(())
+    }
+
+    /// Load the effects of `client`'s model as it is installed rather than at its first
+    /// animation (`actor_pose::sounds::preload_effects`); whether the library gained any.
+    pub(crate) fn preload_actor_effects(&mut self, client: u16) -> bool {
+        let Some(vfs) = self.vfs.clone() else {
+            return false;
+        };
+        let entity_id = EntityId::new(u64::from(client) + 1);
+        let mut gained = false;
+        for mesh in self
+            .actor_meshes
+            .iter_mut()
+            .filter(|mesh| !mesh.corpse_pool && mesh.entity_id == Some(entity_id))
+        {
+            gained |= crate::actor_pose::sounds::preload_effects(mesh, &mut self.effects, &vfs);
+        }
+        gained
     }
 
     /// Load `appearance` for `entity_id` and append it to the shared buffers.
@@ -252,6 +309,7 @@ impl GpuState {
             placement,
             material_base,
         );
+        relocate(&mut [], &mut mesh.surfaces.caps, placement, material_base);
         // Palette-skin the new mesh like the actors known at world load; on a topology
         // mismatch this one mesh keeps the CPU path.
         match self

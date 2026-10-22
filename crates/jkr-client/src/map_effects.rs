@@ -243,7 +243,7 @@ fn next_random(side: &mut EntitySideState, entity_number: u16) -> f32 {
 
 /// Forward vector from JKA pitch/yaw degrees (`AngleVectors`,
 /// `shared/qcommon/q_math.c:1319-1366`, used at `cg_ents.c:3702-3707`).
-fn angle_vectors_forward(angles: [f32; 3]) -> [f32; 3] {
+pub(crate) fn angle_vectors_forward(angles: [f32; 3]) -> [f32; 3] {
     let pitch = angles[0].to_radians();
     let yaw = angles[1].to_radians();
     let (pitch_sine, pitch_cosine) = pitch.sin_cos();

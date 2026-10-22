@@ -26,6 +26,7 @@ const WP_SABER: u32 = 3;
 const WP_BRYAR_PISTOL: u32 = 4;
 const FP_SABER_OFFENSE: usize = 15;
 const FP_SABER_DEFENSE: usize = 16;
+const FP_SABER_THROW: usize = 17;
 const BOTH_STAND1TO2: u16 = 927;
 const TORSO_RAISEWEAP1: u16 = 1_398;
 const EF_TELEPORT_BIT: u32 = 1 << 3;
@@ -146,13 +147,29 @@ pub struct SpawnRequest<'a> {
     pub event_sequence: u32,
     /// `ps.saberEntityNum`, which survives.
     pub saber_entity: u32,
+    /// jaPRO's gun game: the rung whose weapon is the whole loadout
+    /// (`G_GiveGunGameWeapon`).
+    pub gun_game: Option<crate::gun_game::Rung>,
 }
 
 /// The weapons a player spawns with, and the one in hand (`g_client.c:3380-3520`).
 fn weapons(request: &SpawnRequest<'_>) -> (u32, u32) {
-    let (gametype, disabled) = (request.settings.gametype, request.settings.weapons_disabled);
+    if let Some(rung) = request.gun_game {
+        return (1 << rung.weapon, rung.weapon);
+    }
+    spawn_weapons(
+        request.settings.gametype,
+        request.settings.weapons_disabled,
+        request.force.levels[FP_SABER_OFFENSE],
+    )
+}
+
+/// The weapons a player spawns with outside the gun game under `gametype` and the
+/// disabled weapons, with its saber offense level, and the one in hand
+/// (`g_client.c:3380-3520`): the saber (fists without the skill), and the pistol.
+pub fn spawn_weapons(gametype: i32, disabled: u32, saber_offense: u8) -> (u32, u32) {
     let mut owned = 1; // WP_NONE
-    if gametype == GT_HOLOCRON || request.force.levels[FP_SABER_OFFENSE] != 0 {
+    if gametype == GT_HOLOCRON || saber_offense != 0 {
         owned |= 1 << WP_SABER;
     } else {
         // "if you don't have saber attack rank then you don't get a saber"
@@ -209,10 +226,14 @@ pub fn client_spawn(request: &SpawnRequest<'_>, lengths: &dyn AnimationLengths) 
             (levels[FP_SABER_OFFENSE], levels[FP_SABER_DEFENSE]) = (1, 1);
         }
     }
-    let known = (0..FORCE_POWERS)
+    let mut known = (0..FORCE_POWERS)
         .filter(|&power| levels[power] != 0)
         .fold(0_u32, |known, power| known | 1 << power)
         & request.force.known;
+    // jaPRO's gun game: the saber throw is known on its rung alone.
+    if let Some(rung) = request.gun_game {
+        known = known & !(1 << FP_SABER_THROW) | u32::from(rung.saber_throw) << FP_SABER_THROW;
+    }
     set(18, 100); // fd.forcePower
     set(51, known);
     set(52, u32::from(levels[1])); // FP_LEVITATION
@@ -290,6 +311,11 @@ pub fn client_spawn(request: &SpawnRequest<'_>, lengths: &dyn AnimationLengths) 
     player.stats[STAT_MAX_HEALTH] = maximum as u32;
     player.stats[STAT_ARMOR] = armor as u32;
     player.stats[STAT_WEAPONS] = if spectator { 0 } else { owned };
-    player.ammo[AMMO_BLASTER] = 100;
+    match request.gun_game.and_then(|rung| rung.ammo) {
+        // The gun game's ammunition alone (jaPRO's spawn empties the rest first).
+        Some(ammo) => player.ammo[ammo] = crate::gun_game::AMMO,
+        None if request.gun_game.is_some() => {}
+        None => player.ammo[AMMO_BLASTER] = 100,
+    }
     player
 }

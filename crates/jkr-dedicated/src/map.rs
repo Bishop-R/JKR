@@ -52,8 +52,6 @@ pub struct LoadedMap {
     /// Each siege objective's chain (`CalculateSiegeGoals`): its side and, where something
     /// sets it off, the chain's end as the map places it.
     pub siege_chains: Vec<SiegeChain>,
-    /// The `func_usable` brushes it places, which a player's use key fires.
-    pub usables: Vec<jkr_game_jka::use_key::Usable>,
     /// The breakable brushes it places, with the bounds of the brush models they are.
     pub breakables: Vec<jkr_game_jka::breakables::Breakable>,
     /// The binary movers it places — `func_door` and `func_plat` — with the bounds of
@@ -86,6 +84,9 @@ pub struct LoadedMap {
     pub entities: Vec<jkr_entity::Entity>,
     /// `sv_mapChecksum`: the `.bsp`'s checksum (`CM_LoadMap`, `Com_BlockChecksum`).
     pub checksum: i32,
+    /// `sv.checksumFeed`: drawn as the map is loaded, it keys the clients' movement
+    /// packets and their pure checksums ([`crate::pure_files`]).
+    pub checksum_feed: i32,
     /// The map's navigation file (`maps/<name>.nav`), if the game data has one.
     pub nav_file: Option<Vec<u8>>,
     /// How long each animation of the humanoid skeleton lasts, which movement holds
@@ -109,14 +110,67 @@ pub fn brush_bounds(bsp: &Bsp, model: usize) -> Option<([f32; 3], [f32; 3])> {
     ))
 }
 
-/// Mount `<game_data>/base/*.pk3` in the reference's search order and load
-/// `maps/<name>.bsp`, as `SV_SpawnServer` finds a map.
-pub fn load(game_data: &Path, name: &str) -> Result<LoadedMap, Box<dyn Error>> {
+/// The game directories searched, in mount order: `base`, then the mod's (`fs_game`)
+/// when it names one, whose files win. A mod name that could climb out of the game data
+/// (`FS_CheckDirTraversal`) or name `base` itself adds nothing.
+pub fn game_directories(game: &str) -> Vec<&str> {
+    let usable = !game.is_empty()
+        && !game.eq_ignore_ascii_case("base")
+        && game
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+        && !game.contains("..");
+    if usable {
+        vec!["base", game]
+    } else {
+        vec!["base"]
+    }
+}
+
+/// Mount `<game_data>/base/*.pk3`, then the mod's (`fs_game`), in the reference's search
+/// order and load `maps/<name>.bsp`, as `SV_SpawnServer` finds a map.
+pub fn load(game_data: &Path, game: &str, name: &str) -> Result<LoadedMap, Box<dyn Error>> {
+    let directories = game_directories(game);
     let mut files = VirtualFileSystem::new();
-    files.mount_pk3_directory_with_warnings(game_data.join("base"), |archive, error| {
-        eprintln!("skipping {}: {error}", archive.display());
-    })?;
-    load_from(files, name)
+    for directory in &directories {
+        let path = game_data.join(directory);
+        // A mod folder that is not there adds nothing; `base` must be.
+        if *directory != "base" && !path.is_dir() {
+            continue;
+        }
+        files.mount_pk3_directory_with_warnings(&path, |archive, error| {
+            eprintln!("skipping {}: {error}", archive.display());
+        })?;
+    }
+    let mut map = load_from(files, name)?;
+    // The reference names a pak by the game directory it is found in (`base/<file>`),
+    // even where that file is a link to one elsewhere; the mount reports where links lead.
+    if let Some(pak) = &mut map.pak
+        && let Some((directory, listed)) = directories.iter().rev().find_map(|directory| {
+            Some((
+                *directory,
+                listed_as(&game_data.join(directory), &pak.path)?,
+            ))
+        })
+    {
+        pak.name = format!("{directory}/{listed}");
+    }
+    Ok(map)
+}
+
+/// The name (without `.pk3`) under which `directory` lists the pak at `archive`, a link
+/// to it included.
+fn listed_as(directory: &Path, archive: &Path) -> Option<String> {
+    std::fs::read_dir(directory)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("pk3"))
+        })
+        .find(|path| path.canonicalize().ok().as_deref() == Some(archive))
+        .and_then(|path| Some(path.file_stem()?.to_string_lossy().into_owned()))
 }
 
 /// `maps/<name>.bsp` and what goes with it, out of `files` however they were mounted.
@@ -259,20 +313,6 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
             })
             .collect();
     }
-    // The brushes a player's use key fires.
-    let mut usables = Vec::new();
-    for entity in &entities {
-        let model = entity
-            .get("model")
-            .and_then(|name| name.strip_prefix('*'))
-            .and_then(|index| index.parse::<usize>().ok());
-        let bounds = model.and_then(|index| brush_bounds(&bsp, index));
-        if let Some(bounds) = bounds
-            && let Some(usable) = jkr_game_jka::use_key::spawn_usable(entity, bounds)
-        {
-            usables.push(usable);
-        }
-    }
     // The brushes it puts there to be broken: crates, glass, stone.
     let mut breakables = Vec::new();
     for entity in &entities {
@@ -322,6 +362,7 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
         .cloned()
         .collect();
     let checksum = jkr_vfs::file_checksum(&asset.bytes);
+    let checksum_feed = crate::pure_files::checksum_feed();
     let nav_file = files
         .read(&format!("maps/{name}.nav"))?
         .map(|asset| asset.bytes.to_vec());
@@ -341,7 +382,6 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
         breakables,
         siege,
         siege_chains,
-        usables,
         locations,
         config_strings: table.into_iter().collect(),
         world,
@@ -352,6 +392,7 @@ pub fn load_from(files: VirtualFileSystem, name: &str) -> Result<LoadedMap, Box<
         vehicle_files,
         npc_entities,
         checksum,
+        checksum_feed,
         nav_file,
         files,
         pak,

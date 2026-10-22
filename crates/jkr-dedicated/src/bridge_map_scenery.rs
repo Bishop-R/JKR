@@ -47,6 +47,22 @@ pub(in crate::bridge) struct Scenery {
 }
 
 impl Scenery {
+    /// Whether the pane at `number` takes damage (`takedamage`); `None` for no pane.
+    pub(in crate::bridge) fn glass_takes_damage(&self, number: u16) -> Option<bool> {
+        self.glass
+            .iter()
+            .find(|(id, _)| id.legacy_number() == number)
+            .map(|(_, pane)| pane.takes_damage)
+    }
+
+    /// The pane at `number`, if one stands there.
+    pub(in crate::bridge) fn pane(&self, number: u16) -> Option<&Glass> {
+        self.glass
+            .iter()
+            .find(|(id, _)| id.legacy_number() == number)
+            .map(|(_, pane)| pane)
+    }
+
     /// The panes still standing, as obstacles to every trace.
     pub(super) fn obstacles(&self) -> impl Iterator<Item = BoxObstacle> + '_ {
         self.glass.iter().map(|(id, pane)| BoxObstacle {
@@ -55,7 +71,25 @@ impl Scenery {
             bounds: pane.bounds,
             contents: CONTENTS_SOLID,
             model: Some(pane.model),
+            linked_box: None,
         })
+    }
+
+    /// The panes a blast may reach: those that take damage and stand, each by
+    /// `SV_LinkEntity`'s box a unit wider.
+    pub(in crate::bridge) fn splash_targets(&self) -> impl Iterator<Item = SplashTarget> + '_ {
+        self.glass
+            .iter()
+            .filter(|(_, pane)| pane.takes_damage && !pane.shattered)
+            .map(|(id, pane)| SplashTarget {
+                number: id.legacy_number(),
+                bounds: (
+                    pane.bounds.0.map(|low| low - 1.0),
+                    pane.bounds.1.map(|high| high + 1.0),
+                ),
+                origin: [0.0; 3],
+                takes_damage: true,
+            })
     }
 
     /// Lets go of the entities without freeing them: the pool they were in is gone.
@@ -185,6 +219,7 @@ impl NativeGame {
             .map(|named| (named.classname.clone(), named.origin, named.angles))
             .collect();
         if named.is_empty() {
+            super::bridge_map_logic::pick_target_missing(target);
             return None;
         }
         let (classname, origin, angles) = named[self.rand.next() as usize % named.len()].clone();
@@ -204,6 +239,7 @@ impl NativeGame {
             (camera.spawnflags, camera.roll, camera.target)
         });
         let aims: Vec<[f32; 3]> = if aim_name.is_empty() {
+            println!("G_PickTarget called with NULL targetname");
             Vec::new()
         } else {
             self.stock
@@ -213,6 +249,9 @@ impl NativeGame {
                 .map(|named| named.origin)
                 .collect()
         };
+        if aims.is_empty() && !aim_name.is_empty() {
+            super::bridge_map_logic::pick_target_missing(&aim_name);
+        }
         let aim = (!aims.is_empty()).then(|| aims[self.rand.next() as usize % aims.len()]);
         Some(Camera {
             origin,
@@ -263,7 +302,31 @@ impl NativeGame {
         &mut self,
         number: u16,
         damage: i32,
+        means: u32,
         owner: u16,
+        level_time: i32,
+    ) -> bool {
+        self.hurt_glass_by(number, damage, means, owner, None, level_time)
+    }
+
+    /// Whether `number` is a pane of glass (`func_glass`).
+    pub(in crate::bridge) fn is_glass(&self, number: u16) -> bool {
+        self.stock
+            .scenery
+            .glass
+            .iter()
+            .any(|(id, _)| id.legacy_number() == number)
+    }
+
+    /// [`Self::hurt_glass`] with the blow's point and direction (`G_Damage`'s `pos1` and
+    /// `pos2`, the direction normalized) when they are known.
+    pub(in crate::bridge) fn hurt_glass_by(
+        &mut self,
+        number: u16,
+        damage: i32,
+        means: u32,
+        owner: u16,
+        blow: Option<([f32; 3], [f32; 3])>,
         level_time: i32,
     ) -> bool {
         let Some(index) = self
@@ -280,15 +343,21 @@ impl NativeGame {
             .map(|peer| peer.state.origin());
         let pane = &mut self.stock.scenery.glass[index].1;
         let center = pane.center();
-        let mut direction = from.map_or([0.0; 3], |from| {
-            std::array::from_fn(|axis| center[axis] - from[axis])
+        let (point, direction) = blow.unwrap_or_else(|| {
+            let mut direction = from.map_or([0.0; 3], |from| {
+                std::array::from_fn(|axis| center[axis] - from[axis])
+            });
+            jkr_game_jka::player_angle_math::normalize(&mut direction);
+            (center, direction)
         });
-        jkr_game_jka::player_angle_math::normalize(&mut direction);
-        if let Some(shatter) = pane.hurt(damage, center, direction) {
+        let hurt = pane.takes_damage && !pane.shattered;
+        if let Some(shatter) = pane.hurt(damage, point, direction) {
             let attacker = (usize::from(owner) < self.players.places())
                 .then_some(usize::from(owner))
                 .unwrap_or(usize::MAX);
             self.shatter_glass(index, shatter, attacker, level_time);
+        } else if hurt {
+            self.tally_damage_by(Some(owner), means, damage);
         }
         true
     }

@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// `weaponstate == WEAPON_FIRING && weaponTime > 100` (`CG_DrawSimpleAmmo`).
+fn firing(weapon_state: u8, weapon_time: i32) -> bool {
+    weapon_state == 3 && weapon_time > 100
+}
+
 impl HudOverlay {
     pub(crate) fn update(
         &mut self,
@@ -18,12 +23,16 @@ impl HudOverlay {
             .update(predicted.map_or(player.velocity(), |p| p.velocity), console);
         self.update_votes(session.game_state(), player.team(), time_ms as i32, console);
         let values = legacy_predicted_hud_data(player, predicted);
-        self.update_values(player, values, time_ms)
+        let (state, time) = predicted.map_or((player.weapon_state(), player.weapon_time()), |p| {
+            (p.weapon_state, p.weapon_time)
+        });
+        self.update_values(player, values, firing(state, time), time_ms)
     }
 
     pub(crate) fn update_player(&mut self, player: &PlayerState, time_ms: u64) -> ClientHudData {
         let values = legacy_hud_data(player);
-        self.update_values(player, values, time_ms)
+        let firing = firing(player.weapon_state(), player.weapon_time());
+        self.update_values(player, values, firing, time_ms)
     }
 
     pub(crate) fn update_demo_votes(
@@ -42,8 +51,11 @@ impl HudOverlay {
         &mut self,
         player: &PlayerState,
         values: ClientHudData,
+        firing: bool,
         time_ms: u64,
     ) -> ClientHudData {
+        self.simple.update(&values, firing, time_ms);
+        self.falling_since = player.falling_to_death();
         let maximum = player.max_health().max(1) as f32;
         self.icons.weapon(values.weapon);
         let targets = [

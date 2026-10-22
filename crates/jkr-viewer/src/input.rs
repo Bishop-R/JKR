@@ -44,7 +44,11 @@ pub(crate) enum InputAction {
     SaberToggle,
     SaberStyle,
     Weapon(u8),
+    /// `weaponclean`: a weapon by its own number.
+    WeaponClean(u8),
     WeaponCycle(i8),
+    /// EternalJK's `weaplast`: back to the weapon before the last swap.
+    LastWeapon,
     /// Local force/inventory cycling; never a reliable server command.
     SelectionCycle(bool, i8),
     RequestScores,
@@ -56,6 +60,8 @@ pub(crate) enum InputAction {
     CenterView,
     /// Apply the current cl_freelook value when the viewer handles mouse-look release.
     MlookReleased,
+    /// EternalJK's `+zoom` (true) and `-zoom`.
+    Zoom(bool),
 }
 
 /// Current logical gameplay-input state.
@@ -148,8 +154,11 @@ impl GameplayInput {
                     | "sabertoggle"
                     | "saberstyle"
                     | "centerview"
+                    | "+zoom"
+                    | "-zoom"
                     | "weapnext"
                     | "weapprev"
+                    | "weaplast"
                     | "forcenext"
                     | "forceprev"
                     | "invnext"
@@ -158,6 +167,7 @@ impl GameplayInput {
                     | "joinmenu"
                     | "vote"
                     | "weapon"
+                    | "weaponclean"
             )
     }
 
@@ -226,11 +236,16 @@ impl GameplayInput {
 
     /// Apply one command resolved by the bind table.
     pub(crate) fn apply(&mut self, command: &str) -> Option<InputAction> {
+        let mut words = command.split_ascii_whitespace();
+        let name = words.next()?.to_ascii_lowercase();
+        // A release always lands, as a stock key-up's `-` command does, so a zoom held
+        // when the window lost focus does not stay on.
+        if name == "-zoom" {
+            return Some(InputAction::Zoom(false));
+        }
         if !self.focused {
             return None;
         }
-        let mut words = command.split_ascii_whitespace();
-        let name = words.next()?.to_ascii_lowercase();
         if let Some(button) = button_for_command(&name) {
             let pressed = name.starts_with('+');
             let key = words.next().and_then(|word| word.parse().ok());
@@ -257,8 +272,10 @@ impl GameplayInput {
             "sabertoggle" => Some(InputAction::SaberToggle),
             "saberstyle" => Some(InputAction::SaberStyle),
             "centerview" => Some(InputAction::CenterView),
+            "+zoom" => Some(InputAction::Zoom(true)),
             "weapnext" => Some(InputAction::WeaponCycle(1)),
             "weapprev" => Some(InputAction::WeaponCycle(-1)),
+            "weaplast" => Some(InputAction::LastWeapon),
             "forcenext" => Some(InputAction::SelectionCycle(false, 1)),
             "forceprev" => Some(InputAction::SelectionCycle(false, -1)),
             "invnext" => Some(InputAction::SelectionCycle(true, 1)),
@@ -273,6 +290,10 @@ impl GameplayInput {
                 .next()
                 .and_then(|word| word.parse::<u8>().ok())
                 .map(InputAction::Weapon),
+            "weaponclean" => words
+                .next()
+                .and_then(|word| word.parse::<u8>().ok())
+                .map(InputAction::WeaponClean),
             _ => None,
         }
     }
@@ -322,7 +343,7 @@ impl super::GpuState {
                 self.chat.open(team);
                 self.sync_cursor_policy();
             }
-            Some(InputAction::ToggleCamera) => self.third_person = !self.third_person,
+            Some(InputAction::ToggleCamera) => super::camera::toggle(self),
             Some(InputAction::SaberToggle) => {
                 self.pending_generic_command = GENCMD_SABER_SWITCH;
             }
@@ -333,6 +354,7 @@ impl super::GpuState {
             // Camera pitch is already delta-adjusted; wire encoding subtracts delta_angles.
             // Thus physical pitch zero encodes -SHORT2ANGLE(delta), cl_input.cpp:797.
             Some(InputAction::CenterView) => self.camera_pitch = 0.0,
+            Some(InputAction::Zoom(held)) => self.scope.hold(held),
             Some(InputAction::MlookReleased) => {
                 if self
                     .console
@@ -344,8 +366,10 @@ impl super::GpuState {
                     self.camera_pitch = 0.0;
                 }
             }
-            Some(InputAction::Weapon(weapon)) => self.select_weapon(weapon),
+            Some(InputAction::Weapon(weapon)) => self.select_weapon(weapon, false),
+            Some(InputAction::WeaponClean(weapon)) => self.select_weapon(weapon, true),
             Some(InputAction::WeaponCycle(direction)) => self.cycle_weapon(direction),
+            Some(InputAction::LastWeapon) => self.last_weapon(),
             Some(InputAction::SelectionCycle(inventory, direction)) => {
                 let snapshot = self
                     .live_session
@@ -393,8 +417,25 @@ impl super::GpuState {
         }
     }
 
+    /// `CG_LastWeapon_f`: nothing for a spectator or a follower.
+    fn last_weapon(&mut self) {
+        let Some(session) = &self.live_session else {
+            return;
+        };
+        let player = &session.latest_snapshot().player;
+        if player.is_spectator() || player.movement_flags() & 4096 != 0 {
+            return;
+        }
+        let held = player.weapon();
+        let select = self.weapon_select.selected.unwrap_or(held);
+        let inventory = jkr_client::LegacyWeaponInventory::from_player_state(player);
+        let selectable = |weapon| jkr_client::legacy_weapon_selectable(&inventory, weapon);
+        let weapon = self.weapon_select.last_weapon(select, held, selectable);
+        self.select_weapon_exact(weapon);
+    }
+
     fn cycle_weapon(&mut self, direction: i8) {
-        let current = self.selected_weapon.unwrap_or_else(|| {
+        let current = self.weapon_select.selected.unwrap_or_else(|| {
             self.live_session
                 .as_ref()
                 .map_or(3, |session| session.latest_snapshot().player.weapon())
@@ -410,7 +451,8 @@ impl super::GpuState {
         }
     }
 
-    pub(super) fn select_weapon(&mut self, slot: u8) {
+    /// `weapon <key>` (`CG_Weapon_f`), or with `clean`, `weaponclean <weapon number>`.
+    pub(super) fn select_weapon(&mut self, slot: u8, clean: bool) {
         let Some(session) = &self.live_session else {
             return;
         };
@@ -425,11 +467,12 @@ impl super::GpuState {
         }
         let inventory =
             jkr_client::LegacyWeaponInventory::from_player_state(&session.latest_snapshot().player);
-        if let Some(weapon) = jkr_client::legacy_direct_weapon(
-            &inventory,
-            session.latest_snapshot().player.weapon(),
-            slot,
-        ) {
+        let choose = if clean {
+            jkr_client::legacy_clean_weapon
+        } else {
+            jkr_client::legacy_direct_weapon
+        };
+        if let Some(weapon) = choose(&inventory, session.latest_snapshot().player.weapon(), slot) {
             self.select_weapon_exact(weapon);
         }
     }
@@ -442,12 +485,25 @@ impl super::GpuState {
             if !jkr_client::legacy_weapon_selectable(&inventory, weapon) {
                 return;
             }
-            self.selected_weapon = Some(weapon);
-            self.weapon_selected_at = Some(std::time::Instant::now());
-            self.weapon_selection_label.clear();
-            self.weapon_selection_label.push_str("^3");
-            self.weapon_selection_label
+            self.weapon_select.selected = Some(weapon);
+            self.weapon_select.selected_at = Some(std::time::Instant::now());
+            self.weapon_select.label.clear();
+            self.weapon_select.label.push_str("^3");
+            self.weapon_select
+                .label
                 .push_str(crate::ingame_menu::weapon_name(weapon));
+            // TaystJK's `cg_weaponCycleAmmo` (`cg_weapons.c:1353`): every weapon but the
+            // stun baton, melee, the saber and the pistol (1 to 4) shows its ammunition.
+            if self
+                .console
+                .as_ref()
+                .is_some_and(|console| console.weapon_cycle_ammo())
+                && weapon > 4
+                && let Some(ammo) = jkr_client::legacy_weapon_ammo(&inventory, weapon)
+            {
+                use std::fmt::Write as _;
+                let _ = write!(self.weapon_select.label, " ^7{ammo}");
+            }
         }
     }
 }

@@ -9,6 +9,15 @@ fn apply_lighting_mode(input: VertexOutput, primary: vec4<f32>, secondary: vec4<
     // Stock stops the stage loop at the first later non-lightmap stage.
     if lightmap_only && (flags & 2u) != 0u { discard; }
     var color = generated_color(input);
+    // killGen skips the lighting generators too: a disintegration burns unlit.
+    if input.animation_index <= -2 {
+        var unlit = primary;
+        if stage.secondary_control.z > 0.5 {
+            if i32(stage.secondary_control.y) == 1 { unlit *= secondary; }
+            else if i32(stage.secondary_control.y) == 2 { unlit += secondary; }
+        }
+        return unlit * color;
+    }
     // Apply texture-bundle radiance before the expensive lighting paths. Straight
     // arithmetic avoids another control-flow split in the shared material shader.
     var gains = vec2(1.0);

@@ -1,10 +1,13 @@
 //! The server's console variables at work: what a changed value does, checked after
 //! every console line and every frame, as `G_UpdateCvars` and `SV_Frame`'s serverinfo
-//! check do it.
+//! and systeminfo checks do it.
 
 use super::{NativeGame, Told};
-use crate::cvars::{CVAR_INTERNAL, CVAR_SERVERINFO, Cvars};
+use crate::cvars::{CVAR_INTERNAL, CVAR_SERVERINFO, CVAR_SYSTEMINFO, Cvars};
 use jkr_network::{LegacyOobRates, LegacySessionSettings};
+
+/// `CS_SYSTEMINFO`: the configstring of what every client keeps a copy of.
+const CS_SYSTEMINFO: usize = 1;
 
 impl NativeGame {
     /// The console variables, for the process to read what belongs to the endpoint
@@ -37,30 +40,109 @@ impl NativeGame {
     /// settings, the server-info string everyone is sent, and the announcement of a
     /// tracked variable (`print "Server: %s changed to %s\n"`).
     pub(super) fn apply_cvars(&mut self) {
+        // G_CheckNeedPass: '%' cannot survive the legacy print/connect path.
+        // Derive the read-only public flag from the actual admission password.
+        if self.cvars.string(b"g_password").contains(&b'%') {
+            let password: Vec<u8> = self
+                .cvars
+                .string(b"g_password")
+                .iter()
+                .map(|&byte| if byte == b'%' { b'.' } else { byte })
+                .collect();
+            self.cvars.set(b"g_password", &password);
+        }
+        let password = self.cvars.string(b"g_password");
+        let required = !password.is_empty() && !password.eq_ignore_ascii_case(b"none");
+        if self.cvars.integer(b"g_needpass") != i32::from(required) {
+            self.cvars
+                .set(b"g_needpass", if required { b"1" } else { b"0" });
+        }
         let mut seen = std::mem::take(&mut self.cvars_seen);
         let changed = self.cvars.changed_since(&mut seen);
         self.cvars_seen = seen;
         if !changed.is_empty() {
             self.cvars_generation += 1;
         }
+        let mut system_info_changed = false;
         for name in changed {
             let Some(var) = self.cvars.var(&name) else {
                 continue;
             };
             let (value, flags, announced, integer) =
                 (var.string.clone(), var.flags, var.announced, var.integer());
+            system_info_changed |= flags & CVAR_SYSTEMINFO != 0;
             let text = String::from_utf8_lossy(&value).into_owned();
             let key = String::from_utf8_lossy(&name).into_owned();
             match key.to_ascii_lowercase().as_str() {
                 "sv_hostname" => self.identity.hostname = value.clone(),
+                // The process's configuration runs once the level is up: a message of the
+                // day it sets reaches this level's loading screens too.
+                "g_motd" => self.set_config_string(jkr_game_jka::worldspawn::CS_MOTD, &value),
                 "fraglimit" => self.limits.fraglimit = integer,
                 "timelimit" => self.limits.timelimit = var.value(),
                 "capturelimit" => self.limits.capturelimit = integer,
                 "duel_fraglimit" => self.limits.duel_fraglimit = integer,
+                "d_nointermissionwait" => self.limits.no_intermission_wait = integer != 0,
                 "g_allowvote" => self.vote_rules.0 = integer & super::bridge_votes::SUPPORTED_VOTES,
                 "g_votedelay" => self.vote_rules.1 = integer,
+                "g_tweakvote" => self.japro_votes.tweak = integer,
+                "g_votetimeout" => self.japro_votes.timeout = integer,
                 "g_teamautojoin" => self.settings.team_auto_join = integer != 0,
+                "g_maxforcerank"
+                | "g_forcepowerdisable"
+                | "g_forcebasedteams"
+                | "g_weapondisable"
+                | "g_duelweapondisable" => self.refresh_rule_settings(),
                 "sv_cheats" => self.settings.cheats = integer != 0,
+                "g_flagdrag" => self.flag_drag = var.value(),
+                "g_forceregentime" => self.force_rules.regen_time = integer,
+                "g_usewhilethrowing" => self.force_rules.use_while_throwing = integer != 0,
+                "g_saberdamagescale" => self.saber_settings.damage_scale = var.value(),
+                "g_saberdmgdelay_idle" => self.saber_settings.idle_delay = integer,
+                "g_saberdmgdelay_wound" => self.saber_settings.wound_delay = integer,
+                "g_saberwalldamagescale" => self.saber_settings.wall_scale = var.value(),
+                "g_saberlocking" => self.saber_settings.locking = integer != 0,
+                "g_saberlockfactor" => self.saber_settings.lock_factor = integer,
+                "g_saberlockrandomness" => self.saber_settings.lock_randomness = integer,
+                "g_friendlysaber" => self.saber_settings.friendly = integer != 0,
+                "g_fixsaberdisarmbonus" => self.saber_settings.disarm_bonus_fix = integer != 0,
+                "g_smoothclients" => self.smooth_clients = integer != 0,
+                "pmove_fixed" | "pmove_msec" | "pmove_float" | "g_stepslidefix"
+                | "g_nospecmove" => self.refresh_move_cvars(),
+                "g_synchronousclients" => self.synchronous_clients = integer != 0,
+                "timescale" => self.timescale = var.value(),
+                "g_fixsabermovedata" | "g_fixweaponattackanim" | "g_fixrunwalkanims" => {
+                    self.publish_legacy_fixes()
+                }
+                "g_knockback" => self.damage_rules.strength = var.value(),
+                "g_saberdmgvelocityscale" => {
+                    self.damage_rules.saber_scale = var.value();
+                    self.damage_rules.saber_push_holds = integer != 0;
+                }
+                "g_locationbaseddamage" => self.damage_rules.location_based = integer != 0,
+                "g_armbreakage" => self.damage_rules.arm_breakage = integer != 0,
+                "g_debugdamage" => self.damage_rules.debug_print = integer != 0,
+                "g_debugmelee" => {
+                    self.debug_melee = integer != 0;
+                    self.force_rules.debug_melee = integer != 0;
+                }
+                "g_fixflaghitbox" => self.wide_flag_box = integer != 0,
+                "g_startingitems" => self.starting_items_changed(),
+                "g_selfdamagescale" => self.self_damage_scale = var.value(),
+                "g_mercyrule" => self.limits.mercy = var.value(),
+                "g_showhealth" => self.show_health_changed(integer != 0),
+                "g_corpseremovaltime" => self.body_sink_ms = integer.saturating_mul(1_000),
+                "g_lagicon" => self.lag_icon = integer != 0,
+                "g_godchat" => self.god_chat = integer != 0,
+                "g_autoquit" => self.auto_quit_days = integer,
+                "g_gungame" => self.gun_game = integer,
+                "g_friendlyfire" => self.force_rules.friendly_fire = integer != 0,
+                "g_teamhealscale" => self.force_rules.team_heal_scale = var.value(),
+                "g_teamenergizescale" => self.force_rules.team_energize_scale = var.value(),
+                "g_teamabsorbscale" => self.force_rules.team_absorb_scale = var.value(),
+                "g_forcepowerdisableffa" => {
+                    self.force_rules.disabled_outside_duels = integer as u32
+                }
                 "g_gametype" if integer != self.gametype => self.set_gametype(integer),
                 _ => {}
             }
@@ -77,7 +159,55 @@ impl NativeGame {
                 ));
             }
         }
+        // `SV_Frame`: `SV_SetConfigstring(CS_SYSTEMINFO, Cvar_InfoString_Big(CVAR_SYSTEMINFO))`
+        // once anything every client keeps a copy of has changed.
+        if system_info_changed {
+            let info = self.cvars.info_string_big(CVAR_SYSTEMINFO);
+            self.set_config_string(CS_SYSTEMINFO, &info);
+        }
         self.cvars_primed = true;
+    }
+
+    /// The movement variables every move reads ([`jkr_game_jka::pmove_rules::MoveCvars`]),
+    /// `pmove_msec` put back within 8 to 33 as `ClientThink_real` puts it
+    /// (`g_active.c:2031-2036`).
+    fn refresh_move_cvars(&mut self) {
+        let msec = self.cvars.integer(b"pmove_msec");
+        if msec < 8 {
+            self.cvars.set(b"pmove_msec", b"8");
+        } else if msec > 33 {
+            self.cvars.set(b"pmove_msec", b"33");
+        }
+        let cvars = &self.cvars;
+        self.move_cvars = jkr_game_jka::pmove_rules::MoveCvars::new(
+            cvars.integer(b"pmove_fixed"),
+            cvars.integer(b"pmove_msec"),
+            cvars.integer(b"pmove_float"),
+            cvars.integer(b"g_stepSlideFix"),
+            cvars.integer(b"g_noSpecMove"),
+        );
+    }
+
+    /// The Force and weapon rules the game reads from its cvars (`g_xcvar.h`, all latched):
+    /// the rank ceiling, the disabled powers, the sides by team, the disabled weapons.
+    pub(super) fn refresh_rule_settings(&mut self) {
+        self.settings.max_rank = self.integer_cvar(b"g_maxForceRank", 7);
+        self.settings.disabled = self.integer_cvar(b"g_forcePowerDisable", 0) as u32;
+        self.settings.force_based_teams = self.integer_cvar(b"g_forceBasedTeams", 0) != 0;
+        self.refresh_weapons_disabled();
+    }
+
+    /// The disabled weapons this game type reads: `g_duelWeaponDisable` in the duels,
+    /// else `g_weaponDisable` (`HasSetSaberOnly`, `G_SpawnItem`, `ClientSpawn`).
+    pub(super) fn refresh_weapons_disabled(&mut self) {
+        let duel =
+            jkr_game_jka::force_config::ForceServerSettings::uses_duel_weapons(self.gametype);
+        let (name, default): (&[u8], i32) = if duel {
+            (b"g_duelWeaponDisable", 1)
+        } else {
+            (b"g_weaponDisable", 0)
+        };
+        self.settings.weapons_disabled = self.integer_cvar(name, default) as u32;
     }
 
     /// `Cvar_Get` of a latched variable when a level is built (`SV_Map_f`'s
@@ -90,6 +220,12 @@ impl NativeGame {
             None,
         );
         self.apply_cvars();
+    }
+
+    /// `timescale`: how many times as fast as the wall clock the server's time runs, which
+    /// the process's frame clock applies.
+    pub fn timescale(&self) -> f32 {
+        self.timescale
     }
 
     /// How many times the variables have changed; the process compares it to know when
@@ -112,10 +248,31 @@ impl NativeGame {
         settings.zombie_seconds = cvars.integer(b"sv_zombietime");
         settings.reconnect_limit_seconds = cvars.integer(b"sv_reconnectlimit");
         settings.flood_protect = cvars.integer(b"sv_floodProtect");
+        // OpenJK's `sv_floodProtectSlow` and TaystJK's `sv_newfloodProtect` 1 are the same
+        // rule; either at 0 turns it off, and TaystJK's above 1 splits the windows.
+        let new_flood = cvars.integer(b"sv_newfloodProtect");
+        settings.flood_per_command = new_flood > 1;
+        settings.flood_protect_slow =
+            new_flood != 0 && new_flood <= 1 && cvars.integer(b"sv_floodProtectSlow") != 0;
         settings.legacy_fixes = cvars.integer(b"sv_legacyFixes") != 0;
         settings.allow_download = cvars.integer(b"sv_allowDownload") != 0;
         settings.pure = cvars.integer(b"sv_pure") != 0;
         settings.auto_whitelist = cvars.integer(b"sv_autoWhitelist") != 0;
+        settings.ping_fix = cvars.integer(b"sv_pingFix") != 0;
+        settings.anti_dst = cvars.integer(b"sv_antiDST") != 0;
+        // TaystJK reads `sv_legacyFixes` as a mask whose bit 7 allows the broken models.
+        let legacy_fixes = cvars.integer(b"sv_legacyFixes");
+        settings.broken_models_fix = legacy_fixes != 0 && legacy_fixes & (1 << 7) == 0;
+        // TaystJK's demo metadata and pre-recording, its times in seconds.
+        settings.demo_extras = jkr_network::LegacyDemoExtras {
+            pre_record: cvars.integer(b"sv_demoPreRecord") != 0,
+            pre_record_bots: cvars.integer(b"sv_demoPreRecordBots") != 0,
+            pre_record_ms: cvars.integer(b"sv_demoPreRecordTime").saturating_mul(1000),
+            keyframe_ms: cvars
+                .integer(b"sv_demoPreRecordKeyframeDistance")
+                .saturating_mul(1000),
+            write_meta: cvars.integer(b"sv_demoWriteMeta") != 0,
+        };
         settings.auto_demo = jkr_network::LegacyAutoDemoSettings {
             enabled: cvars.integer(b"sv_autoDemo") != 0,
             max_maps: cvars.integer(b"sv_autoDemoMaxMaps"),
@@ -141,6 +298,9 @@ impl NativeGame {
     /// `SV_Frame`'s frame length: a thousand milliseconds over `sv_fps`, never below
     /// one; an `sv_fps` below 1 is set back to 10 first, as the reference repairs it.
     pub fn frame_msec(&mut self) -> i32 {
+        if let Some(msec) = self.hibernation_frame_msec() {
+            return msec;
+        }
         if self.cvars.integer(b"sv_fps") < 1 {
             self.set_cvar("sv_fps", "10");
         }
@@ -154,12 +314,24 @@ impl NativeGame {
         let info = self.status_info.clone();
         if tell {
             self.publish_config_string(0, &info);
-        } else if let Some(slot) = self
+            return;
+        }
+        if let Some(slot) = self
             .config_strings
             .iter_mut()
             .find(|(index, _)| *index == 0)
         {
-            slot.1 = info;
+            slot.1.clone_from(&info);
+        }
+        // A change told but not yet sent (the game type's, at startup) carries the string
+        // as it stood then; what is sent, and kept, is the string as it stands now.
+        for told in &mut self.told {
+            if let Told::ConfigString {
+                index: 0, value, ..
+            } = told
+            {
+                value.clone_from(&info);
+            }
         }
     }
 
@@ -227,3 +399,159 @@ pub(super) const SERVERINFO_DEFAULTS: [(&str, &str); 20] = [
     ("g_redTeam", "Empire"),
     ("g_blueTeam", "Rebellion"),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::super::{Identity, NativeGame};
+    use jkr_network::{LegacyGameHost, LegacyGameOutput};
+
+    /// An `sv_fps` nobody set runs twenty frames a second; one set to anything, stock's
+    /// own default of 40 included, keeps that value.
+    #[test]
+    fn sv_fps_keeps_whatever_was_set() {
+        for (set, fps) in [(None, 20), (Some(&b"40"[..]), 40), (Some(&b"30"[..]), 30)] {
+            let mut cvars = crate::cvars::Cvars::server();
+            if let Some(value) = set {
+                cvars.user_set(b"sv_fps", Some(value), &mut |_| {});
+            }
+            let identity = Identity {
+                hostname: b"test".to_vec(),
+                mapname: b"mp/ffa3".to_vec(),
+            };
+            let game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+            assert_eq!(game.cvars.integer(b"sv_fps"), fps, "{set:?}");
+        }
+    }
+
+    /// Startup values reach the gamestate and the clients, though the game type's change
+    /// was told before the other keys were filled in.
+    #[test]
+    fn startup_server_info_reaches_the_gamestate() {
+        let mut cvars = crate::cvars::Cvars::server();
+        cvars.set(b"g_showDuelHealths", b"1");
+        cvars.set(b"g_gametype", b"3");
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/duel5".to_vec(),
+        };
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        let mut sent = Vec::new();
+        game.take_output(&mut |output| {
+            if let LegacyGameOutput::ConfigString {
+                index: 0, value, ..
+            } = output
+            {
+                sent.push(value.to_vec());
+            }
+        });
+        let kept = game
+            .config_strings()
+            .find(|(index, _)| *index == 0)
+            .map(|(_, info)| info.to_vec())
+            .unwrap();
+        for info in sent.iter().chain([&kept]) {
+            let info = String::from_utf8_lossy(info);
+            assert!(info.contains("\\g_showDuelHealths\\1"), "{info}");
+            assert!(info.contains("\\g_gametype\\3"), "{info}");
+        }
+    }
+
+    /// The systeminfo is the table's `CVAR_SYSTEMINFO` variables, empty ones included, and
+    /// a change to one of them reaches every client as `SV_Frame` sends it.
+    #[test]
+    fn system_info_follows_its_variables() {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/ffa3".to_vec(),
+        };
+        let cvars = crate::cvars::Cvars::server();
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        let system_info = |game: &NativeGame| {
+            let info = game
+                .config_strings()
+                .find(|(index, _)| *index == 1)
+                .unwrap()
+                .1;
+            String::from_utf8_lossy(info).into_owned()
+        };
+        let info = system_info(&game);
+        for pair in [
+            "\\sv_cheats\\",
+            "\\fs_game\\\\",
+            "\\pmove_fixed\\0",
+            "\\timescale\\1",
+        ] {
+            assert!(info.contains(pair), "{pair} in {info}");
+        }
+        game.take_output(&mut |_| {});
+        game.set_cvar("pmove_fixed", "1");
+        let mut sent = Vec::new();
+        game.take_output(&mut |output| {
+            if let LegacyGameOutput::ConfigString {
+                index: 1, value, ..
+            } = output
+            {
+                sent.push(String::from_utf8_lossy(value).into_owned());
+            }
+        });
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(sent[0].contains("\\pmove_fixed\\1"), "{sent:?}");
+        assert_eq!(system_info(&game), sent[0]);
+    }
+
+    /// `sv_cheats` is the operator's (the reference keeps it read-only, for `map` and
+    /// `devmap` alone): a console or rcon line turns the cheat commands on and off at
+    /// once and every client is told through the systeminfo, and the world commands
+    /// still set it as the reference's do.
+    #[test]
+    fn operators_turn_the_cheats_on_and_off() {
+        let identity = Identity {
+            hostname: b"test".to_vec(),
+            mapname: b"mp/ffa3".to_vec(),
+        };
+        let cvars = crate::cvars::Cvars::server();
+        let mut game = NativeGame::with_cvars(identity, None, 4, 4, cvars).unwrap();
+        assert!(!game.settings.cheats);
+        for (line, cheats) in [
+            (&b"sv_cheats 1"[..], true),
+            (b"sv_cheats 0", false),
+            (b"devmap mp/ffa3", true),
+            (b"map mp/ffa3", false),
+        ] {
+            let shown = String::from_utf8_lossy(line).into_owned();
+            game.take_output(&mut |_| {});
+            let mut printed = Vec::new();
+            let known = game.console_line(
+                line,
+                0,
+                &mut super::super::bridge_bots::NoBotSlots,
+                &mut |text| printed.extend_from_slice(text),
+            );
+            let printed = String::from_utf8_lossy(&printed).into_owned();
+            assert!(
+                known && !printed.contains("read only"),
+                "{shown}: {printed}"
+            );
+            assert_eq!(game.settings.cheats, cheats, "{shown}");
+            let pair = format!("\\sv_cheats\\{}", u8::from(cheats));
+            let kept = game
+                .config_strings()
+                .find(|(index, _)| *index == 1)
+                .map(|(_, info)| String::from_utf8_lossy(info).into_owned())
+                .unwrap();
+            assert!(kept.contains(&pair), "{shown}: {kept}");
+            if line.starts_with(b"sv_cheats") {
+                let mut told = false;
+                game.take_output(&mut |output| {
+                    if let LegacyGameOutput::ConfigString {
+                        index: 1, value, ..
+                    } = output
+                    {
+                        told |= String::from_utf8_lossy(value).contains(&pair);
+                    }
+                });
+                assert!(told, "{shown}");
+            }
+        }
+    }
+}

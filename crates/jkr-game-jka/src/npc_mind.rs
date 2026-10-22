@@ -218,6 +218,9 @@ pub struct NpcMind {
     /// `fd.forceJumpSound`: its last move began a Force jump, which its next
     /// `WP_ForcePowersUpdate` sounds.
     pub force_jump_sound: bool,
+    /// `grappleIndex`, `grappleState`: the `g_debugMelee` grapple it is in
+    /// ([`crate::debug_melee`]).
+    pub grapple: crate::debug_melee::Grapple,
     /// `client->noclip`: an ambusher hanging from the ceiling (`Jedi_WaitingAmbush`).
     pub noclip: bool,
     /// `ent->useDebounceTime`: when a cultist destroyer blows up (`Jedi_InSpecialMove`).
@@ -356,6 +359,7 @@ impl Default for NpcMind {
             fight: NpcFight::default(),
             tactics: NpcTactics::default(),
             force_jump_sound: false,
+            grapple: crate::debug_melee::Grapple::default(),
             noclip: false,
             use_debounce_time: 0,
             walk_debounce_time: 0,

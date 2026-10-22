@@ -63,15 +63,32 @@ const EF_FIRING: u32 = 1 << 9;
 const EF_ALT_FIRING: u32 = 1 << 10;
 const FP_RAGE: u32 = 1 << 8;
 const MAX_CLIENTS: u16 = 32;
-/// `BOTH_ATTACK4`, `BOTH_MELEE1`, `BOTH_MELEE2`.
+/// `BOTH_ATTACK4`.
 const BOTH_ATTACK4: u16 = 116;
-const BOTH_MELEE1: u16 = 122;
-const BOTH_MELEE2: u16 = 123;
 /// `WeaponAttackAnim` (`bg_misc.c:297-317`): the torso animation each weapon fires
 /// with; the table lists seventeen and the two emplaced weapons read its zeros.
 const WEAPON_ATTACK_ANIM: [u16; LEGACY_WEAPON_COUNT] = [
     113, 115, 115, 917, 114, 115, 115, 115, 115, 115, 115, 115, 125, 115, 115, 115, 114, 0, 0,
 ];
+/// `CS_LEGACY_FIXES` bit for `g_fixWeaponAttackAnim` (`bg_public.h:162-165`).
+pub const LEGACY_FIX_WEAPON_ATTACK_ANIM: u32 = 1 << 1;
+/// `BOTH_ATTACK2` and `BOTH_STAND1`, what the unfixed table fires with.
+const BOTH_ATTACK2: u16 = 114;
+const BOTH_STAND1: u16 = 915;
+
+/// `BG_FixWeaponAttackAnim` (`bg_misc.c:323-347`): the fire animation of `weapon`. Without
+/// `LEGACYFIX_WEAPONATTACKANIM` in `legacy_fixes` the concussion rifle fires with
+/// `BOTH_ATTACK2` and the old Bryar with `BOTH_STAND1`, as the original table had them.
+fn weapon_attack_anim(weapon: u8, legacy_fixes: u32) -> u16 {
+    if legacy_fixes & LEGACY_FIX_WEAPON_ATTACK_ANIM == 0 {
+        match weapon {
+            WP_CONCUSSION => return BOTH_ATTACK2,
+            WP_BRYAR_OLD => return BOTH_STAND1,
+            _ => {}
+        }
+    }
+    WEAPON_ATTACK_ANIM[usize::from(weapon)]
+}
 
 /// Whether this bounded port owns the current command's weapon result.
 ///
@@ -191,6 +208,7 @@ pub(crate) fn advance_events_in(
     context: &crate::pmove::MoveContext,
     bounds: ([f32; 3], [f32; 3]),
     legacy_fixes: u32,
+    melee: crate::pmove_melee::MeleeRules,
     opponent: Option<crate::pmove_saber_lock::LockOpponent>,
     outcome: &mut crate::pmove_saber_lock::LockOutcome,
 ) -> u16 {
@@ -206,6 +224,7 @@ pub(crate) fn advance_events_in(
         context,
         bounds,
         legacy_fixes,
+        melee,
         opponent,
         outcome,
     );
@@ -224,6 +243,7 @@ fn advance_command(
     context: &crate::pmove::MoveContext,
     bounds: ([f32; 3], [f32; 3]),
     legacy_fixes: u32,
+    melee: crate::pmove_melee::MeleeRules,
     opponent: Option<crate::pmove_saber_lock::LockOpponent>,
     outcome: &mut crate::pmove_saber_lock::LockOutcome,
 ) {
@@ -242,11 +262,14 @@ fn advance_command(
             state.weapon_time = state.legs_timer;
         }
     }
-    // A duel holds the saber (and, before it begins, the moves); a swing under way keeps
-    // it (`bg_pmove.c:6991-7006`).
+    // A duel holds the saber — or jaPRO's gun duel its weapon, nothing a duel of every
+    // weapon (`bg_pmove.c:10611-10645` of jaPRO) — and, before it begins, the moves; a
+    // swing under way keeps the saber (`bg_pmove.c:6991-7006`).
     if state.duel_in_progress {
-        command.weapon = WP_SABER;
-        state.weapon = WP_SABER;
+        if let Some(weapon) = context.duel_kind.held_weapon() {
+            command.weapon = weapon as u8;
+            state.weapon = weapon as u8;
+        }
         if state.duel_time >= command.server_time {
             (command.up_move, command.forward_move, command.right_move) = (0, 0, 0);
         }
@@ -310,7 +333,7 @@ fn advance_command(
         && matches!(state.weapon, WP_THERMAL | WP_TRIP_MINE | WP_DET_PACK)
     {
         let early = if state.weapon == WP_THERMAL { 200 } else { 700 };
-        if state.torso_anim == WEAPON_ATTACK_ANIM[usize::from(state.weapon)]
+        if state.torso_anim == weapon_attack_anim(state.weapon, legacy_fixes)
             && state.weapon_time - early <= 0
         {
             crate::pmove_anim::start_torso(
@@ -438,22 +461,24 @@ fn advance_command(
         data.primary_cost
     };
     // The attack's torso animation (`bg_pmove.c:7455-7606`): the scoped disruptor's,
-    // melee's alternating punches (whose running timer becomes the weapon's time), or
+    // melee's ([`crate::pmove_melee`]: punches, or `g_debugMelee`'s grab and kicks), or
     // the weapon's own from `WeaponAttackAnim`.
     if state.weapon == WP_DISRUPTOR && state.zoom_mode == 1 {
         crate::pmove_anim::start_torso(state, BOTH_ATTACK4);
     } else if state.weapon == WP_MELEE {
-        let punch = if state.torso_anim == BOTH_MELEE1 {
-            BOTH_MELEE2
-        } else {
-            BOTH_MELEE1
-        };
-        crate::pmove_anim::start_torso(state, punch);
-        if state.torso_anim == punch {
-            state.weapon_time = state.torso_timer;
+        if crate::pmove_melee::attack(
+            state,
+            command,
+            melee,
+            animation_lengths,
+            collision,
+            bounds,
+            legacy_fixes & 1 != 0,
+        ) {
+            return;
         }
     } else {
-        crate::pmove_anim::start_torso(state, WEAPON_ATTACK_ANIM[usize::from(state.weapon)]);
+        crate::pmove_anim::start_torso(state, weapon_attack_anim(state.weapon, legacy_fixes));
     }
     state.weapon_state = WEAPON_FIRING;
     if state.client_num < MAX_CLIENTS && state.ammo[data.ammo_index] != -1 {
@@ -511,10 +536,13 @@ fn primary_is_predicted(weapon: u8) -> bool {
     )
 }
 
+/// The weapons whose alternate attack runs here: the stun baton's and the fists' too —
+/// a punch (`EV_ALT_FIRE`, `bg_pmove.c:7650-7660`), or `g_debugMelee`'s kick or grab.
 fn alternate_is_predicted(weapon: u8) -> bool {
     matches!(
         weapon,
-        WP_BLASTER
+        1 | WP_MELEE
+            | WP_BLASTER
             | WP_REPEATER
             | WP_FLECHETTE
             | WP_BRYAR_PISTOL

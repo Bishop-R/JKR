@@ -14,11 +14,23 @@
 //! Format behaviour only: which models an entity has, their poses and the radius are the
 //! caller's.
 
+use crate::g2_math::{
+    add, cross, dot, inverse, length, normalize, scale, sub, transform, transform_and_translate,
+    world_matrix,
+};
 use crate::posed_trace::triangle;
-use crate::{Glm, ModelError};
+use crate::{Glm, GlmSurface, ModelError};
 
 /// `MAX_G2_COLLISIONS`: records a call can fill.
 pub const MAX_COLLISIONS: usize = 16;
+/// Ghoul2's root "identity" (`tr_ghoul2.cpp:128-135`): a quarter turn about Z under every
+/// skeleton, which the evaluator leaves out and every raw Ghoul2 matrix carries — the
+/// body's [`PosedModel::placement`].
+pub const GHOUL2_ROOT: [[f32; 4]; 3] = [
+    [0.0, -1.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+];
 /// `G2SURFACEFLAG_NODESCENDANTS`: nothing below this surface is traced.
 const NO_DESCENDANTS: u32 = 0x100;
 
@@ -81,9 +93,7 @@ pub fn collision_detect(
     records: &mut Vec<CollisionRecord>,
 ) -> Result<(), ModelError> {
     records.clear();
-    // `G2_GenerateWorldMatrix`: `Create_Matrix` (the axes as columns) and the origin.
-    let world: [[f32; 4]; 3] =
-        std::array::from_fn(|row| [axes[0][row], axes[1][row], axes[2][row], origin[row]]);
+    let world = world_matrix(axes, origin);
     let inverse = inverse(&world);
     let start = transform_and_translate(ray_start, &inverse);
     let end = transform_and_translate(ray_end, &inverse);
@@ -148,7 +158,7 @@ struct Trace<'a> {
 }
 
 impl Trace<'_> {
-    /// `G2_TraceSurfaces`.
+    /// `G2_TraceSurfaces`: the walk, stopping once the records run out.
     fn surfaces(
         &mut self,
         model: &PosedModel<'_>,
@@ -160,28 +170,10 @@ impl Trace<'_> {
         if self.full {
             return Ok(());
         }
-        let hierarchy = model
-            .glm
-            .hierarchy
-            .get(surface)
-            .ok_or_else(|| ModelError::invalid(surface, "surface is outside the hierarchy"))?;
-        let flags = model
-            .overrides
-            .iter()
-            .find(|(index, _)| *index == surface)
-            .map_or(hierarchy.flags, |(_, flags)| *flags);
-        if flags == 0 {
+        walk(model, surface, &mut |surface| {
             self.polys(model, model_index, surface, lod, scratch)?;
-        }
-        if flags & NO_DESCENDANTS != 0 {
-            return Ok(());
-        }
-        for &child in &hierarchy.children {
-            if self.full {
-                break;
-            }
-            self.surfaces(model, model_index, child, lod, scratch)?;
-        }
+            Ok(!self.full)
+        })?;
         Ok(())
     }
 
@@ -194,20 +186,7 @@ impl Trace<'_> {
         lod: usize,
         scratch: &mut CollisionScratch,
     ) -> Result<(), ModelError> {
-        let source = model
-            .glm
-            .lods
-            .get(lod)
-            .and_then(|lod| lod.surfaces.get(surface))
-            .ok_or_else(|| ModelError::invalid(surface, "surface is absent from the LOD"))?;
-        scratch.vertices.clear();
-        for vertex in &source.vertices {
-            let skinned = crate::reskin::vertex(source, vertex, model.bones).position;
-            let placed = transform_and_translate(skinned, &model.placement);
-            scratch
-                .vertices
-                .push(std::array::from_fn(|axis| placed[axis] * model.scale[axis]));
-        }
+        let source = skin(model, lod, surface, &mut scratch.vertices)?;
         let vertex = |index: u32| {
             scratch
                 .vertices
@@ -368,72 +347,57 @@ impl Trace<'_> {
     }
 }
 
-/// `Inverse_Matrix`: the transposed rotation and the translation brought back through it.
-fn inverse(matrix: &[[f32; 4]; 3]) -> [[f32; 4]; 3] {
-    let mut out = [[0.0; 4]; 3];
-    for i in 0..3 {
-        for j in 0..3 {
-            out[i][j] = matrix[j][i];
+/// `G2_TraceSurfaces`' walk: from `surface` down, depth first, each surface its flags (or
+/// an override) leave on handed to `visit`, nothing below one marked no-descendants.
+/// `visit` answers whether to go on; the walk answers whether it went all the way.
+pub(crate) fn walk(
+    model: &PosedModel<'_>,
+    surface: usize,
+    visit: &mut dyn FnMut(usize) -> Result<bool, ModelError>,
+) -> Result<bool, ModelError> {
+    let hierarchy = model
+        .glm
+        .hierarchy
+        .get(surface)
+        .ok_or_else(|| ModelError::invalid(surface, "surface is outside the hierarchy"))?;
+    let flags = model
+        .overrides
+        .iter()
+        .find(|(index, _)| *index == surface)
+        .map_or(hierarchy.flags, |(_, flags)| *flags);
+    if flags == 0 && !visit(surface)? {
+        return Ok(false);
+    }
+    if flags & NO_DESCENDANTS != 0 {
+        return Ok(true);
+    }
+    for &child in &hierarchy.children {
+        if !walk(model, child, visit)? {
+            return Ok(false);
         }
     }
-    for i in 0..3 {
-        out[i][3] = 0.0;
-        for j in 0..3 {
-            out[i][3] -= out[i][j] * matrix[j][3];
-        }
+    Ok(true)
+}
+
+/// `R_TransformEachSurface`: surface `surface` of LOD `lod` skinned, placed and scaled into
+/// Ghoul2's model space, its vertices in `out` (cleared first).
+pub(crate) fn skin<'m>(
+    model: &PosedModel<'m>,
+    lod: usize,
+    surface: usize,
+    out: &mut Vec<[f32; 3]>,
+) -> Result<&'m GlmSurface, ModelError> {
+    let source = model
+        .glm
+        .lods
+        .get(lod)
+        .and_then(|lod| lod.surfaces.get(surface))
+        .ok_or_else(|| ModelError::invalid(surface, "surface is absent from the LOD"))?;
+    out.clear();
+    for vertex in &source.vertices {
+        let skinned = crate::reskin::vertex(source, vertex, model.bones).position;
+        let placed = transform_and_translate(skinned, &model.placement);
+        out.push(std::array::from_fn(|axis| placed[axis] * model.scale[axis]));
     }
-    out
-}
-
-/// `TransformAndTranslatePoint`.
-fn transform_and_translate(point: [f32; 3], matrix: &[[f32; 4]; 3]) -> [f32; 3] {
-    std::array::from_fn(|i| {
-        point[0] * matrix[i][0] + point[1] * matrix[i][1] + point[2] * matrix[i][2] + matrix[i][3]
-    })
-}
-
-/// `TransformPoint`: the rotation only.
-fn transform(point: [f32; 3], matrix: &[[f32; 4]; 3]) -> [f32; 3] {
-    std::array::from_fn(|i| {
-        point[0] * matrix[i][0] + point[1] * matrix[i][1] + point[2] * matrix[i][2]
-    })
-}
-
-fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-
-fn add(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-
-fn scale(a: [f32; 3], by: f32) -> [f32; 3] {
-    [a[0] * by, a[1] * by, a[2] * by]
-}
-
-fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-fn length(a: [f32; 3]) -> f32 {
-    dot(a, a).sqrt()
-}
-
-/// `VectorNormalize`.
-fn normalize(a: &mut [f32; 3]) {
-    let length = length(*a);
-    if length != 0.0 {
-        let inverse = 1.0 / length;
-        for value in a {
-            *value *= inverse;
-        }
-    }
+    Ok(source)
 }

@@ -180,6 +180,10 @@ impl NativeGame {
             }
             Some(Ok(item)) => item,
         };
+        // `G_SpawnGEntityFromSpawnVars` precaches a `healingsound`.
+        if let Some(sound) = &item.healing.sound {
+            self.sound_index_for(sound);
+        }
         let Some(id) = self.pool.spawn_entity(
             EntityState::zero(0, &jkr_protocol::LEGACY_ENTITY_FIELDS),
             self.last_frame_time,
@@ -194,7 +198,7 @@ impl NativeGame {
     }
 
     /// An item's entity as clients are sent it.
-    fn publish_siege_item(&mut self, index: usize) {
+    pub(super) fn publish_siege_item(&mut self, index: usize) {
         let Some(placed) = self
             .siege
             .as_ref()
@@ -231,6 +235,7 @@ impl NativeGame {
                     bounds: (placed.item.mins, placed.item.maxs),
                     contents: placed.item.contents,
                     model: None,
+                    linked_box: None,
                 }),
         );
         solids
@@ -543,10 +548,14 @@ impl NativeGame {
             return false;
         };
         let take_damage = siege.items[index].item.take_damage;
+        let health = siege.items[index].item.health;
         let Some(take) = jkr_game_jka::map_turret_world::object_take(number, take_damage, 0, &blow)
         else {
             return true;
         };
+        if health - take > 0 {
+            self.tally_object_damage(&blow, take);
+        }
         self.with_siege_items(level_time, |items, world| {
             let item = &mut items[index].item;
             item.health -= take;
@@ -575,8 +584,31 @@ impl NativeGame {
                 bounds: (placed.item.mins, placed.item.maxs),
                 contents: placed.item.contents,
                 model: None,
+                linked_box: None,
             })
             .collect()
+    }
+
+    /// Siege's own Force regeneration pace for player `client` (`w_force.c:5448-5455`): a
+    /// point every 7 s while it carries an item that limits the Force (`forcelimit`), a
+    /// fifth of `g_forceRegenTime` (one at least) for a class with fast regeneration
+    /// (`CFL_FASTFORCEREGEN`); `None` for the usual pace.
+    pub(super) fn siege_regen_pace(&self, client: usize) -> Option<f64> {
+        let holding = self.peer(client)?.siege_hands.holding;
+        let limited = holding != 0
+            && self.siege.as_ref().is_some_and(|siege| {
+                siege.items.iter().any(|placed| {
+                    placed.id.legacy_number() == holding
+                        && !placed.item.freed
+                        && placed.item.force_limit
+                })
+            });
+        let fast = 1 << jkr_game_jka::siege_class::CFL_FASTFORCEREGEN;
+        jkr_game_jka::force_powers::siege_regen_pace(
+            limited,
+            self.siege_class_flags(client) & fast != 0,
+            self.force_rules.regen_time,
+        )
     }
 
     /// The item player `client` carries, as a goal trigger reads it.

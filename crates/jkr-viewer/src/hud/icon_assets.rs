@@ -4,8 +4,47 @@ use jkr_shader::ShaderCatalog;
 use jkr_ui::TextureId;
 use jkr_vfs::VirtualFileSystem;
 
-/// Existing item catalogue, then 43 cause-of-death cells, then two CTY flag variants.
-pub(super) const COUNT: usize = 96;
+/// Existing item catalogue, then 43 cause-of-death cells, then two CTY flag variants, then
+/// the Force powers' icons and rage recovery's, then the two taken-flag icons, then the
+/// vehicle HUD's pictures.
+pub(super) const COUNT: usize = 124;
+const _: () = assert!(COUNT as u32 <= ui_renderer::HUD_CELL_COUNT);
+/// The first Force power icon's slot (`FORCE_ICONS` order); rage recovery follows them.
+pub(super) const FORCE: usize = 96;
+pub(super) const RAGE_RECOVERY: usize = FORCE + 18;
+/// The flags' item icons (`mpi_rflag`, `mpi_bflag`), their CTY variants (`_ys`) and the
+/// taken ones (`_x`), red then blue.
+pub(super) const FLAGS: [usize; 2] = [46, 47];
+pub(super) const CTY_FLAGS: [usize; 2] = [94, 95];
+pub(super) const TAKEN_FLAGS: [usize; 2] = [115, 116];
+/// The first of the vehicle HUD's pictures (`super::vehicle::TEXTURES` order).
+pub(super) const VEHICLE: usize = 117;
+/// `cgs.media.hackerIconShader`'s cell, over the hack bar (`CG_DrawHaqrBar`): past the duel
+/// portraits' (124-126) and the vehicle panels' (127-140).
+const HACKER_CELL: u32 = 141;
+const _: () = assert!(HACKER_CELL < ui_renderer::HUD_CELL_COUNT);
+/// `HolocronIcons` (`ui_shared.c:41-60`), by Force power, and `rageRecShader`.
+const FORCE_ICONS: [&str; 19] = [
+    "gfx/mp/f_icon_lt_heal",
+    "gfx/mp/f_icon_levitation",
+    "gfx/mp/f_icon_speed",
+    "gfx/mp/f_icon_push",
+    "gfx/mp/f_icon_pull",
+    "gfx/mp/f_icon_lt_telepathy",
+    "gfx/mp/f_icon_dk_grip",
+    "gfx/mp/f_icon_dk_l1",
+    "gfx/mp/f_icon_dk_rage",
+    "gfx/mp/f_icon_lt_protect",
+    "gfx/mp/f_icon_lt_absorb",
+    "gfx/mp/f_icon_lt_healother",
+    "gfx/mp/f_icon_dk_forceother",
+    "gfx/mp/f_icon_dk_drain",
+    "gfx/mp/f_icon_sight",
+    "gfx/mp/f_icon_saber_attack",
+    "gfx/mp/f_icon_saber_defend",
+    "gfx/mp/f_icon_saber_throw",
+    "gfx/mp/f_icon_ragerec",
+];
 
 /// Stock weapon ordinals -> existing bg_itemlist entries (bg_misc.c:1241-1619).
 pub(super) const WEAPONS: [usize; 19] = [
@@ -72,7 +111,12 @@ pub(in crate::hud) fn decode(
     name: &str,
 ) -> Option<image::RgbaImage> {
     let path = shaders.resolve_image(vfs, name).ok()??;
-    let image = cached_decoded_image(vfs, path.as_str()).ok()??;
+    decode_path(vfs, path.as_str())
+}
+
+/// Image `path` decoded through the same cache and scaled to one atlas cell.
+pub(in crate::hud) fn decode_path(vfs: &VirtualFileSystem, path: &str) -> Option<image::RgbaImage> {
+    let image = cached_decoded_image(vfs, path).ok()??;
     Some(image::imageops::resize(
         &*image,
         ui_renderer::ICON_SIZE,
@@ -82,6 +126,18 @@ pub(in crate::hud) fn decode(
 }
 
 /// Load once per installed world; unresolved slots stay absent, never coloured quads.
+/// The hack bar's technician (`hackerIconShader`, `gfx/mp/c_icon_tech`), in its own cell.
+pub(super) fn load_hacker(
+    vfs: &VirtualFileSystem,
+    shaders: &ShaderCatalog,
+    mut upload: impl FnMut(TextureId, &[u8]),
+) -> Option<TextureId> {
+    let pixels = decode(vfs, shaders, "gfx/mp/c_icon_tech")?;
+    let id = TextureId(ui_renderer::ICON_CELLS + HACKER_CELL);
+    upload(id, pixels.as_raw());
+    Some(id)
+}
+
 pub(super) fn load(
     vfs: &VirtualFileSystem,
     shaders: &ShaderCatalog,
@@ -97,7 +153,11 @@ pub(super) fn load(
             0..=50 => items[slot].to_owned(),
             51..=93 => format!("hud/mod/{}", MOD_NAMES[slot - 51]),
             94 => "gfx/hud/mpi_rflag_ys".to_owned(),
-            _ => "gfx/hud/mpi_bflag_ys".to_owned(),
+            95 => "gfx/hud/mpi_bflag_ys".to_owned(),
+            96..=114 => FORCE_ICONS[slot - FORCE].to_owned(),
+            115 => "gfx/hud/mpi_rflag_x".to_owned(),
+            116 => "gfx/hud/mpi_bflag_x".to_owned(),
+            _ => super::vehicle::TEXTURES[slot - VEHICLE].to_owned(),
         };
         if name.is_empty() {
             return None;

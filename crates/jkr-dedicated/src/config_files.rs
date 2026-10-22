@@ -3,8 +3,10 @@
 //!
 //! A name is looked up in the operator's home directory (`fs_homepath/base`), then in
 //! the game data's archives (`base/*.pk3`, in the reference's order, where the stock
-//! `mpdefault.cfg` lives), then loose in the game data's `base` directory. Nothing is
-//! written unless a home directory was given.
+//! `mpdefault.cfg` lives), then loose in the game data's `base` directory. A mod
+//! (`fs_game`) is searched before all of that, loose in the home and the game data's mod
+//! folder, and its archives win over `base`'s; what the server writes goes to the mod's
+//! folder in the home directory. Nothing is written unless a home directory was given.
 
 use jkr_vfs::VirtualFileSystem;
 use std::path::PathBuf;
@@ -22,35 +24,60 @@ pub struct ConfigFiles {
     pub game_data: Option<PathBuf>,
     /// The game data's archives, mounted on first use.
     archives: Option<VirtualFileSystem>,
+    /// The game directory written to: the mod's (`fs_game`), else `base`.
+    game: String,
 }
 
 impl ConfigFiles {
     /// Search paths over an optional home and game-data directory.
-    pub fn new(home: Option<PathBuf>, game_data: Option<PathBuf>) -> Self {
+    pub fn new(home: Option<PathBuf>, game_data: Option<PathBuf>, game: &str) -> Self {
+        let game = crate::map::game_directories(game)
+            .last()
+            .copied()
+            .unwrap_or("base")
+            .to_owned();
         Self {
             home,
             game_data,
             archives: None,
+            game,
         }
+    }
+
+    /// A file loose in `directory` of `root` (the home or the game data).
+    fn loose(root: Option<&PathBuf>, directory: &str, name: &str) -> Option<Vec<u8>> {
+        std::fs::read(root?.join(directory).join(name)).ok()
+    }
+
+    /// Whether a mod is searched before `base`.
+    fn modded(&self) -> bool {
+        self.game != "base"
     }
 
     /// A file's bytes by its game path, or `None` where no search path has it.
     pub fn read(&mut self, name: &str) -> Option<Vec<u8>> {
         let name = name.trim_start_matches(['/', '\\']);
-        if let Some(home) = &self.home
-            && let Ok(bytes) = std::fs::read(home.join("base").join(name))
+        if self.modded()
+            && let Some(bytes) = Self::loose(self.home.as_ref(), &self.game, name)
+                .or_else(|| Self::loose(self.game_data.as_ref(), &self.game, name))
         {
+            return Some(bytes);
+        }
+        if let Some(bytes) = Self::loose(self.home.as_ref(), "base", name) {
             return Some(bytes);
         }
         let game_data = self.game_data.clone()?;
         if self.archives.is_none() {
             let mut files = VirtualFileSystem::new();
-            let _ = files.mount_pk3_directory_with_warnings(
-                game_data.join("base"),
-                |archive, error| {
+            for directory in crate::map::game_directories(&self.game) {
+                let path = game_data.join(directory);
+                if directory != "base" && !path.is_dir() {
+                    continue;
+                }
+                let _ = files.mount_pk3_directory_with_warnings(path, |archive, error| {
                     eprintln!("skipping {}: {error}", archive.display());
-                },
-            );
+                });
+            }
             self.archives = Some(files);
         }
         if let Some(Ok(Some(asset))) = self.archives.as_ref().map(|files| files.read(name)) {
@@ -63,10 +90,13 @@ impl ConfigFiles {
     /// archives are those an earlier [`Self::read`] or [`Self::list_files`] mounted.
     pub fn has(&self, name: &str) -> bool {
         let name = name.trim_start_matches(['/', '\\']);
-        if self
-            .home
-            .as_ref()
-            .is_some_and(|home| home.join("base").join(name).is_file())
+        let loose = |root: Option<&PathBuf>, directory: &str| {
+            root.is_some_and(|root| root.join(directory).join(name).is_file())
+        };
+        if (self.modded()
+            && (loose(self.home.as_ref(), &self.game)
+                || loose(self.game_data.as_ref(), &self.game)))
+            || loose(self.home.as_ref(), "base")
         {
             return true;
         }
@@ -97,7 +127,7 @@ impl ConfigFiles {
         if !stays_inside(name) {
             return None;
         }
-        std::fs::read(self.home.as_ref()?.join("base").join(name)).ok()
+        std::fs::read(self.home.as_ref()?.join(&self.game).join(name)).ok()
     }
 
     /// Write a file of the server's own in the home directory's `base`
@@ -109,7 +139,7 @@ impl ConfigFiles {
         if !stays_inside(name) {
             return Err(std::io::ErrorKind::PermissionDenied.into());
         }
-        let directory = home.join("base");
+        let directory = home.join(&self.game);
         std::fs::create_dir_all(&directory)?;
         std::fs::write(directory.join(name), text)
     }
@@ -120,7 +150,7 @@ impl ConfigFiles {
         if !stays_inside(name) {
             return None;
         }
-        let directory = self.home.as_ref()?.join("base");
+        let directory = self.home.as_ref()?.join(&self.game);
         std::fs::create_dir_all(&directory).ok()?;
         std::fs::OpenOptions::new()
             .create(true)
@@ -146,7 +176,7 @@ impl ConfigFiles {
         if !stays_inside(name) {
             return None;
         }
-        let path = self.home.as_ref()?.join("base").join(name);
+        let path = self.home.as_ref()?.join(&self.game).join(name);
         std::fs::create_dir_all(path.parent()?).ok()?;
         std::fs::File::create(path).ok()
     }
@@ -157,14 +187,30 @@ impl ConfigFiles {
             && self
                 .home
                 .as_ref()
-                .is_some_and(|home| home.join("base").join(name).exists())
+                .is_some_and(|home| home.join(&self.game).join(name).exists())
+    }
+
+    /// `FS_Rename` of a file of the server's own in the home directory's `base`: nothing
+    /// without a home, or where either name climbs out of it or the file is missing.
+    pub fn rename_home(&self, from: &str, to: &str) {
+        let Some(home) = &self.home else { return };
+        if !stays_inside(from) || !stays_inside(to) {
+            return;
+        }
+        let base = home.join(&self.game);
+        let target = base.join(to);
+        if let Some(parent) = target.parent()
+            && std::fs::create_dir_all(parent).is_ok()
+        {
+            let _ = std::fs::rename(base.join(from), target);
+        }
     }
 
     /// `sv_autoDemoMaxMaps`: only the `keep` newest maps' folders of automatic demos
     /// stay in the home directory's `base/demos/autorecord`; nothing without a home.
     pub fn prune_auto_demos(&self, keep: usize) {
         if let Some(home) = &self.home {
-            jkr_network::legacy_prune_auto_demos(&mut HomeFolders(home.join("base")), keep);
+            jkr_network::legacy_prune_auto_demos(&mut HomeFolders(home.join(&self.game)), keep);
         }
     }
 
@@ -228,5 +274,64 @@ impl jkr_network::LegacyDemoFolders for HomeFolders {
         } else {
             std::fs::remove_dir(path)
         };
+    }
+}
+
+#[cfg(test)]
+mod mod_tests {
+    use super::*;
+
+    /// A home and a game data directory under the system's temporary one, removed after.
+    struct Dirs(PathBuf);
+
+    impl Dirs {
+        fn new(name: &str) -> Self {
+            let root = std::env::temp_dir().join(format!("jkr-{name}-{}", std::process::id()));
+            for directory in ["home/base", "home/japro", "data/base", "data/japro"] {
+                std::fs::create_dir_all(root.join(directory)).unwrap();
+            }
+            Self(root)
+        }
+        fn write(&self, path: &str, text: &str) {
+            std::fs::write(self.0.join(path), text).unwrap();
+        }
+    }
+
+    impl Drop for Dirs {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn a_mod_is_searched_before_base_and_written_to() {
+        let dirs = Dirs::new("fsgame");
+        dirs.write("home/base/server.cfg", "base home");
+        dirs.write("data/japro/server.cfg", "mod data");
+        dirs.write("data/base/motd.cfg", "base data");
+        let mut files = ConfigFiles::new(
+            Some(dirs.0.join("home")),
+            Some(dirs.0.join("data")),
+            "japro",
+        );
+        assert_eq!(files.read("server.cfg").unwrap(), b"mod data");
+        assert_eq!(files.read("motd.cfg").unwrap(), b"base data");
+        assert!(files.has("server.cfg"));
+        files.write_home("games.log", b"x").unwrap();
+        assert!(dirs.0.join("home/japro/games.log").is_file());
+        assert!(!dirs.0.join("home/base/games.log").exists());
+        // Without the mod, base's own.
+        let mut plain = ConfigFiles::new(Some(dirs.0.join("home")), Some(dirs.0.join("data")), "");
+        assert_eq!(plain.read("server.cfg").unwrap(), b"base home");
+    }
+
+    #[test]
+    fn only_a_safe_mod_name_is_searched() {
+        use crate::map::game_directories;
+        assert_eq!(game_directories(""), ["base"]);
+        assert_eq!(game_directories("BASE"), ["base"]);
+        assert_eq!(game_directories("japlus"), ["base", "japlus"]);
+        assert_eq!(game_directories("../etc"), ["base"]);
+        assert_eq!(game_directories("a/b"), ["base"]);
     }
 }

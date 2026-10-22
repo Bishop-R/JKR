@@ -67,7 +67,7 @@ const AMMO_POWERCELL: i32 = 3;
 const AMMO_METAL_BOLTS: i32 = 4;
 const WP_BOWCASTER: i32 = 7;
 const WP_ROCKET_LAUNCHER: i32 = 11;
-const WP_BRYAR_PISTOL: i32 = 16;
+const WP_BRYAR_PISTOL: i32 = 4;
 
 /// The classes' precaches (`NPC_AI_*.c`), each as its function registers.
 const SHADOWTROOPER: &[Registration] = &[
@@ -683,8 +683,9 @@ pub struct NpcSpawner {
     pub pain_target: Option<Vec<u8>>,
     /// `message`: a key the NPC carries.
     pub message: Option<Vec<u8>>,
-    /// `spawnscript`: the ICARUS script it runs once spawned.
-    pub spawn_script: Option<Vec<u8>>,
+    /// `behaviorSet`: the ICARUS scripts (`spawnscript`, `deathscript`, ...) by behaviour
+    /// set, which `NPC_Spawn_Do` hands the NPC.
+    pub behavior_sets: crate::npc_spawn::BehaviorSets,
     /// When its think (`NPC_Spawn_Go`) comes, if it has one.
     pub spawn_at: Option<i32>,
     /// `use`: `NPC_Spawn` while it has NPCs left and a name to be used by.
@@ -696,6 +697,15 @@ pub struct NpcSpawner {
 }
 
 /// `G_ParseField`'s `F_STRING`: the value through `G_NewString`.
+/// The behaviour sets an entity's spawn keys name (`g_spawn.c`'s field table).
+fn behavior_sets(entity: &jkr_entity::Entity) -> crate::npc_spawn::BehaviorSets {
+    let mut sets = crate::npc_spawn::BehaviorSets::default();
+    for (key, set) in crate::script_entity::BSET_KEYS {
+        sets[set] = string(entity, key);
+    }
+    sets
+}
+
 fn string(entity: &jkr_entity::Entity, key: &str) -> Option<Vec<u8>> {
     entity
         .get(key)
@@ -793,7 +803,7 @@ impl NpcSpawner {
             open_target: string(entity, "opentarget"),
             pain_target: string(entity, "paintarget"),
             message: string(entity, "message"),
-            spawn_script: string(entity, "spawnscript"),
+            behavior_sets: behavior_sets(entity),
             spawn_at: (!usable).then_some(level_time + AUTO_SPAWN_DELAY),
             usable,
             free_at: None,
@@ -843,7 +853,7 @@ impl NpcSpawner {
             open_target: None,
             pain_target: None,
             message: None,
-            spawn_script: None,
+            behavior_sets: Default::default(),
             spawn_at: None,
             usable: false,
             free_at: None,

@@ -4,8 +4,9 @@
 //! jetpack and cloak batteries and the seeker drone. The rules are
 //! `jkr_game_jka::holdables` and `seeker_drone`, held to `holdables.c`.
 //!
-//! Not yet: the sentry, the E-Web and the jetpack's flight. Used, each says
-//! so once and is given back (the movement had used it up), so no item is lost.
+//! The sentry is set down by `bridge_sentries`, the E-Web by `bridge_ewebs`; the jetpack's
+//! flight is the movement's (`jkr_game_jka::pmove::jetpack`), switched each think by
+//! `holdables::jetpack_think`.
 
 use super::*;
 use jkr_game_jka::holdables::{
@@ -28,10 +29,8 @@ const PS_JETPACK_FUEL: usize = 39;
 const PS_CLOAK_FUEL: usize = 40;
 const PS_EXTERNAL_EVENT: usize = 56;
 const PS_EXTERNAL_EVENT_PARM: usize = 64;
-/// `powerups[PW_CLOAKED]`, `stats[STAT_HOLDABLE_ITEM]`, `stats[STAT_HOLDABLE_ITEMS]`,
-/// `stats[STAT_MAX_HEALTH]`.
+/// `powerups[PW_CLOAKED]`, `stats[STAT_HOLDABLE_ITEMS]`, `stats[STAT_MAX_HEALTH]`.
 const PW_CLOAKED: usize = 11;
-const STAT_HOLDABLE_ITEM: usize = 1;
 const STAT_HOLDABLE_ITEMS: usize = 2;
 const STAT_MAX_HEALTH: usize = 8;
 /// `GENCMD_USE_SEEKER` .. `GENCMD_USE_CLOAK`, in `genCmds_t`'s order, as holdable tags.
@@ -51,23 +50,22 @@ const GENERIC_TAGS: [i32; 12] = [
     HI_EWEB,
     HI_CLOAK,
 ];
-/// The holdables this server cannot use yet.
-const UNPORTED: [i32; 3] = [HI_SENTRY_GUN, HI_JETPACK, HI_EWEB];
 /// `EV_PLAY_EFFECT`, `EFFECT_SPARK_EXPLOSION`, `s.angles`, `s.origin`.
 const EV_PLAY_EFFECT: u32 = 68;
 const EFFECT_SPARK_EXPLOSION: u32 = 4;
 const ES_ANGLES: [usize; 3] = [25, 9, 24];
 const ES_ORIGIN: [usize; 3] = [11, 12, 13];
-/// `CHAN_WEAPON`, `CHAN_ITEM`, `CHAN_BODY`, `CHAN_AUTO`, carried in `saberEntityNum`.
+/// `CHAN_AUTO`, `CHAN_WEAPON`, `CHAN_ITEM`, `CHAN_BODY`, carried in `saberEntityNum`.
+const CHAN_AUTO: u32 = 0;
 const CHAN_WEAPON: u32 = 2;
-const CHAN_ITEM: u32 = 4;
-const CHAN_BODY: u32 = 5;
-const ES_SABER_ENTITY: usize = 31;
+const CHAN_ITEM: u32 = 5;
+const CHAN_BODY: u32 = 6;
+const ES_SABER_ENTITY: usize = 37;
 
 impl NativeGame {
     /// `ClientEvents`' `EV_USE_ITEM1..11`: the use key's item `tag`, used by the move.
     pub(super) fn use_item_of_move(&mut self, client: usize, tag: i32, level_time: i32) {
-        self.use_item(client, tag, level_time, true);
+        self.use_item(client, tag, level_time);
     }
 
     /// The generic commands `GENCMD_USE_*` (`g_active.c:3171-3300`): the item, if held
@@ -129,11 +127,10 @@ impl NativeGame {
                     level_time,
                 );
             }
-            Ok(()) if UNPORTED.contains(&tag) => self.told_unported_holdable(tag),
             Ok(()) => {
                 // The dispensers' `ItemUse_UseDisp` is commented out: only the event.
                 if !matches!(tag, HI_HEALTHDISP | holdables::HI_AMMODISP) {
-                    self.use_item(client, tag, level_time, false);
+                    self.use_item(client, tag, level_time);
                 }
                 let zoomed = self
                     .peer(client)
@@ -164,9 +161,24 @@ impl NativeGame {
         true
     }
 
-    /// `ItemUse_*` for `tag` by `client`; `moved` when the use key's movement used it (and
-    /// so already took a used-up item away).
-    fn use_item(&mut self, client: usize, tag: i32, level_time: i32, moved: bool) {
+    /// `TryUse`'s last resort (`g_utils.c:1820-1829`): with nothing else used, a carried
+    /// jetpack is switched — off when lit, on only in the air. The generic command cannot
+    /// do it: `G_ItemUsable` refuses an item that is never selectable.
+    pub(super) fn jetpack_by_use_key(&mut self, client: usize, level_time: i32) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let carried = peer.state.stats[STAT_HOLDABLE_ITEMS] & (1 << HI_JETPACK) != 0;
+        let airborne = peer.state.ground_entity_num() == jkr_protocol::ENTITY_NUMBER_NONE;
+        if carried && (peer.gear.packs.jetpack_on || airborne) {
+            self.use_item(client, HI_JETPACK, level_time);
+        }
+    }
+
+    /// `ItemUse_*` for `tag` by `client`.
+    fn use_item(&mut self, client: usize, tag: i32, level_time: i32) {
+        let seeker_npc =
+            self.gametype == GAMETYPE_SIEGE && self.cvars.integer(b"d_siegeSeekerNPC") != 0;
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
@@ -205,8 +217,8 @@ impl NativeGame {
                 }
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
+            HI_SEEKER if seeker_npc => self.spawn_seeker_remote(client, level_time),
             HI_SEEKER => {
-                // Siege's `d_siegeSeekerNPC` (a remote NPC) is off by default: the drone.
                 let flags = peer.state.raw_field(PS_EFLAGS).unwrap_or(0);
                 peer.state.set_raw_field(PS_EFLAGS, flags | EF_SEEKERDRONE);
                 peer.gear.drone_exist = (level_time + 30_000) as f32;
@@ -214,43 +226,23 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
             HI_CLOAK => {
-                let wearer = wearer_of(peer);
+                let wearer = wearer_of(peer, level_time);
                 let toggled = holdables::use_cloak(&mut peer.gear.packs, &wearer, level_time);
                 self.cloak_toggled(client, toggled, level_time);
             }
             HI_SHIELD => self.place_shield(client, level_time),
-            HI_JETPACK | HI_SENTRY_GUN | HI_EWEB => {
-                // Given back: the movement used a sentry up.
-                if moved && tag == HI_SENTRY_GUN {
-                    peer.state.stats[STAT_HOLDABLE_ITEMS] |= 1 << tag;
-                    peer.state.stats[STAT_HOLDABLE_ITEM] = holdables::index_of(tag);
-                    peer.movement = peer.movement.reseeded(&peer.state);
+            HI_SENTRY_GUN => self.place_sentry(client, level_time),
+            HI_JETPACK => {
+                let wearer = wearer_of(peer, level_time);
+                if holdables::use_jetpack(&mut peer.gear.packs, &wearer, level_time)
+                    == Toggled::JetpackOn
+                {
+                    let origin = peer.state.origin();
+                    self.general_sound(b"sound/boba/JETON", origin, CHAN_AUTO, level_time);
                 }
-                self.told_unported_holdable(tag);
             }
+            HI_EWEB => self.use_eweb(client, level_time),
             _ => {}
-        }
-    }
-
-    /// A holdable this server cannot use yet, said once per process.
-    fn told_unported_holdable(&mut self, tag: i32) {
-        static TOLD: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(0);
-        let name = [
-            "",
-            "seeker",
-            "shield",
-            "medpac",
-            "medpac_big",
-            "binoculars",
-            "sentry",
-            "jetpack",
-            "healthdisp",
-            "ammodisp",
-            "eweb",
-            "cloak",
-        ][tag as usize];
-        if TOLD.fetch_or(1 << tag, std::sync::atomic::Ordering::Relaxed) & (1 << tag) == 0 {
-            eprintln!("holdable {name} used: not ported yet, given back");
         }
     }
 
@@ -267,7 +259,50 @@ impl NativeGame {
         peer.state.powerups[PW_CLOAKED] = cloak as u32;
         peer.movement = peer.movement.reseeded(&peer.state);
         let origin = peer.state.origin();
-        self.holdable_sound(sound, origin, CHAN_ITEM, level_time);
+        self.general_sound(sound, origin, CHAN_ITEM, level_time);
+    }
+
+    /// The shockwave's decloak (`DEMP2_AltRadiusDamage`, `g_weapon.c:3061-3066`): a cloaked
+    /// client it struck is uncloaked (`Jedi_Decloak`: targetable again, the sound) and kept
+    /// from cloaking again for 3 to 10 s (`cloakToggleTime`, which only a player's cloak
+    /// reads).
+    pub(super) fn shock_decloak(&mut self, number: u16, level_time: i32) {
+        const FL_NOTARGET: u32 = jkr_game_jka::cheat_flags::FL_NOTARGET;
+        let cloaked = |state: &PlayerState| state.powerups[PW_CLOAKED] != 0;
+        if let Some(peer) = self.peer(usize::from(number)) {
+            if !cloaked(&peer.state) {
+                return;
+            }
+            let toggle_time = level_time + self.deaths.rng.irand(3_000, 10_000);
+            self.cloak_toggled(usize::from(number), Toggled::Decloaked, level_time);
+            if let Some(peer) = self.peer_mut(usize::from(number)) {
+                peer.riding.flags &= !FL_NOTARGET;
+                peer.gear.packs.cloak_toggle_time = toggle_time;
+            }
+            return;
+        }
+        let Some(npc) = self
+            .npcs
+            .roster
+            .actors
+            .iter_mut()
+            .find(|npc| npc.number == number)
+        else {
+            return;
+        };
+        if !cloaked(&npc.player) {
+            return;
+        }
+        npc.flags &= !FL_NOTARGET;
+        npc.player.powerups[PW_CLOAKED] = 0;
+        let origin = npc.current_origin;
+        let _ = self.deaths.rng.irand(3_000, 10_000);
+        self.general_sound(
+            b"sound/chars/shadowtrooper/decloak.wav",
+            origin,
+            CHAN_ITEM,
+            level_time,
+        );
     }
 
     /// `G_AddEvent` on a player: its external event (`EV_EVENT_BITS` stepped).
@@ -284,7 +319,13 @@ impl NativeGame {
     }
 
     /// `G_Sound`/`G_SoundAtLoc`: a sound event at `origin` on `channel`.
-    fn holdable_sound(&mut self, name: &[u8], origin: [f32; 3], channel: u32, level_time: i32) {
+    pub(super) fn general_sound(
+        &mut self,
+        name: &[u8],
+        origin: [f32; 3],
+        channel: u32,
+        level_time: i32,
+    ) {
         let told = &mut self.told;
         let index = self.sounds.index(name, &mut |index, value| {
             told.push(Told::ConfigString {
@@ -403,7 +444,7 @@ impl NativeGame {
                     }
                     let _ = self.pool.spawn_temporary(effect.state(), level_time, None);
                 }
-                Deed::Warning => self.holdable_sound(
+                Deed::Warning => self.general_sound(
                     b"sound/weapons/laser_trap/warning.wav",
                     origin,
                     CHAN_BODY,
@@ -417,7 +458,7 @@ impl NativeGame {
                         self.pool.set_bounds(id, missile.bounds);
                         self.missiles.push((id, missile));
                     }
-                    self.holdable_sound(
+                    self.general_sound(
                         b"sound/weapons/bryar/fire.wav",
                         at,
                         CHAN_WEAPON,
@@ -445,16 +486,20 @@ fn holder_of(peer: &Peer) -> Holder {
     }
 }
 
-/// The jetpack's and cloak's view of a player.
-fn wearer_of(peer: &Peer) -> Wearer {
+/// The jetpack's and cloak's view of a player at `level_time`.
+fn wearer_of(peer: &Peer, level_time: i32) -> Wearer {
+    const PM_DEAD: u8 = 5;
     Wearer {
         health: peer.health,
-        dead: peer.state.raw_field(PS_EFLAGS).unwrap_or(0) & holdables::EF_DEAD != 0,
+        // `ps.stats[STAT_HEALTH] <= 0`, `EF_DEAD` or `PM_DEAD` (`ItemUse_Jetpack`).
+        dead: peer.state.raw_field(PS_EFLAGS).unwrap_or(0) & holdables::EF_DEAD != 0
+            || peer.state.stats[0] as i16 <= 0
+            || peer.state.movement_type() == PM_DEAD,
         jetpack_fuel: peer.state.raw_field(PS_JETPACK_FUEL).unwrap_or(0) as i32,
         cloak_fuel: peer.state.raw_field(PS_CLOAK_FUEL).unwrap_or(0) as i32,
         cloaked: peer.state.powerups[PW_CLOAKED] != 0,
-        gripped: false,
-        falling_to_death: false,
+        gripped: peer.force.grip_being_gripped >= level_time as f32,
+        falling_to_death: peer.state.falling_to_death() != 0,
     }
 }
 

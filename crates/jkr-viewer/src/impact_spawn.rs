@@ -73,6 +73,32 @@ pub(crate) fn observe_snapshot(
         };
         flare_latches += usize::from(latch_clash_flare(clash_flare, impact, snapshot.server_time));
         visual_requests += spawn_impact(impact, local, &mut sinks, now);
+        let Some(state) = snapshot
+            .entities
+            .binary_search_by_key(&impact.entity_number, |state| state.number())
+            .ok()
+            .map(|index| &snapshot.entities[index])
+        else {
+            continue;
+        };
+        // The event as decoded: a temporary event entity carries it in its type.
+        let event = impact.event & !0x300;
+        // `CG_G2MarkEvent`: a flagged missile's mark on the model it struck.
+        if let Some(mark) = jkr_client::ghoul2_marks::missile_mark(state, event) {
+            sinks.auxiliary.marks.request(mark);
+        }
+        // The owner's blades keep showing the hit for a while (`serverSaberHitTime`).
+        if let Some((owner, hit)) = jkr_client::saber_compensation::server_hit(
+            state,
+            event,
+            i64::from(snapshot.server_time),
+        ) {
+            sinks
+                .auxiliary
+                .saber_contacts
+                .compensation
+                .observe(owner, hit);
+        }
     }
     Observation {
         events: count,
@@ -109,7 +135,8 @@ pub(crate) fn spawn_impact(
 ) -> usize {
     impact.start = local.beam_start(impact);
     let mut spawned = 0;
-    for (visual_index, visual) in impacts::plan(impact).iter().enumerate() {
+    let flesh_sparks = sinks.auxiliary.options.flesh_sparks;
+    for (visual_index, visual) in impacts::plan(impact, flesh_sparks).iter().enumerate() {
         spawned += 1;
         let seed =
             u32::from(impact.entity_number) | (u32::from(impact.event) << 16) | visual_index as u32;

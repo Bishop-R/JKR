@@ -194,42 +194,87 @@ pub(super) fn append_actor_mesh(
     let mut draws = Vec::new();
     let mut vertex_ranges = Vec::new();
     for (surface_index, surface) in surfaces.into_iter().enumerate() {
-        let Some(shader) = surface.shader.as_ref() else {
-            continue;
-        };
-        let vertex_base: u32 = scene.vertices.len().try_into()?;
-        let vertex_start = scene.vertices.len();
-        let index_start: u32 = scene.indices.len().try_into()?;
-        scene.vertices.extend(
-            surface
-                .vertices
-                .iter()
-                .map(|vertex| preview_gpu_vertex(actor, vertex)),
-        );
-        for triangle in surface.triangles {
-            for index in triangle {
-                scene.indices.push(
-                    vertex_base
-                        .checked_add(index)
-                        .ok_or("actor mesh index overflow")?,
-                );
-            }
-        }
-        let material = scene.materials.len();
-        scene.materials.push(ViewerMaterial {
-            shader: shader.clone(),
-            lightmap: -1,
-        });
-        draws.push(ActorDraw {
-            indices: index_start..scene.indices.len().try_into()?,
-            material,
-        });
-        vertex_ranges.push(PreviewVertexRange {
+        append_actor_surface(
+            scene,
+            actor,
+            surface,
             surface_index,
-            vertices: vertex_start..scene.vertices.len(),
-        });
+            &mut draws,
+            &mut vertex_ranges,
+        )?;
     }
     Ok((draws, vertex_ranges))
+}
+
+/// The surfaces `actor`'s model starts with switched off (`G2SURFACEFLAG_OFF`: the caps a
+/// cut limb leaves), as draws to append after its others; each range's `surface_index` is
+/// the surface's hierarchy index.
+pub(super) fn append_actor_caps(
+    scene: &mut FlattenedScene,
+    actor: &PlayerPreview,
+    frame: usize,
+) -> Result<(Vec<ActorDraw>, Vec<PreviewVertexRange>), Box<dyn Error>> {
+    let matrices = actor.animation.frame_matrices(frame)?;
+    let surfaces = actor.mesh.skin_switched_off(&actor.skin, 0, &matrices)?;
+    let mut draws = Vec::new();
+    let mut vertex_ranges = Vec::new();
+    for (hierarchy, surface) in surfaces {
+        append_actor_surface(
+            scene,
+            actor,
+            surface,
+            hierarchy,
+            &mut draws,
+            &mut vertex_ranges,
+        )?;
+    }
+    Ok((draws, vertex_ranges))
+}
+
+/// One skinned surface of `actor` with a shader, as a draw and its vertex range.
+fn append_actor_surface(
+    scene: &mut FlattenedScene,
+    actor: &PlayerPreview,
+    surface: jkr_model::SkinnedSurface,
+    surface_index: usize,
+    draws: &mut Vec<ActorDraw>,
+    vertex_ranges: &mut Vec<PreviewVertexRange>,
+) -> Result<(), Box<dyn Error>> {
+    let Some(shader) = surface.shader.as_ref() else {
+        return Ok(());
+    };
+    let vertex_base: u32 = scene.vertices.len().try_into()?;
+    let vertex_start = scene.vertices.len();
+    let index_start: u32 = scene.indices.len().try_into()?;
+    scene.vertices.extend(
+        surface
+            .vertices
+            .iter()
+            .map(|vertex| preview_gpu_vertex(actor, vertex)),
+    );
+    for triangle in surface.triangles {
+        for index in triangle {
+            scene.indices.push(
+                vertex_base
+                    .checked_add(index)
+                    .ok_or("actor mesh index overflow")?,
+            );
+        }
+    }
+    let material = scene.materials.len();
+    scene.materials.push(ViewerMaterial {
+        shader: shader.clone(),
+        lightmap: -1,
+    });
+    draws.push(ActorDraw {
+        indices: index_start..scene.indices.len().try_into()?,
+        material,
+    });
+    vertex_ranges.push(PreviewVertexRange {
+        surface_index,
+        vertices: vertex_start..scene.vertices.len(),
+    });
+    Ok(())
 }
 
 pub(super) fn append_md3_mesh(

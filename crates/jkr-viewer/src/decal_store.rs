@@ -18,6 +18,12 @@
 //! `CG_PlayerShadow`) bypass the rings: cgame clips them with the same
 //! `R_MarkFragments` and hands the polys to `R_AddPolysToScene` for the
 //! current frame only (`cg_marks.c:131-230`).
+//!
+//! Marks on models (`actor_marks`) are this frame's polys too, laid by the
+//! renderer's gore pass rather than cgame; each draws every stage of its shader.
+//!
+//! Marks cgame keeps itself (`CG_ImpactMark(..., temporary = qfalse)`, the
+//! footprints) live in `cgame_marks` under `cg_marks 1` and in the rings under 2.
 
 use super::*;
 use crate::decal_marks::{DecalRequest, DecalScratch, DecalSurfaces, DecalVertex};
@@ -32,6 +38,11 @@ const FADE_TIME_MILLIS: u32 = 1_000;
 const MAX_PENDING_REQUESTS: usize = 64;
 /// Per-frame polys for temporary marks; `MAX_MARK_FRAGMENTS` twice over.
 const MAX_TEMPORARY_POLYS: usize = 256;
+/// Per-frame polys of marks on models: sixteen large marks on a dozen models.
+const MAX_MODEL_MARK_POLYS: usize = 8_192;
+/// [`DecalDraw::slot`] of a poly that draws each of its shader's stages in that stage's
+/// own blend pass.
+pub(crate) const ALL_SLOTS: u8 = u8::MAX;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Ring {
@@ -109,11 +120,15 @@ pub(crate) struct DecalStore {
     pending_temporary: Vec<DecalRequest>,
     /// Polys of this frame's temporary marks; replaced by every projection.
     temporary: Vec<DecalPoly>,
+    /// Polys of this frame's marks on models ([`Self::add_model_mark`]).
+    model_marks: Vec<DecalPoly>,
     dropped_requests: usize,
+    dropped_model_marks: usize,
     scratch: DecalScratch,
     epoch: Instant,
     /// `cg_marks`; temporary marks bypass it.
-    marks_enabled: bool,
+    marks: i64,
+    cgame: cgame_marks::CgameMarks,
 }
 
 impl Default for DecalStore {
@@ -123,30 +138,50 @@ impl Default for DecalStore {
             pending: Vec::with_capacity(MAX_PENDING_REQUESTS),
             pending_temporary: Vec::with_capacity(MAX_PENDING_REQUESTS),
             temporary: Vec::with_capacity(MAX_TEMPORARY_POLYS),
+            model_marks: Vec::with_capacity(MAX_MODEL_MARK_POLYS),
             dropped_requests: 0,
+            dropped_model_marks: 0,
             scratch: DecalScratch::default(),
             epoch: Instant::now(),
-            marks_enabled: true,
+            marks: 1,
+            cgame: cgame_marks::CgameMarks::default(),
         }
     }
 }
 
 impl DecalStore {
-    /// `cg_marks 0`: `CG_ImpactMark` returns before queueing
-    /// (`codemp/cgame/cg_marks.c:146`); temporary marks (shadows) are unaffected.
-    pub(crate) fn set_marks_enabled(&mut self, enabled: bool) {
-        self.marks_enabled = enabled;
+    /// `cg_marks`: at 0 `CG_ImpactMark` returns before queueing and cgame draws none of
+    /// its marks, at 2 its marks go to the renderer's decals, otherwise to its own list
+    /// (`codemp/cgame/cg_marks.c:146-155,247`). Temporary marks (shadows) are
+    /// unaffected. Stock's 0 leaves the effects' decals to `r_markcount`; JKR's 0
+    /// removes those as well, which is what the menu's "Wall marks: Off" promises.
+    pub(crate) fn set_marks(&mut self, marks: i64) {
+        self.marks = marks;
     }
 
-    /// Queue a mark for the next projection pass.
+    /// Queue a mark for the next projection pass (`RE_AddDecalToScene`).
     pub(crate) fn request(&mut self, request: DecalRequest) {
-        if !self.marks_enabled {
+        if self.marks == 0 {
             return;
         }
         if self.pending.len() < self.pending.capacity() {
             self.pending.push(request);
         } else {
             self.dropped_requests += 1;
+        }
+    }
+
+    /// Queue a mark cgame keeps (`CG_ImpactMark` with `temporary` false); `alpha_fade`
+    /// fades it by alpha rather than by colour in cgame's own list.
+    pub(crate) fn request_cgame(&mut self, request: DecalRequest, alpha_fade: bool) {
+        match self.marks {
+            0 => {}
+            2 => self.request(request),
+            _ => {
+                if !self.cgame.request(request, alpha_fade) {
+                    self.dropped_requests += 1;
+                }
+            }
         }
     }
 
@@ -161,7 +196,39 @@ impl DecalStore {
 
     /// Whether any poly would be emitted this frame.
     pub(crate) fn has_polys(&self) -> bool {
-        self.live_count() != (0, 0) || !self.temporary.is_empty()
+        self.live_count() != (0, 0)
+            || !self.temporary.is_empty()
+            || !self.model_marks.is_empty()
+            || !self.cgame.is_empty()
+    }
+
+    /// Forget last frame's marks on models, before this frame's are added.
+    pub(crate) fn begin_model_marks(&mut self) {
+        self.model_marks.clear();
+    }
+
+    /// One polygon of a mark on a model, for this frame only, drawn with every stage of
+    /// `shader`; past [`MAX_MODEL_MARK_POLYS`] a frame's further polys are dropped.
+    pub(crate) fn add_model_mark(&mut self, shader: &Arc<str>, vertices: &[DecalVertex]) {
+        let count = vertices
+            .len()
+            .min(crate::decal_marks::MAX_VERTICES_ON_DECAL);
+        if count < 3 || self.model_marks.len() == MAX_MODEL_MARK_POLYS {
+            self.dropped_model_marks += 1;
+            return;
+        }
+        let mut poly = DecalPoly {
+            time: 0,
+            fade_time: 0,
+            fade_duration: FADE_TIME_MILLIS,
+            shader: Arc::clone(shader),
+            slot: ALL_SLOTS,
+            color: [1.0; 4],
+            vertices: [DecalVertex::default(); crate::decal_marks::MAX_VERTICES_ON_DECAL],
+            count: count as u8,
+        };
+        poly.vertices[..count].copy_from_slice(&vertices[..count]);
+        self.model_marks.push(poly);
     }
 
     /// Live polys in the normal and fade rings.
@@ -191,6 +258,9 @@ impl DecalStore {
             });
         }
         self.pending.clear();
+        stored += self
+            .cgame
+            .project_pending(world, bsp, &mut self.scratch, time, &slot_of);
         self.temporary.clear();
         for index in 0..self.pending_temporary.len() {
             let request = self.pending_temporary[index].clone();
@@ -231,7 +301,8 @@ impl DecalStore {
                 }
             }
         }
-        for poly in &self.temporary {
+        self.cgame.emit(time, self.marks != 0, &mut draw);
+        for poly in self.temporary.iter().chain(&self.model_marks) {
             draw(DecalDraw {
                 shader: &poly.shader,
                 slot: poly.slot,
@@ -322,5 +393,7 @@ fn free(rings: &mut [DecalRing; 2], ring: Ring, index: usize, time: u32) {
     state.total -= 1;
 }
 
+#[path = "decal_cgame_marks.rs"]
+mod cgame_marks;
 #[path = "saber_cut_marks.rs"]
 pub(crate) mod saber_cuts;

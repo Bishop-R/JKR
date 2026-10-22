@@ -97,14 +97,25 @@ fn skin_records(
         .filter(|(_, h)| h.flags & 2 == 0)
         .map(|(s, _)| s)
         .collect();
+    // The caps a cut shows are named by their hierarchy index.
+    let caps = mesh.surfaces.caps.iter().map(|range| {
+        let surface = model.lods[0].surfaces.get(range.surface_index);
+        (range, surface.ok_or("cap surface missing from the LOD"))
+    });
     mesh.vertex_ranges
         .iter()
         .map(|range| {
             // Match the CPU path's checked lookup: hidden surfaces shorten `visible`,
             // and custom content must not panic the world load.
-            let surface = *visible
+            let surface = visible
                 .get(range.surface_index)
-                .ok_or("skin source surface missing from the visible LOD")?;
+                .copied()
+                .ok_or("skin source surface missing from the visible LOD");
+            (range, surface)
+        })
+        .chain(caps)
+        .map(|(range, surface)| {
+            let surface = surface?;
             if surface.vertices.len() != range.vertices.len() {
                 return Err("skin source topology differs from render topology".into());
             }

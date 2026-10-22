@@ -32,14 +32,22 @@ impl NativeGame {
         let is = |command: &[u8]| name.eq_ignore_ascii_case(command);
         let argument = words.get(1).copied().unwrap_or_default();
 
-        if is(b"map") || is(b"devmap") {
-            self.console_map(argument, is(b"devmap"), server_time, print);
-        } else if self.stopped && (is(b"map_restart") || is(b"say")) {
-            // `SV_MapRestart_f` and the game's commands need a running server.
-            if is(b"map_restart") {
+        // `SV_Map_f` behind every name that starts with `devmap` turns the cheats on; this
+        // server keeps no model or map cache for `devmapmdl` and `devmapall` to reload.
+        let devmap = is(b"devmap") || is(b"devmapbsp") || is(b"devmapmdl") || is(b"devmapall");
+        let toggle = is(b"forcetoggle") || is(b"weapontoggle");
+        if is(b"map") || devmap {
+            self.console_map(argument, devmap, server_time, print);
+        } else if self.stopped && (is(b"map_restart") || is(b"say") || toggle) {
+            // `SV_MapRestart_f`, the toggles and the game's commands need a running server.
+            if is(b"map_restart") || toggle {
                 print(b"Server is not running.\n");
             }
-            return is(b"map_restart");
+            return is(b"map_restart") || toggle;
+        } else if is(b"forcetoggle") {
+            self.force_toggle(&words, print);
+        } else if is(b"weapontoggle") {
+            self.weapon_toggle(&words, print);
         } else if is(b"map_restart") {
             // `SV_MapRestart_f`: `atoi` of the delay, five seconds without one.
             let delay = if words.len() > 1 {
@@ -93,7 +101,7 @@ impl NativeGame {
         }
         let name = String::from_utf8_lossy(name).into_owned();
         let loaded = match &self.game_data {
-            Some(game_data) => match crate::map::load(game_data, &name) {
+            Some(game_data) => match crate::map::load(game_data, &self.game_directory(), &name) {
                 Ok(map) => Some(map),
                 Err(error) => {
                     println!("map {name} does not load: {error}");
@@ -115,7 +123,13 @@ impl NativeGame {
             return;
         }
         let mut text = words.join(&b' ');
-        text.truncate(SAY_TEXT - 1);
+        if text.len() >= SAY_TEXT {
+            text.truncate(SAY_TEXT - 1);
+            let cut = String::from_utf8_lossy(&text).into_owned();
+            self.security_log(&format!(
+                "Cmd_Say_f from -1 (server) has been truncated: {cut}\n"
+            ));
+        }
         for byte in &mut text {
             if matches!(*byte, b'\n' | b'\r') {
                 *byte = b' ';
@@ -146,6 +160,27 @@ impl NativeGame {
     pub fn set_config_files(&mut self, files: crate::config_files::ConfigFiles) {
         self.config_files = files;
         self.register_stock_rules();
+        self.register_motd();
+        self.register_emotes();
+        self.register_damage_numbers();
+        self.register_admin();
+        self.register_flag_options();
+        self.register_duel_options();
+        self.register_taystjk_server();
+        self.refresh_http_downloads();
+        self.register_starting_items();
+        self.register_damage_options();
+        self.register_game_options();
+        self.register_vote_tweaks();
+        self.register_force_options();
+        self.register_gun_game();
+        self.register_player_log();
+        self.register_spotting();
+        // What was just registered is put into effect as the first look at a variable is:
+        // announced to nobody. Left for the next change to find, every one of them would
+        // be announced to everyone as changed.
+        self.cvars_primed = false;
+        self.apply_cvars();
         self.open_log();
         self.start_warmup();
         // `G_InitBots`.

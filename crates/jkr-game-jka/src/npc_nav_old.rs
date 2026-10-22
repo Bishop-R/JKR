@@ -46,7 +46,7 @@ fn flat_reach(maxs: [f32; 3]) -> f64 {
 
 /// `PerpendicularVector` (`q_math.c`): the unit axis `source` is least along, projected onto
 /// the plane `source` is the normal of (`ProjectPointOnPlane`), normalised.
-fn perpendicular_vector(source: [f32; 3]) -> [f32; 3] {
+pub(crate) fn perpendicular_vector(source: [f32; 3]) -> [f32; 3] {
     let mut position = 0;
     let mut least = 1.0_f32;
     for (axis, value) in source.iter().enumerate() {
@@ -66,7 +66,7 @@ fn perpendicular_vector(source: [f32; 3]) -> [f32; 3] {
 }
 
 /// `CrossProduct`.
-fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+pub(crate) fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],

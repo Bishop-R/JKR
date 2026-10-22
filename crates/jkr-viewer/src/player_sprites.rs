@@ -2,14 +2,9 @@
 //! connection icon or talk balloon over a player's head, as a frame billboard in the
 //! effect pool that `pickups::simple::append_frame` clears on the next frame.
 use super::*;
-use crate::particle_types::PrimitiveShape;
 
 /// `ET_PLAYER`: the local player is drawn from its own (predicted) player state.
 const ET_PLAYER: u8 = 1;
-
-/// `RT_SPRITE`: a camera-facing frame billboard. Its image is upright, v=0 at the
-/// top of the quad (`effect_submission::billboard_uv_transform`).
-const SHAPE: PrimitiveShape = PrimitiveShape::FrameBillboard;
 
 /// Float the stock sprite over one submitted actor, without growing the pool.
 #[allow(clippy::too_many_arguments)]
@@ -45,44 +40,30 @@ pub(super) fn submit(
     } else {
         return;
     };
-    let Some(sprite) = jkr_client::legacy_player_sprite(flags, entity_type, mind_tricked) else {
+    let client = if local {
+        snapshot.player.client_num()
+    } else {
+        state.map_or(u16::MAX, |s| s.number())
+    };
+    let speaking = sinks
+        .effect_aux
+        .feedback
+        .speaking(client, sinks.presentation_time as i32);
+    let Some(sprite) =
+        jkr_client::legacy_player_sprite_with_voice(flags, entity_type, mind_tricked, speaking)
+    else {
         return;
     };
     if sinks.particles.len() == sinks.particles.capacity() {
         return;
     }
-    let constant = |value| {
-        crate::effect_envelope::Envelope::from_values(
-            value,
-            value,
-            0.0,
-            jkr_effect::CurveFlags::default(),
-        )
-    };
     let origin = Vec3::from_array(origin) + Vec3::Z * jkr_client::LEGACY_PLAYER_SPRITE_HEIGHT;
-    sinks.particles.push(Particle {
-        motion: crate::particle_motion::Motion::new(origin, Vec3::ZERO, Vec3::ZERO, 0.0, 0.0, now),
-        spawned_at: now,
-        delay: Duration::ZERO,
-        lifetime: Duration::from_secs(60),
-        size: constant(jkr_client::LEGACY_PLAYER_SPRITE_RADIUS),
-        start_length: 1.0,
-        end_length: 1.0,
-        streak: None,
-        normal: None,
-        alpha: constant(1.0),
-        use_alpha: true,
-        set_shader_time: false,
-        rgb: [constant(1.0); 3],
-        seed: 0,
-        shader: sinks.effects.shader(sprite.shader()),
-        physics: crate::particle_physics::State::new(
-            sinks.effects.code_primitive_definition(),
-            0,
-            0,
-            0.0,
-            jkr_effect::PrimitiveFlags::default(),
-        ),
-        shape: SHAPE,
-    });
+    sinks.particles.push(Particle::frame_sprite(
+        sinks.effects,
+        origin,
+        jkr_client::LEGACY_PLAYER_SPRITE_RADIUS,
+        sprite.shader(),
+        ([1.0; 3], 1.0),
+        now,
+    ));
 }

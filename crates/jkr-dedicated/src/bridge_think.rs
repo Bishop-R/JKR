@@ -5,8 +5,35 @@ use super::*;
 
 /// `WP_EMPLACED_GUN`: a gunner's shot is the gun's (`bridge_emplaced`).
 const WP_EMPLACED_GUN: u8 = 17;
+/// `GT_DUEL`, `GT_POWERDUEL`: the game types where `G_Kill` guards a running duel.
+const GT_DUEL: i32 = 3;
+const GT_POWERDUEL: i32 = 4;
 
 impl NativeGame {
+    /// `ClientInactivityTimer` for player `client`'s `command`: whether `g_inactivity`
+    /// seconds without a move or an attack have dropped it, warned ten seconds before.
+    fn inactive(&mut self, client: usize, command: &UserCommand) -> bool {
+        use jkr_game_jka::inactivity::Verdict;
+        let (seconds, level_time) = (self.cvars.integer(b"g_inactivity"), self.last_frame_time);
+        // A spectator's think returns before the timer (`g_active.c:2057-2064`).
+        let Some(peer) = self.peer_mut(client).filter(|peer| peer.playing()) else {
+            return false;
+        };
+        match peer.inactivity.check(seconds, command, level_time) {
+            Verdict::Stay => false,
+            Verdict::Warn => {
+                let warning = b"cp \"Ten seconds until inactivity drop!\n\"";
+                self.told.push(Told::One(client, warning.to_vec()));
+                false
+            }
+            Verdict::Drop => {
+                let reason = b"Dropped due to inactivity".to_vec();
+                self.told.push(Told::Drop { client, reason });
+                true
+            }
+        }
+    }
+
     /// The rest of `ClientThink_real`, for a player in the world or a spectator flying
     /// free: the duel, the fall, the lock, the move and all that follows it.
     pub(super) fn think_in_world(
@@ -15,6 +42,10 @@ impl NativeGame {
         mut command: UserCommand,
         server_time: i32,
     ) {
+        // `ClientInactivityTimer` (`g_active.c:2074-2079`): idle too long, dropped.
+        if self.inactive(client, &command) {
+            return;
+        }
         // `ClientThink_real`'s duel: a duel begun, ended or held still (`g_active.c:2405`).
         self.duel_think(client, &mut command, self.last_frame_time);
         // The fall to death a pit's brush began ends here, three seconds on; then who
@@ -33,6 +64,32 @@ impl NativeGame {
         self.board_from_ground(client, None, level_time);
         self.riding_move(client);
         self.space_gravity(client);
+        // jaPRO's `g_flagDrag`, which only the server's `Pmove` runs; and its god chat's
+        // `pers.lastChatTime`, from the command's talk button (`EF_TALK`), which a dead
+        // player's think leaves as it was.
+        let (flag_drag, legacy_fixes) = (self.flag_drag, self.legacy_fixes);
+        let smooth_clients = self.smooth_clients;
+        let debug_melee = self.debug_melee;
+        let god_chat = self.god_chat && self.gametype == GAMETYPE_FFA;
+        let move_cvars = self.move_cvars;
+        if let Some(peer) = self.peer_mut(client) {
+            // `SpectatorThink` moves with a cleared `pmove_t` but for `g_noSpecMove`.
+            let playing = peer.playing();
+            peer.movement.set_move_cvars(if playing {
+                move_cvars
+            } else {
+                move_cvars.spectator()
+            });
+            peer.movement.set_flag_drag(flag_drag);
+            peer.movement.set_legacy_fixes(legacy_fixes);
+            peer.entity.set_smooth(smooth_clients);
+            peer.movement
+                .set_melee_rules(debug_melee, peer.grapple.state != 0);
+            if peer.state.stats[0] as i32 > 0 {
+                let held = god_chat && peer.session.team == crate::admin::TEAM_FREE;
+                peer.typing.think(command.buttons, held, level_time);
+            }
+        }
         // Whom a rocket's lock may hold on: a living foe (`OnSameTeam` in team games only).
         let own_team = self.peer_mut(client).map_or(0, |peer| peer.session.team);
         let mut foes = 0_u64;
@@ -60,6 +117,12 @@ impl NativeGame {
             last_frame_time,
             deaths,
             npcs,
+            breakables,
+            stock,
+            siege,
+            strikes,
+            lock_kinds,
+            pool,
             ..
         } = self;
         let (Some(world), Some(own)) = (server.world_mut(*world), players.at(client)) else {
@@ -118,11 +181,72 @@ impl NativeGame {
             peer.state.set_movement_type(PM_NOCLIP);
             peer.movement = peer.movement.reseeded(&peer.state);
         }
+        // The jetpack, last in the chain: its flags, and a free player's flight.
+        if peer.playing() {
+            const STAT_HOLDABLE_ITEMS: usize = 2;
+            let carried = peer.state.stats[STAT_HOLDABLE_ITEMS]
+                & (1 << jkr_game_jka::holdables::HI_JETPACK)
+                != 0;
+            let (kind, flags) = (
+                peer.state.movement_type(),
+                peer.state.raw_field(EFLAGS).unwrap_or(0),
+            );
+            let jet = jkr_game_jka::holdables::jetpack_think(
+                kind,
+                flags,
+                carried,
+                peer.gear.packs.jetpack_on,
+            );
+            if jet != (kind, flags) {
+                peer.state.set_movement_type(jet.0);
+                peer.state.set_raw_field(EFLAGS, jet.1);
+                peer.movement = peer.movement.reseeded(&peer.state);
+            }
+        }
+        // jaPRO's held emote, which the chain weighs before the jetpack: the jetpack only
+        // lifts a player standing still on the ground, which a held pose never leaves.
+        if !bridge_admin::freeze_hold(peer) {
+            bridge_emotes::emote_hold(peer, &command, pool, level_time);
+        }
+        // What its blows may break (`PM_ClientImpact`): nothing for a spectator or a Siege
+        // player waiting for its wave (`Client_CheckImpactBBrush`).
+        let round_waiting = bridge_client_impact::round_waiting(
+            *gametype,
+            siege.as_ref().is_some_and(|siege| siege.round.begun),
+        );
+        let brittle = |number: u16| {
+            bridge_client_impact::brittle(
+                breakables,
+                |number| stock.scenery.pane(number),
+                round_waiting,
+                number,
+            )
+        };
+        strikes.clear();
+        let strikes = std::cell::RefCell::new(std::mem::take(strikes));
+        let origin_before = peer.state.origin();
+        let blows = (peer.playing() && peer.temp_spectate < *last_frame_time).then_some(
+            crate::collision::Blows {
+                brittle: &brittle,
+                origin: origin_before,
+                level_time: *last_frame_time,
+                strikes: &strikes,
+            },
+        );
+        // What its rocket lock makes of an entity: a player or an NPC gathered with the
+        // obstacles, cloaked or not; anything else is no target.
+        let lock_targets = |number: u16| match lock_kinds.iter().find(|(id, _)| *id == number) {
+            Some((_, true)) => jkr_game_jka::pmove::LockTarget::Cloaked,
+            Some((_, false)) => jkr_game_jka::pmove::LockTarget::Lockable,
+            None => jkr_game_jka::pmove::LockTarget::Other,
+        };
         let others = crate::peer::Others {
             boxes: obstacles,
             legs: body_legs,
             gametype: *gametype,
             ghoul2_time: *last_frame_time,
+            blows,
+            lock_targets: &lock_targets,
         };
         if let Some(them) = opponent.as_deref_mut() {
             them.movement = them.movement.reseeded(&them.state);
@@ -150,6 +274,8 @@ impl NativeGame {
             rng: &mut deaths.rng,
             hits,
         });
+        // jaPRO's `pmoveMsec` (`PmoveSingle`'s `pml.msec`), which `showNet` reads.
+        peer.command_msec = (command.server_time - peer.state.command_time()).clamp(1, 200);
         let (moved, outcome) = peer.move_command(command, map.as_ref(), others, server_time, lock);
         // Later item/trigger updates may reseed prediction and clear its touch list.
         let shield_impacts = peer.movement.touched();
@@ -180,6 +306,8 @@ impl NativeGame {
             command.generic_command,
             level_time,
         );
+        self.strikes = strikes.into_inner();
+        self.deal_blows(client, origin_before, level_time);
         if vehicle_landing.is_some() {
             self.board_from_ground(client, vehicle_landing, level_time);
         }
@@ -219,6 +347,10 @@ impl NativeGame {
         // `ClientEvents`: the fire events of this think fire the weapon from the entity
         // as it was just converted, and end the spawn's protection.
         let level_time = *last_frame_time;
+        // A grab `TryGrapple` began counts as danger (`g_cmds.c:3269`).
+        if peer.movement.take_grab_started() {
+            peer.force.danger_time = level_time;
+        }
         // A think raises a fire event at most for each of its slices; no allocation.
         let mut fires = [None; 16];
         if ran {
@@ -246,7 +378,10 @@ impl NativeGame {
         // The disruptor's instant shots strike other players: fired once this player's
         // borrow is over.
         let mut instant = [None; 16];
+        // The shots of this think and their weapon, for the statistics log.
+        let mut shots = (0, peer.state.weapon());
         for (alternate, slot) in fires.into_iter().flatten().zip(instant.iter_mut()) {
+            shots.0 += 1;
             // `FireWeapon` counts the shot for the accuracy of every weapon but the
             // saber, the stun baton and the fists — the flechette's as five, alternate or not.
             if !matches!(peer.state.weapon(), 1..=3) {
@@ -303,6 +438,10 @@ impl NativeGame {
                 peer.movement = peer.movement.reseeded(&peer.state);
             }
         }
+        // `G_LogWeaponFire`, at the end of each `FireWeapon`.
+        for _ in 0..shots.0 {
+            self.stat_log.fire(client, u32::from(shots.1), level_time);
+        }
         for alternate in instant.into_iter().flatten() {
             match self.peer_mut(client).map(|peer| peer.state.weapon()) {
                 Some(WP_DEMP2) => self.fire_demp2_sphere(client, level_time),
@@ -333,6 +472,7 @@ impl NativeGame {
         self.touch_plats(client, level_time);
         self.touch_shields(client, shield_impacts.entities(), level_time);
         self.try_use(client, level_time);
+        self.target_laser(client, level_time);
         if touches {
             self.touch_space(client, level_time);
         }
@@ -363,16 +503,22 @@ impl NativeGame {
         );
         // "can't respawn while being eaten" (`g_active.c:3455`).
         let eaten = peer.state.raw_field(103).unwrap_or(0) & 1 != 0;
-        if dead && playing && level_time > respawn_time && !eaten {
+        // Nor while a duel's end plays in slow motion, which keeps putting it off a
+        // second (`g_active.c:3458,3482-3485`).
+        if dead && !eaten && self.match_end.slow_motion.is_some() {
+            peer.mortality.respawn_time = level_time + 1_000;
+        } else if dead && playing && level_time > respawn_time && !eaten {
             // A power duel forces it a second on (`forceRes = 1`).
             // So does siege with its respawn waves on (`g_active.c:3466-3469`).
             let waves = self.siege.is_some() && self.cvars.integer(b"g_siegeRespawn") != 0;
+            // Otherwise `g_forceRespawn` seconds do; 0 or less never forces it.
             let force_seconds = if self.gametype == GAMETYPE_POWERDUEL || waves {
                 1
             } else {
-                FORCE_RESPAWN_SECONDS
+                self.cvars.integer(b"g_forceRespawn")
             };
-            let forced = level_time - respawn_time > force_seconds * 1_000;
+            let forced = force_seconds > 0
+                && level_time - respawn_time > force_seconds.saturating_mul(1_000);
             if forced || command.buttons & (BUTTON_ATTACK | BUTTON_USE_HOLDABLE) != 0 {
                 self.respawn(client, command, level_time, server_time);
                 return;
@@ -386,13 +532,16 @@ impl NativeGame {
     /// ordinary pain sound for 200 ms; a landing that kills plays the splat, whose sound
     /// is registered as it is first needed.
     pub(super) fn fell(&mut self, client: usize, delta: i32, level_time: i32) {
-        let Some(peer) = self.peer_mut(client) else {
+        let Some(peer) = self.peer(client) else {
             return;
         };
         let knocked_down = jkr_game_jka::knockdown::in_knockdown_only(
             peer.state.raw_field(13).unwrap_or(0) as u16,
         );
-        let Some(points) = fall_damage(delta, 0, knocked_down) else {
+        let Some(points) = self.landing_damage(delta, knocked_down) else {
+            return;
+        };
+        let Some(peer) = self.peer_mut(client) else {
             return;
         };
         peer.wounds.pain_debounce_time = level_time + 200;
@@ -431,19 +580,36 @@ impl NativeGame {
         }
     }
 
-    /// `Cmd_Kill_f`: a living player kills itself; a spectator or a corpse cannot.
+    /// `G_Kill` (`g_cmds.c:515-528`), for `kill` and `killother` once their gates passed:
+    /// a dueller may not leave a running duel this way unless `g_allowDuelSuicide`.
     pub(super) fn kill(&mut self, client: usize, server_time: i32) {
-        let Some(peer) = self.peer_mut(client) else {
-            return;
+        let playing = self.sorted().1 > 1 && self.limits.warmup_time == 0;
+        let duel = matches!(self.gametype, GT_DUEL | GT_POWERDUEL);
+        // jaPRO's `g_allowTeamSuicide`, kept on here so a stock game allows it.
+        let refused = if duel {
+            self.integer_cvar(b"g_allowDuelSuicide", 1) == 0
+        } else if self.gametype >= jkr_game_jka::match_end::GT_TEAM {
+            self.integer_cvar(b"g_allowTeamSuicide", 1) == 0
+        } else {
+            // jaPRO's `g_gunGame 2`: no way off the ladder but dying.
+            self.gun_game > 1
         };
-        // `CMD_ALIVE` reads the health: a corpse in noclip is in `PM_NOCLIP`, not `PM_DEAD`.
-        if !peer.playing() || peer.health <= 0 || peer.state.movement_type() == PM_DEAD {
+        if playing && refused {
+            self.told.push(Told::One(
+                client,
+                b"print \"@@@ATTEMPTDUELKILL\n\"".to_vec(),
+            ));
             return;
         }
         let Some(peer) = self.peer_mut(client) else {
             return;
         };
-        // `G_Kill` (`g_cmds.c:526-527`): the caller sets both the health and its stat.
+        // A corpse in noclip is in `PM_NOCLIP`, not `PM_DEAD`: the health decides.
+        if peer.state.movement_type() == PM_DEAD {
+            return;
+        }
+        peer.riding.flags &= !jkr_game_jka::cheat_flags::FL_GODMODE;
+        // The caller sets both the health and its stat.
         peer.health = -999;
         peer.state.stats[0] = (-999i32) as u32;
         let request = DeathRequest::suicide(

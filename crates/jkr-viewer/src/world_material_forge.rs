@@ -422,6 +422,7 @@ impl Runtime {
         self.entity_pipelines.push(std::cell::OnceCell::new());
         self.entity_no_depth_pipelines
             .push(std::cell::OnceCell::new());
+        self.entity_alpha_pipelines.push(std::cell::OnceCell::new());
     }
 
     /// Create every variant of `key` now (late cgame materials are few).
@@ -455,6 +456,32 @@ impl Runtime {
                     self.forge.format,
                     self.forge.pipeline_keys[index],
                     depth,
+                )
+            })
+        })
+    }
+
+    /// The entity pipeline of key `index` blended by the entity's own alpha
+    /// (`RF_FORCE_ENT_ALPHA`, `tr_shade.cpp:1742-1753`): every stage `SRC_ALPHA,
+    /// ONE_MINUS_SRC_ALPHA`, depth-tested without a depth write, compiled on first use
+    /// (its compile time is counted with the no-depth variant's).
+    pub(super) fn entity_alpha_pipeline(&self, index: usize) -> &wgpu::RenderPipeline {
+        self.entity_alpha_pipelines[index].get_or_init(|| {
+            let (layout, shader) = self.forge.program();
+            let key = crate::world_stage::PipelineKey {
+                source: wgpu::BlendFactor::SrcAlpha,
+                destination: wgpu::BlendFactor::OneMinusSrcAlpha,
+                depth_write: false,
+                ..self.forge.pipeline_keys[index]
+            };
+            timed(1, || {
+                create_entity_pipeline(
+                    &self.forge.device,
+                    layout,
+                    shader,
+                    self.forge.format,
+                    key,
+                    true,
                 )
             })
         })

@@ -29,6 +29,59 @@ impl NativeGame {
         );
         jkr_game_jka::triggers::face(&mut peer.state, teleported.angles, command_angles);
         peer.movement = peer.movement.reseeded(&peer.state);
+        self.after_teleport(client, (from, destination), teleported, level_time);
+    }
+
+    /// jaPRO's `AmTeleportPlayer` for its admins' teleports: as [`Self::teleport_client`],
+    /// but at a standstill eight units up ([`jkr_game_jka::triggers::admin_teleport_player`]),
+    /// a rolling player stood up first. (A rider's vehicle is not carried along.)
+    pub(super) fn admin_teleport(
+        &mut self,
+        client: usize,
+        destination: [f32; 3],
+        angles: [f32; 3],
+        level_time: i32,
+    ) {
+        use jkr_game_jka::pmove_anim::{
+            SETANIM_BOTH, SETANIM_FLAG_HOLD, SETANIM_FLAG_OVERRIDE, SETANIM_FLAG_RESTART,
+        };
+        const TEAM_SPECTATOR: i32 = 3;
+        let Some(peer) = self.peer_mut(client) else {
+            return;
+        };
+        if jkr_game_jka::pmove_roll::in_roll(peer.movement.state())
+            && let Some(uncrouch) = jkr_game_jka::legacy_animation_index("BOTH_UNCROUCH1")
+        {
+            peer.movement.set_animation_parts(
+                SETANIM_BOTH,
+                uncrouch as u16,
+                SETANIM_FLAG_RESTART | SETANIM_FLAG_OVERRIDE | SETANIM_FLAG_HOLD,
+            );
+            peer.movement.write_player_state(&mut peer.state);
+        }
+        let from = peer.state.origin();
+        let spectating = peer.session.team == TEAM_SPECTATOR;
+        let command_angles = peer.last_command.angles;
+        let teleported = jkr_game_jka::triggers::admin_teleport_player(
+            &mut peer.state,
+            destination,
+            angles,
+            spectating,
+        );
+        jkr_game_jka::triggers::face(&mut peer.state, teleported.angles, command_angles);
+        peer.movement = peer.movement.reseeded(&peer.state);
+        self.after_teleport(client, (from, destination), teleported, level_time);
+    }
+
+    /// A teleport's show and its kill: the flashes where the player left and where it
+    /// arrived, and `G_KillBox` on whatever stands there.
+    fn after_teleport(
+        &mut self,
+        client: usize,
+        (from, destination): ([f32; 3], [f32; 3]),
+        teleported: jkr_game_jka::triggers::Teleported,
+        level_time: i32,
+    ) {
         if teleported.flashes {
             let out = EventEntity::teleport_out(from, client as u16);
             let arrived = EventEntity::teleport_in(destination, client as u16);
@@ -48,11 +101,10 @@ impl NativeGame {
             let victims: Vec<u16> = obstacles
                 .iter()
                 .filter(|other| {
+                    let (absmin, absmax) = other.absolute_box();
                     (0..3).all(|axis| {
-                        arrived[axis] + bottom[axis]
-                            <= other.origin[axis] + other.bounds.1[axis] + 1.0
-                            && arrived[axis] + top[axis]
-                                >= other.origin[axis] + other.bounds.0[axis] - 1.0
+                        arrived[axis] + bottom[axis] <= absmax[axis]
+                            && arrived[axis] + top[axis] >= absmin[axis]
                     })
                 })
                 .map(|other| other.entity)

@@ -31,6 +31,9 @@ const NPCTEAM_PLAYER: i32 = 2;
 pub(super) struct Npcs {
     /// The spawners and the NPCs.
     pub(super) roster: NpcRoster,
+    /// The behaviour sets the NPCs activated whose scripts start with the NPCs' scripts
+    /// this frame (`G_ActivateBehavior`'s `ICARUS_RunScript`).
+    pub(super) behaviors: Vec<(u16, usize)>,
     /// The players as the NPCs' senses read them, gathered for each run of the roster (the
     /// buffer kept from frame to frame).
     sights: Vec<jkr_game_jka::npc_senses::Body>,
@@ -74,6 +77,25 @@ impl Npcs {
             self.unported.push((npc_type, name));
         }
     }
+
+    /// Where NPC `number`'s `bolt` is with its model at `origin` facing `yaw`, at the
+    /// Ghoul2 clock (`G2API_GetBoltMatrix`); `None` without a model or the bolt.
+    pub(super) fn bolt_point(
+        &mut self,
+        number: u16,
+        bolt: &str,
+        yaw: f32,
+        origin: [f32; 3],
+        ghoul2_time: i32,
+    ) -> Option<[f32; 3]> {
+        let matrix = self
+            .bodies
+            .get(number)?
+            .bolt_matrix(bolt, yaw, origin, ghoul2_time)
+            .ok()
+            .flatten()?;
+        Some([matrix[0][3], matrix[1][3], matrix[2][3]])
+    }
 }
 
 impl std::fmt::Debug for Npcs {
@@ -111,6 +133,8 @@ impl NativeGame {
             .then(|| self.route_file(&map))
             .flatten();
         self.gather_obstacles(usize::MAX);
+        // NPCs pass through duellists and what is theirs (`DuelCull`).
+        self.isolate_obstacles(super::bridge_duel_cull::Party::Npc);
         let mut host = self.npc_host(Some(&map), Some(&mut items));
         let mut roster = NpcRoster::default();
         roster.level.native_sand_creatures = native_sand_creatures;
@@ -188,19 +212,23 @@ impl NativeGame {
             .npcs
             .roster
             .next_due()
-            .is_none_or(|due| due > level_time)
+            .is_some_and(|due| due <= level_time)
         {
-            return;
+            let _ = self.with_roster(|roster, _, host| roster.frame_begin(level_time, host));
+            while let Some(_number) = self.npcs.roster.pending() {
+                let fired = self
+                    .with_roster(|roster, files, host| roster.run_pending(level_time, files, host));
+                let Some(fired) = fired else { break };
+                self.fire_from_npcs(fired, level_time);
+                self.vehicle_outcomes(level_time);
+                // A begin stopped at its spawn script, which runs before the begin goes on.
+                if let Some(number) = self.npcs.roster.take_script_turn() {
+                    self.npc_spawn_script(number);
+                }
+            }
+            self.tell_unported();
         }
-        let _ = self.with_roster(|roster, _, host| roster.frame_begin(level_time, host));
-        while let Some(_number) = self.npcs.roster.pending() {
-            let fired =
-                self.with_roster(|roster, files, host| roster.run_pending(level_time, files, host));
-            let Some(fired) = fired else { break };
-            self.fire_from_npcs(fired, level_time);
-            self.vehicle_outcomes(level_time);
-        }
-        self.tell_unported();
+        self.run_npc_scripts();
     }
 
     /// Names, once per NPC, the reference function its behaviour reached that no step has
@@ -244,7 +272,11 @@ impl NativeGame {
         {
             return false;
         }
-        if !self.settings.cheats {
+        // jaPRO: the admin power stands in for cheats, and for being alive.
+        let admin = self
+            .peer(client)
+            .is_some_and(|peer| peer.session.account_flags & crate::admin::A_NPC != 0);
+        if !self.settings.cheats && !admin {
             self.told
                 .push(Told::One(client, b"print \"@@@NOCHEATS\n\"".to_vec()));
             return true;
@@ -252,7 +284,7 @@ impl NativeGame {
         let Some(peer) = self.peer(client) else {
             return true;
         };
-        if peer.health <= 0 || !peer.playing() {
+        if !admin && (peer.health <= 0 || !peer.playing()) {
             self.told
                 .push(Told::One(client, b"print \"@@@MUSTBEALIVE\n\"".to_vec()));
             return true;
@@ -305,6 +337,29 @@ impl NativeGame {
             }
         }
         true
+    }
+
+    /// `ItemUse_Seeker` in siege under `d_siegeSeekerNPC` (a cheat, `g_items.c:1133-1155`):
+    /// the player's remote NPC ([`jkr_game_jka::npc_roster::NpcRoster::use_seeker`]) where
+    /// `npc spawn` puts one, instead of the drone.
+    pub(super) fn spawn_seeker_remote(&mut self, client: usize, level_time: i32) {
+        let Some(peer) = self.peer(client) else {
+            return;
+        };
+        let (origin, view, team) = (
+            peer.state.origin(),
+            peer.state.view_angles(),
+            peer.session.team,
+        );
+        let place = self.command_place(origin, view);
+        let fired = self
+            .with_roster(|roster, files, host| {
+                roster
+                    .use_seeker(client as u16, team, place, level_time, files, host)
+                    .0
+            })
+            .unwrap_or_default();
+        self.fire_from_npcs(fired, level_time);
     }
 
     /// Where `npc spawn` puts its NPC for a player at `origin` looking along `view`: point
@@ -369,6 +424,8 @@ impl NativeGame {
         let map = self.map.take()?;
         let (parms, sabers) = (self.level_npc_parms(&map), map.sabers.clone());
         self.gather_obstacles(usize::MAX);
+        // NPCs pass through duellists and what is theirs (`DuelCull`).
+        self.isolate_obstacles(super::bridge_duel_cull::Party::Npc);
         let mut roster = std::mem::take(&mut self.npcs.roster);
         let mut host = self.npc_host(Some(&map), None);
         let result = run(
@@ -429,10 +486,22 @@ impl NativeGame {
         let skill = self.integer_cvar(b"g_npcspskill", 0);
         let fighter_alt_control = self.integer_cvar(b"bg_fighterAltControl", 0) != 0;
         let debug_saber_locks = self.debug_saber_locks();
+        let (saber, damage, legacy_fixes) =
+            (self.saber_settings, self.damage_rules, self.legacy_fixes);
+        let smooth_clients = self.smooth_clients;
+        let npc_switches = jkr_game_jka::npc_spawn::NpcSwitches {
+            freeze: self.cvars.value(b"d_npcfreeze") != 0.0,
+            no_group_ai: self.cvars.integer(b"d_noGroupAI") != 0,
+            asynchronous_group_ai: self.cvars.integer(b"d_asynchronousGroupAI") != 0,
+        };
         let gravity = self.gravity();
         let clients = self.gather_sights();
         let jedi_master = self.jedi_masters(None).and_then(|masters| masters.master);
         let intermission = self.match_end.intermission_time != 0;
+        let score_npcs = self.integer_cvar(b"g_scoreNPCs", 2);
+        let force_rules = self.force_rules;
+        let item_respawns = self.item_respawns();
+        let gun_game = self.gun_game_runs();
         let ghoul2_time = if self.previous_frame_time == 0 {
             self.last_frame_time
         } else {
@@ -457,11 +526,12 @@ impl NativeGame {
             doors,
             multiples,
             breakables,
-            usable_entities,
+            stock,
             map_effects,
             skeletons: models_cache,
             rand,
             items: pickups,
+            move_cvars,
             ..
         } = self;
         let Npcs {
@@ -489,6 +559,10 @@ impl NativeGame {
             // This server has no warm-up.
             warmup: false,
             intermission,
+            score_npcs,
+            force_rules,
+            item_respawns,
+            gun_game,
             map,
             solids: obstacles,
             players: sights,
@@ -500,6 +574,7 @@ impl NativeGame {
             level_time: *last_frame_time,
             gravity,
             skill,
+            move_cvars: *move_cvars,
             gametype: *gametype,
             client_zero,
             items,
@@ -507,13 +582,18 @@ impl NativeGame {
             doors,
             multiples,
             breakables,
-            usables: usable_entities,
+            usables: &stock.usables.placed,
             crt: rand,
             pickups,
             since_last_frame,
             force_touch,
             fighter_alt_control,
             debug_saber_locks,
+            saber,
+            damage,
+            legacy_fixes,
+            smooth_clients,
+            npc_switches,
             limbs,
         }
     }
@@ -575,7 +655,8 @@ impl NativeGame {
                 },
                 eye_angles: peer.state.view_angles(),
                 health: peer.health,
-                flags: 0,
+                // `ent->flags`: `notarget` hides the player from NPCs and gunners.
+                flags: peer.riding.flags,
                 entity_flags: peer.entity.state().raw_field(19).unwrap_or(0),
                 player_team,
                 enemy_team: 0,

@@ -18,6 +18,12 @@ pub(crate) mod saber_contacts;
 #[path = "effect_cadence.rs"]
 pub(crate) mod cadence;
 
+#[path = "breakage.rs"]
+pub(crate) mod breakage;
+
+#[path = "demp2_shell.rs"]
+pub(crate) mod demp2_shell;
+
 const MAX_EFFECT_PRIMITIVES: usize = 1_800;
 const MAX_PENDING_SHAKES: usize = 64;
 
@@ -55,13 +61,14 @@ struct ActiveShake {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct CameraOffset {
     pub(crate) origin: Vec3,
-    /// Pitch/yaw/roll in degrees. Codemp deliberately leaves roll unchanged.
+    /// Pitch/yaw/roll in degrees. Codemp reuses the vertical translation for roll.
     pub(crate) angles: Vec3,
     pub(crate) magnitude: f32,
 }
 
 /// Map-lifetime, allocation-free storage for EFX lights and camera shakes.
 pub(crate) struct Runtime {
+    pub(crate) feedback: jkr_client::event_feedback::Feedback,
     lights: Vec<ActiveLight>,
     pending_shakes: Vec<ShakeRequest>,
     active_shake: Option<ActiveShake>,
@@ -73,11 +80,50 @@ pub(crate) struct Runtime {
     pub(crate) saber_contacts: saber_contacts::Runtime,
     /// Paces effects that stock re-plays every rendered frame (`effect_cadence.rs`).
     pub(crate) continuous: cadence::Cadence,
+    /// Glass shards, debris and model explosions (`breakage.rs`).
+    pub(crate) breakage: breakage::Runtime,
+    /// Ghoul2 damage marks waiting for this frame's poses (`actor_marks.rs`).
+    pub(crate) marks: crate::actor_marks::Runtime,
+    /// The DEMP2's bursting alternate-fire shells (`demp2_shell.rs`).
+    pub(crate) demp2_shells: demp2_shell::Shells,
+    /// Items rezzing in after a respawn (`pickup_respawns.rs`).
+    pub(crate) item_respawns: crate::pickups::respawns::Respawns,
+    /// EternalJK's effect options.
+    pub(crate) options: EffectOptions,
+}
+
+/// EternalJK's effect options, stock's behaviour at their defaults.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EffectOptions {
+    /// `cg_noTeleFX`: no effect or sound when a player teleports in or out.
+    pub(crate) no_teleport: bool,
+    /// `cg_fleshSparks`, 0 to 7: how many of a saber's flesh hit effects play.
+    pub(crate) flesh_sparks: i64,
+    /// `cg_noFX`: from 1 no map effects (`ET_FX`), at 5 no effects at all.
+    pub(crate) no_fx: i64,
+    /// `cg_drainFX`: the wide Force Drain arc, 0 none, 1 jaPRO's, 2 stock's.
+    pub(crate) drain_fx: i64,
+    /// `cg_footsteps`: 0 nothing, 1 sounds, 2 dust as well, 3 footprints as well, 4
+    /// prints on every ground.
+    pub(crate) footsteps: i64,
+}
+
+impl Default for EffectOptions {
+    fn default() -> Self {
+        Self {
+            no_teleport: false,
+            flesh_sparks: 7,
+            no_fx: 0,
+            drain_fx: 2,
+            footsteps: 3,
+        }
+    }
 }
 
 impl Default for Runtime {
     fn default() -> Self {
         Self {
+            feedback: Default::default(),
             lights: Vec::with_capacity(MAX_EFFECT_PRIMITIVES),
             pending_shakes: Vec::with_capacity(MAX_PENDING_SHAKES),
             active_shake: None,
@@ -87,11 +133,27 @@ impl Default for Runtime {
             decals: crate::decal_store::DecalStore::default(),
             saber_contacts: saber_contacts::Runtime::default(),
             continuous: cadence::Cadence::default(),
+            breakage: breakage::Runtime::default(),
+            marks: crate::actor_marks::Runtime::default(),
+            demp2_shells: demp2_shell::Shells::default(),
+            item_respawns: Default::default(),
+            options: EffectOptions::default(),
         }
     }
 }
 
 impl Runtime {
+    /// A server screen-shake event has already selected its recipient and has
+    /// no distance falloff, unlike an EFX shake primitive.
+    pub(crate) fn screen_shake(&mut self, intensity: f32, duration: i32, now: Instant, seed: u32) {
+        self.active_shake = (duration > 0).then_some(ActiveShake {
+            intensity,
+            started_at: now,
+            lifetime: Duration::from_millis(duration.max(0) as u64),
+            seed,
+        });
+    }
+
     pub(crate) fn spawn_light(
         &mut self,
         component: &Component,
@@ -225,7 +287,9 @@ impl Runtime {
         let signed = |index: u32| random_unit(frame_seed.wrapping_add(index)) * 2.0 - 1.0;
         let offset = CameraOffset {
             origin: Vec3::new(signed(0), signed(1), signed(2)) * magnitude,
-            angles: Vec3::new(signed(3), signed(4), 0.0) * magnitude,
+            // CG_SE_UpdateShake overwrites only moveDir[0..2] before adding
+            // all three components to angles: despite its comment, roll keeps Z.
+            angles: Vec3::new(signed(3), signed(4), signed(2)) * magnitude,
             magnitude,
         };
         self.last_camera_offset = offset;

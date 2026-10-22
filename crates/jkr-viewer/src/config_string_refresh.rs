@@ -102,6 +102,7 @@ impl GpuState {
         } else if let Some(session) = &mut self.demo_session {
             session.drain_config_string_changes(|index| changes.mark(index));
         }
+        let mut actor_effects = false;
         changes.drain(|index| {
             let Some(target) = consumer(index) else {
                 return;
@@ -125,6 +126,13 @@ impl GpuState {
                     self.local_prediction.refresh_roll_rules(game);
                     if let Some(console) = &mut self.console {
                         console.refresh_movement_cvars(game);
+                    }
+                    // `CL_SystemInfoChanged` sets nothing while a demo plays.
+                    if self.live_session.is_some() {
+                        let scale = presentation_clock::system_time_scale(game);
+                        let now = Instant::now();
+                        self.presentation_clock.set_time_scale(scale, now);
+                        self.server_clock.set_time_scale(scale, now);
                     }
                 }
                 Consumer::ServerInfo => {
@@ -178,6 +186,7 @@ impl GpuState {
                     if let Err(error) = self.apply_clientinfo(client) {
                         log::progress(format_args!("cs {index}: clientinfo failed: {error}"));
                     }
+                    actor_effects |= self.preload_actor_effects(client);
                 }
                 Consumer::Effect => {
                     self.missile_effects.refresh_config_string(index, game);
@@ -191,6 +200,9 @@ impl GpuState {
                 }
             }
         });
+        if actor_effects {
+            self.refresh_effect_assets(audio);
+        }
         self.refresh_npc_actors();
         let remaps = self
             .live_session
@@ -229,7 +241,9 @@ impl GpuState {
         }
         let vfs = self.vfs.as_ref().ok_or("no VFS")?;
         let mut scene = FlattenedScene::default();
-        let mut mesh = object_meshes::load_one(vfs, appearance, &mut scene)?;
+        // The model and, for a posed Ghoul2 one, its rigid parts after it.
+        let mut loaded = Vec::new();
+        object_meshes::load_posable(vfs, appearance, &mut scene, &mut loaded)?;
         let materials = self.world_materials.append_entity_materials(
             &self.device,
             &self.queue,
@@ -240,12 +254,15 @@ impl GpuState {
         let placement =
             self.geometry
                 .append(&self.device, &self.queue, &scene.vertices, &scene.indices)?;
-        shared_geometry::relocate(&mut mesh.draws, &mut [], placement, materials);
+        for mesh in &mut loaded {
+            shared_geometry::relocate(&mut mesh.draws, &mut [], placement, materials);
+        }
         self.world_materials.bind_geometry(&self.geometry);
         self.emitter_model_catalog
             .insert(&appearance.model, self.object_meshes.len());
-        self.object_meshes.push(mesh);
-        self.object_groups.push(Vec::with_capacity(32));
+        self.object_groups
+            .extend(loaded.iter().map(|_| Vec::with_capacity(32)));
+        self.object_meshes.extend(loaded);
         log::progress(format_args!(
             "loaded configstring model {} mid-match",
             appearance.model
@@ -255,18 +272,31 @@ impl GpuState {
 
     fn preload_config_effect(&mut self, name: &str, audio: &mut Option<GameAudio>) {
         let Some(vfs) = self.vfs.clone() else { return };
-        self.effects.preload(&vfs, [name]);
+        if self.effects.preload(&vfs, [name]) {
+            self.refresh_effect_assets(audio);
+        }
+    }
+
+    /// Install dependencies after new graphs arrive from configstrings or models.
+    /// Called only on an asset lifecycle edge, never during steady-state playback.
+    pub(crate) fn refresh_effect_assets(&mut self, audio: &mut Option<GameAudio>) {
+        let Some(vfs) = self.vfs.clone() else { return };
         if let Err(error) = self.refresh_effect_atlas() {
-            log::progress(format_args!("effect {name}: texture load failed: {error}"));
+            log::progress(format_args!("effect texture load failed: {error}"));
         }
         // Recursive EFX dependencies include rigid models and sound assets.
-        for model in effect_assets::required_models(&vfs, std::iter::once(name)) {
+        let models = self
+            .effects
+            .model_paths()
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>();
+        for model in models {
             let appearance = Appearance {
                 model,
                 variant: String::new(),
             };
             if let Err(error) = self.load_config_model(&appearance) {
-                log::progress(format_args!("effect {name}: model load failed: {error}"));
+                log::progress(format_args!("effect model load failed: {error}"));
             }
         }
         if let Some(audio) = audio {
