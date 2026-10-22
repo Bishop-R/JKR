@@ -19,14 +19,20 @@ impl SettingsMenu {
     ) {
         let layout = FormLayout::new(viewport);
         self.ui.begin_hero(viewport, reveal, Scrim::Full);
-        self.ui.form_header(
-            &layout,
-            "JKR   /   SETTINGS",
-            TABS[self.tab],
-            "Changes apply immediately and are saved.",
-        );
-        self.ui.form_tabs(&layout, &TABS, self.tab);
-        for (row, setting) in settings(self.tab).iter().enumerate() {
+        let (title, note) = match self.section {
+            Section::General => (
+                "JKR   /   SETTINGS",
+                "Changes apply immediately and are saved.",
+            ),
+            Section::Renderer => (
+                "JKR   /   RENDERER",
+                "Saved immediately; (restart) rows apply after restarting.",
+            ),
+        };
+        let tabs = self.tabs();
+        self.ui.form_header(&layout, title, tabs[self.tab], note);
+        self.ui.form_tabs(&layout, tabs, self.tab);
+        for (row, setting) in self.rows().iter().enumerate() {
             let draft = self.editing.as_ref().filter(|draft| draft.row == row);
             let value = draft
                 .map(|draft| draft.text.as_str())
@@ -44,11 +50,15 @@ impl SettingsMenu {
                 self.numeric.as_ref(),
             );
         }
-        if self.tab == KEYBINDS_TAB {
-            let row = settings(KEYBINDS_TAB).len();
+        if let Some(action) = self.action() {
+            let row = self.rows().len();
             let selected = row == self.selected;
+            let value = match action {
+                Action::Keybinds => "EDIT  >",
+                Action::Renderer => "OPEN  >",
+            };
             self.ui
-                .form_action_row(&layout, row, selected, "Key bindings", "EDIT  >");
+                .form_action_row(&layout, row, selected, action.label(), value);
         }
         self.ui.form_footer(&layout, &KEY_HINTS);
         self.ui.end_hero();
