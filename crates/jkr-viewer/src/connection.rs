@@ -358,6 +358,9 @@ fn join_socket(
                     return;
                 }
             };
+            // Logged as it happens: a join that stalls leaves its last phase
+            // in the log instead of only "connecting to".
+            log::progress(format_args!("join: {phase:?}"));
             timeline.mark(phase);
         },
         storage,
