@@ -155,11 +155,17 @@ mod tests {
 
     #[test]
     fn a_taken_port_moves_the_server_to_the_next() {
-        // Find a port whose next one is free, and hold it.
+        // Find a port whose next one is free, and hold it. The hold binds the port by
+        // name: Windows lets a named bind take a port that was only given out for port 0,
+        // and this test stands for a server that named its port.
         let (held, port) = (0..20)
             .find_map(|_| {
-                let held = UdpSocket::bind("127.0.0.1:0").ok()?;
-                let port = held.local_addr().ok()?.port();
+                let port = UdpSocket::bind("127.0.0.1:0")
+                    .ok()?
+                    .local_addr()
+                    .ok()?
+                    .port();
+                let held = UdpSocket::bind(("127.0.0.1", port)).ok()?;
                 let next = UdpSocket::bind(("127.0.0.1", port.checked_add(1)?)).ok()?;
                 drop(next);
                 Some((held, port))
