@@ -105,8 +105,8 @@ impl Shell {
             .ok_or_else(|| crate::BindError::InvalidKey(key.clone()))?;
         if arguments.len() == 1 {
             return Ok(vec![self.binds.get(key).map_or_else(
-                || format!("{key} is not bound"),
-                |command| format!("{key} = \"{command}\""),
+                || format!("{} is not bound", crate::key_names::display_key(key)),
+                |command| format!("{} = \"{command}\"", crate::key_names::display_key(key)),
             )]);
         }
         let command = arguments[1..].join(" ");
@@ -115,7 +115,10 @@ impl Shell {
             return Ok(Vec::new());
         }
         self.binds.bind(key, command.clone())?;
-        Ok(vec![format!("{key} = \"{command}\"")])
+        Ok(vec![format!(
+            "{} = \"{command}\"",
+            crate::key_names::display_key(key)
+        )])
     }
 
     pub(super) fn unbind_command(
@@ -128,7 +131,10 @@ impl Shell {
         let key = crate::key_names::canonical_key(key)
             .ok_or_else(|| crate::BindError::InvalidKey(key.clone()))?;
         self.binds.unbind(key);
-        Ok(vec![format!("{key} unbound")])
+        Ok(vec![format!(
+            "{} unbound",
+            crate::key_names::display_key(key)
+        )])
     }
 
     pub(super) fn write_config_command(

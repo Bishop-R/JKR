@@ -456,3 +456,23 @@ mod notify_tests {
         assert_eq!(lines, [("print", true), ("chat", false)]);
     }
 }
+
+#[cfg(test)]
+mod key_display_tests {
+    use super::*;
+
+    #[test]
+    fn bind_output_shows_uppercase_names_but_stores_the_canonical_one() {
+        let mut shell = Shell::new(CvarRegistry::new(), BindTable::new());
+        assert_eq!(
+            shell.execute_line("bind W +forward").unwrap(),
+            ["W = \"+forward\""]
+        );
+        assert_eq!(shell.execute_line("bind w").unwrap(), ["W = \"+forward\""]);
+        let list = shell.execute_line("bindlist").unwrap();
+        assert!(list.iter().any(|line| line.starts_with("W ")), "{list:?}");
+        // Configs keep the saved spelling.
+        assert_eq!(shell.binds.iter().collect::<Vec<_>>(), [("w", "+forward")]);
+        assert_eq!(shell.execute_line("unbind w").unwrap(), ["W unbound"]);
+    }
+}

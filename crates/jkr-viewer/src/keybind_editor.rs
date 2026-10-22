@@ -278,12 +278,15 @@ impl KeybindEditor {
     fn refresh(&mut self, console: &ViewerConsole) {
         self.keys.clear();
         for action in ACTIONS {
+            // Shown as players see key names (`display_key`); binding goes
+            // through `ViewerConsole`, which matches names case-insensitively.
             let keys = console.keys_for_command(action.command);
+            let shown = |key: &String| jkr_shell::key_names::display_key(key).into_owned();
             self.keys.push([
                 keys.first()
-                    .cloned()
+                    .map(shown)
                     .unwrap_or_else(|| "UNBOUND".to_owned()),
-                keys.get(1).cloned().unwrap_or_else(|| "-".to_owned()),
+                keys.get(1).map(shown).unwrap_or_else(|| "-".to_owned()),
             ]);
         }
     }
