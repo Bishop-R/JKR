@@ -7,6 +7,7 @@ members = [
     "crates/jkr-entity",
     "crates/jkr-game-jka",
     "crates/jkr-icarus",
+    "crates/jkr-materialgen",
     "crates/jkr-effect",
     "crates/jkr-model",
     "crates/jkr-nav",
