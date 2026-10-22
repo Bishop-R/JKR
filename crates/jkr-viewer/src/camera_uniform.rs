@@ -47,6 +47,7 @@ impl crate::GpuState {
         self.refresh_shot_preview();
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::bytes_of(&camera));
+        self.prepare_dust_motes();
         self.ground_hud.set_view(&camera);
         if let Some(layer) = self.post_aa.as_ref().and_then(|aa| aa.effect_layer()) {
             layer.set_view(camera.view_projection);

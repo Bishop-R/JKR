@@ -49,6 +49,7 @@ pub(super) struct Runtime {
     integration: wgpu::BindGroup,
     composite: wgpu::RenderPipeline,
     composition: wgpu::BindGroup,
+    dust_beams: wgpu::BindGroup,
     grid: [u32; 3],
     near_layers: u32,
     fog_count: u32,
@@ -159,7 +160,10 @@ impl Runtime {
             mag_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let source = include_str!("volumetric_light.wgsl");
+        let source = concat!(
+            include_str!("volumetric_coordinates.wgsl"),
+            include_str!("volumetric_light.wgsl"),
+        );
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("JKR participating media"),
@@ -438,6 +442,8 @@ impl Runtime {
             multiview_mask: None,
             cache: None,
         });
+        let dust_beams =
+            crate::dust_motes::beams::bind(device, &parameters, &injected, &tiles, &linear);
         let gain = 3.;
         let scattering = 0.00012;
 
@@ -453,12 +459,18 @@ impl Runtime {
             integration,
             composite,
             composition,
+            dust_beams,
             grid,
             near_layers,
             fog_count: fog.count as u32,
             gain,
             scattering,
         }
+    }
+
+    /// Local scattering inputs, valid only after this frame's volume was prepared.
+    pub(super) fn dust_beams(&self) -> Option<&wgpu::BindGroup> {
+        self.ready.get().then_some(&self.dust_beams)
     }
 
     /// Upload only the camera/light uniforms; the renderer already evaluated the shadow fit.

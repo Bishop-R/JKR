@@ -1,9 +1,3 @@
-struct Parameters {
-    inverse: mat4x4<f32>, shadow: mat4x4<f32>, eye: vec4<f32>, forward: vec4<f32>,
-    sun: vec4<f32>, color: vec4<f32>, grid: vec4<u32>, range: vec4<f32>,
-    close: mat4x4<f32>, close_range: vec4<f32>,
-    far: mat4x4<f32>, far_range: vec4<f32>,
-};
 struct Fog { color: vec4<f32>, surface: vec4<f32>, low: vec4<f32>, high: vec4<f32> };
 @group(0) @binding(0) var<uniform> p: Parameters;
 @group(0) @binding(1) var shadow_map: texture_depth_2d;
@@ -34,23 +28,6 @@ fn world(uv: vec2<f32>, depth: f32) -> vec3<f32> {
     return q.xyz/q.w;
 }
 fn ray(uv: vec2<f32>) -> vec3<f32> { return normalize(world(uv, 1.0)-p.eye.xyz); }
-// Keep every original near slice; extra slices cover the distant part independently.
-fn slice_depth(z: f32) -> f32 {
-    let layer = z*f32(p.grid.z);
-    let near_layers = p.far_range.w;
-    if layer <= near_layers || p.far_range.y == 0.0 {
-        return p.range.x*pow(p.range.y/p.range.x,layer/near_layers);
-    }
-    return p.range.y*pow(p.far_range.z/p.range.y,
-        (layer-near_layers)/(f32(p.grid.z)-near_layers));
-}
-fn depth_layer(distance: f32) -> f32 {
-    if distance <= p.range.y || p.far_range.y == 0.0 {
-        return log(distance/p.range.x)/log(p.range.y/p.range.x)*p.far_range.w;
-    }
-    return p.far_range.w + log(distance/p.range.y)/log(p.far_range.z/p.range.y)
-        *(f32(p.grid.z)-p.far_range.w);
-}
 fn phase(cosine: f32) -> f32 {
     let g = p.sun.w;
     return (1.0-g*g)/(12.5663706144*pow(1.0+g*g-2.0*g*cosine,1.5));
