@@ -322,6 +322,7 @@ impl ViewerConsole {
             qcommon,
             control: false,
             edit: super::line_edit::LineEdit::default(),
+            dead_key: Default::default(),
             selection: super::selection::Selection::new(),
         })
     }

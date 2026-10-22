@@ -5,11 +5,32 @@ use super::*;
 use jkr_client::{ChatDestination, chat_command};
 use jkr_ui::{InputEvent, PointerButton, UiEventKind};
 use winit::event::{ElementState, KeyEvent};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::{Key, KeyCode, PhysicalKey};
 
 pub(super) const GLOBAL: u16 = 100;
 pub(super) const TEAM: u16 = 101;
 pub(super) const LATEST: u16 = 102;
+
+/// Keys the composer acts on itself rather than typing their text.
+fn handled_key(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::Escape
+            | KeyCode::Enter
+            | KeyCode::NumpadEnter
+            | KeyCode::Tab
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+            | KeyCode::ArrowUp
+            | KeyCode::ArrowDown
+            | KeyCode::ArrowLeft
+            | KeyCode::ArrowRight
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::Backspace
+            | KeyCode::Delete
+    )
+}
 
 impl ChatOverlay {
     pub(crate) fn handle_key(&mut self, event: &KeyEvent) -> ChatInputResult {
@@ -19,22 +40,28 @@ impl ChatOverlay {
         let PhysicalKey::Code(key) = event.physical_key else {
             return ChatInputResult::None;
         };
-        if event.logical_key == winit::keyboard::Key::Dead(Some('^')) {
-            if let Some(input) = &mut self.input {
-                input.insert("^");
-            }
-            self.player_menu = None;
-            return ChatInputResult::None;
-        }
         if self.edit_shortcut(event) {
+            if let Some(input) = &mut self.input {
+                input.dead.other_key(event.text.as_deref());
+            }
             return ChatInputResult::None;
         }
-        self.edit_key(key, event.text.as_deref())
+        self.edit_key(key, &event.logical_key, event.text.as_deref())
     }
 
-    pub(super) fn edit_key(&mut self, key: KeyCode, text: Option<&str>) -> ChatInputResult {
-        if self.input.is_none() {
+    pub(super) fn edit_key(
+        &mut self,
+        key: KeyCode,
+        logical: &Key,
+        text: Option<&str>,
+    ) -> ChatInputResult {
+        let Some(input) = &mut self.input else {
             return ChatInputResult::None;
+        };
+        // Keys the composer acts on itself end a pending composition when the
+        // platform reported text for them (see `input::dead_key`).
+        if handled_key(key) {
+            input.dead.other_key(text);
         }
         if let Some(menu) = &mut self.player_menu {
             match key {
@@ -89,11 +116,9 @@ impl ChatOverlay {
                     key,
                     self.modifiers.control_key(),
                     self.modifiers.shift_key(),
-                ) && let Some(text) = text
+                ) && (!self.modifiers.control_key() || self.modifiers.alt_key())
                 {
-                    if !self.modifiers.control_key() || self.modifiers.alt_key() {
-                        input.insert(text);
-                    }
+                    input.type_key(logical, text);
                 }
             }
         }
@@ -264,12 +289,6 @@ impl crate::GpuState {
         {
             self.chat.update_roster(session.game_state());
         }
-        if event.state == ElementState::Pressed
-            && event.logical_key == winit::keyboard::Key::Dead(Some('^'))
-            && let Some(window) = &self.window
-        {
-            window.reset_dead_keys();
-        }
         if let ChatInputResult::Submit(command) = self.chat.handle_key(event) {
             let command = self.console.as_ref().map_or_else(
                 || command.clone(),
@@ -287,5 +306,112 @@ impl crate::GpuState {
         {
             eprintln!("failed to send chat: {error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod dead_key_tests {
+    use super::*;
+    use winit::keyboard::{NamedKey, SmolStr};
+
+    fn press(chat: &mut ChatOverlay, key: KeyCode, logical: Key, text: Option<&str>) {
+        chat.edit_key(key, &logical, text);
+    }
+
+    fn typed(chat: &mut ChatOverlay, key: KeyCode, text: &str) {
+        press(chat, key, Key::Character(SmolStr::new(text)), Some(text));
+    }
+
+    fn dead_caret(chat: &mut ChatOverlay) {
+        press(chat, KeyCode::BracketLeft, Key::Dead(Some('^')), None);
+    }
+
+    fn draft(chat: &ChatOverlay) -> &str {
+        &chat.input.as_ref().expect("composer open").text
+    }
+
+    fn composer() -> ChatOverlay {
+        let mut chat = ChatOverlay::new();
+        chat.open(false);
+        chat
+    }
+
+    #[test]
+    fn azerty_dead_caret_and_digit_type_a_colour_code() {
+        let mut chat = composer();
+        dead_caret(&mut chat);
+        assert_eq!(draft(&chat), "^");
+        press(
+            &mut chat,
+            KeyCode::ShiftLeft,
+            Key::Named(NamedKey::Shift),
+            None,
+        );
+        typed(&mut chat, KeyCode::Digit1, "^1");
+        typed(&mut chat, KeyCode::KeyH, "h");
+        assert_eq!(draft(&chat), "^1h");
+    }
+
+    #[test]
+    fn dead_caret_and_a_vowel_type_the_circumflex_letter() {
+        let mut chat = composer();
+        typed(&mut chat, KeyCode::KeyF, "f");
+        dead_caret(&mut chat);
+        typed(&mut chat, KeyCode::KeyE, "ê");
+        typed(&mut chat, KeyCode::KeyT, "t");
+        typed(&mut chat, KeyCode::KeyE, "e");
+        assert_eq!(draft(&chat), "fête");
+    }
+
+    #[test]
+    fn dead_caret_then_space_types_the_caret_alone() {
+        let mut chat = composer();
+        dead_caret(&mut chat);
+        typed(&mut chat, KeyCode::Space, "^");
+        assert_eq!(draft(&chat), "^");
+    }
+
+    #[test]
+    fn dead_caret_is_replaced_at_the_caret_inside_the_draft() {
+        let mut chat = composer();
+        typed(&mut chat, KeyCode::KeyA, "a");
+        typed(&mut chat, KeyCode::KeyB, "b");
+        press(
+            &mut chat,
+            KeyCode::ArrowLeft,
+            Key::Named(NamedKey::ArrowLeft),
+            None,
+        );
+        dead_caret(&mut chat);
+        assert_eq!(draft(&chat), "a^b");
+        typed(&mut chat, KeyCode::Digit2, "^2");
+        assert_eq!(draft(&chat), "a^2b");
+        let input = chat.input.as_ref().unwrap();
+        assert_eq!(input.edit.cursor(&input.text), 3);
+    }
+
+    #[test]
+    fn backspace_after_a_dead_caret_erases_only_the_caret() {
+        let mut chat = composer();
+        typed(&mut chat, KeyCode::KeyA, "a");
+        dead_caret(&mut chat);
+        press(
+            &mut chat,
+            KeyCode::Backspace,
+            Key::Named(NamedKey::Backspace),
+            Some("^\u{8}"),
+        );
+        assert_eq!(draft(&chat), "a");
+        typed(&mut chat, KeyCode::Digit1, "1");
+        assert_eq!(draft(&chat), "a1");
+    }
+
+    #[test]
+    fn enter_after_a_dead_caret_sends_it() {
+        let mut chat = composer();
+        typed(&mut chat, KeyCode::KeyA, "a");
+        dead_caret(&mut chat);
+        let result = chat.edit_key(KeyCode::Enter, &Key::Named(NamedKey::Enter), Some("^\r"));
+        assert!(matches!(result, ChatInputResult::Submit(command) if command == "say \"a^\""));
     }
 }

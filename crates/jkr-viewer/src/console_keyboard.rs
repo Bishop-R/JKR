@@ -1,5 +1,7 @@
 //! Console keyboard capture and editing.
 use super::*;
+use crate::input::dead_key::{TypingField, keep_caret};
+use std::ops::Range;
 
 /// Does `text` (the characters this key press produced) appear in a
 /// `cl_consoleKeys` list? Entries are literal characters or `0x` hex
@@ -128,6 +130,20 @@ impl ViewerConsole {
             self.browser_action(action);
             return true;
         }
+        // Keys the console acts on itself end a pending composition when the platform
+        // reported text for them (see `input::dead_key`); caret keys leave it pending.
+        if matches!(
+            key,
+            KeyCode::F3
+                | KeyCode::Escape
+                | KeyCode::Enter
+                | KeyCode::NumpadEnter
+                | KeyCode::Tab
+                | KeyCode::ArrowUp
+                | KeyCode::ArrowDown
+        ) {
+            self.dead_key.other_key(event.text.as_deref());
+        }
         match key {
             KeyCode::F3 if !event.repeat => self.browser.open(&self.shell),
             KeyCode::Escape => self.set_open(false),
@@ -136,14 +152,127 @@ impl ViewerConsole {
             KeyCode::ArrowUp if !event.repeat => self.navigate_history(-1),
             KeyCode::ArrowDown if !event.repeat => self.navigate_history(1),
             // Caret, deletion and clipboard keys: see `console_editing.rs`.
-            _ if self.edit_key(event, key) => {}
+            _ if self.edit_key(event, key) => self.dead_key.other_key(event.text.as_deref()),
             _ if !event.repeat => {
-                if let Some(text) = event.text.as_deref() {
-                    self.type_text(text);
-                }
+                let mut dead = self.dead_key;
+                dead.type_key(
+                    &mut PromptLine {
+                        text: &mut self.input,
+                        edit: &mut self.edit,
+                    },
+                    &event.logical_key,
+                    event.text.as_deref(),
+                );
+                self.dead_key = dead;
             }
             _ => {}
         }
         true
+    }
+}
+
+/// The console input line as a field dead-key composition types into.
+struct PromptLine<'a> {
+    text: &'a mut String,
+    edit: &'a mut super::line_edit::LineEdit,
+}
+
+impl TypingField for PromptLine<'_> {
+    fn line(&self) -> &str {
+        self.text
+    }
+
+    fn caret(&self) -> usize {
+        self.edit.cursor(self.text)
+    }
+
+    fn insert(&mut self, text: &str) {
+        self.edit.insert(self.text, text, INPUT_LIMIT);
+    }
+
+    fn remove(&mut self, range: Range<usize>) {
+        let caret = keep_caret(self.edit.cursor(self.text), &range);
+        self.text.replace_range(range, "");
+        self.edit.place(self.text, caret, false);
+    }
+}
+
+#[cfg(test)]
+mod dead_key_tests {
+    use super::*;
+    use crate::input::dead_key::DeadKey;
+    use winit::keyboard::{Key, NamedKey, SmolStr};
+
+    /// Type one press into `input` the way the console's typing path does.
+    fn press(
+        input: &mut String,
+        edit: &mut super::super::line_edit::LineEdit,
+        dead: &mut DeadKey,
+        logical: Key,
+        text: Option<&str>,
+    ) {
+        dead.type_key(&mut PromptLine { text: input, edit }, &logical, text);
+    }
+
+    fn character(text: &str) -> Key {
+        Key::Character(SmolStr::new(text))
+    }
+
+    #[test]
+    fn prompt_line_types_a_dead_key_colour_code_exactly() {
+        let mut input = String::from("say ");
+        let mut edit = super::super::line_edit::LineEdit::default();
+        edit.to_end(&input);
+        let mut dead = DeadKey::default();
+        press(&mut input, &mut edit, &mut dead, Key::Dead(Some('^')), None);
+        assert_eq!(input, "say ^");
+        press(
+            &mut input,
+            &mut edit,
+            &mut dead,
+            Key::Named(NamedKey::Shift),
+            None,
+        );
+        // Windows reports the uncombined pair as the digit key's text.
+        press(&mut input, &mut edit, &mut dead, character("1"), Some("^1"));
+        assert_eq!(input, "say ^1");
+        assert_eq!(edit.cursor(&input), input.len());
+    }
+
+    #[test]
+    fn prompt_line_composes_a_circumflex_letter() {
+        let mut input = String::from("t");
+        let mut edit = super::super::line_edit::LineEdit::default();
+        edit.to_end(&input);
+        let mut dead = DeadKey::default();
+        press(&mut input, &mut edit, &mut dead, Key::Dead(Some('^')), None);
+        assert_eq!(input, "t^");
+        press(&mut input, &mut edit, &mut dead, character("ê"), Some("ê"));
+        press(&mut input, &mut edit, &mut dead, character("t"), Some("t"));
+        press(&mut input, &mut edit, &mut dead, character("e"), Some("e"));
+        assert_eq!(input, "tête");
+    }
+
+    #[test]
+    fn prompt_line_replaces_a_dead_key_shown_inside_the_line() {
+        let mut input = String::from("ab");
+        let mut edit = super::super::line_edit::LineEdit::default();
+        edit.place(&input, 1, false);
+        let mut dead = DeadKey::default();
+        press(&mut input, &mut edit, &mut dead, Key::Dead(Some('^')), None);
+        assert_eq!(input, "a^b");
+        press(&mut input, &mut edit, &mut dead, character("2"), Some("^2"));
+        assert_eq!((input.as_str(), edit.cursor(&input)), ("a^2b", 3));
+    }
+
+    #[test]
+    fn prompt_line_keeps_its_limit_for_a_dead_key() {
+        let mut input = "x".repeat(INPUT_LIMIT);
+        let mut edit = super::super::line_edit::LineEdit::default();
+        edit.to_end(&input);
+        let mut dead = DeadKey::default();
+        press(&mut input, &mut edit, &mut dead, Key::Dead(Some('^')), None);
+        assert_eq!(input.len(), INPUT_LIMIT);
+        assert_eq!(dead, DeadKey::default());
     }
 }
