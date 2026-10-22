@@ -115,3 +115,47 @@ impl Drop for Guard<'_> {
         self.state.active.set(self.previous);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frustum() -> Frustum {
+        let view = glam::camera::rh::view::look_at_mat4(Vec3::ZERO, Vec3::X, Vec3::Z);
+        let projection = glam::camera::rh::proj::directx::perspective(
+            90f32.to_radians(),
+            16.0 / 9.0,
+            2.0,
+            8192.0,
+        );
+        Frustum::new(projection * view)
+    }
+
+    fn cube(center: Vec3, half: f32) -> [Vec3; 2] {
+        [center - Vec3::splat(half), center + Vec3::splat(half)]
+    }
+
+    #[test]
+    fn a_box_in_front_is_kept_and_one_behind_is_culled() {
+        let frustum = frustum();
+        assert!(frustum.intersects(cube(Vec3::new(500.0, 0.0, 0.0), 10.0)));
+        assert!(!frustum.intersects(cube(Vec3::new(-500.0, 0.0, 0.0), 10.0)));
+    }
+
+    #[test]
+    fn a_wall_wider_than_the_view_that_crosses_it_is_kept() {
+        // A long wall whose corners are far outside every side plane still shows.
+        let wall = [
+            Vec3::new(300.0, -4000.0, -100.0),
+            Vec3::new(310.0, 4000.0, 300.0),
+        ];
+        assert!(frustum().intersects(wall));
+    }
+
+    #[test]
+    fn a_box_touching_a_side_plane_is_kept_by_the_guard() {
+        // 90 degrees across: the left plane at x=300 passes y=300; a box 1 unit outside stays.
+        let wall = cube(Vec3::new(300.0, 301.0, 0.0), 0.0);
+        assert!(frustum().intersects(wall));
+    }
+}
