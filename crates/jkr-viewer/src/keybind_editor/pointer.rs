@@ -45,8 +45,7 @@ impl KeybindEditor {
                 EditorResult::None
             }
             UNBIND_TOKEN => {
-                console.clear_action(ACTIONS[self.selected].command, self.binding_slot);
-                self.refresh(console);
+                self.clear_selected_slot(console);
                 EditorResult::None
             }
             TAB_BASE.. if usize::from(token - TAB_BASE) < CATEGORIES.len() => {
@@ -56,7 +55,7 @@ impl KeybindEditor {
             _ if self.rows().contains(&row) => {
                 self.selected = row;
                 self.binding_slot = 0;
-                self.capture = true;
+                self.begin_capture();
                 EditorResult::None
             }
             _ if token >= SECONDARY_BASE
@@ -64,7 +63,7 @@ impl KeybindEditor {
             {
                 self.selected = usize::from(token - SECONDARY_BASE);
                 self.binding_slot = 1;
-                self.capture = true;
+                self.begin_capture();
                 EditorResult::None
             }
             _ => EditorResult::None,
