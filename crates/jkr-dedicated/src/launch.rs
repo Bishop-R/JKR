@@ -153,19 +153,17 @@ mod tests {
         assert_eq!(cvars.integer(b"net_port"), i32::from(bound.port()));
     }
 
+    /// Windows lets a second UDP socket of the same process bind a port another one
+    /// holds, so no socket can stand for the taken port there; the fallback loop is the
+    /// same code on every platform.
+    #[cfg(not(windows))]
     #[test]
     fn a_taken_port_moves_the_server_to_the_next() {
-        // Find a port whose next one is free, and hold it. The hold binds the port by
-        // name: Windows lets a named bind take a port that was only given out for port 0,
-        // and this test stands for a server that named its port.
+        // Find a port whose next one is free, and hold it.
         let (held, port) = (0..20)
             .find_map(|_| {
-                let port = UdpSocket::bind("127.0.0.1:0")
-                    .ok()?
-                    .local_addr()
-                    .ok()?
-                    .port();
-                let held = UdpSocket::bind(("127.0.0.1", port)).ok()?;
+                let held = UdpSocket::bind("127.0.0.1:0").ok()?;
+                let port = held.local_addr().ok()?.port();
                 let next = UdpSocket::bind(("127.0.0.1", port.checked_add(1)?)).ok()?;
                 drop(next);
                 Some((held, port))
