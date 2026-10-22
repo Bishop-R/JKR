@@ -55,6 +55,14 @@ impl CreateGameMenu {
             if let Some(entry) = self.picker.highlighted(&self.catalogue) {
                 let theme = self.ui.theme();
                 let title_y = rect.bottom() + 18.0 * s;
+                // The caption sits right of the scrim's text column.
+                let pad = 12.0 * s;
+                self.ui.text_backing(Rect::new(
+                    x - pad,
+                    title_y - pad,
+                    width + pad * 2.0,
+                    56.0 * s + pad * 2.0,
+                ));
                 self.ui.text(
                     &entry.title,
                     Rect::new(x, title_y, width, 30.0 * s),

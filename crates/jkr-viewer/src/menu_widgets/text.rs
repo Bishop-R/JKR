@@ -44,6 +44,7 @@ impl MenuCanvas {
         let Some(id) = self.store_text(value) else {
             return;
         };
+        let color = self.legible_text(color);
         let _ = self.draw.push(DrawCommand::Text {
             rect,
             text: id,
@@ -71,6 +72,7 @@ impl MenuCanvas {
         let Some(id) = self.store_format(value) else {
             return;
         };
+        let color = self.legible_text(color);
         let _ = self.draw.push(DrawCommand::Text {
             rect,
             text: id,
